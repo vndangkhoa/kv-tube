@@ -3,40 +3,35 @@
 {% block content %}
 <div class="yt-container" style="padding-top: 20px;">
     <div class="library-header"
-        style="margin-bottom: 2rem; display: flex; align-items: center; justify-content: space-between;">
-        <h1 style="font-size: 1.5rem;">My Library</h1>
+        style="margin-bottom: 3rem; display: flex; flex-direction: column; align-items: center; gap: 1.5rem;">
+        <h1 style="font-size: 2rem; font-weight: 700;">My Library</h1>
         <div class="tabs"
-            style="display: flex; gap: 0.5rem; background: var(--yt-bg-hover); padding: 0.3rem; border-radius: 100px;">
-            <a href="/my-videos?type=saved" class="yt-btn {% if filter_type == 'saved' %}yt-btn-active{% endif %}"
-                style="border-radius: 100px; font-size: 0.9rem; padding: 0.5rem 1.5rem; {% if filter_type == 'saved' %}background:var(--yt-text-primary);color:var(--yt-bg-primary);{% endif %}">Saved</a>
-            <a href="/my-videos?type=history" class="yt-btn {% if filter_type == 'history' %}yt-btn-active{% endif %}"
-                style="border-radius: 100px; font-size: 0.9rem; padding: 0.5rem 1.5rem; {% if filter_type == 'history' %}background:var(--yt-text-primary);color:var(--yt-bg-primary);{% endif %}">History</a>
+            style="display: flex; gap: 0.5rem; background: var(--yt-bg-secondary); padding: 0.4rem; border-radius: 100px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); align-items: center;">
+            <a href="/my-videos?type=history" class="yt-btn" id="tab-history"
+                style="border-radius: 100px; font-size: 0.95rem; padding: 0.6rem 2rem; font-weight:500; transition: all 0.2s;">History</a>
+            <a href="/my-videos?type=saved" class="yt-btn" id="tab-saved"
+                style="border-radius: 100px; font-size: 0.95rem; padding: 0.6rem 2rem; font-weight:500; transition: all 0.2s;">Saved</a>
+            <a href="/my-videos?type=subscriptions" class="yt-btn" id="tab-subscriptions"
+                style="border-radius: 100px; font-size: 0.95rem; padding: 0.6rem 2rem; font-weight:500; transition: all 0.2s;">Subscriptions</a>
         </div>
+
+        <!-- Clear Button (Hidden by default) -->
+        <button id="clearBtn" onclick="clearLibrary()" class="yt-btn"
+            style="display:none; color: var(--yt-text-secondary); background: transparent; border: 1px solid var(--yt-border); margin-top: 10px; font-size: 0.9rem;">
+            <i class="fas fa-trash-alt"></i> Clear <span id="clearType">All</span>
+        </button>
     </div>
 
+    <!-- Video Grid -->
     <div id="libraryGrid" class="yt-video-grid">
-        {% if videos %}
-        {% for video in videos %}
-        <div class="yt-video-card" onclick="window.location.href='/watch?v={{ video.video_id }}'">
-            <div class="yt-thumbnail-container">
-                <img src="{{ video.thumbnail }}" class="yt-thumbnail" loading="lazy">
-            </div>
-            <div class="yt-video-details">
-                <div class="yt-video-meta">
-                    <h3 class="yt-video-title">{{ video.title }}</h3>
-                    <p class="yt-video-stats">{{ video.timestamp }}</p>
-                </div>
-            </div>
-        </div>
-        {% endfor %}
-        {% endif %}
+        <!-- JS will populate this -->
     </div>
 
-    <div id="emptyState"
-        style="text-align: center; padding: 4rem; color: var(--yt-text-secondary); display: {% if videos %}none{% else %}none{% endif %};">
+    <!-- Empty State -->
+    <div id="emptyState" style="text-align: center; padding: 4rem; color: var(--yt-text-secondary); display: none;">
         <i class="fas fa-folder-open fa-3x" style="margin-bottom: 1rem; opacity: 0.5;"></i>
         <h3>Nothing here yet</h3>
-        <p>Go watch some videos to fill this up!</p>
+        <p id="emptyMsg">Go watch some videos to fill this up!</p>
         <a href="/" class="yt-btn"
             style="margin-top: 1rem; background: var(--yt-text-primary); color: var(--yt-bg-primary);">Browse
             Content</a>
@@ -44,49 +39,195 @@
 </div>
 
 <script>
-    const loggedIn = {{ 'true' if logged_in else 'false' }};
-    const filterType = '{{ filter_type }}';
+    document.addEventListener('DOMContentLoaded', () => {
+        const urlParams = new URLSearchParams(window.location.search);
+        // Default to history if no type or invalid type
+        const type = urlParams.get('type') || 'history';
 
-    if (!loggedIn && filterType === 'history') {
-        // Load from Local Storage
-        const history = JSON.parse(localStorage.getItem('kv_history') || '[]');
+        // Update Active Tab UI
+        const activeTab = document.getElementById(`tab-${type}`);
+        if (activeTab) {
+            activeTab.style.background = 'var(--yt-text-primary)';
+            activeTab.style.color = 'var(--yt-bg-primary)';
+        }
+
         const grid = document.getElementById('libraryGrid');
         const empty = document.getElementById('emptyState');
+        const emptyMsg = document.getElementById('emptyMsg');
 
-        if (history.length > 0) {
-            grid.innerHTML = history.map(video => `
-                <div class="yt-video-card" onclick="window.location.href='/watch?v=${video.id}'">
-                    <div class="yt-thumbnail-container">
-                        <img src="${video.thumbnail}" class="yt-thumbnail" loading="lazy">
-                    </div>
-                    <div class="yt-video-details">
-                        <div class="yt-video-meta">
-                            <h3 class="yt-video-title">${video.title}</h3>
-                            <p class="yt-video-stats">Watched on ${new Date(video.timestamp).toLocaleDateString()}</p>
-                        </div>
-                    </div>
-                </div>
-            `).join('');
+        // Mapping URL type to localStorage key suffix
+        // saved -> kv_saved
+        // history -> kv_history
+        // subscriptions -> kv_subscriptions
+        const storageKey = `kv_${type}`;
+        const data = JSON.parse(localStorage.getItem(storageKey) || '[]').filter(i => i && i.id);
+
+        // Show Clear Button if there is data
+        if (data.length > 0) {
             empty.style.display = 'none';
+            const clearBtn = document.getElementById('clearBtn');
+            const clearTypeSpan = document.getElementById('clearType');
+
+            if (clearBtn) {
+                clearBtn.style.display = 'inline-flex';
+                clearBtn.style.alignItems = 'center';
+                clearBtn.style.gap = '8px';
+
+                // Format type name for display
+                const typeName = type.charAt(0).toUpperCase() + type.slice(1);
+                clearTypeSpan.innerText = typeName;
+            }
+
+            if (type === 'subscriptions') {
+                // Render Channel Cards with improved design
+                grid.style.display = 'grid';
+                grid.style.gridTemplateColumns = 'repeat(auto-fill, minmax(200px, 1fr))';
+                grid.style.gap = '24px';
+                grid.style.padding = '20px 0';
+
+                grid.innerHTML = data.map(channel => {
+                    const avatarHtml = channel.thumbnail
+                        ? `<img src="${channel.thumbnail}" style="width:120px; height:120px; border-radius:50%; object-fit:cover; border: 3px solid var(--yt-border); transition: transform 0.3s, border-color 0.3s;">`
+                        : `<div style="width:120px; height:120px; border-radius:50%; background: linear-gradient(135deg, #FF6B6B 0%, #d62d2d 100%); display:flex; align-items:center; justify-content:center; font-size:48px; font-weight:bold; color:white; border: 3px solid var(--yt-border); transition: transform 0.3s;">${channel.letter || channel.title.charAt(0).toUpperCase()}</div>`;
+
+                    return `
+                    <div class="subscription-card" onclick="window.location.href='/channel/${channel.id}'" 
+                         style="text-align:center; cursor:pointer; padding: 24px 16px; background: var(--yt-bg-secondary); border-radius: 16px; transition: all 0.3s; border: 1px solid transparent;"
+                         onmouseenter="this.style.transform='translateY(-4px)'; this.style.boxShadow='0 8px 24px rgba(0,0,0,0.3)'; this.style.borderColor='var(--yt-border)';"
+                         onmouseleave="this.style.transform='none'; this.style.boxShadow='none'; this.style.borderColor='transparent';">
+                        <div style="display:flex; justify-content:center; margin-bottom:16px;">
+                            ${avatarHtml}
+                        </div>
+                        <h3 style="font-size:1.1rem; margin-bottom:8px; color: var(--yt-text-primary); font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${channel.title}</h3>
+                        <p style="font-size: 0.85rem; color: var(--yt-text-secondary); margin-bottom: 12px;">@${channel.title.replace(/\s+/g, '')}</p>
+                        <button onclick="event.stopPropagation(); toggleSubscribe('${channel.id}', '${channel.title.replace(/'/g, "\\'")}', '${channel.thumbnail || ''}', this)" 
+                                style="padding:10px 20px; font-size:13px; background: linear-gradient(135deg, #cc0000, #ff4444); color: white; border: none; border-radius: 24px; cursor: pointer; font-weight: 600; transition: all 0.2s; box-shadow: 0 2px 8px rgba(204,0,0,0.3);"
+                                onmouseenter="this.style.transform='scale(1.05)'; this.style.boxShadow='0 4px 12px rgba(204,0,0,0.5)';"
+                                onmouseleave="this.style.transform='scale(1)'; this.style.boxShadow='0 2px 8px rgba(204,0,0,0.3)';">
+                            <i class="fas fa-user-minus"></i> Unsubscribe
+                        </button>
+                    </div>
+                `}).join('');
+
+            } else {
+                // Render Video Cards (History/Saved)
+                grid.innerHTML = data.map(video => {
+                    // Robust fallback chain: maxres -> hq -> mq
+                    const thumb = video.thumbnail || `https://i.ytimg.com/vi/${video.id}/maxresdefault.jpg`;
+                    const showRemove = type === 'saved' || type === 'history';
+                    return `
+                    <div class="yt-video-card" style="position: relative;">
+                        <div onclick="window.location.href='/watch?v=${video.id}'" style="cursor: pointer;">
+                            <div class="yt-thumbnail-container">
+                                <img src="${thumb}" class="yt-thumbnail" loading="lazy" referrerpolicy="no-referrer"
+                                     onload="this.classList.add('loaded')"
+                                     onerror="
+                                        if (this.src.includes('maxresdefault')) this.src='https://i.ytimg.com/vi/${video.id}/hqdefault.jpg';
+                                        else if (this.src.includes('hqdefault')) this.src='https://i.ytimg.com/vi/${video.id}/mqdefault.jpg';
+                                        else this.style.display='none'; 
+                                     ">
+                                <div class="yt-duration">${video.duration || ''}</div>
+                            </div>
+                            <div class="yt-video-details">
+                                <div class="yt-video-meta">
+                                    <h3 class="yt-video-title">${video.title}</h3>
+                                    <p class="yt-video-stats">${video.uploader}</p>
+                                </div>
+                            </div>
+                        </div>
+                        ${showRemove ? `
+                        <button onclick="event.stopPropagation(); removeVideo('${video.id}', '${type}', this)" 
+                                style="position: absolute; top: 8px; right: 8px; width: 28px; height: 28px; background: rgba(0,0,0,0.7); color: white; border: none; border-radius: 50%; cursor: pointer; font-size: 12px; display: flex; align-items: center; justify-content: center; opacity: 0.8; transition: all 0.2s; z-index: 10;"
+                                onmouseenter="this.style.opacity='1'; this.style.background='#cc0000';"
+                                onmouseleave="this.style.opacity='0.8'; this.style.background='rgba(0,0,0,0.7)';"
+                                title="Remove">
+                            <i class="fas fa-times"></i>
+                        </button>` : ''}
+                    </div>
+                `}).join('');
+            }
         } else {
             grid.innerHTML = '';
             empty.style.display = 'block';
+            if (type === 'subscriptions') {
+                emptyMsg.innerText = "You haven't subscribed to any channels yet.";
+            } else if (type === 'saved') {
+                emptyMsg.innerText = "No saved videos yet.";
+            }
         }
-    } else if (!loggedIn && filterType === 'saved') {
-        // Anon user can't save remotely yet, maybe valid TODO, but for now show empty with login prompt
-        document.getElementById('libraryGrid').innerHTML = '';
-        document.getElementById('emptyState').innerHTML = `
-            <i class="fas fa-lock fa-3x" style="margin-bottom: 1rem; opacity: 0.5;"></i>
-            <h3>Sign in to save videos</h3>
-            <p>Save videos to watch later.</p>
-            <a href="/login" class="yt-btn" style="margin-top: 1rem; background: var(--yt-text-primary); color: var(--yt-bg-primary);">Sign In</a>
-        `;
-        document.getElementById('emptyState').style.display = 'block';
-    } else {
-        // Logged in or Server side handled it
-        if (document.getElementById('libraryGrid').children.length === 0) {
-            document.getElementById('emptyState').style.display = 'block';
+    });
+
+    function clearLibrary() {
+        const urlParams = new URLSearchParams(window.location.search);
+        const type = urlParams.get('type') || 'history';
+        const typeName = type.charAt(0).toUpperCase() + type.slice(1);
+
+        if (confirm(`Are you sure you want to clear your ${typeName}? This cannot be undone.`)) {
+            const storageKey = `kv_${type}`;
+            localStorage.removeItem(storageKey);
+            // Reload to reflect changes
+            window.location.reload();
         }
+    }
+
+    // Local toggleSubscribe for my_videos page - removes card visually
+    function toggleSubscribe(channelId, channelName, avatar, btnElement) {
+        event.stopPropagation();
+
+        // Remove from library
+        const key = 'kv_subscriptions';
+        let data = JSON.parse(localStorage.getItem(key) || '[]');
+        data = data.filter(item => item.id !== channelId);
+        localStorage.setItem(key, JSON.stringify(data));
+
+        // Remove the card from UI
+        const card = btnElement.closest('.yt-channel-card');
+        if (card) {
+            card.style.transition = 'opacity 0.3s, transform 0.3s';
+            card.style.opacity = '0';
+            card.style.transform = 'scale(0.8)';
+            setTimeout(() => card.remove(), 300);
+        }
+
+        // Show empty state if no more subscriptions
+        setTimeout(() => {
+            const grid = document.getElementById('libraryGrid');
+            if (grid && grid.children.length === 0) {
+                grid.innerHTML = '';
+                document.getElementById('emptyState').style.display = 'block';
+                document.getElementById('emptyMessage').innerText = "You haven't subscribed to any channels yet.";
+            }
+        }, 350);
+    }
+
+    // Remove individual video from saved/history
+    function removeVideo(videoId, type, btnElement) {
+        event.stopPropagation();
+
+        const key = `kv_${type}`;
+        let data = JSON.parse(localStorage.getItem(key) || '[]');
+        data = data.filter(item => item.id !== videoId);
+        localStorage.setItem(key, JSON.stringify(data));
+
+        // Remove the card from UI with animation
+        const card = btnElement.closest('.yt-video-card');
+        if (card) {
+            card.style.transition = 'opacity 0.3s, transform 0.3s';
+            card.style.opacity = '0';
+            card.style.transform = 'scale(0.9)';
+            setTimeout(() => card.remove(), 300);
+        }
+
+        // Show empty state if no more videos
+        setTimeout(() => {
+            const grid = document.getElementById('libraryGrid');
+            if (grid && grid.children.length === 0) {
+                grid.innerHTML = '';
+                document.getElementById('emptyState').style.display = 'block';
+                const typeName = type === 'saved' ? 'No saved videos yet.' : 'No history yet.';
+                document.getElementById('emptyMessage').innerText = typeName;
+            }
+        }, 350);
     }
 </script>
 {% endblock %}

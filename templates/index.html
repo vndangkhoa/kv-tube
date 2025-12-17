@@ -1,19 +1,26 @@
 {% extends "layout.html" %}
 
 {% block content %}
+<script>
+    window.APP_CONFIG = {
+        page: '{{ page|default("home") }}',
+        channelId: '{{ channel_id|default("") }}',
+        query: '{{ query|default("") }}'
+    };
+</script>
 <!-- Filters & Categories -->
 <div class="yt-filter-bar">
     <div class="yt-categories" id="categoryList">
         <!-- "All" removed, starting with Tech -->
         <button class="yt-chip" onclick="switchCategory('tech')">Tech</button>
         <button class="yt-chip" onclick="switchCategory('music')">Music</button>
-        <button class="yt-chip" onclick="switchCategory('gaming')">Gaming</button>
         <button class="yt-chip" onclick="switchCategory('movies')">Movies</button>
         <button class="yt-chip" onclick="switchCategory('news')">News</button>
         <button class="yt-chip" onclick="switchCategory('trending')">Trending</button>
-        <button class="yt-chip" onclick="switchCategory('sports')">Sports</button>
         <button class="yt-chip" onclick="switchCategory('podcasts')">Podcasts</button>
         <button class="yt-chip" onclick="switchCategory('live')">Live</button>
+        <button class="yt-chip" onclick="switchCategory('gaming')">Gaming</button>
+        <button class="yt-chip" onclick="switchCategory('sports')">Sports</button>
     </div>
 
     <div class="yt-filter-actions">

@@ -335,6 +335,8 @@ button {
     padding: 16px 0;
     margin: 0;
     border-radius: 0;
+    justify-content: center;
+    text-align: center;
 }
 
 .yt-sidebar.collapsed .yt-sidebar-item span {
@@ -407,6 +409,42 @@ button {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
     gap: 16px 16px;
+}
+
+/* 4-Row Horizontal Grid for Sections */
+.yt-section-grid {
+    display: grid;
+    grid-template-rows: repeat(4, min-content);
+    /* Force 4 rows */
+    grid-auto-flow: column;
+    /* Fill columns first (horizontal scroll) */
+    grid-auto-columns: 280px;
+    /* Fixed column width */
+    gap: 16px;
+    overflow-x: auto;
+    padding-bottom: 16px;
+    /* Space for scrollbar if any (hidden typically) */
+    scrollbar-width: none;
+}
+
+@media (max-width: 768px) {
+    .yt-section-grid {
+        grid-template-rows: 1fr;
+        /* Single row per container */
+        grid-auto-columns: 80%;
+        /* Peek effect */
+        gap: 12px;
+    }
+
+    /* Adjust video card size for single row */
+    .yt-section-grid .yt-video-card {
+        width: 100%;
+        /* Fill the column width */
+    }
+}
+
+.yt-section-grid::-webkit-scrollbar {
+    display: none;
 }
 
 /* ===== Video Card (YouTube Style) ===== */
@@ -563,6 +601,16 @@ button {
 
 .yt-action-btn:hover {
     background: var(--yt-bg-hover);
+}
+
+.yt-action-btn.active {
+    background: var(--yt-text-primary);
+    color: var(--yt-bg-primary);
+}
+
+.yt-subscribe-btn.subscribed {
+    background: var(--yt-bg-secondary);
+    color: var(--yt-text-primary);
 }
 
 .yt-channel-info {
@@ -834,6 +882,15 @@ button {
         max-width: none;
         flex: 1;
         justify-content: center;
+    }
+
+    .yt-header-start,
+    .yt-header-end {
+        min-width: auto;
+    }
+
+    .yt-logo span:last-child {
+        display: none;
     }
 
     .yt-search-input {

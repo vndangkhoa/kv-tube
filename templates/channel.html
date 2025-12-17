@@ -6,24 +6,26 @@
     <!-- Channel Header (No Banner) -->
     <div class="yt-channel-header">
         <div class="yt-channel-info-row">
-            <div class="yt-channel-avatar-xl">
+            <div class="yt-channel-avatar-xl" id="channelAvatarLarge">
                 {% if channel.avatar %}
                 <img src="{{ channel.avatar }}">
                 {% else %}
-                {{ channel.title[0] | upper }}
+                <span id="channelAvatarLetter">{{ channel.title[0] | upper if channel.title and channel.title !=
+                    'Loading...' else 'C' }}</span>
                 {% endif %}
             </div>
             <div class="yt-channel-meta">
-                <h1>{{ channel.title }}</h1>
-                <p class="yt-channel-handle">
-                    {% if channel.id.startswith('@') %}{{ channel.id }}{% else %}@{{ channel.title|replace(' ', '') }}{%
-                    endif %}
+                <h1 id="channelTitle">{{ channel.title if channel.title and channel.title != 'Loading...' else
+                    'Loading...' }}</h1>
+                <p class="yt-channel-handle" id="channelHandle">
+                    {% if channel.title and channel.title != 'Loading...' %}@{{ channel.title|replace(' ', '') }}{% else
+                    %}@Loading...{% endif %}
                 </p>
                 <div class="yt-channel-stats">
-                    <span>{{ channel.subscribers if channel.subscribers else 'Subscribe for more' }}</span>
+                    <span id="channelStats">Subscribe for more</span>
                 </div>
                 <div class="yt-channel-actions">
-                    <button class="yt-subscribe-btn-lg">Subscribe</button>
+                    <button class="yt-subscribe-btn-lg" id="subscribeChannelBtn">Subscribe</button>
                 </div>
             </div>
         </div>
@@ -243,6 +245,8 @@
 </style>
 
 <script>
+    console.log("Channel.html script loaded, channelId will be:", "{{ channel.id }}");
+
     let currentChannelSort = 'latest';
     let currentChannelPage = 1;
     let isChannelLoading = false;
@@ -251,7 +255,13 @@
     const channelId = "{{ channel.id }}";
 
     document.addEventListener('DOMContentLoaded', () => {
-        loadChannelVideos();
+        console.log("DOMContentLoaded fired, calling fetchChannelContent...");
+        console.log("typeof fetchChannelContent:", typeof fetchChannelContent);
+        if (typeof fetchChannelContent === 'function') {
+            fetchChannelContent();
+        } else {
+            console.error("fetchChannelContent is NOT a function!");
+        }
         setupInfiniteScroll();
     });
 
@@ -274,7 +284,7 @@
             grid.style.gridTemplateColumns = 'repeat(auto-fill, minmax(320px, 1fr))';
         }
 
-        loadChannelVideos();
+        fetchChannelContent();
     }
 
     function changeChannelSort(sort, btn) {
@@ -288,40 +298,72 @@
         document.querySelectorAll('.yt-sort-options a').forEach(a => a.classList.remove('active'));
         btn.classList.add('active');
 
-        loadChannelVideos();
+        fetchChannelContent();
     }
 
-    async function loadChannelVideos() {
-        if (isChannelLoading || !hasMoreChannelVideos) return;
+    async function fetchChannelContent() {
+        console.log("fetchChannelContent() called");
+        if (isChannelLoading || !hasMoreChannelVideos) {
+            console.log("Early return:", { isChannelLoading, hasMoreChannelVideos });
+            return;
+        }
         isChannelLoading = true;
 
         const grid = document.getElementById('channelVideosGrid');
 
-        // Append Skeletons
-        const tempSkeleton = document.createElement('div');
-        tempSkeleton.innerHTML = renderSkeleton(8); // Reuse main.js skeleton logic if available, or simpler
-        // Since main.js renderSkeleton returns a string, we append it
-        // Check if renderSkeleton exists, else manual
+        // Append Loading indicator
         if (typeof renderSkeleton === 'function') {
-            // Render fewer skeletons for shorts if needed, but standard is fine
             grid.insertAdjacentHTML('beforeend', renderSkeleton(4));
         } else {
-            grid.insertAdjacentHTML('beforeend', '<div style="color:var(--yt-text-secondary);">Loading...</div>');
+            grid.insertAdjacentHTML('beforeend', '<div class="loading-text" style="color:var(--yt-text-secondary); padding: 20px;">Loading videos...</div>');
         }
 
         try {
+            console.log(`Fetching: /api/channel/videos?id=${channelId}&page=${currentChannelPage}`);
             const response = await fetch(`/api/channel/videos?id=${channelId}&page=${currentChannelPage}&sort=${currentChannelSort}&filter_type=${currentFilterType}`);
             const videos = await response.json();
+            console.log("Channel Videos Response:", videos);
 
             // Remove skeletons (simple way: remove last N children or just clear all if page 1? 
             // Better: mark skeletons with class and remove)
             // For simplicity in this v1: We just clear skeletons by removing elements with 'skeleton-card' class
             document.querySelectorAll('#channelVideosGrid .skeleton-card').forEach(el => el.remove());
 
-            if (videos.length === 0) {
+            // Check if response is an error
+            if (videos.error) {
+                hasMoreChannelVideos = false;
+                grid.innerHTML = `<p style="padding:20px; color:var(--yt-text-secondary);">Error: ${videos.error}</p>`;
+                return;
+            }
+
+            if (!Array.isArray(videos) || videos.length === 0) {
                 hasMoreChannelVideos = false;
                 if (currentChannelPage === 1) grid.innerHTML = '<p style="padding:20px; color:var(--yt-text-secondary);">No videos found.</p>';
             } else {
+                // Update channel header with uploader info from first video (on first page only)
+                if (currentChannelPage === 1 && videos[0]) {
+                    // Try multiple sources for channel name
+                    let channelName = videos[0].uploader || videos[0].channel || '';
+
+                    // If still empty, try to get from video title (sometimes includes " - ChannelName")
+                    if (!channelName && videos[0].title) {
+                        const parts = videos[0].title.split(' - ');
+                        if (parts.length > 1) channelName = parts[parts.length - 1];
+                    }
+
+                    // Final fallback: use channel ID
+                    if (!channelName) channelName = channelId;
+
+                    document.getElementById('channelTitle').textContent = channelName;
+                    document.getElementById('channelHandle').textContent = '@' + channelName.replace(/\s+/g, '');
+                    const avatarLetter = document.getElementById('channelAvatarLetter');
+                    if (avatarLetter) avatarLetter.textContent = channelName.charAt(0).toUpperCase();
+
+                    // Update browser URL to show friendly name
+                    const friendlyUrl = `/channel/@${encodeURIComponent(channelName.replace(/\s+/g, ''))}`;
+                    window.history.replaceState({ channelId: channelId }, '', friendlyUrl);
+                }
+
                 videos.forEach(video => {
                     const card = document.createElement('div');
 
@@ -331,7 +373,7 @@
                         card.onclick = () => window.location.href = `/watch?v=${video.id}`;
                         card.innerHTML = `
                              <div class="yt-short-thumb-container">
-                                <img src="${video.thumbnail}" class="yt-short-thumb" loading="lazy">
+                                <img src="${video.thumbnail}" class="yt-short-thumb loaded" loading="lazy" onload="this.classList.add('loaded')">
                              </div>
                              <div class="yt-details" style="padding: 8px;">
                                 <h3 class="yt-video-title" style="font-size: 14px; margin-bottom: 4px;">${escapeHtml(video.title)}</h3>
@@ -344,7 +386,7 @@
                         card.onclick = () => window.location.href = `/watch?v=${video.id}`;
                         card.innerHTML = `
                             <div class="yt-thumbnail-container">
-                                <img class="yt-thumbnail" src="${video.thumbnail}" loading="lazy">
+                                <img class="yt-thumbnail loaded" src="${video.thumbnail}" loading="lazy" onload="this.classList.add('loaded')">
                                 ${video.duration ? `<span class="yt-duration">${video.duration}</span>` : ''}
                             </div>
                             <div class="yt-video-details">
@@ -373,14 +415,47 @@
         const trigger = document.getElementById('channelLoadingTrigger');
         const observer = new IntersectionObserver((entries) => {
             if (entries[0].isIntersecting) {
-                loadChannelVideos();
+                fetchChannelContent();
             }
         }, { threshold: 0.1 });
         observer.observe(trigger);
     }
 
-    // Helpers (Duplicate from main.js if not loaded, but main.js should be loaded layout)
-    // We assume main.js functions (escapeHtml, formatViews, formatDate) are available globally
-    // or we define them safely if missing.
+    // Helpers - Define locally to ensure availability
+    function escapeHtml(text) {
+        if (!text) return '';
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    }
+
+    function formatViews(views) {
+        if (!views) return '0';
+        const num = parseInt(views);
+        if (num >= 1000000) return (num / 1000000).toFixed(1) + 'M';
+        if (num >= 1000) return (num / 1000).toFixed(0) + 'K';
+        return num.toLocaleString();
+    }
+
+    function formatDate(dateStr) {
+        if (!dateStr) return 'Recently';
+        try {
+            // Format: YYYYMMDD
+            const year = dateStr.substring(0, 4);
+            const month = dateStr.substring(4, 6);
+            const day = dateStr.substring(6, 8);
+            const date = new Date(year, month - 1, day);
+            const now = new Date();
+            const diff = now - date;
+            const days = Math.floor(diff / (1000 * 60 * 60 * 24));
+            if (days < 1) return 'Today';
+            if (days < 7) return `${days} days ago`;
+            if (days < 30) return `${Math.floor(days / 7)} weeks ago`;
+            if (days < 365) return `${Math.floor(days / 30)} months ago`;
+            return `${Math.floor(days / 365)} years ago`;
+        } catch (e) {
+            return 'Recently';
+        }
+    }
 </script>
 {% endblock %}

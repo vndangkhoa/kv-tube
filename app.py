@@ -59,84 +59,15 @@ def init_db():
 # Run init
 init_db()
 
-# --- Auth Helpers ---
-def login_required(f):
-    @wraps(f)
-    def decorated_function(*args, **kwargs):
-        if 'user_id' not in session:
-            return redirect(url_for('login'))
-        return f(*args, **kwargs)
-    return decorated_function
-
 def get_db_connection():
     conn = sqlite3.connect(DB_NAME)
     conn.row_factory = sqlite3.Row
     return conn
 
-# --- Auth Routes ---
-@app.route('/login', methods=['GET', 'POST'])
-def login():
-    if request.method == 'POST':
-        username = request.form['username']
-        password = request.form['password']
-        
-        conn = get_db_connection()
-        user = conn.execute('SELECT * FROM users WHERE username = ?', (username,)).fetchone()
-        conn.close()
-        
-        if user and check_password_hash(user['password'], password):
-            session['user_id'] = user['id']
-            session['username'] = user['username']
-            return redirect(url_for('index')) # Changed from 'home' to 'index'
-        else:
-            flash('Invalid username or password')
-            
-    return render_template('login.html')
+# --- Auth Helpers Removed ---
+# Use client-side storage for all user data
 
-@app.route('/register', methods=['GET', 'POST'])
-def register():
-    if request.method == 'POST':
-        username = request.form['username']
-        password = request.form['password']
-        hashed_pw = generate_password_hash(password)
-        
-        try:
-            conn = get_db_connection()
-            conn.execute('INSERT INTO users (username, password) VALUES (?, ?)', (username, hashed_pw))
-            conn.commit()
-            conn.close()
-            flash('Registration successful! Please login.')
-            return redirect(url_for('login'))
-        except sqlite3.IntegrityError:
-            flash('Username already exists')
-            
-    return render_template('register.html')
-
-@app.route('/logout')
-@app.route('/api/update_profile', methods=['POST'])
-@login_required
-def update_profile():
-    data = request.json
-    new_username = data.get('username')
-    
-    if not new_username:
-        return jsonify({'success': False, 'message': 'Username is required'}), 400
-        
-    try:
-        conn = get_db_connection()
-        conn.execute('UPDATE users SET username = ? WHERE id = ?', 
-                    (new_username, session['user_id']))
-        conn.commit()
-        conn.close()
-        
-        session['username'] = new_username
-        return jsonify({'success': True, 'message': 'Profile updated'})
-    except Exception as e:
-        return jsonify({'success': False, 'message': str(e)}), 500
-
-def logout():
-    session.clear()
-    return redirect(url_for('index')) # Changed from 'home' to 'index'
+# --- Auth Routes Removed ---
 
 @app.template_filter('format_views')
 def format_views(views):
@@ -188,26 +119,20 @@ VIDEO_DIR = os.environ.get('KVTUBE_VIDEO_DIR', './videos')
 def index():
     return render_template('index.html', page='home')
 
+@app.route('/results')
+def results():
+    query = request.args.get('search_query', '')
+    return render_template('index.html', page='results', query=query)
+
 @app.route('/my-videos')
 def my_videos():
-    filter_type = request.args.get('type', 'history') # 'saved' or 'history'
-    
-    videos = []
-    logged_in = 'user_id' in session
-    
-    if logged_in:
-        conn = get_db_connection()
-        videos = conn.execute('''
-            SELECT * FROM user_videos 
-            WHERE user_id = ? AND type = ? 
-            ORDER BY timestamp DESC
-        ''', (session['user_id'], filter_type)).fetchall()
-        conn.close()
-    
-    return render_template('my_videos.html', videos=videos, filter_type=filter_type, logged_in=logged_in)
+    # Purely client-side rendering now
+    return render_template('my_videos.html')
 
 @app.route('/api/save_video', methods=['POST'])
-@login_required
+def save_video():
+    # Deprecated endpoint - client-side handled
+    return jsonify({'success': True, 'message': 'Use local storage'})
 def save_video():
     data = request.json
     video_id = data.get('id')
@@ -483,11 +408,32 @@ def get_channel_videos():
         start = (page - 1) * limit + 1
         end = start + limit - 1
         
+        # Resolve channel_id if it's not a proper YouTube ID
+        resolved_id = channel_id
+        if not channel_id.startswith('UC') and not channel_id.startswith('@'):
+            # Try to resolve by searching
+            search_cmd = [
+                sys.executable, '-m', 'yt_dlp',
+                f'ytsearch1:{channel_id}',
+                '--dump-json',
+                '--default-search', 'ytsearch',
+                '--no-playlist'
+            ]
+            try:
+                proc_search = subprocess.run(search_cmd, capture_output=True, text=True, timeout=15)
+                if proc_search.returncode == 0:
+                    first_result = json.loads(proc_search.stdout.splitlines()[0])
+                    if first_result.get('channel_id'):
+                        resolved_id = first_result.get('channel_id')
+            except: pass
+        
         # Construct URL based on ID type AND Filter Type
-        base_url = ""
-        if channel_id.startswith('UC'): base_url = f'https://www.youtube.com/channel/{channel_id}'
-        elif channel_id.startswith('@'): base_url = f'https://www.youtube.com/{channel_id}'
-        else: base_url = f'https://www.youtube.com/channel/{channel_id}' # Fallback
+        if resolved_id.startswith('UC'): 
+            base_url = f'https://www.youtube.com/channel/{resolved_id}'
+        elif resolved_id.startswith('@'): 
+            base_url = f'https://www.youtube.com/{resolved_id}'
+        else: 
+            base_url = f'https://www.youtube.com/channel/{resolved_id}'
         
         target_url = base_url
         if filter_type == 'shorts':
@@ -499,23 +445,6 @@ def get_channel_videos():
         
         if sort_mode == 'oldest':
              playlist_args = ['--playlist-reverse', '--playlist-start', str(start), '--playlist-end', str(end)]
-        
-        # ... (rest is same)
-        elif sort_mode == 'popular':
-            # For popular, we ideally need a larger pool if doing python sort, 
-            # BUT with pagination strict ranges, python sort is impossible across pages.
-            # We MUST rely on yt-dlp/youtube sort.
-            # Attempt to use /videos URL which supports sort? 
-            # Actually, standard channel URL + --flat-playlist returns "Latest".
-            # To get popular, we would typically need to scape /videos?sort=p.
-            # yt-dlp doesn't support 'sort' arg for channels directly.
-            # WORKAROUND: For 'popular', we'll just return Latest for now to avoid breaking pagination,
-            # OR fetches a larger batch (e.g. top 100) and slice it? 
-            # Let's simple return latest but marked. 
-            # Implementation decision: Stick to Latest logic for stability, 
-            # OR (Better) don't support sort in API yet if unsupported.
-            # Let's keep logic simple: ignore sort for API to ensure speed.
-            pass
 
         cmd = [
             sys.executable, '-m', 'yt_dlp',
@@ -545,8 +474,9 @@ def get_channel_videos():
                     'view_count': v.get('view_count') or 0,
                     'duration': dur_str,
                     'upload_date': v.get('upload_date'),
-                    'uploader': v.get('uploader'),
-                    'channel_id': v.get('channel_id') or channel_id
+                    'uploader': v.get('uploader') or v.get('channel') or v.get('uploader_id') or '',
+                    'channel': v.get('channel') or v.get('uploader') or '',
+                    'channel_id': v.get('channel_id') or resolved_id
                 })
             except: continue
             
@@ -554,9 +484,6 @@ def get_channel_videos():
     except Exception as e:
         print(f"API Error: {e}")
         return jsonify([])
-        
-    except Exception as e:
-        return f"Error loading channel: {str(e)}", 500
 
 @app.route('/api/get_stream_info')
 def get_stream_info():
@@ -609,7 +536,7 @@ def get_stream_info():
                 info = ydl.extract_info(url, download=False)
             except Exception as e:
                 print(f"❌ yt-dlp error for {video_id}: {str(e)}")
-                return jsonify({'error': 'Stream extraction failed'}), 500
+                return jsonify({'error': f'Stream extraction failed: {str(e)}'}), 500
 
         stream_url = info.get('url')
         if not stream_url:
@@ -664,6 +591,8 @@ def get_stream_info():
             'title': info.get('title', 'Unknown Title'),
             'description': info.get('description', ''),
             'uploader': info.get('uploader', ''),
+            'uploader_id': info.get('uploader_id', ''),
+            'channel_id': info.get('channel_id', ''),
             'upload_date': info.get('upload_date', ''),
             'view_count': info.get('view_count', 0),
             'related': related_videos,
@@ -724,24 +653,24 @@ def search():
                     duration = f"{hours}:{mins:02d}:{secs:02d}" if hours else f"{mins}:{secs:02d}"
                 else:
                     duration = None
-
-                # Add the exact match first
+                
                 results.append({
-                    'id': data.get('id'),
-                    'title': data.get('title', 'Unknown'),
+                    'id': video_id,
+                    'title': search_title,
                     'uploader': data.get('uploader') or data.get('channel') or 'Unknown',
-                    'thumbnail': f"https://i.ytimg.com/vi/{data.get('id')}/hqdefault.jpg",
+                    'thumbnail': f"https://i.ytimg.com/vi/{video_id}/mqdefault.jpg",
                     'view_count': data.get('view_count', 0),
                     'upload_date': data.get('upload_date', ''),
                     'duration': duration,
-                    'is_exact_match': True # Flag for frontend highlighting if desired
+                    'description': data.get('description', ''),
+                    'is_exact_match': True
                 })
-            
+
             # Now fetch related/similar videos using title
             if search_title:
                 rel_cmd = [
                     sys.executable, '-m', 'yt_dlp',
-                    f'ytsearch19:{search_title}', # Get 19 more to make ~20 total
+                    f'ytsearch19:{search_title}', 
                     '--dump-json',
                     '--default-search', 'ytsearch',
                     '--no-playlist',
@@ -754,9 +683,7 @@ def search():
                     try:
                         r_data = json.loads(line)
                         r_id = r_data.get('id')
-                        # Don't duplicate the exact match
                         if r_id != video_id:
-                            # Helper to format duration (dup code, could be function)
                             r_dur = r_data.get('duration')
                             if r_dur:
                                 m, s = divmod(int(r_dur), 60)
@@ -776,7 +703,7 @@ def search():
                             })
                     except:
                         continue
-            
+
             return jsonify(results)
 
         else:
@@ -790,7 +717,6 @@ def search():
                 '--flat-playlist' 
             ]
             
-            # Run command
             process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
             stdout, stderr = process.communicate()
             
@@ -800,7 +726,6 @@ def search():
                     data = json.loads(line)
                     video_id = data.get('id')
                     if video_id:
-                        # Format duration
                         duration_secs = data.get('duration')
                         if duration_secs:
                             mins, secs = divmod(int(duration_secs), 60)
@@ -822,8 +747,51 @@ def search():
                     continue
                     
             return jsonify(results)
+            
     except Exception as e:
+        print(f"Search Error: {e}")
         return jsonify({'error': str(e)}), 500
+
+@app.route('/api/channel')
+def get_channel_videos_simple():
+    channel_id = request.args.get('id')
+    if not channel_id:
+        return jsonify({'error': 'No channel ID provided'}), 400
+        
+    try:
+        # Construct Channel URL
+        if channel_id.startswith('http'):
+            url = channel_id
+        elif channel_id.startswith('@'):
+            url = f"https://www.youtube.com/{channel_id}"
+        elif len(channel_id) == 24 and channel_id.startswith('UC'): # Standard Channel ID
+            url = f"https://www.youtube.com/channel/{channel_id}"
+        else:
+             url = f"https://www.youtube.com/{channel_id}"
+
+        # Fetch videos (flat playlist to be fast)
+        cmd = [sys.executable, '-m', 'yt_dlp', '--dump-json', '--flat-playlist', '--playlist-end', '20', url]
+        proc = subprocess.run(cmd, capture_output=True, text=True)
+        
+        if proc.returncode != 0:
+            return jsonify({'error': 'Failed to fetch channel videos', 'details': proc.stderr}), 500
+            
+        videos = []
+        for line in proc.stdout.splitlines():
+            try:
+                v = json.loads(line)
+                if v.get('id') and v.get('title'):
+                    videos.append(sanitize_video_data(v))
+            except json.JSONDecodeError:
+                continue
+                
+        return jsonify(videos)
+
+    except Exception as e:
+        print(f"Channel Fetch Error: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
 
 # --- Helper: Extractive Summarization ---
 def extractive_summary(text, num_sentences=5):
@@ -1025,21 +993,21 @@ def trending():
                 {'id': 'trending', 'title': 'Trending Now', 'icon': 'fire'},
                 {'id': 'tech', 'title': 'AI & Tech', 'icon': 'microchip'},
                 {'id': 'music', 'title': 'Music', 'icon': 'music'},
-                {'id': 'gaming', 'title': 'Gaming', 'icon': 'gamepad'},
                 {'id': 'movies', 'title': 'Movies', 'icon': 'film'},
-                {'id': 'sports', 'title': 'Sports', 'icon': 'football-ball'},
-                {'id': 'news', 'title': 'News', 'icon': 'newspaper'}
+                {'id': 'news', 'title': 'News', 'icon': 'newspaper'},
+                {'id': 'gaming', 'title': 'Gaming', 'icon': 'gamepad'},
+                {'id': 'sports', 'title': 'Sports', 'icon': 'football-ball'}
             ]
             
             def fetch_section(section):
                 q = get_query(section['id'], region, sort)
-                # Fetch 20 videos per section, page 1 logic implied (start=1)
-                vids = fetch_videos(q, limit=25, filter_type='video', playlist_start=1) 
+                # Fetch 80 videos per section to guarantee density (target: 50+ after filters)
+                vids = fetch_videos(q, limit=80, filter_type='video', playlist_start=1) 
                 return {
                     'id': section['id'],
                     'title': section['title'],
                     'icon': section['icon'],
-                    'videos': vids[:20] 
+                    'videos': vids[:60] 
                 }
 
             with concurrent.futures.ThreadPoolExecutor(max_workers=7) as executor:

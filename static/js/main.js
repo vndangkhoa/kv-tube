@@ -4,26 +4,40 @@ document.addEventListener('DOMContentLoaded', () => {
     const searchInput = document.getElementById('searchInput');
     const resultsArea = document.getElementById('resultsArea');
 
+    // Check APP_CONFIG if available (set in index.html)
+    const socketConfig = window.APP_CONFIG || {};
+    const pageType = socketConfig.page || 'home';
+
     if (searchInput) {
         searchInput.addEventListener('keypress', async (e) => {
             if (e.key === 'Enter') {
                 e.preventDefault();
                 const query = searchInput.value.trim();
                 if (query) {
-                    // Check if on search page already, if not redirect
-                    // Since we are SPA-ish, we just call searchYouTube
-                    // But if we want a dedicated search page URL, we could do:
-                    // window.history.pushState({}, '', `/?q=${encodeURIComponent(query)}`);
-                    searchYouTube(query);
+                    window.location.href = `/results?search_query=${encodeURIComponent(query)}`;
                 }
             }
         });
 
-        // Load trending on init
-        loadTrending();
+        // Handle Page Initialization - only if resultsArea exists (not on channel.html)
+        if (resultsArea) {
+            if (pageType === 'channel' && socketConfig.channelId) {
+                console.log("Loading Channel:", socketConfig.channelId);
+                loadChannelVideos(socketConfig.channelId);
+            } else if (pageType === 'results' || socketConfig.query) {
+                const q = socketConfig.query || new URLSearchParams(window.location.search).get('search_query');
+                if (q) {
+                    if (searchInput) searchInput.value = q;
+                    searchYouTube(q);
+                }
+            } else {
+                // Default Home
+                loadTrending();
+            }
 
-        // Init Infinite Scroll
-        initInfiniteScroll();
+            // Init Infinite Scroll
+            initInfiniteScroll();
+        }
     }
 
     // Init Theme
@@ -71,11 +85,16 @@ function initInfiniteScroll() {
 
     // Create sentinel logic or observe existing footer/element
     // We'll observe a sentinel element at the bottom of the grid
+    // Create sentinel logic or observe existing footer/element
+    // We'll observe a sentinel element at the bottom of the grid
+    const resultsArea = document.getElementById('resultsArea');
+    if (!resultsArea) return; // Exit if not on home page
+
     const sentinel = document.createElement('div');
     sentinel.id = 'scroll-sentinel';
     sentinel.style.width = '100%';
     sentinel.style.height = '20px';
-    document.getElementById('resultsArea').parentNode.appendChild(sentinel);
+    resultsArea.parentNode.appendChild(sentinel);
     observer.observe(sentinel);
 }
 
@@ -234,6 +253,9 @@ async function loadTrending(reset = true) {
             if (reset) resultsArea.innerHTML = '';
 
             // Render Sections
+            // Render Sections
+            const isMobile = window.innerWidth <= 768;
+
             data.data.forEach(section => {
                 const sectionDiv = document.createElement('div');
                 sectionDiv.style.gridColumn = '1 / -1';
@@ -246,38 +268,54 @@ async function loadTrending(reset = true) {
                     </div>
                  `;
 
-                // Scroll Container
-                const scrollContainer = document.createElement('div');
-                scrollContainer.className = 'yt-shorts-grid'; // Reuse horizontal scroll style
-                scrollContainer.style.gap = '16px';
+                const videos = section.videos || [];
+                let chunks = [];
 
-                section.videos.forEach(video => {
-                    const card = document.createElement('div');
-                    card.className = 'yt-video-card';
-                    card.style.minWidth = '280px'; // Fixed width for horizontal items
-                    card.style.width = '280px';
+                if (isMobile) {
+                    // Split into 4 chunks (rows) for independent scrolling
+                    // Each chunk gets ~1/4 of videos, or at least some
+                    const chunkSize = Math.ceil(videos.length / 4);
+                    for (let i = 0; i < 4; i++) {
+                        const chunk = videos.slice(i * chunkSize, (i + 1) * chunkSize);
+                        if (chunk.length > 0) chunks.push(chunk);
+                    }
+                } else {
+                    // Desktop: 1 big chunk (grid handles layout)
+                    chunks.push(videos);
+                }
 
-                    card.innerHTML = `
-                        <div class="yt-thumbnail-container">
-                            <img class="yt-thumbnail" data-src="${video.thumbnail}" alt="${escapeHtml(video.title)}">
-                            ${video.duration ? `<span class="yt-duration">${video.duration}</span>` : ''}
-                        </div>
-                        <div class="yt-video-details">
-                            <div class="yt-channel-avatar">
-                                ${video.uploader ? video.uploader.charAt(0).toUpperCase() : 'Y'}
+                chunks.forEach(chunk => {
+                    // Scroll Container
+                    const scrollContainer = document.createElement('div');
+                    scrollContainer.className = 'yt-section-grid';
+
+                    chunk.forEach(video => {
+                        const card = document.createElement('div');
+                        card.className = 'yt-video-card';
+
+                        card.innerHTML = `
+                            <div class="yt-thumbnail-container">
+                                <img class="yt-thumbnail" src="${video.thumbnail}" loading="lazy" onload="this.classList.add('loaded')" alt="${escapeHtml(video.title)}">
+                                ${video.duration ? `<span class="yt-duration">${video.duration}</span>` : ''}
                             </div>
-                            <div class="yt-video-meta">
-                                <h3 class="yt-video-title">${escapeHtml(video.title)}</h3>
-                                <p class="yt-channel-name">${escapeHtml(video.uploader || 'Unknown')}</p>
-                                <p class="yt-video-stats">${formatViews(video.view_count)} views</p>
+                            <div class="yt-video-details">
+                                <div class="yt-channel-avatar">
+                                    ${video.uploader ? video.uploader.charAt(0).toUpperCase() : 'Y'}
+                                </div>
+                                <div class="yt-video-meta">
+                                    <h3 class="yt-video-title">${escapeHtml(video.title)}</h3>
+                                    <p class="yt-channel-name">${escapeHtml(video.uploader || 'Unknown')}</p>
+                                    <p class="yt-video-stats">${formatViews(video.view_count)} views</p>
+                                </div>
                             </div>
-                        </div>
-                    `;
-                    card.onclick = () => window.location.href = `/watch?v=${video.id}`;
-                    scrollContainer.appendChild(card);
+                        `;
+                        card.onclick = () => window.location.href = `/watch?v=${video.id}`;
+                        scrollContainer.appendChild(card);
+                    });
+
+                    sectionDiv.appendChild(scrollContainer);
                 });
 
-                sectionDiv.appendChild(scrollContainer);
                 resultsArea.appendChild(sectionDiv);
             });
             if (window.observeImages) window.observeImages();
@@ -534,5 +572,132 @@ async function updateProfile(e) {
     } finally {
         btn.disabled = false;
         btn.innerHTML = originalText;
+    }
+}
+
+// --- Local Storage Helpers ---
+function getLibrary(type) {
+    return JSON.parse(localStorage.getItem(`kv_${type}`) || '[]');
+}
+
+function saveToLibrary(type, item) {
+    let lib = getLibrary(type);
+    // Filter out nulls/invalid items to self-heal storage
+    lib = lib.filter(i => i && i.id);
+
+    // Avoid duplicates
+    if (!lib.some(i => i.id === item.id)) {
+        lib.unshift(item); // Add to top
+        localStorage.setItem(`kv_${type}`, JSON.stringify(lib));
+        showToast(`Saved to ${type}`, 'success');
+    }
+}
+
+function removeFromLibrary(type, id) {
+    let lib = getLibrary(type);
+    lib = lib.filter(i => i && i.id !== id);
+    localStorage.setItem(`kv_${type}`, JSON.stringify(lib));
+    showToast(`Removed from ${type}`, 'info');
+    // Refresh if on library page
+    if (window.location.pathname === '/my-videos') {
+        location.reload();
+    }
+}
+
+function isInLibrary(type, id) {
+    const lib = getLibrary(type);
+    return lib.some(i => i && i.id === id);
+}
+
+// --- Subscription Logic ---
+function toggleSubscribe(channelId, channelName, avatarUrl, btnElement) {
+    event.stopPropagation(); // Prevent card clicks
+
+    if (isInLibrary('subscriptions', channelId)) {
+        removeFromLibrary('subscriptions', channelId);
+        if (btnElement) {
+            btnElement.classList.remove('subscribed');
+            btnElement.innerHTML = 'Subscribe';
+        }
+    } else {
+        saveToLibrary('subscriptions', {
+            id: channelId,
+            title: channelName,
+            thumbnail: avatarUrl,
+            timestamp: new Date().toISOString()
+        });
+        if (btnElement) {
+            btnElement.classList.add('subscribed');
+            btnElement.innerHTML = 'Subscribed';
+        }
+    }
+}
+
+function checkSubscriptionStatus(channelId, btnElement) {
+    if (isInLibrary('subscriptions', channelId)) {
+        btnElement.classList.add('subscribed');
+        btnElement.innerHTML = 'Subscribed';
+    }
+}
+
+// Load Channel Videos
+async function loadChannelVideos(channelId) {
+    const resultsArea = document.getElementById('resultsArea');
+    if (!resultsArea) return; // Guard: only works on pages with resultsArea
+
+    isLoading = true;
+    resultsArea.innerHTML = renderSkeleton();
+
+    try {
+        const response = await fetch(`/api/channel?id=${encodeURIComponent(channelId)}`);
+        const data = await response.json();
+
+        if (data.error) {
+            resultsArea.innerHTML = renderNoContent(`Error: ${data.error}`, "Could not load channel.");
+            return;
+        }
+
+        // Render header
+        const headerHtml = `
+            <div class="yt-channel-header" style="padding: 24px 0; border-bottom: 1px solid var(--yt-border); margin-bottom: 24px; display: flex; align-items: center; gap: 20px;">
+                <div class="yt-channel-avatar-xl" style="width: 80px; height: 80px; border-radius: 50%; background: var(--yt-accent-blue); display: flex; align-items: center; justify-content: center; font-size: 32px; color: white; font-weight: bold;">
+                   ${channelId.startsWith('UC') ? channelId[0] : (data[0]?.uploader?.[0] || 'C')}
+                </div>
+                <div>
+                   <h1 style="font-size: 24px; margin: 0 0 8px 0;">${data[0]?.uploader || 'Channel Content'}</h1>
+                   <p style="color: var(--yt-text-secondary); margin: 0;">${data.length} Videos</p>
+                </div>
+            </div>
+            <div class="yt-video-grid">
+        `;
+
+        // Videos
+        const videosHtml = data.map(video => `
+            <div class="yt-video-card" onclick="window.location.href='/watch?v=${video.id}'">
+                 <div class="yt-thumbnail-container">
+                    <img class="yt-thumbnail" src="${video.thumbnail}" loading="lazy" onload="this.classList.add('loaded')" alt="${escapeHtml(video.title)}">
+                    ${video.duration ? `<span class="yt-duration">${video.duration}</span>` : ''}
+                </div>
+                <div class="yt-video-details">
+                    <div class="yt-video-meta">
+                        <h3 class="yt-video-title">${escapeHtml(video.title)}</h3>
+                        <div class="yt-video-info">
+                            <span>${formatViews(video.views)} views</span>
+                            <span>• ${video.uploaded}</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        `).join('');
+
+        resultsArea.innerHTML = headerHtml + videosHtml + '</div>';
+
+        if (window.observeImages) window.observeImages();
+
+    } catch (e) {
+        console.error("Channel Load Error:", e);
+        resultsArea.innerHTML = renderNoContent("Failed to load channel", "Please try again later.");
+    } finally {
+        isLoading = false;
     }
 }

@@ -13,6 +13,8 @@
             <!-- Loading State (Confined to Player) -->
             <div id="loading" class="yt-loader"></div>
         </div>
+        <!-- Placeholder for Mini Mode -->
+        <div id="playerPlaceholder" class="yt-player-placeholder"></div>
 
         <!-- Info Skeleton -->
         <div id="infoSkeleton" style="margin-top:20px;">
@@ -86,7 +88,7 @@
                         <p class="yt-video-stats" id="viewCount">0 views</p>
                     </div>
                 </div>
-                <button class="yt-subscribe-btn">Subscribe</button>
+                <button class="yt-subscribe-btn" id="subscribeBtn">Subscribe</button>
             </div>
 
             <!-- Description -->
@@ -192,18 +194,44 @@
             overflow: hidden;
         }
 
-        #loading {
-            position: absolute;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            background: var(--yt-bg-secondary);
-            z-index: 10;
-            /* Skeleton shimmer */
-            background: linear-gradient(90deg, var(--yt-bg-secondary) 25%, var(--yt-bg-hover) 50%, var(--yt-bg-secondary) 75%);
-            background-size: 200% 100%;
-            animation: shimmer 1.5s infinite;
+
+
+        /* Movable Mini Player Styles */
+        .yt-mini-mode {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            width: 400px !important;
+            height: auto !important;
+            aspect-ratio: 16/9;
+            z-index: 10000;
+            box-shadow: 0 8px 30px rgba(0, 0, 0, 0.5);
+            border-radius: 12px;
+            cursor: grab;
+            transition: width 0.3s, height 0.3s;
+            /* Smooth resize, but NOT top/left so drag is instant */
+        }
+
+        .yt-mini-mode:active {
+            cursor: grabbing;
+        }
+
+        /* Placeholder to prevent layout shift */
+        .yt-player-placeholder {
+            display: none;
+            width: 100%;
+            aspect-ratio: 16/9;
+            background: rgba(0, 0, 0, 0.1);
+            /* Optional visual cue, usually transparent */
+        }
+
+        @media (max-width: 768px) {
+            .yt-mini-mode {
+                width: 250px !important;
+                bottom: 80px;
+                /* Above bottom nav if existed, or just higher */
+                right: 10px;
+            }
         }
 
         /* Skeleton Utils */
@@ -674,10 +702,36 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/artplayer/5.1.1/artplayer.js"></script>
     <script>
         let commentsLoaded = false;
-        // Current video data for Queue
-        let currentVideoData = {};
+        // Current video data for Queue/History/Saved - Populated by JS or Server
+        let currentVideoData = {
+            id: "{{ request.args.get('v') }}",
+            title: document.title.replace(' - KV-Tube', ''), // Initial fallback
+            thumbnail: "", // Will be updated by Artplayer or API
+            uploader: ""
+        };
 
         function initArtplayer(url, poster, subtitleUrl = '', type = 'auto') {
+            // Update currentVideoData with poster (thumbnail)
+            if (poster) {
+                // Use stable YouTube thumbnail URL to prevent expiration of signed URLs
+                currentVideoData.thumbnail = `https://i.ytimg.com/vi/${currentVideoData.id}/hqdefault.jpg`;
+                // Auto-save to history now that we have the thumbnail
+                // Delay slightly to ensure title is also updated if possible
+                setTimeout(() => {
+                    // If title is still loading, try to grab it from DOM if updated
+                    const titleEl = document.getElementById('videoTitle');
+                    if (titleEl && titleEl.innerText !== 'Loading...') {
+                        currentVideoData.title = titleEl.innerText;
+                    }
+                    const uploaderEl = document.getElementById('channelName');
+                    if (uploaderEl && uploaderEl.innerText !== 'Loading...') {
+                        currentVideoData.uploader = uploaderEl.innerText;
+                    }
+
+                    saveToLibrary('history', currentVideoData);
+                }, 2000);
+            }
+
             const art = new Artplayer({
                 container: '#artplayer-app',
                 url: url,
@@ -689,14 +743,6 @@
                 autoplay: false,
                 pip: true,
                 autoSize: false,
-                autoMini: true,
-                screenshot: true,
-                setting: true,
-                loop: false,
-                flip: true,
-                playbackRate: true,
-                aspectRatio: true,
-                fullscreen: true,
                 fullscreenWeb: true,
                 miniProgressBar: true,
                 mutex: true,
@@ -707,15 +753,18 @@
                 fastForward: true,
                 autoOrientation: true,
                 theme: '#ff0000',
-                subtitle: {
-                    url: subtitleUrl,
-                    type: 'vtt',
-                    style: {
-                        color: '#fff',
-                        fontSize: '20px',
-                    },
-                    encoding: 'utf-8',
-                },
+                autoMini: false, // Custom mini mode implemented below
+                ...(subtitleUrl ? {
+                    subtitle: {
+                        url: subtitleUrl,
+                        type: 'vtt',
+                        style: {
+                            color: '#fff',
+                            fontSize: '20px',
+                        },
+                        encoding: 'utf-8',
+                    }
+                } : {}),
                 lang: navigator.language.toLowerCase(),
                 moreVideoAttr: {
                     crossOrigin: 'anonymous',
@@ -780,9 +829,134 @@
                     }
                     checkVertical();
                     art.on('video:loadedmetadata', checkVertical);
+
+                    // --- Custom Mini Player Logic ---
+                    setupMiniPlayer();
                 },
             });
             return art;
+        }
+
+        // --- Movable Mini Player Logic ---
+        function setupMiniPlayer() {
+            const playerContainer = document.querySelector('.yt-player-container');
+            const placeholder = document.getElementById('playerPlaceholder');
+            const playerSection = document.querySelector('.yt-player-section');
+
+            // Scroll Observer
+            const observer = new IntersectionObserver((entries) => {
+                // If player section top is out of view (scrolling down)
+                const entry = entries[0];
+                if (!entry.isIntersecting && entry.boundingClientRect.top < 0) {
+                    enableMiniMode();
+                } else {
+                    disableMiniMode();
+                }
+            }, { threshold: 0, rootMargin: '-100px 0px 0px 0px' }); // Trigger when header passes
+
+            observer.observe(playerSection);
+
+            function enableMiniMode() {
+                if (playerContainer.classList.contains('yt-mini-mode')) return;
+                playerContainer.classList.add('yt-mini-mode');
+                placeholder.style.display = 'block';
+
+                // Reset to default bottom-right if not previously moved? 
+                // Alternatively, just let it use CSS default.
+            }
+
+            function disableMiniMode() {
+                if (!playerContainer.classList.contains('yt-mini-mode')) return;
+                playerContainer.classList.remove('yt-mini-mode');
+                placeholder.style.display = 'none';
+
+                // Reset styles to ensure normal layout
+                playerContainer.style.top = '';
+                playerContainer.style.left = '';
+                playerContainer.style.bottom = '';
+                playerContainer.style.right = '';
+                playerContainer.style.transform = '';
+            }
+
+            // Drag Logic
+            let isDragging = false;
+            let startX, startY, initialLeft, initialTop;
+
+            playerContainer.addEventListener('mousedown', dragStart);
+            document.addEventListener('mousemove', drag);
+            document.addEventListener('mouseup', dragEnd);
+
+            // Touch support
+            playerContainer.addEventListener('touchstart', dragStart, { passive: false });
+            document.addEventListener('touchmove', drag, { passive: false });
+            document.addEventListener('touchend', dragEnd);
+
+            function dragStart(e) {
+                if (!playerContainer.classList.contains('yt-mini-mode')) return;
+                // Don't drag if clicking controls (could be tricky, but basic grab works)
+                // Filter out clicks on seekbar or buttons if needed, but container grab is ok usually.
+                if (e.target.closest('.art-controls') || e.target.closest('.art-video')) {
+                    // Allow interaction with controls, but maybe handle drag on edges/title if existed.
+                    // For now, let's allow grab anywhere but maybe standard controls prevent propagation?
+                    // Actually Artplayer captures clicks. We might need a specific handle or overlay.
+                    // But user asked for "movable". Let's try grabbing the container directly.
+                }
+
+                // For better UX, maybe only drag when holding header or empty space?
+                // Given artplayer fills it, we drag the whole thing.
+
+                isDragging = true;
+
+                const clientX = e.type === 'touchstart' ? e.touches[0].clientX : e.clientX;
+                const clientY = e.type === 'touchstart' ? e.touches[0].clientY : e.clientY;
+
+                // Get current position
+                const rect = playerContainer.getBoundingClientRect();
+                startX = clientX;
+                startY = clientY;
+                initialLeft = rect.left;
+                initialTop = rect.top;
+
+                // Unset bottom/right to switch to top/left positioning for dragging
+                playerContainer.style.bottom = 'auto';
+                playerContainer.style.right = 'auto';
+                playerContainer.style.left = initialLeft + 'px';
+                playerContainer.style.top = initialTop + 'px';
+
+                e.preventDefault(); // Prevent text selection
+            }
+
+            function drag(e) {
+                if (!isDragging) return;
+
+                const clientX = e.type === 'touchmove' ? e.touches[0].clientX : e.clientX;
+                const clientY = e.type === 'touchmove' ? e.touches[0].clientY : e.clientY;
+
+                const dx = clientX - startX;
+                const dy = clientY - startY;
+
+                let newLeft = initialLeft + dx;
+                let newTop = initialTop + dy;
+
+                // Boundaries
+                const winWidth = window.innerWidth;
+                const winHeight = window.innerHeight;
+                const rect = playerContainer.getBoundingClientRect();
+
+                if (newLeft < 0) newLeft = 0;
+                if (newTop < 0) newTop = 0;
+                if (newLeft + rect.width > winWidth) newLeft = winWidth - rect.width;
+                if (newTop + rect.height > winHeight) newTop = winHeight - rect.height;
+
+                playerContainer.style.left = newLeft + 'px';
+                playerContainer.style.top = newTop + 'px';
+
+                e.preventDefault();
+            }
+
+            function dragEnd() {
+                isDragging = false;
+            }
         }
 
         // --- Loop Logic ---
@@ -1180,7 +1354,14 @@
                 }
 
                 if (!response.ok) {
-                    throw new Error(`Server Error (${response.status})`);
+                    let errorMessage = `Server Error (${response.status})`;
+                    try {
+                        const errData = await response.json();
+                        if (errData.error) errorMessage = errData.error;
+                    } catch (e) {
+                        // If JSON parse fails, keep generic error
+                    }
+                    throw new Error(errorMessage);
                 }
 
                 // Check content type to avoid JSON syntax errors if HTML is returned
@@ -1197,6 +1378,7 @@
                     title: data.title,
                     thumbnail: `https://i.ytimg.com/vi/${videoId}/mqdefault.jpg`,
                     uploader: data.uploader || 'Unknown',
+                    channel_id: data.channel_id || data.uploader_id || '',
                     duration: data.duration
                 };
 
@@ -1280,9 +1462,9 @@
                 }
 
                 // Save Button - Local Storage based
-                document.getElementById('saveBtn').onclick = () => {
-                    saveToLibrary();
-                };
+                // Save Button handler is setup in DOMContentLoaded below
+                // Just update state here
+                // document.getElementById('saveBtn').onclick setup moved to line ~1600
 
                 // Check if already saved
                 updateSaveButtonState();
@@ -1375,6 +1557,96 @@
             btn.disabled = false;
             btn.innerHTML = '<i class="fas fa-magic"></i> Summarize with AI';
         }
+
+        // --- Save Button Logic ---
+        document.addEventListener('DOMContentLoaded', () => {
+            const saveBtn = document.getElementById('saveBtn');
+            if (saveBtn) {
+                // Check initial state
+                if (isInLibrary('saved', currentVideoData.id)) {
+                    saveBtn.innerHTML = '<i class="fas fa-bookmark"></i> Saved';
+                    saveBtn.classList.add('active');
+                }
+
+                saveBtn.onclick = () => {
+                    console.log("[Debug] Save Clicked. Current Data:", currentVideoData);
+
+                    if (!currentVideoData || !currentVideoData.id) {
+                        showToast("Error: Video data not ready yet", "error");
+                        return;
+                    }
+
+                    // Ensure data is up to date
+                    const titleEl = document.getElementById('videoTitle');
+                    if (titleEl) currentVideoData.title = titleEl.innerText;
+                    const uploaderEl = document.getElementById('channelName');
+                    if (uploaderEl) currentVideoData.uploader = uploaderEl.innerText;
+
+                    console.log("[Debug] Saving:", currentVideoData);
+
+                    if (isInLibrary('saved', currentVideoData.id)) {
+                        removeFromLibrary('saved', currentVideoData.id);
+                        saveBtn.innerHTML = '<i class="far fa-bookmark"></i> Save';
+                        saveBtn.classList.remove('active');
+                    } else {
+                        saveToLibrary('saved', currentVideoData);
+                        saveBtn.innerHTML = '<i class="fas fa-bookmark"></i> Saved';
+                        saveBtn.classList.add('active');
+                    }
+                };
+            }
+
+            // --- Subscribe Button Logic ---
+            const subBtn = document.getElementById('subscribeBtn');
+            if (subBtn) {
+                const updateSubState = () => {
+                    // Check against ID or Uploader name (fallback)
+                    const key = currentVideoData.channel_id || currentVideoData.uploader;
+                    if (!key) return;
+
+                    if (isInLibrary('subscriptions', key)) {
+                        subBtn.innerHTML = '<i class="fas fa-check-circle"></i> Subscribed';
+                        subBtn.classList.add('subscribed');
+                    } else {
+                        subBtn.innerHTML = '<i class="fas fa-user-plus"></i> Subscribe';
+                        subBtn.classList.remove('subscribed');
+                    }
+                };
+
+                // Polling/Delay check as data populates
+                setTimeout(updateSubState, 1000);
+                setTimeout(updateSubState, 3000);
+
+                subBtn.onclick = () => {
+                    if (!currentVideoData.uploader) {
+                        showToast("Channel data not ready", "error");
+                        return;
+                    }
+
+                    // Capture avatar image or fallback to letter content
+                    const avatarImg = document.querySelector('#channelAvatar img');
+                    const avatarLetter = document.getElementById('channelAvatarLetter');
+
+                    const channelItem = {
+                        id: currentVideoData.channel_id || currentVideoData.uploader,
+                        title: currentVideoData.uploader,
+                        thumbnail: avatarImg ? avatarImg.src : '',
+                        letter: avatarLetter ? avatarLetter.innerText : (currentVideoData.uploader[0] || '?'),
+                        type: 'channel'
+                    };
+
+                    if (isInLibrary('subscriptions', channelItem.id)) {
+                        removeFromLibrary('subscriptions', channelItem.id);
+                        subBtn.innerHTML = '<i class="fas fa-user-plus"></i> Subscribe';
+                        subBtn.classList.remove('subscribed');
+                    } else {
+                        saveToLibrary('subscriptions', channelItem);
+                        subBtn.innerHTML = '<i class="fas fa-check-circle"></i> Subscribed';
+                        subBtn.classList.add('subscribed');
+                    }
+                };
+            }
+        });
 
         // --- Related Videos Infinite Scroll Functions ---
         let currentVideoTitle = '';

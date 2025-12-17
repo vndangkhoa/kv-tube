@@ -67,16 +67,7 @@
                 <!-- <button class="yt-icon-btn yt-mobile-search" onclick="toggleMobileSearch()" aria-label="Search">
                     <i class="fas fa-search"></i>
                 </button> -->
-                {% if session.get('user_id') %}
-                <div class="yt-avatar" title="{{ session.username }}">
-                    {{ session.username[0]|upper }}
-                </div>
-                {% else %}
-                <a href="/login" class="yt-signin-btn">
-                    <i class="fas fa-user"></i>
-                    <span class="yt-signin-text">Sign in</span>
-                </a>
-                {% endif %}
+                <!-- User Avatar Removed -->
             </div>
         </header>
 
@@ -108,9 +99,16 @@
                 <span>History</span>
             </a>
             <a href="/my-videos?type=saved"
-                class="yt-sidebar-item {% if request.path == '/my-videos' %}active{% endif %}" data-category="saved">
+                class="yt-sidebar-item {% if request.path == '/my-videos' and request.args.get('type') == 'saved' %}active{% endif %}"
+                data-category="saved">
                 <i class="fas fa-bookmark"></i>
-                <span>Library</span>
+                <span>Saved</span>
+            </a>
+            <a href="/my-videos?type=subscriptions"
+                class="yt-sidebar-item {% if request.path == '/my-videos' and request.args.get('type') == 'subscriptions' %}active{% endif %}"
+                data-category="subscriptions">
+                <i class="fas fa-play-circle"></i>
+                <span>Subscriptions</span>
             </a>
             <!-- Queue Removed -->
 
@@ -132,15 +130,15 @@
                 <i class="fas fa-music"></i>
                 <span>Music</span>
             </a>
-            <a href="javascript:void(0)" class="yt-sidebar-item" data-category="gaming"
-                onclick="navigateCategory('gaming')">
-                <i class="fas fa-gamepad"></i>
-                <span>Gaming</span>
-            </a>
             <a href="javascript:void(0)" class="yt-sidebar-item" data-category="news"
                 onclick="navigateCategory('news')">
                 <i class="fas fa-newspaper"></i>
                 <span>News</span>
+            </a>
+            <a href="javascript:void(0)" class="yt-sidebar-item" data-category="gaming"
+                onclick="navigateCategory('gaming')">
+                <i class="fas fa-gamepad"></i>
+                <span>Gaming</span>
             </a>
             <a href="javascript:void(0)" class="yt-sidebar-item" data-category="sports"
                 onclick="navigateCategory('sports')">
@@ -154,12 +152,6 @@
                 <i class="fas fa-cog"></i>
                 <span>Settings</span>
             </a>
-            {% if session.get('user_id') %}
-            <a href="/logout" class="yt-sidebar-item">
-                <i class="fas fa-sign-out-alt"></i>
-                <span>Sign out</span>
-            </a>
-            {% endif %}
         </aside>
 
         <!-- Sidebar Overlay (Mobile) -->
