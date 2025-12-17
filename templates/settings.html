@@ -1,0 +1,235 @@
+{% extends "layout.html" %}
+
+{% block content %}
+<div class="yt-settings-container">
+    <h2 class="yt-settings-title">Settings</h2>
+
+    <div class="yt-settings-card">
+        <h3>Appearance</h3>
+        <p class="yt-settings-desc">Customize how KV-Tube looks on your device.</p>
+        <div class="yt-setting-row">
+            <span>Dark Mode</span>
+            <label class="yt-switch">
+                <input type="checkbox" id="themeToggle" checked onchange="toggleTheme()">
+                <span class="yt-slider round"></span>
+            </label>
+        </div>
+    </div>
+
+    {% if session.get('user_id') %}
+    <div class="yt-settings-card">
+        <h3>Profile</h3>
+        <p class="yt-settings-desc">Update your public profile information.</p>
+        <form id="profileForm" onsubmit="updateProfile(event)">
+            <div class="yt-form-group">
+                <label>Display Name</label>
+                <input type="text" class="yt-form-input" id="displayName" value="{{ session.username }}" required>
+            </div>
+            <button type="submit" class="yt-update-btn">Save Changes</button>
+        </form>
+    </div>
+    {% endif %}
+
+    <div class="yt-settings-card">
+        <h3>System Updates</h3>
+        <p class="yt-settings-desc">Manage core components of KV-Tube.</p>
+
+        <div class="yt-update-section">
+            <div class="yt-update-info">
+                <div>
+                    <h4>yt-dlp</h4>
+                    <span class="yt-update-subtitle">Core video extraction engine</span>
+                </div>
+                <button id="updateBtn" onclick="updateYtDlp()" class="yt-update-btn">
+                    <i class="fas fa-sync-alt"></i> Check for Updates
+                </button>
+            </div>
+            <div id="updateStatus" class="yt-update-status"></div>
+        </div>
+    </div>
+
+    <div class="yt-settings-card">
+        <h3>About</h3>
+        <p class="yt-settings-desc">KV-Tube v1.0</p>
+        <p class="yt-settings-desc">A YouTube-like streaming application.</p>
+    </div>
+</div>
+
+<style>
+    .yt-settings-container {
+        max-width: 600px;
+        margin: 0 auto;
+        padding: 24px;
+    }
+
+    .yt-settings-title {
+        font-size: 24px;
+        font-weight: 500;
+        margin-bottom: 24px;
+        text-align: center;
+    }
+
+    .yt-settings-card {
+        background: var(--yt-bg-secondary);
+        border-radius: 12px;
+        padding: 24px;
+        margin-bottom: 16px;
+    }
+
+    .yt-settings-card h3 {
+        font-size: 18px;
+        margin-bottom: 8px;
+    }
+
+    .yt-settings-desc {
+        color: var(--yt-text-secondary);
+        font-size: 14px;
+        margin-bottom: 16px;
+    }
+
+    .yt-update-section {
+        background: var(--yt-bg-elevated);
+        border-radius: 8px;
+        padding: 16px;
+    }
+
+    .yt-update-info {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        flex-wrap: wrap;
+        gap: 12px;
+    }
+
+    .yt-update-info h4 {
+        font-size: 16px;
+        margin-bottom: 4px;
+    }
+
+    .yt-update-subtitle {
+        font-size: 12px;
+        color: var(--yt-text-secondary);
+    }
+
+    .yt-update-btn {
+        background: var(--yt-accent-red);
+        color: white;
+        padding: 12px 24px;
+        border-radius: 24px;
+        font-size: 14px;
+        font-weight: 500;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        transition: opacity 0.2s, transform 0.2s;
+    }
+
+    .yt-update-btn:hover {
+        opacity: 0.9;
+        transform: scale(1.02);
+    }
+
+    .yt-update-btn:disabled {
+        background: var(--yt-bg-hover);
+        cursor: not-allowed;
+    }
+
+    .yt-update-status {
+        margin-top: 12px;
+        font-size: 13px;
+        text-align: center;
+    }
+
+    /* Toggle Switch */
+    .yt-setting-row {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 8px 0;
+    }
+
+    .yt-switch {
+        position: relative;
+        display: inline-block;
+        width: 48px;
+        height: 24px;
+    }
+
+    .yt-switch input {
+        opacity: 0;
+        width: 0;
+        height: 0;
+    }
+
+    .yt-slider {
+        position: absolute;
+        cursor: pointer;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background-color: #666;
+        transition: .4s;
+    }
+
+    .yt-slider:before {
+        position: absolute;
+        content: "";
+        height: 18px;
+        width: 18px;
+        left: 3px;
+        bottom: 3px;
+        background-color: white;
+        transition: .4s;
+    }
+
+    input:checked+.yt-slider {
+        background-color: var(--yt-accent-blue);
+    }
+
+    input:checked+.yt-slider:before {
+        transform: translateX(24px);
+    }
+
+    .yt-slider.round {
+        border-radius: 24px;
+    }
+
+    .yt-slider.round:before {
+        border-radius: 50%;
+    }
+</style>
+
+<script>
+    async function updateYtDlp() {
+        const btn = document.getElementById('updateBtn');
+        const status = document.getElementById('updateStatus');
+
+        btn.disabled = true;
+        btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Updating...';
+        status.style.color = 'var(--yt-text-secondary)';
+        status.innerText = 'Running pip install -U yt-dlp... This may take a moment.';
+
+        try {
+            const response = await fetch('/api/update_ytdlp', { method: 'POST' });
+            const data = await response.json();
+
+            if (data.success) {
+                status.style.color = '#4caf50';
+                status.innerText = '✓ ' + data.message;
+                btn.innerHTML = '<i class="fas fa-check"></i> Updated';
+            } else {
+                status.style.color = '#f44336';
+                status.innerText = '✗ ' + data.message;
+                btn.innerHTML = '<i class="fas fa-exclamation-triangle"></i> Failed';
+                btn.disabled = false;
+            }
+        } catch (e) {
+            status.style.color = '#f44336';
+            status.innerText = '✗ Network error: ' + e.message;
+            btn.disabled = false;
+            btn.innerHTML = 'Retry';
+        }
+    }
+</script>
+{% endblock %}

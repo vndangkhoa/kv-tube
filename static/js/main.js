@@ -1,0 +1,369 @@
+// KV-Tube Main JavaScript - YouTube Clone
+
+document.addEventListener('DOMContentLoaded', () => {
+    const searchInput = document.getElementById('searchInput');
+    const resultsArea = document.getElementById('resultsArea');
+
+    if (searchInput) {
+        searchInput.addEventListener('keypress', async (e) => {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                const query = searchInput.value.trim();
+                if (query) {
+                    // Check if on search page already, if not redirect
+                    // Since we are SPA-ish, we just call searchYouTube
+                    // But if we want a dedicated search page URL, we could do:
+                    // window.history.pushState({}, '', `/?q=${encodeURIComponent(query)}`);
+                    searchYouTube(query);
+                }
+            }
+        });
+
+        // Load trending on init
+        loadTrending();
+    }
+
+    // Init Theme
+    initTheme();
+});
+
+// Note: Global variables like currentCategory are defined below
+let currentCategory = 'general';
+let currentPage = 1;
+let isLoading = false;
+
+// --- UI Helpers ---
+function renderSkeleton() {
+    // Generate 8 skeleton cards
+    return Array(8).fill(0).map(() => `
+        <div class="yt-video-card skeleton-card">
+            <div class="skeleton-thumb skeleton"></div>
+            <div class="skeleton-details">
+                <div class="skeleton-avatar skeleton"></div>
+                <div class="skeleton-text">
+                    <div class="skeleton-title skeleton"></div>
+                    <div class="skeleton-meta skeleton"></div>
+                </div>
+            </div>
+        </div>
+    `).join('');
+}
+
+function renderNoContent(message = 'Try searching for something else', title = 'No videos found') {
+    return `
+        <div class="yt-empty-state">
+            <div class="yt-empty-icon"><i class="fas fa-film"></i></div>
+            <div class="yt-empty-title">${title}</div>
+            <div class="yt-empty-desc">${message}</div>
+        </div>
+    `;
+}
+
+// Search YouTube videos
+async function searchYouTube(query) {
+    if (isLoading) return;
+
+    const resultsArea = document.getElementById('resultsArea');
+    const loadMoreArea = document.getElementById('loadMoreArea');
+
+    isLoading = true;
+    resultsArea.innerHTML = renderSkeleton();
+
+    try {
+        const response = await fetch(`/api/search?q=${encodeURIComponent(query)}`);
+        const data = await response.json();
+
+        if (data.error) {
+            resultsArea.innerHTML = `<div class="yt-loader" style="grid-column: 1/-1;"><p style="color:#f00;">Error: ${data.error}</p></div>`;
+            return;
+        }
+
+        displayResults(data, false);
+        if (loadMoreArea) loadMoreArea.style.display = 'none';
+    } catch (error) {
+        console.error('Search error:', error);
+        resultsArea.innerHTML = `<div class="yt-loader" style="grid-column: 1/-1;"><p style="color:#f00;">Failed to fetch results</p></div>`;
+    } finally {
+        isLoading = false;
+    }
+}
+
+// Switch category
+async function switchCategory(category, btn) {
+    if (isLoading) return;
+
+    // Update UI (Pills)
+    document.querySelectorAll('.yt-category-pill').forEach(b => b.classList.remove('active'));
+    if (btn && btn.classList) btn.classList.add('active');
+
+    // Update UI (Sidebar)
+    document.querySelectorAll('.yt-sidebar-item').forEach(item => {
+        item.classList.remove('active');
+        if (item.getAttribute('data-category') === category) {
+            item.classList.add('active');
+        }
+    });
+
+    // Reset state
+    currentCategory = category;
+    currentPage = 1;
+    window.currentPage = 1;
+
+    const resultsArea = document.getElementById('resultsArea');
+    resultsArea.innerHTML = renderSkeleton();
+
+    // Hide pagination while loading
+    const paginationArea = document.getElementById('paginationArea');
+    if (paginationArea) paginationArea.style.display = 'none';
+
+    // Load both videos and shorts with current category, sort, and region
+    await loadTrending(true);
+
+    // Also reload shorts to match category
+    if (typeof loadShorts === 'function') {
+        loadShorts();
+    }
+
+    // Render pagination
+    if (typeof renderPagination === 'function') {
+        renderPagination();
+    }
+}
+
+// Load more videos
+async function loadMore() {
+    currentPage++;
+    await loadTrending(false);
+}
+
+// Load trending videos
+async function loadTrending(reset = true) {
+    if (isLoading && reset) isLoading = false;
+
+    const resultsArea = document.getElementById('resultsArea');
+    const loadMoreArea = document.getElementById('loadMoreArea');
+    const loadMoreBtn = document.getElementById('loadMoreBtn');
+
+    if (!resultsArea) return; // Exit if not on home page
+
+    isLoading = true;
+    if (!reset && loadMoreBtn) {
+        loadMoreBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Loading...';
+    }
+
+    try {
+        // Get sort and region values from page (if available)
+        const sortValue = window.currentSort || 'month';
+        const regionValue = window.currentRegion || 'vietnam';
+        const response = await fetch(`/api/trending?category=${currentCategory}&page=${currentPage}&sort=${sortValue}&region=${regionValue}`);
+        const data = await response.json();
+
+        if (data.error) {
+            console.error('Trending error:', data.error);
+            if (reset) {
+                resultsArea.innerHTML = renderNoContent(`Error: ${data.error}`, 'Something went wrong');
+            }
+            return;
+        }
+
+        if (reset) resultsArea.innerHTML = '';
+
+        if (data.length === 0) {
+            if (reset) {
+                resultsArea.innerHTML = renderNoContent();
+            }
+            const paginationArea = document.getElementById('paginationArea');
+            if (paginationArea) paginationArea.style.display = 'none';
+        } else {
+            displayResults(data, !reset);
+            const paginationArea = document.getElementById('paginationArea');
+            if (paginationArea) paginationArea.style.display = 'flex';
+
+            // Update pagination if function exists
+            if (typeof renderPagination === 'function') {
+                renderPagination();
+            }
+        }
+    } catch (e) {
+        console.error('Failed to load trending:', e);
+        if (reset) {
+            resultsArea.innerHTML = `<div class="yt-loader" style="grid-column: 1/-1;"><p style="color:#f00;">Connection error</p></div>`;
+        }
+    } finally {
+        isLoading = false;
+    }
+}
+
+// Display results with YouTube-style cards
+function displayResults(videos, append = false) {
+    const resultsArea = document.getElementById('resultsArea');
+    if (!append) resultsArea.innerHTML = '';
+
+    if (videos.length === 0 && !append) {
+        resultsArea.innerHTML = renderNoContent();
+        return;
+    }
+
+    videos.forEach(video => {
+        const card = document.createElement('div');
+        card.className = 'yt-video-card';
+        card.innerHTML = `
+            <div class="yt-thumbnail-container">
+                <img class="yt-thumbnail" src="${video.thumbnail}" alt="${escapeHtml(video.title)}" loading="lazy">
+                ${video.duration ? `<span class="yt-duration">${video.duration}</span>` : ''}
+            </div>
+            <div class="yt-video-details">
+                <div class="yt-channel-avatar">
+                    ${video.uploader ? video.uploader.charAt(0).toUpperCase() : 'Y'}
+                </div>
+                <div class="yt-video-meta">
+                    <h3 class="yt-video-title">${escapeHtml(video.title)}</h3>
+                    <p class="yt-channel-name">${escapeHtml(video.uploader || 'Unknown')}</p>
+                    <p class="yt-video-stats">${formatViews(video.view_count)} views • ${formatDate(video.upload_date)}</p>
+                </div>
+            </div>
+        `;
+        card.addEventListener('click', () => {
+            window.location.href = `/watch?v=${video.id}`;
+        });
+        resultsArea.appendChild(card);
+    });
+}
+
+// Format view count (YouTube style)
+function formatViews(views) {
+    if (!views) return '0';
+    const num = parseInt(views);
+    if (num >= 1000000000) return (num / 1000000000).toFixed(1) + 'B';
+    if (num >= 1000000) return (num / 1000000).toFixed(1) + 'M';
+    if (num >= 1000) return (num / 1000).toFixed(1) + 'K';
+    return num.toLocaleString();
+}
+
+// Format date (YouTube style: "2 hours ago", "3 days ago", etc.)
+function formatDate(dateStr) {
+    if (!dateStr) return 'Recently';
+
+    // Handle YYYYMMDD format
+    if (/^\d{8}$/.test(dateStr)) {
+        const year = dateStr.substring(0, 4);
+        const month = dateStr.substring(4, 6);
+        const day = dateStr.substring(6, 8);
+        dateStr = `${year}-${month}-${day}`;
+    }
+
+    const date = new Date(dateStr);
+    if (isNaN(date.getTime())) return 'Recently';
+
+    const now = new Date();
+    const diffMs = now - date;
+    const diffSec = Math.floor(diffMs / 1000);
+    const diffMin = Math.floor(diffSec / 60);
+    const diffHour = Math.floor(diffMin / 60);
+    const diffDay = Math.floor(diffHour / 24);
+    const diffWeek = Math.floor(diffDay / 7);
+    const diffMonth = Math.floor(diffDay / 30);
+    const diffYear = Math.floor(diffDay / 365);
+
+    if (diffYear > 0) return `${diffYear} year${diffYear > 1 ? 's' : ''} ago`;
+    if (diffMonth > 0) return `${diffMonth} month${diffMonth > 1 ? 's' : ''} ago`;
+    if (diffWeek > 0) return `${diffWeek} week${diffWeek > 1 ? 's' : ''} ago`;
+    if (diffDay > 0) return `${diffDay} day${diffDay > 1 ? 's' : ''} ago`;
+    if (diffHour > 0) return `${diffHour} hour${diffHour > 1 ? 's' : ''} ago`;
+    if (diffMin > 0) return `${diffMin} minute${diffMin > 1 ? 's' : ''} ago`;
+    return 'Just now';
+}
+
+// Escape HTML to prevent XSS
+function escapeHtml(text) {
+    if (!text) return '';
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
+// Sidebar toggle (for mobile)
+function toggleSidebar() {
+    const sidebar = document.getElementById('sidebar');
+    const main = document.getElementById('mainContent');
+
+    if (window.innerWidth <= 1024) {
+        sidebar.classList.toggle('open');
+    } else {
+        sidebar.classList.toggle('collapsed');
+        main.classList.toggle('sidebar-collapsed');
+        localStorage.setItem('sidebarCollapsed', sidebar.classList.contains('collapsed'));
+    }
+}
+
+// Close sidebar when clicking outside (mobile)
+document.addEventListener('click', (e) => {
+    const sidebar = document.getElementById('sidebar');
+    const menuBtn = document.querySelector('.yt-menu-btn');
+
+    if (window.innerWidth <= 1024 &&
+        sidebar &&
+        sidebar.classList.contains('open') &&
+        !sidebar.contains(e.target) &&
+        menuBtn && !menuBtn.contains(e.target)) {
+        sidebar.classList.remove('open');
+    }
+});
+
+// --- Theme Logic ---
+function initTheme() {
+    const savedTheme = localStorage.getItem('theme') || 'dark';
+    document.documentElement.setAttribute('data-theme', savedTheme);
+
+    // Update toggle if exists
+    const toggle = document.getElementById('themeToggle');
+    if (toggle) {
+        toggle.checked = savedTheme === 'dark';
+    }
+}
+
+function toggleTheme() {
+    const current = document.documentElement.getAttribute('data-theme');
+    const newTheme = current === 'light' ? 'dark' : 'light';
+
+    document.documentElement.setAttribute('data-theme', newTheme);
+    localStorage.setItem('theme', newTheme);
+}
+
+// --- Profile Logic ---
+async function updateProfile(e) {
+    if (e) e.preventDefault();
+
+    const displayName = document.getElementById('displayName').value;
+    const btn = e.target.querySelector('button');
+    const originalText = btn.innerHTML;
+
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Saving...';
+
+    try {
+        const response = await fetch('/api/update_profile', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ username: displayName })
+        });
+
+        const data = await response.json();
+
+        if (data.success) {
+            showToast('Profile updated successfully!', 'success');
+            // Update UI immediately
+            const avatarName = document.querySelector('.yt-avatar');
+            if (avatarName) avatarName.title = displayName;
+        } else {
+            showToast(data.message || 'Update failed', 'error');
+        }
+    } catch (err) {
+        showToast('Network error', 'error');
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = originalText;
+    }
+}

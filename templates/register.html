@@ -1,0 +1,212 @@
+{% extends "layout.html" %}
+
+{% block content %}
+<div class="yt-auth-container">
+    <div class="yt-auth-card">
+        <!-- Logo -->
+        <div class="yt-auth-logo">
+            <div class="yt-logo-icon" style="font-size: 24px;">KV-Tube</div>
+        </div>
+
+        <h2>Create account</h2>
+        <p>to start watching on KV-Tube</p>
+
+        {% with messages = get_flashed_messages() %}
+        {% if messages %}
+        <div class="yt-auth-alert">
+            <i class="fas fa-exclamation-circle"></i>
+            {{ messages[0] }}
+        </div>
+        {% endif %}
+        {% endwith %}
+
+        <form method="POST" action="/register" class="yt-auth-form">
+            <div class="yt-form-group">
+                <input type="text" name="username" class="yt-form-input" placeholder=" " required id="username">
+                <label for="username" class="yt-form-label">Username</label>
+            </div>
+
+            <div class="yt-form-group">
+                <input type="password" name="password" class="yt-form-input" placeholder=" " required id="password">
+                <label for="password" class="yt-form-label">Password</label>
+            </div>
+
+            <button type="submit" class="yt-auth-submit">
+                <i class="fas fa-user-plus"></i>
+                Create Account
+            </button>
+        </form>
+
+        <div class="yt-auth-divider">
+            <span>or</span>
+        </div>
+
+        <p class="yt-auth-footer">
+            Already have an account?
+            <a href="/login" class="yt-auth-link">Sign in</a>
+        </p>
+    </div>
+</div>
+
+<style>
+    .yt-auth-container {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        min-height: calc(100vh - var(--yt-header-height) - 100px);
+        padding: 24px;
+    }
+
+    .yt-auth-card {
+        background: var(--yt-bg-secondary);
+        border-radius: 16px;
+        padding: 48px 40px;
+        width: 100%;
+        max-width: 420px;
+        text-align: center;
+        border: 1px solid var(--yt-border);
+    }
+
+    .yt-auth-logo {
+        margin-bottom: 24px;
+    }
+
+    .yt-auth-card h2 {
+        font-size: 24px;
+        font-weight: 500;
+        margin-bottom: 8px;
+        color: var(--yt-text-primary);
+    }
+
+    .yt-auth-card>p {
+        color: var(--yt-text-secondary);
+        font-size: 14px;
+        margin-bottom: 32px;
+    }
+
+    .yt-auth-alert {
+        background: rgba(244, 67, 54, 0.1);
+        color: #f44336;
+        padding: 12px 16px;
+        border-radius: 8px;
+        margin-bottom: 24px;
+        font-size: 14px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        text-align: left;
+    }
+
+    .yt-auth-form {
+        display: flex;
+        flex-direction: column;
+        gap: 20px;
+    }
+
+    .yt-form-group {
+        position: relative;
+        text-align: left;
+    }
+
+    .yt-form-input {
+        width: 100%;
+        padding: 16px 14px;
+        font-size: 16px;
+        color: var(--yt-text-primary);
+        background: var(--yt-bg-primary);
+        border: 1px solid var(--yt-border);
+        border-radius: 8px;
+        outline: none;
+        transition: border-color 0.2s, box-shadow 0.2s;
+    }
+
+    .yt-form-input:focus {
+        border-color: var(--yt-accent-blue);
+        box-shadow: 0 0 0 3px rgba(62, 166, 255, 0.2);
+    }
+
+    .yt-form-label {
+        position: absolute;
+        left: 14px;
+        top: 50%;
+        transform: translateY(-50%);
+        font-size: 16px;
+        color: var(--yt-text-secondary);
+        pointer-events: none;
+        transition: all 0.2s;
+        background: var(--yt-bg-primary);
+        padding: 0 4px;
+    }
+
+    .yt-form-input:focus+.yt-form-label,
+    .yt-form-input:not(:placeholder-shown)+.yt-form-label {
+        top: 0;
+        font-size: 12px;
+        color: var(--yt-accent-blue);
+    }
+
+    .yt-auth-submit {
+        background: var(--yt-accent-blue);
+        color: white;
+        padding: 14px 24px;
+        border-radius: 24px;
+        font-size: 15px;
+        font-weight: 500;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 8px;
+        margin-top: 8px;
+        transition: background 0.2s, transform 0.1s;
+    }
+
+    .yt-auth-submit:hover {
+        background: #258fd9;
+        transform: scale(1.02);
+    }
+
+    .yt-auth-submit:active {
+        transform: scale(0.98);
+    }
+
+    .yt-auth-divider {
+        display: flex;
+        align-items: center;
+        margin: 24px 0;
+    }
+
+    .yt-auth-divider::before,
+    .yt-auth-divider::after {
+        content: '';
+        flex: 1;
+        height: 1px;
+        background: var(--yt-border);
+    }
+
+    .yt-auth-divider span {
+        padding: 0 16px;
+        color: var(--yt-text-secondary);
+        font-size: 13px;
+    }
+
+    .yt-auth-footer {
+        color: var(--yt-text-secondary);
+        font-size: 14px;
+    }
+
+    .yt-auth-link {
+        color: var(--yt-accent-blue);
+        font-weight: 500;
+    }
+
+    .yt-auth-link:hover {
+        text-decoration: underline;
+    }
+
+    @media (max-width: 480px) {
+        .yt-auth-card {
+            padding: 32px 24px;
+        }
+    }
+</style>
+{% endblock %}

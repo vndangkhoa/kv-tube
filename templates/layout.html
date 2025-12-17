@@ -1,0 +1,342 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="KV-Tube">
+    <title>KV-Tube</title>
+    <link rel="icon" type="image/x-icon" href="{{ url_for('static', filename='favicon.ico') }}">
+
+    <!-- Open Graph / Facebook -->
+    <meta property="og:type" content="website">
+    <meta property="og:url" content="{{ request.url }}">
+    <meta property="og:title" content="KV-Tube - Video Streaming">
+    <meta property="og:description" content="Stream your favorite videos on KV-Tube.">
+    <meta property="og:image" content="{{ url_for('static', filename='og-image.jpg', _external=True) }}">
+
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <link rel="manifest" href="{{ url_for('static', filename='manifest.json') }}">
+</head>
+
+<body>
+    <div class="app-wrapper">
+        <!-- YouTube-style Header -->
+        <header class="yt-header">
+            <div class="yt-header-start">
+                <button class="yt-menu-btn" onclick="toggleSidebar()" aria-label="Menu">
+                    <i class="fas fa-bars"></i>
+                </button>
+                <a href="/" class="yt-logo">
+                    <div class="yt-logo-icon">KV-Tube</div>
+                </a>
+            </div>
+
+            <div class="yt-header-center">
+                <form class="yt-search-form" action="/" method="get" onsubmit="handleSearch(event)">
+                    <input type="text" id="searchInput" class="yt-search-input" placeholder="Search">
+                    <button type="submit" class="yt-search-btn" aria-label="Search">
+                        <i class="fas fa-search"></i>
+                    </button>
+                </form>
+            </div>
+
+            <div class="yt-header-end">
+                <button class="yt-icon-btn yt-mobile-search" onclick="toggleMobileSearch()" aria-label="Search">
+                    <i class="fas fa-search"></i>
+                </button>
+                {% if session.get('user_id') %}
+                <div class="yt-avatar" title="{{ session.username }}">
+                    {{ session.username[0]|upper }}
+                </div>
+                {% else %}
+                <a href="/login" class="yt-signin-btn">
+                    <i class="fas fa-user"></i>
+                    <span class="yt-signin-text">Sign in</span>
+                </a>
+                {% endif %}
+            </div>
+        </header>
+
+        <!-- Mobile Search Bar -->
+        <div class="yt-mobile-search-bar" id="mobileSearchBar">
+            <button onclick="toggleMobileSearch()" class="yt-back-btn">
+                <i class="fas fa-arrow-left"></i>
+            </button>
+            <input type="text" id="mobileSearchInput" placeholder="Search"
+                onkeypress="if(event.key==='Enter'){searchYouTube(this.value);toggleMobileSearch();}">
+        </div>
+
+        <!-- YouTube-style Sidebar -->
+        <aside class="yt-sidebar" id="sidebar">
+            <a href="/" class="yt-sidebar-item {% if request.path == '/' %}active{% endif %}" data-category="all">
+                <i class="fas fa-home"></i>
+                <span>Home</span>
+            </a>
+            <a href="javascript:void(0)" class="yt-sidebar-item" data-category="shorts"
+                onclick="navigateCategory('shorts')">
+                <i class="fas fa-bolt"></i>
+                <span>Shorts</span>
+            </a>
+
+            <div class="yt-sidebar-divider"></div>
+
+            <a href="/my-videos?type=history" class="yt-sidebar-item" data-category="history">
+                <i class="fas fa-history"></i>
+                <span>History</span>
+            </a>
+            <a href="/my-videos?type=saved"
+                class="yt-sidebar-item {% if request.path == '/my-videos' %}active{% endif %}" data-category="saved">
+                <i class="fas fa-bookmark"></i>
+                <span>Library</span>
+            </a>
+
+            <div class="yt-sidebar-divider"></div>
+
+            <div class="yt-sidebar-title">Explore</div>
+            <a href="javascript:void(0)" class="yt-sidebar-item" data-category="tech"
+                onclick="navigateCategory('tech')">
+                <i class="fas fa-microchip"></i>
+                <span>AI & Tech</span>
+            </a>
+            <a href="javascript:void(0)" class="yt-sidebar-item" data-category="trending"
+                onclick="navigateCategory('trending')">
+                <i class="fas fa-fire"></i>
+                <span>Trending</span>
+            </a>
+            <a href="javascript:void(0)" class="yt-sidebar-item" data-category="music"
+                onclick="navigateCategory('music')">
+                <i class="fas fa-music"></i>
+                <span>Music</span>
+            </a>
+            <a href="javascript:void(0)" class="yt-sidebar-item" data-category="gaming"
+                onclick="navigateCategory('gaming')">
+                <i class="fas fa-gamepad"></i>
+                <span>Gaming</span>
+            </a>
+            <a href="javascript:void(0)" class="yt-sidebar-item" data-category="news"
+                onclick="navigateCategory('news')">
+                <i class="fas fa-newspaper"></i>
+                <span>News</span>
+            </a>
+            <a href="javascript:void(0)" class="yt-sidebar-item" data-category="sports"
+                onclick="navigateCategory('sports')">
+                <i class="fas fa-football-ball"></i>
+                <span>Sports</span>
+            </a>
+
+            <div class="yt-sidebar-divider"></div>
+
+            <a href="/settings" class="yt-sidebar-item {% if request.path == '/settings' %}active{% endif %}">
+                <i class="fas fa-cog"></i>
+                <span>Settings</span>
+            </a>
+            {% if session.get('user_id') %}
+            <a href="/logout" class="yt-sidebar-item">
+                <i class="fas fa-sign-out-alt"></i>
+                <span>Sign out</span>
+            </a>
+            {% endif %}
+        </aside>
+
+        <!-- Sidebar Overlay (Mobile) -->
+        <div class="yt-sidebar-overlay" id="sidebarOverlay" onclick="closeSidebar()"></div>
+
+        <!-- Main Content -->
+        <main class="yt-main" id="mainContent">
+            {% block content %}{% endblock %}
+        </main>
+    </div>
+
+    <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+    <script>
+        // Register Service Worker
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('{{ url_for("static", filename="sw.js") }}')
+                    .then(registration => {
+                        console.log('ServiceWorker registration successful');
+                    })
+                    .catch(err => {
+                        console.log('ServiceWorker registration failed: ', err);
+                    });
+            });
+        }
+
+        // Add to Home Screen prompt
+        let deferredPrompt;
+        const addBtn = document.querySelector('.add-button');
+
+        window.addEventListener('beforeinstallprompt', (e) => {
+            // Prevent Chrome 67 and earlier from automatically showing the prompt
+            e.preventDefault();
+            // Stash the event so it can be triggered later
+            deferredPrompt = e;
+            // Show the button
+            if (addBtn) addBtn.style.display = 'block';
+
+            // Show the install button if it exists
+            const installButton = document.getElementById('install-button');
+            if (installButton) {
+                installButton.style.display = 'block';
+                installButton.addEventListener('click', () => {
+                    // Show the prompt
+                    deferredPrompt.prompt();
+                    // Wait for the user to respond to the prompt
+                    deferredPrompt.userChoice.then((choiceResult) => {
+                        if (choiceResult.outcome === 'accepted') {
+                            console.log('User accepted the install prompt');
+                        } else {
+                            console.log('User dismissed the install prompt');
+                        }
+                        deferredPrompt = null;
+                    });
+                });
+            }
+        });
+
+        // Sidebar toggle
+        function toggleSidebar() {
+            const sidebar = document.getElementById('sidebar');
+            const main = document.getElementById('mainContent');
+            const overlay = document.getElementById('sidebarOverlay');
+
+            if (window.innerWidth <= 1024) {
+                sidebar.classList.toggle('open');
+                overlay.classList.toggle('active');
+            } else {
+                sidebar.classList.toggle('collapsed');
+                main.classList.toggle('sidebar-collapsed');
+                localStorage.setItem('sidebarCollapsed', sidebar.classList.contains('collapsed'));
+            }
+        }
+
+        function closeSidebar() {
+            document.getElementById('sidebar').classList.remove('open');
+            document.getElementById('sidebarOverlay').classList.remove('active');
+        }
+
+        // Restore sidebar state (desktop only)
+        if (window.innerWidth > 1024 && localStorage.getItem('sidebarCollapsed') === 'true') {
+            document.getElementById('sidebar').classList.add('collapsed');
+            document.getElementById('mainContent').classList.add('sidebar-collapsed');
+        }
+
+        // Mobile search toggle
+        function toggleMobileSearch() {
+            const searchBar = document.getElementById('mobileSearchBar');
+            searchBar.classList.toggle('active');
+            if (searchBar.classList.contains('active')) {
+                document.getElementById('mobileSearchInput').focus();
+            }
+        }
+
+        // Search handler
+        function handleSearch(e) {
+            e.preventDefault();
+            const query = document.getElementById('searchInput').value.trim();
+            if (query && typeof searchYouTube === 'function') {
+                searchYouTube(query);
+            }
+        }
+
+        // Navigate to category (syncs sidebar with top pills)
+        function navigateCategory(category) {
+            // Close mobile sidebar
+            closeSidebar();
+
+            // If on home page, trigger category switch
+            if (window.location.pathname === '/') {
+                const pill = document.querySelector(`.yt-category-pill[data-category="${category}"]`);
+                if (pill) {
+                    pill.click();
+                } else if (typeof switchCategory === 'function') {
+                    // Create a mock button for the function
+                    const pills = document.querySelectorAll('.yt-category-pill');
+                    pills.forEach(p => p.classList.remove('active'));
+                    switchCategory(category, { classList: { add: () => { } } });
+                }
+            } else {
+                // Navigate to home with category
+                window.location.href = `/?category=${category}`;
+            }
+        }
+    </script>
+    <!-- Toast Notification Container -->
+    <div id="toastContainer" class="yt-toast-container"></div>
+
+    <style>
+        .yt-toast-container {
+            position: fixed;
+            bottom: 24px;
+            left: 24px;
+            z-index: 9999;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            pointer-events: none;
+        }
+
+        .yt-toast {
+            background: #1f1f1f;
+            color: #fff;
+            padding: 12px 24px;
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+            font-size: 14px;
+            animation: slideUp 0.3s ease;
+            pointer-events: auto;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            min-width: 280px;
+            border-left: 4px solid #3ea6ff;
+        }
+
+        .yt-toast.error {
+            border-left-color: #ff4e45;
+        }
+
+        .yt-toast.success {
+            border-left-color: #2ba640;
+        }
+
+        @keyframes slideUp {
+            from {
+                transform: translateY(100%);
+                opacity: 0;
+            }
+
+            to {
+                transform: translateY(0);
+                opacity: 1;
+            }
+        }
+    </style>
+
+    <script>
+        function showToast(message, type = 'info') {
+            const container = document.getElementById('toastContainer');
+            const toast = document.createElement('div');
+            toast.className = `yt-toast ${type}`;
+            toast.innerHTML = `<span>${message}</span>`;
+
+            container.appendChild(toast);
+
+            // Remove after 3 seconds
+            setTimeout(() => {
+                toast.style.opacity = '0';
+                toast.style.transform = 'translateY(20px)';
+                toast.style.transition = 'all 0.3s';
+                setTimeout(() => toast.remove(), 300);
+            }, 5000);
+        }
+    </script>
+</body>
+
+</html>

@@ -1,0 +1,650 @@
+{% extends "layout.html" %}
+
+{% block content %}
+<!-- Sort Options -->
+<div class="yt-sort-container">
+    <!-- Combined Filter Group -->
+    <div class="yt-filter-group">
+        <button class="yt-sort-btn" data-sort="day" onclick="switchSort('day', this)">Today</button>
+        <button class="yt-sort-btn" data-sort="week" onclick="switchSort('week', this)">This Week</button>
+        <button class="yt-sort-btn active" data-sort="month" onclick="switchSort('month', this)">This Month</button>
+        <button class="yt-sort-btn" data-sort="year" onclick="switchSort('year', this)">This Year</button>
+        <div class="yt-divider-vertical"></div>
+        <button class="yt-region-btn active" data-region="vietnam" onclick="switchRegion('vietnam', this)">🇻🇳
+            VN</button>
+        <button class="yt-region-btn" data-region="global" onclick="switchRegion('global', this)">🌍 Global</button>
+    </div>
+</div>
+
+<!-- ... (Categories kept same) ... -->
+
+<!-- CSS Update -->
+<style>
+    /* ... existing styles ... */
+
+    .yt-sort-container {
+        display: flex;
+        align-items: center;
+        overflow-x: auto;
+        padding: 12px 0;
+        border-bottom: 1px solid var(--yt-border);
+        margin-bottom: 8px;
+        scrollbar-width: none;
+    }
+
+    .yt-sort-container::-webkit-scrollbar {
+        display: none;
+    }
+
+    .yt-filter-group {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        flex-wrap: nowrap;
+    }
+
+    .yt-divider-vertical {
+        width: 1px;
+        height: 20px;
+        background: var(--yt-border);
+        margin: 0 4px;
+    }
+
+    /* Mobile Enhancements */
+    @media (max-width: 768px) {
+
+        /* Mobile List View Transition */
+        .yt-video-grid {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .yt-video-card {
+            display: flex;
+            flex-direction: row;
+            align-items: flex-start;
+            gap: 12px;
+            height: auto;
+        }
+
+        .yt-thumbnail-container {
+            width: 160px;
+            /* Base width for list view thumbnail */
+            min-width: 140px;
+            aspect-ratio: 16/9;
+            flex-shrink: 0;
+            border-radius: 8px;
+            /* Slightly tighter radius */
+        }
+
+        .yt-video-info {
+            padding: 2px 0 0 0;
+            /* Remove top padding */
+        }
+
+        .yt-video-details {
+            padding: 0;
+            flex-direction: column;
+            gap: 4px;
+        }
+
+        /* Show avatar/channel info again but styled for list view */
+        .yt-channel-avatar {
+            display: none;
+            /* Keep avatar hidden to save space or move to meta */
+        }
+
+        .yt-profile-pic-mobile {
+            display: none;
+            /* handled below */
+        }
+
+        .yt-video-meta {
+            padding: 0;
+        }
+
+        .yt-video-title {
+            font-size: 14px;
+            line-height: 1.3;
+            max-height: 2.6em;
+            /* 2 lines */
+            margin-bottom: 4px;
+        }
+
+        .yt-channel-name {
+            display: block;
+            /* Show channel name again */
+            font-size: 12px;
+            color: var(--yt-text-secondary);
+        }
+
+        .yt-video-stats {
+            display: block;
+            /* Show views */
+            font-size: 12px;
+        }
+
+        /* Sort container adjustments */
+        .yt-sort-container {
+            padding-right: 16px;
+        }
+
+        .yt-sort-btn,
+        .yt-region-btn {
+            font-size: 13px;
+            padding: 6px 12px;
+            background: var(--yt-bg-secondary);
+            border-radius: 8px;
+            /* More like chips */
+            border: none;
+        }
+
+        .yt-sort-btn.active,
+        .yt-region-btn.active {
+            background: var(--yt-text-primary);
+            color: var(--yt-bg-primary);
+        }
+    }
+</style>
+
+<!-- Category Pills -->
+<div class="yt-categories">
+    <button class="yt-category-pill" data-category="tech" onclick="switchCategory('tech', this)">AI & Tech</button>
+    <button class="yt-category-pill active" data-category="all" onclick="switchCategory('all', this)">All</button>
+    <button class="yt-category-pill" data-category="shorts" onclick="switchCategory('shorts', this)">Shorts</button>
+    <button class="yt-category-pill" data-category="music" onclick="switchCategory('music', this)">Music</button>
+    <button class="yt-category-pill" data-category="gaming" onclick="switchCategory('gaming', this)">Gaming</button>
+    <button class="yt-category-pill" data-category="news" onclick="switchCategory('news', this)">News</button>
+    <button class="yt-category-pill" data-category="trending"
+        onclick="switchCategory('trending', this)">Trending</button>
+    <button class="yt-category-pill" data-category="sports" onclick="switchCategory('sports', this)">Sports</button>
+    <button class="yt-category-pill" data-category="podcasts"
+        onclick="switchCategory('podcasts', this)">Podcasts</button>
+    <button class="yt-category-pill" data-category="live" onclick="switchCategory('live', this)">Live</button>
+</div>
+
+<!-- Shorts Section -->
+<div id="shortsSection" class="yt-section">
+    <div class="yt-section-header">
+        <h2><i class="fas fa-bolt"></i> Shorts</h2>
+    </div>
+    <div class="yt-shorts-container">
+        <button class="yt-shorts-arrow yt-shorts-left" onclick="scrollShorts('left')">
+            <i class="fas fa-chevron-left"></i>
+        </button>
+        <div id="shortsGrid" class="yt-shorts-grid">
+            <!-- Shorts loaded here -->
+        </div>
+        <button class="yt-shorts-arrow yt-shorts-right" onclick="scrollShorts('right')">
+            <i class="fas fa-chevron-right"></i>
+        </button>
+    </div>
+</div>
+
+<!-- Videos Section -->
+<div id="videosSection" class="yt-section">
+    <div class="yt-section-header">
+        <h2><i class="fas fa-play-circle"></i> Videos</h2>
+    </div>
+    <div id="resultsArea" class="yt-video-grid">
+        <div id="initialLoading" class="yt-loader" style="grid-column: 1/-1;">
+            <div class="yt-spinner">
+                <div class="yt-spinner-ring"></div>
+                <div class="yt-spinner-ring"></div>
+                <div class="yt-spinner-ring"></div>
+                <div class="yt-spinner-glow"></div>
+            </div>
+            <p>Loading videos...</p>
+        </div>
+    </div>
+</div>
+
+<!-- Pagination -->
+<div id="paginationArea" class="yt-pagination">
+    <button class="yt-page-btn yt-page-prev" onclick="goToPage(currentPage - 1)" disabled>
+        <i class="fas fa-chevron-left"></i>
+    </button>
+    <div class="yt-page-numbers" id="pageNumbers">
+    </div>
+    <button class="yt-page-btn yt-page-next" onclick="goToPage(currentPage + 1)">
+        <i class="fas fa-chevron-right"></i>
+    </button>
+</div>
+
+<style>
+    .yt-sort-container {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        flex-wrap: wrap;
+        gap: 16px;
+        padding: 12px 0;
+        border-bottom: 1px solid var(--yt-border);
+        margin-bottom: 8px;
+    }
+
+    .yt-sort-group {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        flex-wrap: wrap;
+    }
+
+    .yt-sort-label {
+        font-size: 14px;
+        color: var(--yt-text-secondary);
+        margin-right: 4px;
+    }
+
+    .yt-sort-btn,
+    .yt-region-btn {
+        padding: 6px 12px;
+        background: transparent;
+        border: 1px solid var(--yt-border);
+        border-radius: 18px;
+        font-size: 13px;
+        color: var(--yt-text-primary);
+        cursor: pointer;
+        transition: all 0.2s;
+    }
+
+    .yt-sort-btn:hover,
+    .yt-region-btn:hover {
+        background: var(--yt-bg-secondary);
+    }
+
+    .yt-sort-btn.active {
+        background: var(--yt-text-primary);
+        color: var(--yt-bg-primary);
+        border-color: var(--yt-text-primary);
+    }
+
+    .yt-region-btn.active {
+        background: var(--yt-accent-red);
+        color: white;
+        border-color: var(--yt-accent-red);
+    }
+
+    /* Sections */
+    .yt-section {
+        margin-bottom: 32px;
+    }
+
+    .yt-section-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 16px;
+        padding: 8px 0;
+    }
+
+    .yt-section-header h2 {
+        font-size: 20px;
+        font-weight: 600;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+    }
+
+    .yt-section-header h2 i {
+        color: var(--yt-accent-red);
+    }
+
+    .yt-see-all {
+        color: var(--yt-accent-blue);
+        font-size: 14px;
+        font-weight: 500;
+    }
+
+    .yt-see-all:hover {
+        text-decoration: underline;
+    }
+
+    /* Shorts Container with Arrows */
+    .yt-shorts-container {
+        position: relative;
+        display: flex;
+        align-items: center;
+    }
+
+    .yt-shorts-arrow {
+        position: absolute;
+        top: 50%;
+        transform: translateY(-50%);
+        width: 40px;
+        height: 40px;
+        border-radius: 50%;
+        background: var(--yt-bg-primary);
+        border: 1px solid var(--yt-border);
+        color: var(--yt-text-primary);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        cursor: pointer;
+        z-index: 10;
+        transition: all 0.2s;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+    }
+
+    .yt-shorts-arrow:hover {
+        background: var(--yt-bg-secondary);
+        transform: translateY(-50%) scale(1.1);
+    }
+
+    .yt-shorts-left {
+        left: -20px;
+    }
+
+    .yt-shorts-right {
+        right: -20px;
+    }
+
+    /* Shorts Grid (Horizontal Scroll) */
+    .yt-shorts-grid {
+        display: flex;
+        gap: 12px;
+        overflow-x: auto;
+        padding: 8px 0;
+        scroll-behavior: smooth;
+        scrollbar-width: none;
+        flex: 1;
+    }
+
+    .yt-shorts-grid::-webkit-scrollbar {
+        display: none;
+    }
+
+    .yt-short-card {
+        flex-shrink: 0;
+        width: 180px;
+        cursor: pointer;
+        transition: transform 0.2s;
+    }
+
+    .yt-short-card:hover {
+        transform: scale(1.02);
+    }
+
+    .yt-short-thumb {
+        width: 180px;
+        height: 320px;
+        border-radius: 12px;
+        object-fit: cover;
+        background: var(--yt-bg-secondary);
+    }
+
+    .yt-short-title {
+        font-size: 14px;
+        font-weight: 500;
+        margin-top: 8px;
+        display: -webkit-box;
+        -webkit-line-clamp: 2;
+        line-clamp: 2;
+        -webkit-box-orient: vertical;
+        overflow: hidden;
+    }
+
+    .yt-short-views {
+        font-size: 12px;
+        color: var(--yt-text-secondary);
+        margin-top: 4px;
+    }
+
+    /* Pagination */
+    .yt-pagination {
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        gap: 8px;
+        margin: 32px 0;
+    }
+
+    .yt-page-btn {
+        width: 40px;
+        height: 40px;
+        border-radius: 50%;
+        background: var(--yt-bg-secondary);
+        color: var(--yt-text-primary);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 14px;
+        transition: all 0.2s;
+    }
+
+    .yt-page-btn:hover:not(:disabled) {
+        background: var(--yt-bg-hover);
+    }
+
+    .yt-page-btn:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+    }
+
+    .yt-page-numbers {
+        display: flex;
+        gap: 4px;
+    }
+
+    .yt-page-num {
+        min-width: 40px;
+        height: 40px;
+        border-radius: 20px;
+        background: var(--yt-bg-secondary);
+        color: var(--yt-text-primary);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 14px;
+        font-weight: 500;
+        padding: 0 8px;
+        transition: all 0.2s;
+    }
+
+    .yt-page-num:hover {
+        background: var(--yt-bg-hover);
+    }
+
+    .yt-page-num.active {
+        background: var(--yt-accent-red);
+        color: white;
+    }
+
+    @media (max-width: 768px) {
+        .yt-sort-container {
+            /* flex-direction: column;  Old: stacked */
+            flex-direction: row;
+            /* New: horizontal scroll */
+            align-items: center;
+            flex-wrap: nowrap;
+            overflow-x: auto;
+            scrollbar-width: none;
+            /* Hide scrollbar Firefox */
+            -ms-overflow-style: none;
+            /* IE/Edge */
+            padding-right: 16px;
+            /* Right padding for scroll */
+        }
+
+        .yt-sort-container::-webkit-scrollbar {
+            display: none;
+            /* Hide scrollbar Chrome/Safari */
+        }
+
+        .yt-sort-label {
+            display: none;
+            /* Hide labels on mobile */
+        }
+
+        .yt-sort-btn,
+        .yt-region-btn {
+            padding: 6px 10px;
+            font-size: 12px;
+            white-space: nowrap;
+            flex-shrink: 0;
+        }
+
+        /* Force 2 columns on mobile */
+        .yt-video-grid {
+            grid-template-columns: repeat(2, 1fr);
+            gap: 10px;
+        }
+
+        .yt-short-card {
+            width: 140px;
+        }
+
+        .yt-short-thumb {
+            width: 140px;
+            height: 250px;
+        }
+
+        .yt-shorts-arrow {
+            display: none;
+        }
+    }
+</style>
+
+<script>
+    let currentSort = 'month';
+    let currentRegion = 'vietnam';
+    let totalPages = 10;
+
+    // Scroll shorts left/right
+    function scrollShorts(direction) {
+        const grid = document.getElementById('shortsGrid');
+        const scrollAmount = 400; // pixels to scroll
+
+        if (direction === 'left') {
+            grid.scrollBy({ left: -scrollAmount, behavior: 'smooth' });
+        } else {
+            grid.scrollBy({ left: scrollAmount, behavior: 'smooth' });
+        }
+    }
+
+    // Generate page numbers
+    function renderPagination() {
+        const container = document.getElementById('pageNumbers');
+        container.innerHTML = '';
+
+        const startPage = Math.max(1, currentPage - 4);
+        const endPage = Math.min(totalPages, startPage + 9);
+
+        for (let i = startPage; i <= endPage; i++) {
+            const btn = document.createElement('button');
+            btn.className = `yt-page-num ${i === currentPage ? 'active' : ''}`;
+            btn.innerText = i;
+            btn.onclick = () => goToPage(i);
+            container.appendChild(btn);
+        }
+
+        document.querySelector('.yt-page-prev').disabled = currentPage <= 1;
+        document.querySelector('.yt-page-next').disabled = currentPage >= totalPages;
+    }
+
+    function goToPage(page) {
+        if (page < 1 || page > totalPages) return;
+        currentPage = page;
+        window.currentPage = page;
+        renderPagination();
+        loadTrending(true);
+        loadShorts(); // Also update shorts when page changes
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+
+    function switchSort(sort, btn) {
+        document.querySelectorAll('.yt-sort-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        currentSort = sort;
+        window.currentSort = sort;
+        currentPage = 1;
+        loadTrending(true);
+        loadShorts();
+    }
+
+    function switchRegion(region, btn) {
+        document.querySelectorAll('.yt-region-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        currentRegion = region;
+        window.currentRegion = region;
+        currentPage = 1;
+        loadTrending(true);
+        loadShorts();
+    }
+
+    window.currentSort = 'month';
+    window.currentRegion = 'vietnam';
+    window.currentPage = 1;
+
+    // Load shorts with current category, pagination, sort, region
+    async function loadShorts() {
+        const shortsGrid = document.getElementById('shortsGrid');
+        shortsGrid.innerHTML = `<div class="yt-loader"><div class="yt-spinner">
+                <div class="yt-spinner-ring"></div>
+                <div class="yt-spinner-ring"></div>
+                <div class="yt-spinner-ring"></div>
+                <div class="yt-spinner-glow"></div>
+            </div></div>`;
+
+        try {
+            const page = window.currentPage || 1;
+            // Get shorts related to current category
+            const category = window.currentCategory || currentCategory || 'general';
+            // For shorts, we combine category with 'shorts' keyword
+            const shortsCategory = category === 'all' || category === 'general' ? 'shorts' : category;
+
+            const response = await fetch(`/api/trending?category=${shortsCategory}&page=${page}&sort=${currentSort}&region=${currentRegion}&shorts=1`);
+            const data = await response.json();
+
+            shortsGrid.innerHTML = '';
+            if (data && data.length > 0) {
+                data.slice(0, 10).forEach(video => {
+                    const card = document.createElement('div');
+                    card.className = 'yt-short-card';
+                    card.innerHTML = `
+                    <img src="${video.thumbnail}" class="yt-short-thumb" loading="lazy">
+                    <p class="yt-short-title">${escapeHtml(video.title)}</p>
+                    <p class="yt-short-views">${formatViews(video.view_count)} views</p>
+                `;
+                    card.onclick = () => window.location.href = `/watch?v=${video.id}`;
+                    shortsGrid.appendChild(card);
+                });
+            } else {
+                shortsGrid.innerHTML = '<p style="color:var(--yt-text-secondary);padding:20px;">No shorts found</p>';
+            }
+        } catch (e) {
+            console.error('Error loading shorts:', e);
+            shortsGrid.innerHTML = '<p style="color:var(--yt-text-secondary);padding:20px;">Could not load shorts</p>';
+        }
+    }
+
+    function escapeHtml(text) {
+        if (!text) return '';
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    }
+
+    function formatViews(views) {
+        if (!views) return '0';
+        const num = parseInt(views);
+        if (num >= 1000000) return (num / 1000000).toFixed(1) + 'M';
+        if (num >= 1000) return (num / 1000).toFixed(0) + 'K';
+        return num.toLocaleString();
+    }
+
+    // Init
+    document.addEventListener('DOMContentLoaded', () => {
+        loadShorts();
+        renderPagination();
+
+        const urlParams = new URLSearchParams(window.location.search);
+        const category = urlParams.get('category');
+        if (category) {
+            const pill = document.querySelector(`.yt-category-pill[data-category="${category}"]`);
+            if (pill) pill.click();
+        }
+    });
+</script>
+{% endblock %}

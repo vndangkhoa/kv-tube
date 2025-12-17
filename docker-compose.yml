@@ -1,0 +1,29 @@
+# KV-Tube Docker Compose for Synology NAS
+# Usage: docker-compose up -d
+
+version: '3.8'
+
+services:
+  kv-tube:
+    # build: .
+    image: vndangkhoa/kvtube:latest
+    container_name: kv-tube
+    restart: unless-stopped
+    ports:
+      - "5011:5001"
+    volumes:
+      # Persist data (Easy setup: Just maps a folder)
+      - ./data:/app/data
+      # Local videos folder (Optional)
+      # - ./videos:/app/youtube_downloads
+    environment:
+      - PYTHONUNBUFFERED=1
+      - FLASK_ENV=production
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:5001/" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"

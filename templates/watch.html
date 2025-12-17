@@ -1,0 +1,730 @@
+{% extends "layout.html" %}
+
+{% block content %}
+<!-- Artplayer -->
+<script src="https://cdn.jsdelivr.net/npm/artplayer/dist/artplayer.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+
+<div class="yt-watch-layout">
+    <!-- Player Section -->
+    <div class="yt-player-section">
+        <div class="yt-player-container">
+            <div id="artplayer-app" style="width: 100%; height: 100%;"></div>
+        </div>
+
+        <!-- Loading State -->
+        <div id="loading" class="yt-loader">
+            <div class="yt-spinner">
+                <div class="yt-spinner-ring"></div>
+                <div class="yt-spinner-ring"></div>
+                <div class="yt-spinner-ring"></div>
+                <div class="yt-spinner-glow"></div>
+            </div>
+            <p>Loading video...</p>
+        </div>
+
+        <!-- Video Info -->
+        <div class="yt-video-info" id="videoInfo" style="display:none;">
+            <h1 id="videoTitle">Loading...</h1>
+
+            <!-- Actions -->
+            <div class="yt-video-actions">
+                <button class="yt-action-btn" id="likeBtn">
+                    <i class="fas fa-thumbs-up"></i>
+                    <span id="likeCount">Like</span>
+                </button>
+                <button class="yt-action-btn" id="dislikeBtn">
+                    <i class="fas fa-thumbs-down"></i>
+                </button>
+                <button class="yt-action-btn" id="shareBtn">
+                    <i class="fas fa-share"></i>
+                    Share
+                </button>
+                <a class="yt-action-btn" id="downloadBtn" href="#" target="_blank">
+                    <i class="fas fa-download"></i>
+                    Download
+                </a>
+                <button class="yt-action-btn" id="saveBtn">
+                    <i class="far fa-bookmark"></i>
+                    Save
+                </button>
+                <button class="yt-action-btn" id="summarizeBtn" onclick="summarizeVideo()">
+                    <i class="fas fa-magic"></i>
+                    Summarize
+                </button>
+            </div>
+
+            <!-- Summary Box (Hidden by default) -->
+            <div class="yt-description-box" id="summaryBox"
+                style="display:none; margin-bottom:16px; border: 1px solid var(--yt-accent-blue); background: rgba(62, 166, 255, 0.1);">
+                <p class="yt-description-stats" style="color: var(--yt-accent-blue);"><i class="fas fa-sparkles"></i> AI
+                    Summary</p>
+                <p class="yt-description-text" id="summaryText">Generating summary...</p>
+            </div>
+
+            <!-- Channel Info -->
+            <div class="yt-channel-info">
+                <div class="yt-channel-details">
+                    <div class="yt-channel-avatar-lg" id="channelAvatar">
+                        <span id="channelAvatarLetter"></span>
+                    </div>
+                    <div>
+                        <p style="font-weight: 500;" id="channelName">Loading...</p>
+                        <p class="yt-video-stats" id="viewCount">0 views</p>
+                    </div>
+                </div>
+                <button class="yt-subscribe-btn">Subscribe</button>
+            </div>
+
+            <!-- Description -->
+            <div class="yt-description-box" id="descriptionBox" onclick="toggleDescription()">
+                <p class="yt-description-stats" id="descStats"></p>
+                <p class="yt-description-text" id="videoDesc">Loading description...</p>
+            </div>
+
+            <!-- Comments Section (Collapsible) -->
+            <div class="yt-comments-section" id="commentsSection">
+                <button class="yt-comments-toggle" id="commentsToggle" onclick="toggleComments()">
+                    <div class="yt-comments-preview">
+                        <span id="commentCountDisplay">Comments</span>
+                        <i class="fas fa-chevron-down" id="commentsChevron"></i>
+                    </div>
+                </button>
+                <div class="yt-comments-content" id="commentsContent" style="display: none;">
+                    <div class="yt-comments-header">
+                        <h3><span id="commentCount">0</span> Comments</h3>
+                    </div>
+                    <div class="yt-comments-list" id="commentsList">
+                        <!-- Comments loaded here -->
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Suggested Videos -->
+    <div class="yt-suggested" id="relatedVideos">
+        <h3 style="margin-bottom: 16px; font-size: 16px;">Related Videos</h3>
+    </div>
+</div>
+
+<style>
+    html,
+    body {
+        overflow-x: hidden;
+        width: 100%;
+        max-width: 100vw;
+    }
+
+    .yt-player-container {
+        position: relative;
+        width: 100%;
+        aspect-ratio: 16/9;
+        background: #000;
+        border-radius: 12px;
+        overflow: hidden;
+    }
+
+    #loading {
+        position: absolute;
+        top: 0;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: #000;
+        z-index: 10;
+    }
+
+    .yt-watch-layout {
+        display: grid;
+        grid-template-columns: 1fr 400px;
+        gap: 24px;
+        max-width: 1800px;
+    }
+
+    .yt-channel-avatar-lg {
+        width: 40px;
+        height: 40px;
+        border-radius: 50%;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 18px;
+        font-weight: 600;
+        color: white;
+    }
+
+    /* Comments Section - Collapsible */
+    .yt-comments-section {
+        margin-top: 24px;
+        border-top: 1px solid var(--yt-border);
+        padding-top: 16px;
+    }
+
+    .yt-comments-toggle {
+        width: 100%;
+        background: var(--yt-bg-secondary);
+        border-radius: 12px;
+        padding: 16px;
+        cursor: pointer;
+        transition: background 0.2s;
+    }
+
+    .yt-comments-toggle:hover {
+        background: var(--yt-bg-hover);
+    }
+
+    .yt-comments-preview {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        color: var(--yt-text-primary);
+        font-size: 14px;
+        font-weight: 500;
+    }
+
+    .yt-comments-preview i {
+        transition: transform 0.3s;
+    }
+
+    .yt-comments-preview i.rotated {
+        transform: rotate(180deg);
+    }
+
+    .yt-comments-content {
+        margin-top: 16px;
+        animation: fadeIn 0.3s ease;
+    }
+
+    .yt-comments-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 16px;
+    }
+
+    .yt-comments-header h3 {
+        font-size: 16px;
+        font-weight: 500;
+    }
+
+    .yt-comments-list {
+        display: flex;
+        flex-direction: column;
+        gap: 16px;
+        max-height: 500px;
+        overflow-y: auto;
+    }
+
+    /* Hide standard info in shorts mode */
+    .shorts-mode .yt-video-info,
+    .shorts-mode .yt-suggested {
+        display: none !important;
+    }
+
+    @media (max-width: 768px) {
+
+        /* Hide time display on mobile to save space for other controls */
+        .art-control-time {
+            display: none !important;
+        }
+    }
+
+    .yt-comment {
+        display: flex;
+        gap: 12px;
+    }
+
+    .yt-comment-avatar {
+        width: 40px;
+        height: 40px;
+        border-radius: 50%;
+        background: var(--yt-bg-hover);
+        flex-shrink: 0;
+        overflow: hidden;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 14px;
+        color: var(--yt-text-primary);
+    }
+
+    .yt-comment-avatar img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+    }
+
+    .yt-comment-content {
+        flex: 1;
+    }
+
+    .yt-comment-header {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 4px;
+        flex-wrap: wrap;
+    }
+
+    .yt-comment-author {
+        font-size: 13px;
+        font-weight: 500;
+        color: var(--yt-text-primary);
+    }
+
+    .yt-comment-time {
+        font-size: 12px;
+        color: var(--yt-text-secondary);
+    }
+
+    .yt-comment-text {
+        font-size: 14px;
+        line-height: 1.5;
+        color: var(--yt-text-primary);
+        margin-bottom: 8px;
+        white-space: pre-wrap;
+        word-wrap: break-word;
+    }
+
+    .yt-comment-actions {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+
+    .yt-comment-action {
+        display: flex;
+        align-items: center;
+        gap: 4px;
+        font-size: 12px;
+        color: var(--yt-text-secondary);
+        padding: 4px 8px;
+        border-radius: 20px;
+    }
+
+    .yt-comment-action:hover {
+        background: var(--yt-bg-secondary);
+    }
+
+    .yt-pinned-badge {
+        background: var(--yt-bg-secondary);
+        font-size: 11px;
+        padding: 2px 8px;
+        border-radius: 2px;
+        color: var(--yt-text-secondary);
+    }
+
+    .yt-no-comments {
+        text-align: center;
+        color: var(--yt-text-secondary);
+        padding: 24px;
+    }
+
+    @keyframes fadeIn {
+        from {
+            opacity: 0;
+            transform: translateY(-10px);
+        }
+
+        to {
+            opacity: 1;
+            transform: translateY(0);
+        }
+    }
+
+    @media (max-width: 1200px) {
+        .yt-watch-layout {
+            grid-template-columns: 1fr;
+        }
+    }
+</style>
+
+<!-- HLS Support (Local) -->
+<script src="/static/js/hls.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/artplayer/5.1.1/artplayer.js"></script>
+<script>
+    let commentsLoaded = false;
+
+    function initArtplayer(url, poster, type = 'auto') {
+        return new Artplayer({
+            container: '#artplayer-app',
+            url: url,
+            poster: poster,
+            type: type,
+            volume: 0.5,
+            muted: false,
+            autoplay: false,
+            pip: true,
+            autoSize: false,
+            autoMini: true,
+            screenshot: true,
+            setting: true,
+            loop: false,
+            flip: true,
+            playbackRate: true,
+            aspectRatio: true,
+            fullscreen: true,
+            fullscreenWeb: true,
+            miniProgressBar: true,
+            mutex: true,
+            backdrop: true,
+            playsInline: true,
+            autoPlayback: true,
+            lock: true,
+            fastForward: true,
+            autoOrientation: true,
+            theme: '#ff0000',
+            lang: navigator.language.toLowerCase(),
+            moreVideoAttr: {
+                crossOrigin: 'anonymous',
+            },
+            customType: {
+                m3u8: function (video, url) {
+                    if (Hls.isSupported()) {
+                        const hls = new Hls({
+                            maxBufferLength: 30,
+                            maxMaxBufferLength: 60,
+                            debug: false, // Set to true if needed
+                        });
+                        hls.loadSource(url);
+                        hls.attachMedia(video);
+
+                        // HLS Error Handling
+                        hls.on(Hls.Events.ERROR, function (event, data) {
+                            console.error('HLS Error:', data);
+                            if (data.fatal) {
+                                switch (data.type) {
+                                    case Hls.ErrorTypes.NETWORK_ERROR:
+                                        console.error('fatal network error encountered, try to recover');
+                                        hls.startLoad();
+                                        showToast("Stream network error. Retrying...", "error");
+                                        break;
+                                    case Hls.ErrorTypes.MEDIA_ERROR:
+                                        console.error('fatal media error encountered, try to recover');
+                                        hls.recoverMediaError();
+                                        showToast("Stream media error. Recovering...", "warning");
+                                        break;
+                                    default:
+                                        console.error('fatal error, cannot recover');
+                                        hls.destroy();
+                                        showToast("Fatal stream error. Playback failed.", "error");
+                                        break;
+                                }
+                            }
+                        });
+
+                    } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+                        video.src = url;
+                    } else {
+                        showToast("Your browser does not support HLS playback.", "error");
+                    }
+                },
+            },
+            mounted: function (art) {
+                // Check metadata when video is ready/loaded
+                function checkVertical() {
+                    const video = art.video;
+                    if (video.videoHeight > 0 && video.videoHeight > video.videoWidth) {
+                        console.log('Vertical video detected:', video.videoWidth, video.videoHeight);
+                        // Use strict string format "W/H" without spaces for safer parsing
+                        const ratio = `${video.videoWidth}/${video.videoHeight}`;
+
+                        // Set Artplayer Aspect Ratio
+                        art.aspectRatio = ratio;
+                        art.video.style.objectFit = 'contain';
+
+                        // Adjust container styling
+                        const container = document.querySelector('.yt-player-container');
+                        if (container) {
+                            container.style.aspectRatio = ratio;
+                            container.style.width = '100%';
+                            container.style.maxWidth = '100%'; /* Critical for preventing overflow */
+
+                            // On Desktop, limit width
+                            if (window.innerWidth > 768) {
+                                container.style.maxWidth = '450px';
+                                container.style.margin = '0 auto';
+                            }
+                        }
+                    }
+                }
+
+                // Check immediately
+                checkVertical();
+
+                // And on metadata load
+                art.on('video:loadedmetadata', checkVertical);
+            },
+        });
+    }
+
+    function toggleDescription() {
+        const desc = document.getElementById('videoDesc');
+        desc.style.webkitLineClamp = desc.style.webkitLineClamp === 'unset' ? '3' : 'unset';
+    }
+
+    function toggleComments() {
+        const content = document.getElementById('commentsContent');
+        const chevron = document.getElementById('commentsChevron');
+        const videoId = "{{ video_id }}";
+
+        if (content.style.display === 'none') {
+            content.style.display = 'block';
+            chevron.classList.add('rotated');
+
+            // Load comments only once
+            if (!commentsLoaded) {
+                loadComments(videoId);
+                commentsLoaded = true;
+            }
+        } else {
+            content.style.display = 'none';
+            chevron.classList.remove('rotated');
+        }
+    }
+
+    async function loadComments(videoId) {
+        const commentsList = document.getElementById('commentsList');
+        commentsList.innerHTML = `
+            <div class="yt-loader">
+                <div class="yt-spinner"></div>
+                <p>Loading comments...</p>
+            </div>
+        `;
+
+        try {
+            const response = await fetch(`/api/comments?v=${videoId}`);
+            const data = await response.json();
+
+            document.getElementById('commentCount').innerText = formatViews(data.count);
+            document.getElementById('commentCountDisplay').innerText = `${formatViews(data.count)} Comments`;
+
+            commentsList.innerHTML = '';
+
+            if (data.comments && data.comments.length > 0) {
+                data.comments.forEach(comment => {
+                    const commentEl = document.createElement('div');
+                    commentEl.className = 'yt-comment';
+                    commentEl.innerHTML = `
+                        <div class="yt-comment-avatar">
+                            ${comment.author_thumbnail
+                            ? `<img src="${comment.author_thumbnail}" alt="">`
+                            : escapeHtml(comment.author.charAt(0).toUpperCase())
+                        }
+                        </div>
+                        <div class="yt-comment-content">
+                            <div class="yt-comment-header">
+                                ${comment.is_pinned ? '<span class="yt-pinned-badge">📌 Pinned</span>' : ''}
+                                <span class="yt-comment-author">${escapeHtml(comment.author)}</span>
+                                <span class="yt-comment-time">${comment.time || ''}</span>
+                            </div>
+                            <p class="yt-comment-text">${escapeHtml(comment.text)}</p>
+                            <div class="yt-comment-actions">
+                                <button class="yt-comment-action">
+                                    <i class="fas fa-thumbs-up"></i>
+                                    ${comment.likes > 0 ? formatViews(comment.likes) : ''}
+                                </button>
+                                <button class="yt-comment-action">
+                                    <i class="fas fa-thumbs-down"></i>
+                                </button>
+                            </div>
+                        </div>
+                    `;
+                    commentsList.appendChild(commentEl);
+                });
+            } else {
+                commentsList.innerHTML = `<p class="yt-no-comments">Comments are disabled or unavailable for this video.</p>`;
+            }
+        } catch (e) {
+            console.error('Error loading comments:', e);
+            commentsList.innerHTML = `<p class="yt-no-comments">Could not load comments.</p>`;
+        }
+    }
+
+    document.addEventListener('DOMContentLoaded', async () => {
+        const videoType = "{{ video_type }}";
+        const loading = document.getElementById('loading');
+        const videoInfo = document.getElementById('videoInfo');
+        const videoId = "{{ video_id }}";
+
+        if (videoType === 'local') {
+            const player = initArtplayer("{{ src }}", "");
+            document.getElementById('videoTitle').innerText = "{{ title }}";
+            document.getElementById('channelName').innerText = "Local Video";
+            document.getElementById('channelAvatarLetter').innerText = 'L';
+            loading.style.display = 'none';
+            videoInfo.style.display = 'block';
+            document.getElementById('commentsSection').style.display = 'none';
+            return;
+        }
+
+        try {
+            const response = await fetch(`/api/get_stream_info?v=${videoId}`);
+
+            if (response.status === 504) {
+                throw new Error("Server Timeout (504): content source is slow. Please refresh.");
+            }
+
+            if (!response.ok) {
+                throw new Error(`Server Error (${response.status})`);
+            }
+
+            // Check content type to avoid JSON syntax errors if HTML is returned
+            const contentType = response.headers.get("content-type");
+            if (!contentType || !contentType.includes("application/json")) {
+                throw new Error("Received invalid response from server");
+            }
+
+            const data = await response.json();
+
+            if (data.error) {
+                loading.innerHTML = `<p style="color:#f00; text-align:center;">${data.error}</p>`;
+                showToast(data.error, 'error');
+                return;
+            }
+
+            const posterUrl = `https://i.ytimg.com/vi/${videoId}/maxresdefault.jpg`;
+
+            // Determine video type
+            let streamType = 'auto';
+            if (data.original_url && (data.original_url.includes('.m3u8') || data.original_url.includes('manifest'))) {
+                streamType = 'm3u8';
+            }
+
+            const player = initArtplayer(data.stream_url, posterUrl, streamType);
+
+            loading.style.display = 'none';
+            videoInfo.style.display = 'block';
+
+            document.getElementById('videoTitle').innerText = data.title || 'Untitled';
+            document.getElementById('channelName').innerText = data.uploader || 'Unknown';
+            document.getElementById('viewCount').innerText = formatViews(data.view_count) + ' views';
+            document.getElementById('videoDesc').innerText = data.description || 'No description';
+            document.getElementById('descStats').innerText = `${formatViews(data.view_count)} views • ${data.upload_date || 'Recently'}`;
+            document.getElementById('downloadBtn').href = data.stream_url;
+
+            const uploaderName = data.uploader || 'Unknown';
+            document.getElementById('channelAvatarLetter').innerText = uploaderName.charAt(0).toUpperCase();
+
+            // Save to History
+            fetch('/api/save_video', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    id: videoId,
+                    title: data.title,
+                    thumbnail: `https://i.ytimg.com/vi/${videoId}/mqdefault.jpg`,
+                    type: 'history'
+                })
+            });
+
+            // Subtitle Config
+            // Add subtitle to player config if available
+            player.subtitle.url = data.subtitle_url || '';
+            if (data.subtitle_url) {
+                player.subtitle.show = true;
+                player.notice.show = 'CC Enabled';
+            }
+
+            document.getElementById('saveBtn').onclick = async () => {
+                const res = await fetch('/api/save_video', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        id: videoId,
+                        title: data.title,
+                        thumbnail: `https://i.ytimg.com/vi/${videoId}/mqdefault.jpg`,
+                        type: 'saved'
+                    })
+                });
+                const resData = await res.json();
+                if (resData.status === 'success' || resData.status === 'already_saved') {
+                    document.getElementById('saveBtn').innerHTML = '<i class="fas fa-bookmark"></i> Saved';
+                    showToast('Video saved to library', 'success');
+                }
+            };
+
+            document.getElementById('shareBtn').onclick = () => {
+                navigator.clipboard.writeText(window.location.href);
+                showToast('Link copied to clipboard!', 'success');
+            };
+
+            // Related Videos
+            const relatedContainer = document.getElementById('relatedVideos');
+            if (data.related && data.related.length > 0) {
+                data.related.forEach(vid => {
+                    const card = document.createElement('div');
+                    card.className = 'yt-suggested-card';
+                    card.innerHTML = `
+                        <img src="${vid.thumbnail}" class="yt-suggested-thumb" loading="lazy">
+                        <div class="yt-suggested-info">
+                            <p class="yt-suggested-title">${escapeHtml(vid.title)}</p>
+                            <p class="yt-suggested-channel">${escapeHtml(vid.uploader || 'Unknown')}</p>
+                            <p class="yt-suggested-stats">${formatViews(vid.view_count)} views</p>
+                        </div>
+                    `;
+                    card.onclick = () => window.location.href = `/watch?v=${vid.id}`;
+                    relatedContainer.appendChild(card);
+                });
+            }
+
+        } catch (e) {
+            console.error(e);
+            loading.innerHTML = `
+                <div style="display:flex; flex-direction:column; align-items:center; justify-content:center; height:100%; gap:16px;">
+                    <i class="fas fa-wifi" style="font-size: 32px; color: #ff4e45;"></i>
+                    <p style="color:#fff;">${e.message || 'Connection Error'}</p>
+                    <button onclick="window.location.reload()" style="background:#3ea6ff; color:white; border:none; padding:10px 20px; border-radius:18px; cursor:pointer; font-weight:500;">Try Again</button>
+                </div>
+            `;
+            showToast(e.message || 'Connection Error', 'error');
+        }
+    });
+
+    function formatViews(views) {
+        if (!views) return '0';
+        const num = parseInt(views);
+        if (num >= 1000000) return (num / 1000000).toFixed(1) + 'M';
+        if (num >= 1000) return (num / 1000).toFixed(0) + 'K';
+        return num.toLocaleString();
+    }
+
+    function escapeHtml(text) {
+        if (!text) return '';
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    }
+
+    async function summarizeVideo() {
+        const videoId = "{{ video_id }}";
+        const btn = document.getElementById('summarizeBtn');
+        const box = document.getElementById('summaryBox');
+        const text = document.getElementById('summaryText');
+
+        btn.disabled = true;
+        btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Generating...';
+
+        box.style.display = 'block';
+        text.innerText = 'Analyzing transcript and extracting key insights...';
+
+        try {
+            const response = await fetch(`/api/summarize?v=${videoId}`);
+            const data = await response.json();
+
+            if (data.success) {
+                text.innerText = data.summary;
+            } else {
+                text.innerText = data.message || 'Could not generate summary.';
+            }
+        } catch (e) {
+            text.innerText = 'Network error during summarization.';
+        } finally {
+            btn.disabled = false;
+            btn.innerHTML = '<i class="fas fa-magic"></i> Summarize';
+        }
+    }
+</script>
+{% endblock %}

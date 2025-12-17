@@ -1,0 +1,36 @@
+{% extends "layout.html" %}
+
+{% block content %}
+<div class="library-header" style="margin-bottom: 2rem; display: flex; align-items: center; gap: 1rem;">
+    <h1>My Library</h1>
+    <div class="tabs" style="display: flex; gap: 0.5rem; background: #e8eaed; padding: 0.3rem; border-radius: 100px;">
+        <a href="/my-videos?type=saved" class="btn {% if filter_type == 'saved' %}btn-primary{% endif %}"
+            style="border-radius: 100px; font-size: 0.9rem; padding: 0.5rem 1.5rem; color: {% if filter_type != 'saved' %}var(--text-secondary){% else %}white{% endif %}">Saved</a>
+        <a href="/my-videos?type=history" class="btn {% if filter_type == 'history' %}btn-primary{% endif %}"
+            style="border-radius: 100px; font-size: 0.9rem; padding: 0.5rem 1.5rem; color: {% if filter_type != 'history' %}var(--text-secondary){% else %}white{% endif %}">History</a>
+    </div>
+</div>
+
+{% if videos %}
+<div class="video-grid">
+    {% for video in videos %}
+    <div class="video-card" onclick="window.location.href='/watch?v={{ video.video_id }}'">
+        <img src="{{ video.thumbnail }}" class="thumbnail" loading="lazy">
+        <div class="video-info">
+            <div class="video-title">{{ video.title }}</div>
+            <div class="video-meta">
+                <i class="far fa-clock"></i> {{ video.timestamp }}
+            </div>
+        </div>
+    </div>
+    {% endfor %}
+</div>
+{% else %}
+<div style="text-align: center; padding: 4rem; color: var(--text-secondary);">
+    <i class="far fa-folder-open fa-3x" style="margin-bottom: 1rem; opacity: 0.5;"></i>
+    <h3>Nothing here yet</h3>
+    <p>Go watch some videos to fill this up!</p>
+    <a href="/" class="btn btn-primary" style="margin-top: 1rem;">Browse Content</a>
+</div>
+{% endif %}
+{% endblock %}
