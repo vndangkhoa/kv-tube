@@ -36,6 +36,31 @@ let currentPage = 1;
 let isLoading = false;
 let hasMore = true; // Track if there are more videos to load
 
+// --- Lazy Loading ---
+const imageObserver = new IntersectionObserver((entries, observer) => {
+    entries.forEach(entry => {
+        if (entry.isIntersecting) {
+            const img = entry.target;
+            const src = img.getAttribute('data-src');
+            if (src) {
+                img.src = src;
+                img.onload = () => img.classList.add('loaded');
+                img.removeAttribute('data-src');
+            }
+            observer.unobserve(img);
+        }
+    });
+}, {
+    rootMargin: '50px 0px',
+    threshold: 0.1
+});
+
+window.observeImages = function () {
+    document.querySelectorAll('img[data-src]').forEach(img => {
+        imageObserver.observe(img);
+    });
+};
+
 // --- Infinite Scroll ---
 function initInfiniteScroll() {
     const observer = new IntersectionObserver((entries) => {
@@ -234,7 +259,7 @@ async function loadTrending(reset = true) {
 
                     card.innerHTML = `
                         <div class="yt-thumbnail-container">
-                            <img class="yt-thumbnail" src="${video.thumbnail}" alt="${escapeHtml(video.title)}" loading="lazy">
+                            <img class="yt-thumbnail" data-src="${video.thumbnail}" alt="${escapeHtml(video.title)}">
                             ${video.duration ? `<span class="yt-duration">${video.duration}</span>` : ''}
                         </div>
                         <div class="yt-video-details">
@@ -255,6 +280,7 @@ async function loadTrending(reset = true) {
                 sectionDiv.appendChild(scrollContainer);
                 resultsArea.appendChild(sectionDiv);
             });
+            if (window.observeImages) window.observeImages();
             return;
         }
 
@@ -299,7 +325,7 @@ function displayResults(videos, append = false) {
             card.style.width = '100%';
             card.style.maxWidth = '200px';
             card.innerHTML = `
-                <img src="${video.thumbnail}" class="yt-short-thumb" style="width:100%; aspect-ratio:9/16; height:auto;" loading="lazy">
+                <img data-src="${video.thumbnail}" class="yt-short-thumb" style="width:100%; aspect-ratio:9/16; height:auto;">
                 <p class="yt-short-title">${escapeHtml(video.title)}</p>
                 <p class="yt-short-views">${formatViews(video.view_count)} views</p>
              `;
@@ -308,7 +334,7 @@ function displayResults(videos, append = false) {
             card.className = 'yt-video-card';
             card.innerHTML = `
                 <div class="yt-thumbnail-container">
-                    <img class="yt-thumbnail" src="${video.thumbnail}" alt="${escapeHtml(video.title)}" loading="lazy">
+                    <img class="yt-thumbnail" data-src="${video.thumbnail}" alt="${escapeHtml(video.title)}">
                     ${video.duration ? `<span class="yt-duration">${video.duration}</span>` : ''}
                 </div>
                 <div class="yt-video-details">
@@ -337,6 +363,8 @@ function displayResults(videos, append = false) {
         });
         resultsArea.appendChild(card);
     });
+
+    if (window.observeImages) window.observeImages();
 }
 
 // Format view count (YouTube style)
@@ -425,28 +453,51 @@ function initTheme() {
     let savedTheme = localStorage.getItem('theme');
 
     // If no saved preference, use Time of Day (Auto)
-    // Approximation: 6 AM to 6 PM is Light (Sunrise/Sunset)
     if (!savedTheme) {
         const hour = new Date().getHours();
         savedTheme = (hour >= 6 && hour < 18) ? 'light' : 'dark';
     }
 
-    document.documentElement.setAttribute('data-theme', savedTheme);
+    setTheme(savedTheme, false); // Initial set without saving (already saved or computed)
+}
 
-    // Update toggle if exists
-    const toggle = document.getElementById('themeToggle');
-    if (toggle) {
-        toggle.checked = savedTheme === 'dark';
+function setTheme(theme, save = true) {
+    document.documentElement.setAttribute('data-theme', theme);
+    if (save) {
+        localStorage.setItem('theme', theme);
+    }
+
+    // Update UI Buttons (if on settings page)
+    const btnLight = document.getElementById('themeBtnLight');
+    const btnDark = document.getElementById('themeBtnDark');
+
+    if (btnLight && btnDark) {
+        btnLight.classList.remove('active');
+        btnDark.classList.remove('active');
+
+        if (theme === 'light') btnLight.classList.add('active');
+        else btnDark.classList.add('active');
     }
 }
 
-function toggleTheme() {
-    const current = document.documentElement.getAttribute('data-theme');
-    const newTheme = current === 'light' ? 'dark' : 'light';
+// Ensure theme persists on back navigation (BFCache)
+window.addEventListener('pageshow', (event) => {
+    // Re-apply theme from storage to ensure it matches user preference
+    // even if page was restored from cache with old state
+    const savedTheme = localStorage.getItem('theme');
+    if (savedTheme) {
+        setTheme(savedTheme, false);
+    } else {
+        initTheme();
+    }
+});
 
-    document.documentElement.setAttribute('data-theme', newTheme);
-    localStorage.setItem('theme', newTheme);
-}
+// Sync across tabs
+window.addEventListener('storage', (event) => {
+    if (event.key === 'theme') {
+        setTheme(event.newValue, false);
+    }
+});
 
 // --- Profile Logic ---
 async function updateProfile(e) {

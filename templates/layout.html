@@ -45,10 +45,6 @@
                 <button class="yt-menu-btn" onclick="toggleSidebar()" aria-label="Menu">
                     <i class="fas fa-bars"></i>
                 </button>
-                <button class="yt-menu-btn" id="headerBackBtn" onclick="history.back()" aria-label="Back"
-                    style="display:none;">
-                    <i class="fas fa-arrow-left"></i>
-                </button>
                 <a href="/" class="yt-logo"
                     style="text-decoration: none; display: flex; align-items: center; gap: 4px;">
                     <span style="color: #ff0000; font-size: 24px;"><i class="fas fa-play-circle"></i></span>
@@ -67,9 +63,10 @@
             </div>
 
             <div class="yt-header-end">
-                <button class="yt-icon-btn yt-mobile-search" onclick="toggleMobileSearch()" aria-label="Search">
+                <!-- Mobile Search Icon Removed - Search will be visible -->
+                <!-- <button class="yt-icon-btn yt-mobile-search" onclick="toggleMobileSearch()" aria-label="Search">
                     <i class="fas fa-search"></i>
-                </button>
+                </button> -->
                 {% if session.get('user_id') %}
                 <div class="yt-avatar" title="{{ session.username }}">
                     {{ session.username[0]|upper }}
@@ -172,6 +169,11 @@
         <main class="yt-main" id="mainContent">
             {% block content %}{% endblock %}
         </main>
+
+        <!-- Floating Back Button (Mobile) -->
+        <button id="floatingBackBtn" class="yt-floating-back" onclick="history.back()" aria-label="Go Back">
+            <i class="fas fa-arrow-left"></i>
+        </button>
     </div>
 
     <script src="{{ url_for('static', filename='js/main.js') }}"></script>
@@ -428,17 +430,7 @@
         }
 
         // --- Back Button Logic ---
-        document.addEventListener('DOMContentLoaded', () => {
-            const path = window.location.pathname;
-            const menuBtn = document.querySelector('.yt-menu-btn');
-            const backBtnHeader = document.getElementById('headerBackBtn');
-
-            // If not home, swap menu for back
-            if (path !== '/' && backBtnHeader) {
-                if (menuBtn) menuBtn.style.display = 'none';
-                backBtnHeader.style.display = 'flex';
-            }
-        });
+        // Back Button Logic Removed (Handled Server-Side)
     </script>
     <style>
         /* Queue Drawer Styles */

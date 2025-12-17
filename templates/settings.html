@@ -8,11 +8,11 @@
         <h3>Appearance</h3>
         <p class="yt-settings-desc">Customize how KV-Tube looks on your device.</p>
         <div class="yt-setting-row">
-            <span>Dark Mode</span>
-            <label class="yt-switch">
-                <input type="checkbox" id="themeToggle" checked onchange="toggleTheme()">
-                <span class="yt-slider round"></span>
-            </label>
+            <span>Theme Mode</span>
+            <div class="yt-theme-selector">
+                <button type="button" class="yt-theme-btn" id="themeBtnLight" onclick="setTheme('light')">Light</button>
+                <button type="button" class="yt-theme-btn" id="themeBtnDark" onclick="setTheme('dark')">Dark</button>
+            </div>
         </div>
     </div>
 
@@ -140,63 +140,36 @@
         text-align: center;
     }
 
-    /* Toggle Switch */
-    .yt-setting-row {
+    /* Theme Selector */
+    .yt-theme-selector {
         display: flex;
-        justify-content: space-between;
-        align-items: center;
-        padding: 8px 0;
-    }
-
-    .yt-switch {
-        position: relative;
-        display: inline-block;
-        width: 48px;
-        height: 24px;
-    }
-
-    .yt-switch input {
-        opacity: 0;
-        width: 0;
-        height: 0;
-    }
-
-    .yt-slider {
-        position: absolute;
-        cursor: pointer;
-        top: 0;
-        left: 0;
-        right: 0;
-        bottom: 0;
-        background-color: #666;
-        transition: .4s;
-    }
-
-    .yt-slider:before {
-        position: absolute;
-        content: "";
-        height: 18px;
-        width: 18px;
-        left: 3px;
-        bottom: 3px;
-        background-color: white;
-        transition: .4s;
-    }
-
-    input:checked+.yt-slider {
-        background-color: var(--yt-accent-blue);
-    }
-
-    input:checked+.yt-slider:before {
-        transform: translateX(24px);
-    }
-
-    .yt-slider.round {
+        gap: 12px;
+        background: var(--yt-bg-elevated);
+        padding: 4px;
         border-radius: 24px;
     }
 
-    .yt-slider.round:before {
-        border-radius: 50%;
+    .yt-theme-btn {
+        flex: 1;
+        padding: 8px 16px;
+        border-radius: 20px;
+        font-size: 14px;
+        font-weight: 500;
+        color: var(--yt-text-secondary);
+        background: transparent;
+        transition: all 0.2s;
+        border: 2px solid transparent;
+    }
+
+    .yt-theme-btn:hover {
+        color: var(--yt-text-primary);
+        background: rgba(255, 255, 255, 0.05);
+    }
+
+    .yt-theme-btn.active {
+        background: var(--yt-bg-primary);
+        color: var(--yt-text-primary);
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
     }
 </style>
 
