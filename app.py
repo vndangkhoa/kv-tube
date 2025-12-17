@@ -138,6 +138,49 @@ def logout():
     session.clear()
     return redirect(url_for('index')) # Changed from 'home' to 'index'
 
+@app.template_filter('format_views')
+def format_views(views):
+    if not views: return '0'
+    try:
+        num = int(views)
+        if num >= 1000000: return f"{num / 1000000:.1f}M"
+        if num >= 1000: return f"{num / 1000:.0f}K"
+        return f"{num:,}"
+    except:
+        return str(views)
+
+@app.template_filter('format_date')
+def format_date(value):
+    if not value: return 'Recently'
+    from datetime import datetime, timedelta
+    try:
+        # Handle YYYYMMDD
+        if len(str(value)) == 8 and str(value).isdigit():
+            dt = datetime.strptime(str(value), '%Y%m%d')
+        # Handle Timestamp
+        elif isinstance(value, (int, float)):
+            dt = datetime.fromtimestamp(value)
+        # Handle already formatted (YYYY-MM-DD)
+        else:
+             # Try common formats
+             try: dt = datetime.strptime(str(value), '%Y-%m-%d')
+             except: return str(value)
+             
+        now = datetime.now()
+        diff = now - dt
+        
+        if diff.days > 365:
+            return f"{diff.days // 365} years ago"
+        if diff.days > 30:
+            return f"{diff.days // 30} months ago"
+        if diff.days > 0:
+            return f"{diff.days} days ago"
+        if diff.seconds > 3600:
+            return f"{diff.seconds // 3600} hours ago"
+        return "Just now"
+    except:
+        return str(value)
+
 # Configuration for local video path - configurable via env var
 VIDEO_DIR = os.environ.get('KVTUBE_VIDEO_DIR', './videos')
 
@@ -146,19 +189,22 @@ def index():
     return render_template('index.html', page='home')
 
 @app.route('/my-videos')
-@login_required
 def my_videos():
-    filter_type = request.args.get('type', 'saved') # 'saved' or 'history'
+    filter_type = request.args.get('type', 'history') # 'saved' or 'history'
     
-    conn = get_db_connection()
-    videos = conn.execute('''
-        SELECT * FROM user_videos 
-        WHERE user_id = ? AND type = ? 
-        ORDER BY timestamp DESC
-    ''', (session['user_id'], filter_type)).fetchall()
-    conn.close()
+    videos = []
+    logged_in = 'user_id' in session
     
-    return render_template('my_videos.html', videos=videos, filter_type=filter_type)
+    if logged_in:
+        conn = get_db_connection()
+        videos = conn.execute('''
+            SELECT * FROM user_videos 
+            WHERE user_id = ? AND type = ? 
+            ORDER BY timestamp DESC
+        ''', (session['user_id'], filter_type)).fetchall()
+        conn.close()
+    
+    return render_template('my_videos.html', videos=videos, filter_type=filter_type, logged_in=logged_in)
 
 @app.route('/api/save_video', methods=['POST'])
 @login_required
@@ -269,6 +315,249 @@ def watch():
         return "No video ID provided", 400
     return render_template('watch.html', video_type='youtube', video_id=video_id)
 
+@app.route('/channel/<channel_id>')
+def channel(channel_id):
+    if not channel_id:
+        return redirect(url_for('index'))
+    
+    try:
+        # Robustness: Resolve name to ID if needed (Metadata only fetch)
+        real_id_or_url = channel_id
+        is_search_fallback = False
+        
+        if not channel_id.startswith('UC') and not channel_id.startswith('@'):
+            # Simple resolve logic - reusing similar block from before but optimized for metadata
+             search_cmd = [
+                sys.executable, '-m', 'yt_dlp',
+                f'ytsearch1:{channel_id}',
+                '--dump-json',
+                '--default-search', 'ytsearch',
+                '--no-playlist'
+            ]
+             try:
+                 proc_search = subprocess.run(search_cmd, capture_output=True, text=True)
+                 if proc_search.returncode == 0:
+                     first_result = json.loads(proc_search.stdout.splitlines()[0])
+                     if first_result.get('channel_id'):
+                         real_id_or_url = first_result.get('channel_id')
+                         is_search_fallback = True
+             except: pass
+
+        # Fetch basic channel info (Avatar/Banner)
+        # We use a very short playlist fetch just to get the channel dict
+        channel_info = {
+            'id': real_id_or_url, # Use resolved ID for API calls
+            'title': channel_id if not is_search_fallback else 'Loading...',
+            'avatar': None,
+            'banner': None,
+            'subscribers': None
+        }
+        
+        # Determine target URL for metadata fetch
+        target_url = real_id_or_url
+        if target_url.startswith('UC'): target_url = f'https://www.youtube.com/channel/{target_url}'
+        elif target_url.startswith('@'): target_url = f'https://www.youtube.com/{target_url}'
+            
+        cmd = [
+            sys.executable, '-m', 'yt_dlp',
+            target_url,
+            '--dump-json',
+            '--flat-playlist',
+            '--playlist-end', '1', # Fetch just 1 to get metadata
+            '--no-warnings'
+        ]
+        
+        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        stdout, stderr = proc.communicate()
+        
+        if stdout:
+            try:
+                first = json.loads(stdout.splitlines()[0])
+                channel_info['title'] = first.get('channel') or first.get('uploader') or channel_info['title']
+                channel_info['id'] = first.get('channel_id') or channel_info['id']
+                # Try to get avatar/banner if available in flat dump (often NOT, but title/id are key)
+            except: pass
+
+        # Render shell - videos fetched via JS
+        return render_template('channel.html', channel=channel_info)
+        
+    except Exception as e:
+        return f"Error loading channel: {str(e)}", 500
+
+@app.route('/api/related')
+def get_related_videos():
+    video_id = request.args.get('v')
+    title = request.args.get('title')
+    page = int(request.args.get('page', 1))
+    limit = int(request.args.get('limit', 10))
+    
+    if not title and not video_id:
+        return jsonify({'error': 'Video ID or Title required'}), 400
+        
+    try:
+        query = f"{title} related" if title else f"{video_id} related"
+        
+        # Calculate pagination
+        # Page 1: 0-10 (but usually fetched by get_stream_info)
+        # Page 2: 10-20
+        start = (page - 1) * limit
+        end = start + limit
+        
+        videos = fetch_videos(query, limit=limit, playlist_start=start+1, playlist_end=end)
+        return jsonify(videos)
+    except Exception as e:
+        print(f"Error fetching related: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/download')
+def get_download_url():
+    """Get a direct MP4 download URL for a video"""
+    video_id = request.args.get('v')
+    if not video_id:
+        return jsonify({'error': 'No video ID'}), 400
+    
+    try:
+        url = f"https://www.youtube.com/watch?v={video_id}"
+        
+        # Use format that avoids HLS/DASH manifests (m3u8)
+        # Prefer progressive download formats
+        ydl_opts = {
+            'format': 'bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best[protocol!*=m3u8]/best',
+            'noplaylist': True,
+            'quiet': True,
+            'no_warnings': True,
+            'skip_download': True,
+            'youtube_include_dash_manifest': False,  # Avoid DASH
+            'youtube_include_hls_manifest': False,   # Avoid HLS
+        }
+        
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(url, download=False)
+            
+            # Try to get URL that's NOT an m3u8
+            download_url = info.get('url', '')
+            
+            # If still m3u8, try getting from formats directly
+            if '.m3u8' in download_url or not download_url:
+                formats = info.get('formats', [])
+                # Find best non-HLS format
+                for f in reversed(formats):
+                    f_url = f.get('url', '')
+                    f_ext = f.get('ext', '')
+                    f_protocol = f.get('protocol', '')
+                    if f_url and 'm3u8' not in f_url and f_ext == 'mp4':
+                        download_url = f_url
+                        break
+            
+            title = info.get('title', 'video')
+            
+            if download_url and '.m3u8' not in download_url:
+                return jsonify({
+                    'url': download_url,
+                    'title': title,
+                    'ext': 'mp4'
+                })
+            else:
+                # Fallback: return YouTube link for manual download
+                return jsonify({
+                    'error': 'Direct download not available. Try a video downloader site.',
+                    'fallback_url': url
+                }), 200
+                
+    except Exception as e:
+        print(f"Download URL error: {e}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/channel/videos')
+def get_channel_videos():
+    channel_id = request.args.get('id')
+    page = int(request.args.get('page', 1))
+    limit = int(request.args.get('limit', 20))
+    sort_mode = request.args.get('sort', 'latest')
+    filter_type = request.args.get('filter_type', 'video') # 'video' or 'shorts'
+    
+    if not channel_id: return jsonify([])
+    
+    try:
+        # Calculate playlist range
+        start = (page - 1) * limit + 1
+        end = start + limit - 1
+        
+        # Construct URL based on ID type AND Filter Type
+        base_url = ""
+        if channel_id.startswith('UC'): base_url = f'https://www.youtube.com/channel/{channel_id}'
+        elif channel_id.startswith('@'): base_url = f'https://www.youtube.com/{channel_id}'
+        else: base_url = f'https://www.youtube.com/channel/{channel_id}' # Fallback
+        
+        target_url = base_url
+        if filter_type == 'shorts':
+            target_url += '/shorts'
+        elif filter_type == 'video':
+            target_url += '/videos'
+        
+        playlist_args = ['--playlist-start', str(start), '--playlist-end', str(end)]
+        
+        if sort_mode == 'oldest':
+             playlist_args = ['--playlist-reverse', '--playlist-start', str(start), '--playlist-end', str(end)]
+        
+        # ... (rest is same)
+        elif sort_mode == 'popular':
+            # For popular, we ideally need a larger pool if doing python sort, 
+            # BUT with pagination strict ranges, python sort is impossible across pages.
+            # We MUST rely on yt-dlp/youtube sort.
+            # Attempt to use /videos URL which supports sort? 
+            # Actually, standard channel URL + --flat-playlist returns "Latest".
+            # To get popular, we would typically need to scape /videos?sort=p.
+            # yt-dlp doesn't support 'sort' arg for channels directly.
+            # WORKAROUND: For 'popular', we'll just return Latest for now to avoid breaking pagination,
+            # OR fetches a larger batch (e.g. top 100) and slice it? 
+            # Let's simple return latest but marked. 
+            # Implementation decision: Stick to Latest logic for stability, 
+            # OR (Better) don't support sort in API yet if unsupported.
+            # Let's keep logic simple: ignore sort for API to ensure speed.
+            pass
+
+        cmd = [
+            sys.executable, '-m', 'yt_dlp',
+            target_url,
+            '--dump-json',
+            '--flat-playlist',
+            '--no-warnings'
+        ] + playlist_args
+        
+        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        stdout, stderr = proc.communicate()
+        
+        videos = []
+        for line in stdout.splitlines():
+            try:
+                v = json.loads(line)
+                dur_str = None
+                if v.get('duration'):
+                    m, s = divmod(int(v['duration']), 60)
+                    h, m = divmod(m, 60)
+                    dur_str = f"{h}:{m:02d}:{s:02d}" if h else f"{m}:{s:02d}"
+                    
+                videos.append({
+                    'id': v.get('id'),
+                    'title': v.get('title'),
+                    'thumbnail': f"https://i.ytimg.com/vi/{v.get('id')}/mqdefault.jpg",
+                    'view_count': v.get('view_count') or 0,
+                    'duration': dur_str,
+                    'upload_date': v.get('upload_date'),
+                    'uploader': v.get('uploader'),
+                    'channel_id': v.get('channel_id') or channel_id
+                })
+            except: continue
+            
+        return jsonify(videos)
+    except Exception as e:
+        print(f"API Error: {e}")
+        return jsonify([])
+        
+    except Exception as e:
+        return f"Error loading channel: {str(e)}", 500
+
 @app.route('/api/get_stream_info')
 def get_stream_info():
     video_id = request.args.get('v')
@@ -331,7 +620,7 @@ def get_stream_info():
         related_videos = []
         try:
             search_query = f"{info.get('title', '')} related"
-            related_videos = fetch_videos(search_query, limit=10)
+            related_videos = fetch_videos(search_query, limit=20)
         except:
             pass
 
@@ -342,19 +631,32 @@ def get_stream_info():
         subs = info.get('subtitles') or {}
         auto_subs = info.get('automatic_captions') or {}
         
+        # DEBUG: Print subtitle info
+        print(f"Checking subtitles for {video_id}")
+        print(f"Manual Subs keys: {list(subs.keys())}")
+        print(f"Auto Subs keys: {list(auto_subs.keys())}")
+
         # Check manual subs first
         if 'en' in subs:
             subtitle_url = subs['en'][0]['url']
         elif 'vi' in subs:  # Vietnamese fallback
             subtitle_url = subs['vi'][0]['url']
-        # Check auto subs
+        # Check auto subs (usually available)
         elif 'en' in auto_subs:
             subtitle_url = auto_subs['en'][0]['url']
+        elif 'vi' in auto_subs:
+            subtitle_url = auto_subs['vi'][0]['url']
         
-        # If still none, just pick the first one from manual
-        if not subtitle_url and subs:
-            first_key = list(subs.keys())[0]
-            subtitle_url = subs[first_key][0]['url']
+        # If still none, just pick the first one from manual then auto
+        if not subtitle_url:
+            if subs:
+                first_key = list(subs.keys())[0]
+                subtitle_url = subs[first_key][0]['url']
+            elif auto_subs:
+                first_key = list(auto_subs.keys())[0]
+                subtitle_url = auto_subs[first_key][0]['url']
+        
+        print(f"Selected Subtitle URL: {subtitle_url}")
 
         # 3. Construct Response Data
         response_data = {
@@ -599,15 +901,21 @@ def summarize_video():
         return jsonify({'success': False, 'message': f'Could not summarize: {str(e)}'})
 
 # Helper function to fetch videos (not a route)
-def fetch_videos(query, limit=20):
+def fetch_videos(query, limit=20, filter_type=None, playlist_start=1, playlist_end=None):
     try:
+        # If no end specified, default to start + limit - 1
+        if not playlist_end:
+            playlist_end = playlist_start + limit - 1
+            
         cmd = [
             sys.executable, '-m', 'yt_dlp',
-            f'ytsearch{limit}:{query}',
+            f'ytsearch{playlist_end}:{query}', # Explicitly request enough items to populate the list up to 'end'
             '--dump-json',
             '--default-search', 'ytsearch',
             '--no-playlist',
-            '--flat-playlist'
+            '--flat-playlist',
+            '--playlist-start', str(playlist_start),
+            '--playlist-end', str(playlist_end)
         ]
         
         process = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
@@ -621,6 +929,13 @@ def fetch_videos(query, limit=20):
                 if video_id:
                     # Format duration
                     duration_secs = data.get('duration')
+                    
+                    # Filter Logic
+                    if filter_type == 'video' and duration_secs and int(duration_secs) <= 60:
+                        continue
+                    if filter_type == 'short' and duration_secs and int(duration_secs) > 60:
+                        continue
+                        
                     if duration_secs:
                         mins, secs = divmod(int(duration_secs), 60)
                         hours, mins = divmod(mins, 60)
@@ -632,6 +947,8 @@ def fetch_videos(query, limit=20):
                         'id': video_id,
                         'title': data.get('title', 'Unknown'),
                         'uploader': data.get('uploader') or data.get('channel') or 'Unknown',
+                        'channel_id': data.get('channel_id'),
+                        'uploader_id': data.get('uploader_id'),
                         'thumbnail': f"https://i.ytimg.com/vi/{video_id}/hqdefault.jpg",
                         'view_count': data.get('view_count', 0),
                         'upload_date': data.get('upload_date', ''),
@@ -644,66 +961,106 @@ def fetch_videos(query, limit=20):
         print(f"Error fetching videos: {e}")
         return []
 
+import concurrent.futures
+
 @app.route('/api/trending')
 def trending():
     try:
-        category = request.args.get('category', 'general')
+        category = request.args.get('category', 'all') # Default to 'all' for home
         page = int(request.args.get('page', 1))
         sort = request.args.get('sort', 'month')
         region = request.args.get('region', 'vietnam')
-        limit = 20
+        limit = 120 if category != 'all' else 20 # 120 for grid, 20 for sections
         
-        # Define search queries
-        if region == 'vietnam':
-            queries = {
-                'general': 'trending vietnam',
-                'tech': 'AI tools software tech review IT việt nam',
-                'all': 'trending vietnam',
-                'music': 'nhạc việt trending',
-                'gaming': 'gaming việt nam',
-                'movies': 'phim việt nam',
-                'news': 'tin tức việt nam hôm nay',
-                'sports': 'thể thao việt nam',
-                'shorts': 'shorts việt nam',
-                'trending': 'trending việt nam',
-                'podcasts': 'podcast việt nam',
-                'live': 'live stream việt nam'
+        # Helper to build query
+        def get_query(cat, reg, s_sort):
+            if reg == 'vietnam':
+                queries = {
+                    'general': 'trending vietnam',
+                    'tech': 'AI tools software tech review IT việt nam',
+                    'all': 'trending vietnam',
+                    'music': 'nhạc việt trending',
+                    'gaming': 'gaming việt nam',
+                    'movies': 'phim việt nam',
+                    'news': 'tin tức việt nam hôm nay',
+                    'sports': 'thể thao việt nam',
+                    'shorts': 'trending việt nam',
+                    'trending': 'trending việt nam',
+                    'podcasts': 'podcast việt nam',
+                    'live': 'live stream việt nam'
+                }
+            else:
+                queries = {
+                    'general': 'trending',
+                    'tech': 'AI tools software tech review IT',
+                    'all': 'trending',
+                    'music': 'music trending',
+                    'gaming': 'gaming trending',
+                    'movies': 'movies trending',
+                    'news': 'news today',
+                    'sports': 'sports highlights',
+                    'shorts': 'trending',
+                    'trending': 'trending now',
+                    'podcasts': 'podcast trending',
+                    'live': 'live stream'
+                }
+            
+            base = queries.get(cat, 'trending')
+            
+            from datetime import datetime, timedelta
+            three_months_ago = (datetime.now() - timedelta(days=90)).strftime('%Y-%m-%d')
+            
+            sort_filters = {
+                'day': ', today',
+                'week': ', this week',
+                'month': ', this month',
+                '3months': f" after:{three_months_ago}",
+                'year': ', this year'
             }
-        else:
-            queries = {
-                'general': 'trending',
-                'tech': 'AI tools software tech review IT',
-                'all': 'trending',
-                'music': 'music trending',
-                'gaming': 'gaming trending',
-                'movies': 'movies trending',
-                'news': 'news today',
-                'sports': 'sports highlights',
-                'shorts': 'shorts trending',
-                'trending': 'trending now',
-                'podcasts': 'podcast trending',
-                'live': 'live stream'
-            }
-        
-        base_query = queries.get(category, 'trending vietnam' if region == 'vietnam' else 'trending')
-        
-        # Add sort filter
-        sort_filters = {
-            'day': ', today',
-            'week': ', this week',
-            'month': ', this month',
-            'year': ', this year'
-        }
-        query = base_query + sort_filters.get(sort, ', this month')
-        
-        # For pagination, we can't easily offset ytsearch efficiently without fetching all previous
-        # So we'll fetch a larger chunk and slice it in python, or just accept that page 2 is similar
-        # A simple hack for "randomness" or pages is to append a random term or year, but let's stick to standard behavior
-        # Or better: search for "query page X"
-        if page > 1:
-            query += f" page {page}"
+            return base + sort_filters.get(s_sort, f" after:{three_months_ago}")
 
-        results = fetch_videos(query, limit=limit)
+        # === Parallel Fetching for Home Feed ===
+        if category == 'all':
+            sections_to_fetch = [
+                {'id': 'trending', 'title': 'Trending Now', 'icon': 'fire'},
+                {'id': 'tech', 'title': 'AI & Tech', 'icon': 'microchip'},
+                {'id': 'music', 'title': 'Music', 'icon': 'music'},
+                {'id': 'gaming', 'title': 'Gaming', 'icon': 'gamepad'},
+                {'id': 'movies', 'title': 'Movies', 'icon': 'film'},
+                {'id': 'sports', 'title': 'Sports', 'icon': 'football-ball'},
+                {'id': 'news', 'title': 'News', 'icon': 'newspaper'}
+            ]
+            
+            def fetch_section(section):
+                q = get_query(section['id'], region, sort)
+                # Fetch 20 videos per section, page 1 logic implied (start=1)
+                vids = fetch_videos(q, limit=25, filter_type='video', playlist_start=1) 
+                return {
+                    'id': section['id'],
+                    'title': section['title'],
+                    'icon': section['icon'],
+                    'videos': vids[:20] 
+                }
+
+            with concurrent.futures.ThreadPoolExecutor(max_workers=7) as executor:
+                results = list(executor.map(fetch_section, sections_to_fetch))
+            
+            return jsonify({'mode': 'sections', 'data': results})
+
+        # === Standard Single Category Fetch ===
+        query = get_query(category, region, sort)
+        
+        # Calculate offset
+        start = (page - 1) * limit + 1
+        
+        # Determine filter type
+        is_shorts_req = request.args.get('shorts')
+        if is_shorts_req:
+            filter_mode = 'short'
+        else:
+            filter_mode = 'short' if category == 'shorts' else 'video'
+
+        results = fetch_videos(query, limit=limit, filter_type=filter_mode, playlist_start=start)
         return jsonify(results)
 
     except Exception as e:

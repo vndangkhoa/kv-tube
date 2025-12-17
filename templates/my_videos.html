@@ -1,36 +1,92 @@
 {% extends "layout.html" %}
 
 {% block content %}
-<div class="library-header" style="margin-bottom: 2rem; display: flex; align-items: center; gap: 1rem;">
-    <h1>My Library</h1>
-    <div class="tabs" style="display: flex; gap: 0.5rem; background: #e8eaed; padding: 0.3rem; border-radius: 100px;">
-        <a href="/my-videos?type=saved" class="btn {% if filter_type == 'saved' %}btn-primary{% endif %}"
-            style="border-radius: 100px; font-size: 0.9rem; padding: 0.5rem 1.5rem; color: {% if filter_type != 'saved' %}var(--text-secondary){% else %}white{% endif %}">Saved</a>
-        <a href="/my-videos?type=history" class="btn {% if filter_type == 'history' %}btn-primary{% endif %}"
-            style="border-radius: 100px; font-size: 0.9rem; padding: 0.5rem 1.5rem; color: {% if filter_type != 'history' %}var(--text-secondary){% else %}white{% endif %}">History</a>
+<div class="yt-container" style="padding-top: 20px;">
+    <div class="library-header"
+        style="margin-bottom: 2rem; display: flex; align-items: center; justify-content: space-between;">
+        <h1 style="font-size: 1.5rem;">My Library</h1>
+        <div class="tabs"
+            style="display: flex; gap: 0.5rem; background: var(--yt-bg-hover); padding: 0.3rem; border-radius: 100px;">
+            <a href="/my-videos?type=saved" class="yt-btn {% if filter_type == 'saved' %}yt-btn-active{% endif %}"
+                style="border-radius: 100px; font-size: 0.9rem; padding: 0.5rem 1.5rem; {% if filter_type == 'saved' %}background:var(--yt-text-primary);color:var(--yt-bg-primary);{% endif %}">Saved</a>
+            <a href="/my-videos?type=history" class="yt-btn {% if filter_type == 'history' %}yt-btn-active{% endif %}"
+                style="border-radius: 100px; font-size: 0.9rem; padding: 0.5rem 1.5rem; {% if filter_type == 'history' %}background:var(--yt-text-primary);color:var(--yt-bg-primary);{% endif %}">History</a>
+        </div>
+    </div>
+
+    <div id="libraryGrid" class="yt-video-grid">
+        {% if videos %}
+        {% for video in videos %}
+        <div class="yt-video-card" onclick="window.location.href='/watch?v={{ video.video_id }}'">
+            <div class="yt-thumbnail-container">
+                <img src="{{ video.thumbnail }}" class="yt-thumbnail" loading="lazy">
+            </div>
+            <div class="yt-video-details">
+                <div class="yt-video-meta">
+                    <h3 class="yt-video-title">{{ video.title }}</h3>
+                    <p class="yt-video-stats">{{ video.timestamp }}</p>
+                </div>
+            </div>
+        </div>
+        {% endfor %}
+        {% endif %}
+    </div>
+
+    <div id="emptyState"
+        style="text-align: center; padding: 4rem; color: var(--yt-text-secondary); display: {% if videos %}none{% else %}none{% endif %};">
+        <i class="fas fa-folder-open fa-3x" style="margin-bottom: 1rem; opacity: 0.5;"></i>
+        <h3>Nothing here yet</h3>
+        <p>Go watch some videos to fill this up!</p>
+        <a href="/" class="yt-btn"
+            style="margin-top: 1rem; background: var(--yt-text-primary); color: var(--yt-bg-primary);">Browse
+            Content</a>
     </div>
 </div>
 
-{% if videos %}
-<div class="video-grid">
-    {% for video in videos %}
-    <div class="video-card" onclick="window.location.href='/watch?v={{ video.video_id }}'">
-        <img src="{{ video.thumbnail }}" class="thumbnail" loading="lazy">
-        <div class="video-info">
-            <div class="video-title">{{ video.title }}</div>
-            <div class="video-meta">
-                <i class="far fa-clock"></i> {{ video.timestamp }}
-            </div>
-        </div>
-    </div>
-    {% endfor %}
-</div>
-{% else %}
-<div style="text-align: center; padding: 4rem; color: var(--text-secondary);">
-    <i class="far fa-folder-open fa-3x" style="margin-bottom: 1rem; opacity: 0.5;"></i>
-    <h3>Nothing here yet</h3>
-    <p>Go watch some videos to fill this up!</p>
-    <a href="/" class="btn btn-primary" style="margin-top: 1rem;">Browse Content</a>
-</div>
-{% endif %}
+<script>
+    const loggedIn = {{ 'true' if logged_in else 'false' }};
+    const filterType = '{{ filter_type }}';
+
+    if (!loggedIn && filterType === 'history') {
+        // Load from Local Storage
+        const history = JSON.parse(localStorage.getItem('kv_history') || '[]');
+        const grid = document.getElementById('libraryGrid');
+        const empty = document.getElementById('emptyState');
+
+        if (history.length > 0) {
+            grid.innerHTML = history.map(video => `
+                <div class="yt-video-card" onclick="window.location.href='/watch?v=${video.id}'">
+                    <div class="yt-thumbnail-container">
+                        <img src="${video.thumbnail}" class="yt-thumbnail" loading="lazy">
+                    </div>
+                    <div class="yt-video-details">
+                        <div class="yt-video-meta">
+                            <h3 class="yt-video-title">${video.title}</h3>
+                            <p class="yt-video-stats">Watched on ${new Date(video.timestamp).toLocaleDateString()}</p>
+                        </div>
+                    </div>
+                </div>
+            `).join('');
+            empty.style.display = 'none';
+        } else {
+            grid.innerHTML = '';
+            empty.style.display = 'block';
+        }
+    } else if (!loggedIn && filterType === 'saved') {
+        // Anon user can't save remotely yet, maybe valid TODO, but for now show empty with login prompt
+        document.getElementById('libraryGrid').innerHTML = '';
+        document.getElementById('emptyState').innerHTML = `
+            <i class="fas fa-lock fa-3x" style="margin-bottom: 1rem; opacity: 0.5;"></i>
+            <h3>Sign in to save videos</h3>
+            <p>Save videos to watch later.</p>
+            <a href="/login" class="yt-btn" style="margin-top: 1rem; background: var(--yt-text-primary); color: var(--yt-bg-primary);">Sign In</a>
+        `;
+        document.getElementById('emptyState').style.display = 'block';
+    } else {
+        // Logged in or Server side handled it
+        if (document.getElementById('libraryGrid').children.length === 0) {
+            document.getElementById('emptyState').style.display = 'block';
+        }
+    }
+</script>
 {% endblock %}

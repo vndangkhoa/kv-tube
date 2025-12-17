@@ -1,0 +1,386 @@
+{% extends "layout.html" %}
+
+{% block content %}
+<div class="yt-container yt-channel-page">
+
+    <!-- Channel Header (No Banner) -->
+    <div class="yt-channel-header">
+        <div class="yt-channel-info-row">
+            <div class="yt-channel-avatar-xl">
+                {% if channel.avatar %}
+                <img src="{{ channel.avatar }}">
+                {% else %}
+                {{ channel.title[0] | upper }}
+                {% endif %}
+            </div>
+            <div class="yt-channel-meta">
+                <h1>{{ channel.title }}</h1>
+                <p class="yt-channel-handle">
+                    {% if channel.id.startswith('@') %}{{ channel.id }}{% else %}@{{ channel.title|replace(' ', '') }}{%
+                    endif %}
+                </p>
+                <div class="yt-channel-stats">
+                    <span>{{ channel.subscribers if channel.subscribers else 'Subscribe for more' }}</span>
+                </div>
+                <div class="yt-channel-actions">
+                    <button class="yt-subscribe-btn-lg">Subscribe</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Video Grid -->
+    <div class="yt-section">
+        <div class="yt-section-header">
+            <div class="yt-tabs">
+                <a href="#" onclick="changeChannelTab('video', this); return false;" class="active">Videos</a>
+                <a href="#" onclick="changeChannelTab('shorts', this); return false;">Shorts</a>
+            </div>
+
+            <div class="yt-sort-options">
+                <a href="#" onclick="changeChannelSort('latest', this); return false;" class="active">Latest</a>
+                <a href="#" onclick="changeChannelSort('popular', this); return false;">Popular</a>
+                <a href="#" onclick="changeChannelSort('oldest', this); return false;">Oldest</a>
+            </div>
+        </div>
+
+        <div class="yt-video-grid" id="channelVideosGrid">
+            <!-- Videos loaded via JS -->
+        </div>
+        <div id="channelLoadingTrigger" style="height: 20px; margin: 20px 0;"></div>
+    </div>
+</div>
+
+<style>
+    .yt-channel-page {
+        padding-top: 40px;
+        padding-bottom: 40px;
+        max-width: 1200px;
+        margin: 0 auto;
+    }
+
+    /* Removed .yt-channel-banner */
+
+    .yt-channel-info-row {
+        display: flex;
+        align-items: flex-start;
+        gap: 32px;
+        margin-bottom: 32px;
+        padding: 0 16px;
+    }
+
+    .yt-channel-avatar-xl {
+        width: 160px;
+        height: 160px;
+        border-radius: 50%;
+        overflow: hidden;
+        background: linear-gradient(135deg, #FF6B6B 0%, #d62d2d 100%);
+        /* Simpler color for no-banner look */
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 64px;
+        font-weight: bold;
+        color: white;
+        flex-shrink: 0;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+    }
+
+    .yt-channel-avatar-xl img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+    }
+
+    .yt-channel-meta {
+        padding-top: 12px;
+    }
+
+    .yt-channel-meta h1 {
+        font-size: 32px;
+        margin-bottom: 8px;
+        font-weight: 700;
+    }
+
+    .yt-channel-handle {
+        color: var(--yt-text-secondary);
+        font-size: 16px;
+        margin-bottom: 12px;
+    }
+
+    .yt-channel-stats {
+        color: var(--yt-text-secondary);
+        font-size: 14px;
+        margin-bottom: 24px;
+    }
+
+    .yt-section-header {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 20px;
+        margin-bottom: 24px;
+        padding: 0 16px;
+        border-bottom: none;
+    }
+
+    .yt-tabs {
+        display: inline-flex;
+        gap: 0;
+        background: var(--yt-bg-secondary);
+        padding: 4px;
+        border-radius: 24px;
+        position: relative;
+    }
+
+    .yt-tabs a {
+        font-size: 14px;
+        font-weight: 600;
+        color: var(--yt-text-secondary);
+        text-decoration: none;
+        padding: 8px 24px;
+        border-radius: 20px;
+        border-bottom: none;
+        z-index: 1;
+        transition: color 0.2s;
+        position: relative;
+    }
+
+    .yt-tabs a:hover {
+        color: var(--yt-text-primary);
+    }
+
+    .yt-tabs a.active {
+        color: var(--yt-bg-primary);
+        background: var(--yt-text-primary);
+        /* The "slider" is actually the active pill moving */
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+    }
+
+    .yt-sort-options {
+        display: flex;
+        gap: 8px;
+        justify-content: center;
+    }
+
+    .yt-sort-options a {
+        padding: 6px 16px;
+        border-radius: 16px;
+        background: transparent;
+        border: 1px solid var(--yt-border);
+        color: var(--yt-text-secondary);
+        text-decoration: none;
+        font-size: 13px;
+        font-weight: 500;
+        transition: all 0.2s;
+    }
+
+    .yt-sort-options a:hover {
+        background: var(--yt-bg-hover);
+        color: var(--yt-text-primary);
+    }
+
+    .yt-sort-options a.active {
+        background: var(--yt-bg-secondary);
+        color: var(--yt-text-primary);
+        border-color: var(--yt-text-primary);
+    }
+
+    /* Shorts Card Styling override for Channel Page grid */
+    .yt-channel-short-card {
+        border-radius: var(--yt-radius-lg);
+        overflow: hidden;
+        cursor: pointer;
+        transition: transform 0.2s;
+    }
+
+    .yt-channel-short-card:hover {
+        transform: scale(1.02);
+    }
+
+    .yt-short-thumb-container {
+        aspect-ratio: 9/16;
+        width: 100%;
+        position: relative;
+    }
+
+    .yt-short-thumb {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+    }
+
+    @media (max-width: 768px) {
+        .yt-channel-info-row {
+            flex-direction: column;
+            align-items: center;
+            text-align: center;
+            gap: 16px;
+        }
+
+        .yt-channel-avatar-xl {
+            width: 100px;
+            height: 100px;
+            font-size: 40px;
+        }
+
+        .yt-channel-meta h1 {
+            font-size: 24px;
+        }
+
+        .yt-section-header {
+            flex-direction: column;
+            gap: 16px;
+            align-items: flex-start;
+        }
+
+        .yt-tabs {
+            width: 100%;
+            justify-content: center;
+        }
+    }
+</style>
+
+<script>
+    let currentChannelSort = 'latest';
+    let currentChannelPage = 1;
+    let isChannelLoading = false;
+    let hasMoreChannelVideos = true;
+    let currentFilterType = 'video';
+    const channelId = "{{ channel.id }}";
+
+    document.addEventListener('DOMContentLoaded', () => {
+        loadChannelVideos();
+        setupInfiniteScroll();
+    });
+
+    function changeChannelTab(type, btn) {
+        if (type === currentFilterType || isChannelLoading) return;
+        currentFilterType = type;
+        currentChannelPage = 1;
+        hasMoreChannelVideos = true;
+        document.getElementById('channelVideosGrid').innerHTML = '';
+
+        // Update Tabs UI
+        document.querySelectorAll('.yt-tabs a').forEach(a => a.classList.remove('active'));
+        btn.classList.add('active');
+
+        // Adjust Grid layout for Shorts vs Videos
+        const grid = document.getElementById('channelVideosGrid');
+        if (type === 'shorts') {
+            grid.style.gridTemplateColumns = 'repeat(auto-fill, minmax(200px, 1fr))';
+        } else {
+            grid.style.gridTemplateColumns = 'repeat(auto-fill, minmax(320px, 1fr))';
+        }
+
+        loadChannelVideos();
+    }
+
+    function changeChannelSort(sort, btn) {
+        if (isChannelLoading) return;
+        currentChannelSort = sort;
+        currentChannelPage = 1;
+        hasMoreChannelVideos = true;
+        document.getElementById('channelVideosGrid').innerHTML = ''; // Clear
+
+        // Update tabs
+        document.querySelectorAll('.yt-sort-options a').forEach(a => a.classList.remove('active'));
+        btn.classList.add('active');
+
+        loadChannelVideos();
+    }
+
+    async function loadChannelVideos() {
+        if (isChannelLoading || !hasMoreChannelVideos) return;
+        isChannelLoading = true;
+
+        const grid = document.getElementById('channelVideosGrid');
+
+        // Append Skeletons
+        const tempSkeleton = document.createElement('div');
+        tempSkeleton.innerHTML = renderSkeleton(8); // Reuse main.js skeleton logic if available, or simpler
+        // Since main.js renderSkeleton returns a string, we append it
+        // Check if renderSkeleton exists, else manual
+        if (typeof renderSkeleton === 'function') {
+            // Render fewer skeletons for shorts if needed, but standard is fine
+            grid.insertAdjacentHTML('beforeend', renderSkeleton(4));
+        } else {
+            grid.insertAdjacentHTML('beforeend', '<div style="color:var(--yt-text-secondary);">Loading...</div>');
+        }
+
+        try {
+            const response = await fetch(`/api/channel/videos?id=${channelId}&page=${currentChannelPage}&sort=${currentChannelSort}&filter_type=${currentFilterType}`);
+            const videos = await response.json();
+
+            // Remove skeletons (simple way: remove last N children or just clear all if page 1? 
+            // Better: mark skeletons with class and remove)
+            // For simplicity in this v1: We just clear skeletons by removing elements with 'skeleton-card' class
+            document.querySelectorAll('#channelVideosGrid .skeleton-card').forEach(el => el.remove());
+
+            if (videos.length === 0) {
+                hasMoreChannelVideos = false;
+                if (currentChannelPage === 1) grid.innerHTML = '<p style="padding:20px; color:var(--yt-text-secondary);">No videos found.</p>';
+            } else {
+                videos.forEach(video => {
+                    const card = document.createElement('div');
+
+                    if (currentFilterType === 'shorts') {
+                        // Render Vertical Short Card
+                        card.className = 'yt-channel-short-card';
+                        card.onclick = () => window.location.href = `/watch?v=${video.id}`;
+                        card.innerHTML = `
+                             <div class="yt-short-thumb-container">
+                                <img src="${video.thumbnail}" class="yt-short-thumb" loading="lazy">
+                             </div>
+                             <div class="yt-details" style="padding: 8px;">
+                                <h3 class="yt-video-title" style="font-size: 14px; margin-bottom: 4px;">${escapeHtml(video.title)}</h3>
+                                <p class="yt-video-stats">${formatViews(video.view_count)} views</p>
+                             </div>
+                        `;
+                    } else {
+                        // Render Standard Video Card (Match Home)
+                        card.className = 'yt-video-card';
+                        card.onclick = () => window.location.href = `/watch?v=${video.id}`;
+                        card.innerHTML = `
+                            <div class="yt-thumbnail-container">
+                                <img class="yt-thumbnail" src="${video.thumbnail}" loading="lazy">
+                                ${video.duration ? `<span class="yt-duration">${video.duration}</span>` : ''}
+                            </div>
+                            <div class="yt-video-details">
+                                <div class="yt-video-meta">
+                                    <h3 class="yt-video-title">${escapeHtml(video.title)}</h3>
+                                    <p class="yt-video-stats">
+                                        ${formatViews(video.view_count)} views • ${formatDate(video.upload_date)}
+                                    </p>
+                                </div>
+                            </div>
+                        `;
+                    }
+                    grid.appendChild(card);
+                });
+                currentChannelPage++;
+            }
+        } catch (e) {
+            console.error(e);
+        } finally {
+            isChannelLoading = false;
+            document.querySelectorAll('#channelVideosGrid .skeleton-card').forEach(el => el.remove());
+        }
+    }
+
+    function setupInfiniteScroll() {
+        const trigger = document.getElementById('channelLoadingTrigger');
+        const observer = new IntersectionObserver((entries) => {
+            if (entries[0].isIntersecting) {
+                loadChannelVideos();
+            }
+        }, { threshold: 0.1 });
+        observer.observe(trigger);
+    }
+
+    // Helpers (Duplicate from main.js if not loaded, but main.js should be loaded layout)
+    // We assume main.js functions (escapeHtml, formatViews, formatDate) are available globally
+    // or we define them safely if missing.
+</script>
+{% endblock %}

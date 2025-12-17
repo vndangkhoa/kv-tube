@@ -10,17 +10,21 @@
     <div class="yt-player-section">
         <div class="yt-player-container">
             <div id="artplayer-app" style="width: 100%; height: 100%;"></div>
+            <!-- Loading State (Confined to Player) -->
+            <div id="loading" class="yt-loader"></div>
         </div>
 
-        <!-- Loading State -->
-        <div id="loading" class="yt-loader">
-            <div class="yt-spinner">
-                <div class="yt-spinner-ring"></div>
-                <div class="yt-spinner-ring"></div>
-                <div class="yt-spinner-ring"></div>
-                <div class="yt-spinner-glow"></div>
+        <!-- Info Skeleton -->
+        <div id="infoSkeleton" style="margin-top:20px;">
+            <div class="skeleton-line skeleton" style="width:70%; height:28px; margin-bottom:16px;"></div>
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
+                <div style="display:flex; align-items:center; gap:12px;">
+                    <div class="skeleton-avatar skeleton"></div>
+                    <div class="skeleton-line skeleton" style="width:120px; margin:0;"></div>
+                </div>
+                <div class="skeleton-line skeleton" style="width:250px; height:36px; border-radius:18px;"></div>
             </div>
-            <p>Loading video...</p>
+            <div class="skeleton-block skeleton" style="height:100px; border-radius:12px;"></div>
         </div>
 
         <!-- Video Info -->
@@ -40,13 +44,22 @@
                     <i class="fas fa-share"></i>
                     Share
                 </button>
-                <a class="yt-action-btn" id="downloadBtn" href="#" target="_blank">
+                <button class="yt-action-btn" id="downloadBtn" onclick="downloadVideo()">
                     <i class="fas fa-download"></i>
                     Download
-                </a>
+                </button>
                 <button class="yt-action-btn" id="saveBtn">
                     <i class="far fa-bookmark"></i>
                     Save
+                </button>
+                <button class="yt-action-btn" id="loopBtn" onclick="toggleLoop(this)">
+                    <i class="fas fa-redo"></i>
+                    Loop
+                </button>
+                <button class="yt-action-btn" id="queueBtn" onclick="addToQueue()" style="position:relative;">
+                    <i class="fas fa-list-ul"></i>
+                    Queue
+                    <span id="queueBadge" class="queue-badge" style="display:none;">0</span>
                 </button>
                 <button class="yt-action-btn" id="summarizeBtn" onclick="summarizeVideo()">
                     <i class="fas fa-magic"></i>
@@ -102,417 +115,1014 @@
         </div>
     </div>
 
-    <!-- Suggested Videos -->
-    <div class="yt-suggested" id="relatedVideos">
-        <h3 style="margin-bottom: 16px; font-size: 16px;">Related Videos</h3>
+    <!-- Right Sidebar -->
+    <!-- Right Sidebar -->
+    <div class="yt-watch-sidebar">
+        <!-- Queue Section (Collapsible Dropdown) -->
+        <div id="queueSection" class="yt-queue-dropdown">
+            <div class="yt-queue-dropdown-header" onclick="toggleQueueDropdown()">
+                <span><i class="fas fa-list-ol"></i> Queue (<span id="queueCount">0</span>)</span>
+                <i class="fas fa-chevron-down" id="queueDropdownChevron"></i>
+            </div>
+            <div class="yt-queue-dropdown-content" id="queueDropdownContent">
+                <div id="queueList">
+                    <!-- Queue items rendered here -->
+                </div>
+            </div>
+        </div>
+
+        <!-- Suggested Videos -->
+        <div class="yt-suggested" id="relatedVideos">
+            <h3 style="margin-bottom: 16px; font-size: 16px;">Related Videos</h3>
+            <!-- Skeleton Items for Related -->
+            <div class="skeleton-related-item" style="display:flex; gap:8px; margin-bottom:12px;">
+                <div class="skeleton" style="width:140px; aspect-ratio:16/9; border-radius:8px; flex-shrink:0;"></div>
+                <div style="flex:1;">
+                    <div class="skeleton-line skeleton" style="width:90%; height:14px; margin-bottom:6px;"></div>
+                    <div class="skeleton-line skeleton" style="width:60%; height:12px;"></div>
+                </div>
+            </div>
+            <div class="skeleton-related-item" style="display:flex; gap:8px; margin-bottom:12px;">
+                <div class="skeleton" style="width:168px; height:94px; border-radius:8px; flex-shrink:0;"></div>
+                <div style="flex:1;">
+                    <div class="skeleton-line skeleton" style="width:90%; height:14px; margin-bottom:6px;"></div>
+                    <div class="skeleton-line skeleton" style="width:60%; height:12px;"></div>
+                </div>
+            </div>
+            <div class="skeleton-related-item" style="display:flex; gap:8px; margin-bottom:12px;">
+                <div class="skeleton" style="width:168px; height:94px; border-radius:8px; flex-shrink:0;"></div>
+                <div style="flex:1;">
+                    <div class="skeleton-line skeleton" style="width:90%; height:14px; margin-bottom:6px;"></div>
+                    <div class="skeleton-line skeleton" style="width:60%; height:12px;"></div>
+                </div>
+            </div>
+            <div class="skeleton-related-item" style="display:flex; gap:8px; margin-bottom:12px;">
+                <div class="skeleton" style="width:168px; height:94px; border-radius:8px; flex-shrink:0;"></div>
+                <div style="flex:1;">
+                    <div class="skeleton-line skeleton" style="width:90%; height:14px; margin-bottom:6px;"></div>
+                    <div class="skeleton-line skeleton" style="width:60%; height:12px;"></div>
+                </div>
+            </div>
+            <div class="skeleton-related-item" style="display:flex; gap:8px; margin-bottom:12px;">
+                <div class="skeleton" style="width:140px; aspect-ratio:16/9; border-radius:8px; flex-shrink:0;"></div>
+                <div style="flex:1;">
+                    <div class="skeleton-line skeleton" style="width:90%; height:14px; margin-bottom:6px;"></div>
+                    <div class="skeleton-line skeleton" style="width:60%; height:12px;"></div>
+                </div>
+            </div>
+            <!-- Sentinel for Infinite Scroll -->
+            <div id="relatedSentinel" style="height: 20px; margin-top: 10px;"></div>
+        </div>
     </div>
-</div>
 
-<style>
-    html,
-    body {
-        overflow-x: hidden;
-        width: 100%;
-        max-width: 100vw;
-    }
+    <style>
+        html,
+        body {
+            overflow-x: hidden;
+            width: 100%;
+            max-width: 100vw;
+        }
 
-    .yt-player-container {
-        position: relative;
-        width: 100%;
-        aspect-ratio: 16/9;
-        background: #000;
-        border-radius: 12px;
-        overflow: hidden;
-    }
+        .yt-player-container {
+            position: relative;
+            width: 100%;
+            aspect-ratio: 16/9;
+            background: #000;
+            border-radius: 12px;
+            overflow: hidden;
+        }
 
-    #loading {
-        position: absolute;
-        top: 0;
-        left: 0;
-        right: 0;
-        bottom: 0;
-        background: #000;
-        z-index: 10;
-    }
+        #loading {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: var(--yt-bg-secondary);
+            z-index: 10;
+            /* Skeleton shimmer */
+            background: linear-gradient(90deg, var(--yt-bg-secondary) 25%, var(--yt-bg-hover) 50%, var(--yt-bg-secondary) 75%);
+            background-size: 200% 100%;
+            animation: shimmer 1.5s infinite;
+        }
 
-    .yt-watch-layout {
-        display: grid;
-        grid-template-columns: 1fr 400px;
-        gap: 24px;
-        max-width: 1800px;
-    }
+        /* Skeleton Utils */
+        @keyframes shimmer {
+            0% {
+                background-position: 200% 0;
+            }
 
-    .yt-channel-avatar-lg {
-        width: 40px;
-        height: 40px;
-        border-radius: 50%;
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-size: 18px;
-        font-weight: 600;
-        color: white;
-    }
+            100% {
+                background-position: -200% 0;
+            }
+        }
 
-    /* Comments Section - Collapsible */
-    .yt-comments-section {
-        margin-top: 24px;
-        border-top: 1px solid var(--yt-border);
-        padding-top: 16px;
-    }
+        .skeleton {
+            background: linear-gradient(90deg, var(--yt-bg-secondary) 25%, var(--yt-bg-hover) 50%, var(--yt-bg-secondary) 75%);
+            background-size: 200% 100%;
+            animation: shimmer 1.5s infinite;
+            border-radius: 4px;
+        }
 
-    .yt-comments-toggle {
-        width: 100%;
-        background: var(--yt-bg-secondary);
-        border-radius: 12px;
-        padding: 16px;
-        cursor: pointer;
-        transition: background 0.2s;
-    }
+        .skeleton-line {
+            height: 20px;
+            margin-bottom: 8px;
+        }
 
-    .yt-comments-toggle:hover {
-        background: var(--yt-bg-hover);
-    }
+        .skeleton-avatar {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+        }
 
-    .yt-comments-preview {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        color: var(--yt-text-primary);
-        font-size: 14px;
-        font-weight: 500;
-    }
+        .skeleton-block {
+            display: block;
+            width: 100%;
+        }
 
-    .yt-comments-preview i {
-        transition: transform 0.3s;
-    }
+        /* Watch Page Layout */
+        /* Force override main content padding */
+        .yt-main {
+            padding: 0 !important;
+            margin-left: 240px;
+            /* Ensure sidebar width is respected */
+        }
 
-    .yt-comments-preview i.rotated {
-        transform: rotate(180deg);
-    }
+        .yt-watch-layout {
+            display: grid;
+            grid-template-columns: 1fr 400px;
+            gap: 24px;
+            max-width: 100%;
+            width: 100%;
+            padding: 24px;
+            margin: 0;
+            box-sizing: border-box;
+        }
 
-    .yt-comments-content {
-        margin-top: 16px;
-        animation: fadeIn 0.3s ease;
-    }
+        .yt-watch-sidebar {
+            display: flex;
+            flex-direction: column;
+            gap: 0;
+            position: sticky;
+            top: 80px;
+            align-self: start;
+            max-height: calc(100vh - 100px);
+            overflow: visible;
+        }
 
-    .yt-comments-header {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        margin-bottom: 16px;
-    }
+        .yt-channel-avatar-lg {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 18px;
+            font-weight: 600;
+            color: white;
+        }
 
-    .yt-comments-header h3 {
-        font-size: 16px;
-        font-weight: 500;
-    }
+        /* Comments Section - Collapsible */
+        .yt-comments-section {
+            margin-top: 24px;
+            border-top: 1px solid var(--yt-border);
+            padding-top: 16px;
+        }
 
-    .yt-comments-list {
-        display: flex;
-        flex-direction: column;
-        gap: 16px;
-        max-height: 500px;
-        overflow-y: auto;
-    }
+        .yt-comments-toggle {
+            width: 100%;
+            background: var(--yt-bg-secondary);
+            border-radius: 12px;
+            padding: 16px;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
 
-    /* Hide standard info in shorts mode */
-    .shorts-mode .yt-video-info,
-    .shorts-mode .yt-suggested {
-        display: none !important;
-    }
+        .yt-comments-toggle:hover {
+            background: var(--yt-bg-hover);
+        }
 
-    @media (max-width: 768px) {
+        .yt-comments-preview {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            color: var(--yt-text-primary);
+            font-size: 14px;
+            font-weight: 500;
+        }
 
-        /* Hide time display on mobile to save space for other controls */
-        .art-control-time {
+        .yt-comments-preview i {
+            transition: transform 0.3s;
+        }
+
+        .yt-comments-preview i.rotated {
+            transform: rotate(180deg);
+        }
+
+        .yt-comments-content {
+            margin-top: 16px;
+            animation: fadeIn 0.3s ease;
+        }
+
+        .yt-comments-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            margin-bottom: 16px;
+        }
+
+        .yt-comments-header h3 {
+            font-size: 16px;
+            font-weight: 500;
+        }
+
+        .yt-comments-list {
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+            max-height: 500px;
+            overflow-y: auto;
+        }
+
+        /* Hide standard info in shorts mode */
+        .shorts-mode .yt-video-info,
+        .shorts-mode .yt-suggested {
             display: none !important;
         }
-    }
 
-    .yt-comment {
-        display: flex;
-        gap: 12px;
-    }
+        @media (max-width: 768px) {
 
-    .yt-comment-avatar {
-        width: 40px;
-        height: 40px;
-        border-radius: 50%;
-        background: var(--yt-bg-hover);
-        flex-shrink: 0;
-        overflow: hidden;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        font-size: 14px;
-        color: var(--yt-text-primary);
-    }
+            /* Hide time display on mobile to save space for other controls */
+            .art-control-time {
+                display: none !important;
+            }
+        }
 
-    .yt-comment-avatar img {
-        width: 100%;
-        height: 100%;
-        object-fit: cover;
-    }
+        .yt-comment {
+            display: flex;
+            gap: 12px;
+        }
 
-    .yt-comment-content {
-        flex: 1;
-    }
+        .yt-comment-avatar {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            background: var(--yt-bg-hover);
+            flex-shrink: 0;
+            overflow: hidden;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 14px;
+            color: var(--yt-text-primary);
+        }
 
-    .yt-comment-header {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-        margin-bottom: 4px;
-        flex-wrap: wrap;
-    }
+        .yt-comment-avatar img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
 
-    .yt-comment-author {
-        font-size: 13px;
-        font-weight: 500;
-        color: var(--yt-text-primary);
-    }
+        .yt-comment-content {
+            flex: 1;
+        }
 
-    .yt-comment-time {
-        font-size: 12px;
-        color: var(--yt-text-secondary);
-    }
+        .yt-comment-header {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 4px;
+            flex-wrap: wrap;
+        }
 
-    .yt-comment-text {
-        font-size: 14px;
-        line-height: 1.5;
-        color: var(--yt-text-primary);
-        margin-bottom: 8px;
-        white-space: pre-wrap;
-        word-wrap: break-word;
-    }
+        .yt-comment-author {
+            font-size: 13px;
+            font-weight: 500;
+            color: var(--yt-text-primary);
+        }
 
-    .yt-comment-actions {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-    }
+        .yt-comment-time {
+            font-size: 12px;
+            color: var(--yt-text-secondary);
+        }
 
-    .yt-comment-action {
-        display: flex;
-        align-items: center;
-        gap: 4px;
-        font-size: 12px;
-        color: var(--yt-text-secondary);
-        padding: 4px 8px;
-        border-radius: 20px;
-    }
+        .yt-comment-text {
+            font-size: 14px;
+            line-height: 1.5;
+            color: var(--yt-text-primary);
+            margin-bottom: 8px;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+        }
 
-    .yt-comment-action:hover {
-        background: var(--yt-bg-secondary);
-    }
+        .yt-comment-actions {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
 
-    .yt-pinned-badge {
-        background: var(--yt-bg-secondary);
-        font-size: 11px;
-        padding: 2px 8px;
-        border-radius: 2px;
-        color: var(--yt-text-secondary);
-    }
+        .yt-comment-action {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            font-size: 12px;
+            color: var(--yt-text-secondary);
+            padding: 4px 8px;
+            border-radius: 20px;
+        }
 
-    .yt-no-comments {
-        text-align: center;
-        color: var(--yt-text-secondary);
-        padding: 24px;
-    }
+        .yt-action-btn:hover {
+            background: var(--yt-bg-hover);
+        }
 
-    @keyframes fadeIn {
-        from {
+        .yt-action-btn.active {
+            color: #fff !important;
+            background: #ff0000 !important;
+            border-color: #ff0000 !important;
+            box-shadow: 0 0 10px rgba(255, 0, 0, 0.4);
+        }
+
+        /* Queue Badge */
+        .queue-badge {
+            position: absolute;
+            top: -6px;
+            right: -6px;
+            background: #ff0000;
+            color: #fff;
+            font-size: 10px;
+            font-weight: 600;
+            min-width: 18px;
+            height: 18px;
+            border-radius: 9px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 0 4px;
+        }
+
+        .yt-pinned-badge {
+            background: var(--yt-bg-secondary);
+            font-size: 11px;
+            padding: 2px 8px;
+            border-radius: 2px;
+            color: var(--yt-text-secondary);
+        }
+
+        .yt-no-comments {
+            text-align: center;
+            color: var(--yt-text-secondary);
+            padding: 24px;
+        }
+
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(-10px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        @media (max-width: 1200px) {
+            .yt-watch-layout {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        /* Queue Dropdown (Collapsible Overlay) */
+        .yt-queue-dropdown {
+            position: relative;
+            background: var(--yt-bg-secondary);
+            border-radius: var(--yt-radius-md);
+            margin-bottom: 12px;
+        }
+
+        .yt-queue-dropdown-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 10px 14px;
+            cursor: pointer;
+            font-size: 13px;
+            font-weight: 500;
+            color: var(--yt-text-primary);
+            transition: background 0.2s;
+        }
+
+        .yt-queue-dropdown-header:hover {
+            background: var(--yt-bg-hover);
+            border-radius: var(--yt-radius-md);
+        }
+
+        .yt-queue-dropdown-header span {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .yt-queue-dropdown-header i.fa-chevron-down {
+            font-size: 12px;
+            transition: transform 0.3s;
+        }
+
+        .yt-queue-dropdown-header i.fa-chevron-down.rotated {
+            transform: rotate(180deg);
+        }
+
+        .yt-queue-dropdown-content {
+            max-height: 0;
+            overflow: hidden;
+            transition: max-height 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            background: var(--yt-bg-secondary);
+            border-radius: 0 0 var(--yt-radius-md) var(--yt-radius-md);
+            will-change: max-height;
+        }
+
+        .yt-queue-dropdown-content.expanded {
+            max-height: 500px;
+            /* Increased slightly to accommodate more items */
+            overflow-y: auto;
+            /* Padding kept consistent or handled by inner list to avoid jump */
+        }
+
+        #queueList {
+            padding: 8px;
+            /* Move padding to inner container */
+        }
+
+        .yt-queue-item {
+            display: flex;
+            gap: 10px;
+            padding: 8px;
+            border-radius: var(--yt-radius-md);
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+
+        .yt-queue-item:hover {
+            background: var(--yt-bg-hover);
+        }
+
+        .yt-queue-item img {
+            width: 100px;
+            aspect-ratio: 16/9;
+            object-fit: cover;
+            border-radius: 4px;
+            flex-shrink: 0;
+        }
+
+        .yt-queue-item-info {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .yt-queue-item-title {
+            font-size: 13px;
+            font-weight: 500;
+            display: -webkit-box;
+            -webkit-line-clamp: 2;
+            line-clamp: 2;
+            -webkit-box-orient: vertical;
+            overflow: hidden;
+            margin-bottom: 4px;
+        }
+
+        .yt-queue-item-uploader {
+            font-size: 11px;
+            color: var(--yt-text-secondary);
+        }
+
+        .yt-queue-remove-btn {
+            background: none;
+            border: none;
+            color: var(--yt-text-secondary);
+            cursor: pointer;
+            padding: 8px;
             opacity: 0;
-            transform: translateY(-10px);
+            transition: opacity 0.2s, color 0.2s;
+            border-radius: 50%;
         }
 
-        to {
+        .yt-queue-item:hover .yt-queue-remove-btn {
             opacity: 1;
-            transform: translateY(0);
         }
-    }
 
-    @media (max-width: 1200px) {
-        .yt-watch-layout {
-            grid-template-columns: 1fr;
+        .yt-queue-remove-btn:hover {
+            color: var(--yt-accent-red);
+            background: rgba(255, 0, 0, 0.1);
         }
-    }
-</style>
 
-<!-- HLS Support (Local) -->
-<script src="/static/js/hls.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/artplayer/5.1.1/artplayer.js"></script>
-<script>
-    let commentsLoaded = false;
+        .yt-queue-empty {
+            text-align: center;
+            color: var(--yt-text-secondary);
+            padding: 12px;
+            font-size: 12px;
+        }
 
-    function initArtplayer(url, poster, type = 'auto') {
-        return new Artplayer({
-            container: '#artplayer-app',
-            url: url,
-            poster: poster,
-            type: type,
-            volume: 0.5,
-            muted: false,
-            autoplay: false,
-            pip: true,
-            autoSize: false,
-            autoMini: true,
-            screenshot: true,
-            setting: true,
-            loop: false,
-            flip: true,
-            playbackRate: true,
-            aspectRatio: true,
-            fullscreen: true,
-            fullscreenWeb: true,
-            miniProgressBar: true,
-            mutex: true,
-            backdrop: true,
-            playsInline: true,
-            autoPlayback: true,
-            lock: true,
-            fastForward: true,
-            autoOrientation: true,
-            theme: '#ff0000',
-            lang: navigator.language.toLowerCase(),
-            moreVideoAttr: {
-                crossOrigin: 'anonymous',
-            },
-            customType: {
-                m3u8: function (video, url) {
-                    if (Hls.isSupported()) {
-                        const hls = new Hls({
-                            maxBufferLength: 30,
-                            maxMaxBufferLength: 60,
-                            debug: false, // Set to true if needed
-                        });
-                        hls.loadSource(url);
-                        hls.attachMedia(video);
+        /* Mobile/Tablet Responsiveness */
+        @media (max-width: 1024px) {
+            .yt-watch-layout {
+                display: block;
+                /* Stack vertically */
+                padding: 0;
+            }
 
-                        // HLS Error Handling
-                        hls.on(Hls.Events.ERROR, function (event, data) {
-                            console.error('HLS Error:', data);
-                            if (data.fatal) {
-                                switch (data.type) {
-                                    case Hls.ErrorTypes.NETWORK_ERROR:
-                                        console.error('fatal network error encountered, try to recover');
-                                        hls.startLoad();
-                                        showToast("Stream network error. Retrying...", "error");
-                                        break;
-                                    case Hls.ErrorTypes.MEDIA_ERROR:
-                                        console.error('fatal media error encountered, try to recover');
-                                        hls.recoverMediaError();
-                                        showToast("Stream media error. Recovering...", "warning");
-                                        break;
-                                    default:
-                                        console.error('fatal error, cannot recover');
-                                        hls.destroy();
-                                        showToast("Fatal stream error. Playback failed.", "error");
-                                        break;
+            .yt-main {
+                margin-left: 0 !important;
+                /* Remove sidebar reservation */
+                width: 100%;
+            }
+
+            .yt-player-section {
+                width: 100%;
+            }
+
+            .yt-player-container {
+                border-radius: 0;
+                /* Full bleed on mobile */
+            }
+
+            .yt-video-info {
+                padding: 16px;
+            }
+
+            .yt-watch-sidebar {
+                position: static;
+                /* Unstick */
+                width: 100%;
+                max-height: none;
+                padding: 0 16px 24px;
+            }
+
+            #queueSection {
+                margin-top: 16px;
+            }
+
+            /* Adjust comments toggle for mobile */
+            .yt-comments-toggle {
+                padding: 12px;
+            }
+        }
+    </style>
+
+    <!-- HLS Support (Local) -->
+    <script src="/static/js/hls.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/artplayer/5.1.1/artplayer.js"></script>
+    <script>
+        let commentsLoaded = false;
+        // Current video data for Queue
+        let currentVideoData = {};
+
+        function initArtplayer(url, poster, subtitleUrl = '', type = 'auto') {
+            const art = new Artplayer({
+                container: '#artplayer-app',
+                url: url,
+                poster: poster,
+                type: type,
+                // ... (keep existing options)
+                volume: 0.5,
+                muted: false,
+                autoplay: false,
+                pip: true,
+                autoSize: false,
+                autoMini: true,
+                screenshot: true,
+                setting: true,
+                loop: false,
+                flip: true,
+                playbackRate: true,
+                aspectRatio: true,
+                fullscreen: true,
+                fullscreenWeb: true,
+                miniProgressBar: true,
+                mutex: true,
+                backdrop: true,
+                playsInline: true,
+                autoPlayback: true,
+                lock: true,
+                fastForward: true,
+                autoOrientation: true,
+                theme: '#ff0000',
+                subtitle: {
+                    url: subtitleUrl,
+                    type: 'vtt',
+                    style: {
+                        color: '#fff',
+                        fontSize: '20px',
+                    },
+                    encoding: 'utf-8',
+                },
+                lang: navigator.language.toLowerCase(),
+                moreVideoAttr: {
+                    crossOrigin: 'anonymous',
+                },
+                customType: {
+                    m3u8: function (video, url) {
+                        if (Hls.isSupported()) {
+                            const hls = new Hls({
+                                maxBufferLength: 30,
+                                maxMaxBufferLength: 60,
+                                debug: false,
+                            });
+                            hls.loadSource(url);
+                            hls.attachMedia(video);
+                            hls.on(Hls.Events.ERROR, function (event, data) {
+                                console.error('HLS Error:', data);
+                                if (data.fatal) {
+                                    switch (data.type) {
+                                        case Hls.ErrorTypes.NETWORK_ERROR:
+                                            hls.startLoad();
+                                            showToast("Stream network error. Retrying...", "error");
+                                            break;
+                                        case Hls.ErrorTypes.MEDIA_ERROR:
+                                            hls.recoverMediaError();
+                                            showToast("Stream media error. Recovering...", "warning");
+                                            break;
+                                        default:
+                                            hls.destroy();
+                                            showToast("Fatal stream error.", "error");
+                                            break;
+                                    }
+                                }
+                            });
+                        } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+                            video.src = url;
+                        } else {
+                            showToast("Browser does not support HLS.", "error");
+                        }
+                    },
+                },
+                mounted: function (art) {
+                    // Expose player instance for loop toggle
+                    window.player = art;
+
+                    function checkVertical() {
+                        const video = art.video;
+                        if (video.videoHeight > 0 && video.videoHeight > video.videoWidth) {
+                            const ratio = `${video.videoWidth}/${video.videoHeight}`;
+                            art.aspectRatio = ratio;
+                            art.video.style.objectFit = 'contain';
+                            const container = document.querySelector('.yt-player-container');
+                            if (container) {
+                                container.style.aspectRatio = ratio;
+                                container.style.width = '100%';
+                                container.style.maxWidth = '100%';
+                                if (window.innerWidth > 768) {
+                                    container.style.maxWidth = '450px';
+                                    container.style.margin = '0 auto';
                                 }
                             }
-                        });
-
-                    } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
-                        video.src = url;
-                    } else {
-                        showToast("Your browser does not support HLS playback.", "error");
-                    }
-                },
-            },
-            mounted: function (art) {
-                // Check metadata when video is ready/loaded
-                function checkVertical() {
-                    const video = art.video;
-                    if (video.videoHeight > 0 && video.videoHeight > video.videoWidth) {
-                        console.log('Vertical video detected:', video.videoWidth, video.videoHeight);
-                        // Use strict string format "W/H" without spaces for safer parsing
-                        const ratio = `${video.videoWidth}/${video.videoHeight}`;
-
-                        // Set Artplayer Aspect Ratio
-                        art.aspectRatio = ratio;
-                        art.video.style.objectFit = 'contain';
-
-                        // Adjust container styling
-                        const container = document.querySelector('.yt-player-container');
-                        if (container) {
-                            container.style.aspectRatio = ratio;
-                            container.style.width = '100%';
-                            container.style.maxWidth = '100%'; /* Critical for preventing overflow */
-
-                            // On Desktop, limit width
-                            if (window.innerWidth > 768) {
-                                container.style.maxWidth = '450px';
-                                container.style.margin = '0 auto';
-                            }
                         }
                     }
-                }
-
-                // Check immediately
-                checkVertical();
-
-                // And on metadata load
-                art.on('video:loadedmetadata', checkVertical);
-            },
-        });
-    }
-
-    function toggleDescription() {
-        const desc = document.getElementById('videoDesc');
-        desc.style.webkitLineClamp = desc.style.webkitLineClamp === 'unset' ? '3' : 'unset';
-    }
-
-    function toggleComments() {
-        const content = document.getElementById('commentsContent');
-        const chevron = document.getElementById('commentsChevron');
-        const videoId = "{{ video_id }}";
-
-        if (content.style.display === 'none') {
-            content.style.display = 'block';
-            chevron.classList.add('rotated');
-
-            // Load comments only once
-            if (!commentsLoaded) {
-                loadComments(videoId);
-                commentsLoaded = true;
-            }
-        } else {
-            content.style.display = 'none';
-            chevron.classList.remove('rotated');
+                    checkVertical();
+                    art.on('video:loadedmetadata', checkVertical);
+                },
+            });
+            return art;
         }
-    }
 
-    async function loadComments(videoId) {
-        const commentsList = document.getElementById('commentsList');
-        commentsList.innerHTML = `
-            <div class="yt-loader">
-                <div class="yt-spinner"></div>
-                <p>Loading comments...</p>
+        // --- Loop Logic ---
+        function toggleLoop(btn) {
+            if (!window.player) {
+                showToast("Player not ready yet", "error");
+                return;
+            }
+            const isLoop = !window.player.loop;
+            window.player.loop = isLoop;
+
+            // Force style update
+            if (isLoop) {
+                btn.classList.add('active');
+                btn.style.background = '#ff0000';
+                btn.style.color = '#fff';
+                btn.innerHTML = '<i class="fas fa-redo"></i> Loop On';
+                showToast("Loop Mode is ON", "success");
+            } else {
+                btn.classList.remove('active');
+                btn.style.background = '';
+                btn.style.color = '';
+                btn.innerHTML = '<i class="fas fa-redo"></i> Loop';
+                showToast("Loop Mode is OFF");
+            }
+        }
+
+        // --- Queue Logic (Toggle) ---
+        function addToQueue() {
+            const btn = document.getElementById('queueBtn');
+            if (!currentVideoData.id) {
+                showToast("Video data not ready", "error");
+                return;
+            }
+
+            let queue = JSON.parse(localStorage.getItem('kv_queue') || '[]');
+            const existingIndex = queue.findIndex(v => v.id === currentVideoData.id);
+
+            if (existingIndex !== -1) {
+                // Remove from queue (toggle off)
+                queue.splice(existingIndex, 1);
+                localStorage.setItem('kv_queue', JSON.stringify(queue));
+                showToast("Removed from Queue", "info");
+
+                // Reset button
+                if (btn) {
+                    btn.classList.remove('active');
+                    btn.style.background = '';
+                    btn.style.color = '';
+                    btn.innerHTML = '<i class="fas fa-list-ul"></i> Queue';
+                }
+            } else {
+                // Add to queue
+                queue.push({
+                    id: currentVideoData.id,
+                    title: currentVideoData.title,
+                    thumbnail: currentVideoData.thumbnail,
+                    uploader: currentVideoData.uploader,
+                    duration: currentVideoData.duration
+                });
+                localStorage.setItem('kv_queue', JSON.stringify(queue));
+                showToast("Added to Queue", "success");
+
+                // Active button
+                if (btn) {
+                    btn.classList.add('active');
+                    btn.style.background = '#ff0000';
+                    btn.style.color = '#fff';
+                    btn.innerHTML = '<i class="fas fa-check"></i> In Queue';
+                }
+                updateQueueCount(); // Update count in dropdown
+                updateQueueBadge(); // Update button badge
+            }
+        }
+
+        // Check if current video is already in queue on load
+        function updateQueueButtonState() {
+            const btn = document.getElementById('queueBtn');
+            const badge = document.getElementById('queueBadge');
+            if (!btn) return;
+
+            const queue = JSON.parse(localStorage.getItem('kv_queue') || '[]');
+            const isInQueue = currentVideoData.id && queue.some(v => v.id === currentVideoData.id);
+
+            // Update badge with total queue count
+            if (badge) {
+                if (queue.length > 0) {
+                    badge.style.display = 'flex';
+                    badge.innerText = queue.length;
+                } else {
+                    badge.style.display = 'none';
+                }
+            }
+
+            if (isInQueue) {
+                btn.classList.add('active');
+                btn.style.background = '#ff0000';
+                btn.style.color = '#fff';
+                btn.innerHTML = '<i class="fas fa-check"></i> In Queue <span id="queueBadge" class="queue-badge" style="display:flex;">' + queue.length + '</span>';
+            } else {
+                btn.classList.remove('active');
+                btn.style.background = '';
+                btn.style.color = '';
+                btn.innerHTML = '<i class="fas fa-list-ul"></i> Queue' + (queue.length > 0 ? ' <span id="queueBadge" class="queue-badge" style="display:flex;">' + queue.length + '</span>' : '');
+            }
+        }
+
+        // --- Save to Library (Local Storage) ---
+        function saveToLibrary() {
+            const btn = document.getElementById('saveBtn');
+            if (!currentVideoData.id) {
+                showToast("Video data not ready", "error");
+                return;
+            }
+
+            let saved = JSON.parse(localStorage.getItem('kv_saved') || '[]');
+            const existingIndex = saved.findIndex(v => v.id === currentVideoData.id);
+
+            if (existingIndex !== -1) {
+                // Remove (toggle off)
+                saved.splice(existingIndex, 1);
+                localStorage.setItem('kv_saved', JSON.stringify(saved));
+                showToast("Removed from Library", "info");
+
+                if (btn) {
+                    btn.classList.remove('active');
+                    btn.style.background = '';
+                    btn.style.color = '';
+                    btn.innerHTML = '<i class="far fa-bookmark"></i> Save';
+                }
+            } else {
+                // Add
+                saved.push({
+                    id: currentVideoData.id,
+                    title: currentVideoData.title,
+                    thumbnail: currentVideoData.thumbnail,
+                    uploader: currentVideoData.uploader,
+                    savedAt: new Date().toISOString()
+                });
+                localStorage.setItem('kv_saved', JSON.stringify(saved));
+                showToast("Saved to Library", "success");
+
+                if (btn) {
+                    btn.classList.add('active');
+                    btn.style.background = '#ff0000';
+                    btn.style.color = '#fff';
+                    btn.innerHTML = '<i class="fas fa-bookmark"></i> Saved';
+                }
+            }
+        }
+
+        function updateSaveButtonState() {
+            const btn = document.getElementById('saveBtn');
+            if (!btn || !currentVideoData.id) return;
+
+            const saved = JSON.parse(localStorage.getItem('kv_saved') || '[]');
+            const isSaved = saved.some(v => v.id === currentVideoData.id);
+
+            if (isSaved) {
+                btn.classList.add('active');
+                btn.style.background = '#ff0000';
+                btn.style.color = '#fff';
+                btn.innerHTML = '<i class="fas fa-bookmark"></i> Saved';
+            }
+        }
+
+        // --- Download Video ---
+        async function downloadVideo() {
+            const videoId = "{{ video_id }}";
+            const btn = document.getElementById('downloadBtn');
+
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Preparing...';
+            btn.disabled = true;
+
+            try {
+                const response = await fetch(`/api/download?v=${videoId}`);
+                const data = await response.json();
+
+                if (data.url) {
+                    // Open direct MP4 URL
+                    window.open(data.url, '_blank');
+                    showToast("Download started!", "success");
+                } else {
+                    showToast(data.error || "Could not get download link", "error");
+                }
+            } catch (e) {
+                showToast("Download failed", "error");
+            } finally {
+                btn.innerHTML = '<i class="fas fa-download"></i> Download';
+                btn.disabled = false;
+            }
+        }
+
+        // --- Queue Dropdown ---
+        function toggleQueueDropdown() {
+            const content = document.getElementById('queueDropdownContent');
+            const chevron = document.getElementById('queueDropdownChevron');
+
+            if (content.classList.contains('expanded')) {
+                content.classList.remove('expanded');
+                chevron.classList.remove('rotated');
+            } else {
+                content.classList.add('expanded');
+                chevron.classList.add('rotated');
+                renderQueueList();
+            }
+        }
+
+        function renderQueueList() {
+            const list = document.getElementById('queueList');
+            const queue = JSON.parse(localStorage.getItem('kv_queue') || '[]');
+
+            if (!list) return;
+
+            if (queue.length === 0) {
+                list.innerHTML = '<p class="yt-queue-empty">Queue is empty. Add videos using the Queue button.</p>';
+                return;
+            }
+
+            list.innerHTML = queue.map((item, index) => `
+            <div class="yt-queue-item" onclick="window.location.href='/watch?v=${item.id}'">
+                <img src="${item.thumbnail}" loading="lazy">
+                <div class="yt-queue-item-info">
+                    <div class="yt-queue-item-title">${escapeHtml(item.title)}</div>
+                    <div class="yt-queue-item-uploader">${escapeHtml(item.uploader || 'Unknown')}</div>
+                </div>
+                <button class="yt-queue-remove-btn" onclick="event.stopPropagation(); removeFromQueueDropdown(${index})">
+                    <i class="fas fa-trash-alt"></i>
+                </button>
             </div>
-        `;
+        `).join('');
+        }
 
-        try {
-            const response = await fetch(`/api/comments?v=${videoId}`);
-            const data = await response.json();
+        function removeFromQueueDropdown(index) {
+            let queue = JSON.parse(localStorage.getItem('kv_queue') || '[]');
+            const removedItem = queue[index];
+            queue.splice(index, 1);
+            localStorage.setItem('kv_queue', JSON.stringify(queue));
 
-            document.getElementById('commentCount').innerText = formatViews(data.count);
-            document.getElementById('commentCountDisplay').innerText = `${formatViews(data.count)} Comments`;
+            renderQueueList();
+            updateQueueCount();
+            updateQueueBadge();
 
-            commentsList.innerHTML = '';
+            // Update Add/Remove Queue button state if looking at the removed video
+            if (currentVideoData && removedItem && currentVideoData.id === removedItem.id) {
+                updateQueueButtonState();
+            }
 
-            if (data.comments && data.comments.length > 0) {
-                data.comments.forEach(comment => {
-                    const commentEl = document.createElement('div');
-                    commentEl.className = 'yt-comment';
-                    commentEl.innerHTML = `
+            showToast("Removed from Queue", "info");
+        }
+
+        function updateQueueCount() {
+            const countEl = document.getElementById('queueCount');
+            if (countEl) {
+                const queue = JSON.parse(localStorage.getItem('kv_queue') || '[]');
+                countEl.innerText = queue.length;
+            }
+        }
+
+        function updateQueueBadge() {
+            const badge = document.getElementById('queueBadge');
+            if (badge) {
+                const queue = JSON.parse(localStorage.getItem('kv_queue') || '[]');
+                if (queue.length > 0) {
+                    badge.style.display = 'flex';
+                    badge.innerText = queue.length;
+                } else {
+                    badge.style.display = 'none';
+                }
+            }
+        }
+
+        function toggleDescription() {
+            const desc = document.getElementById('videoDesc');
+            desc.style.webkitLineClamp = desc.style.webkitLineClamp === 'unset' ? '3' : 'unset';
+        }
+
+        function toggleComments() {
+            const content = document.getElementById('commentsContent');
+            const chevron = document.getElementById('commentsChevron');
+            const videoId = "{{ video_id }}";
+
+            if (content.style.display === 'none') {
+                content.style.display = 'block';
+                chevron.classList.add('rotated');
+
+                // Load comments only once
+                if (!commentsLoaded) {
+                    loadComments(videoId);
+                    commentsLoaded = true;
+                }
+            } else {
+                content.style.display = 'none';
+                chevron.classList.remove('rotated');
+            }
+        }
+
+        function saveToLocalHistory(item) {
+            let history = JSON.parse(localStorage.getItem('kv_history') || '[]');
+            // Remove existing if present (to move to top)
+            history = history.filter(v => v.id !== item.id);
+            // Add to front
+            history.unshift(item);
+            // Limit to 50
+            if (history.length > 50) history.pop();
+            localStorage.setItem('kv_history', JSON.stringify(history));
+        }
+
+        async function loadComments(videoId) {
+            const commentsList = document.getElementById('commentsList');
+            commentsList.innerHTML = Array(3).fill(0).map(() => `
+            <div class="skeleton-comment">
+                <div class="skeleton-comment-avatar skeleton"></div>
+                <div class="skeleton-comment-body">
+                    <div class="skeleton-line skeleton" style="width: 30%;"></div>
+                    <div class="skeleton-line skeleton" style="width: 80%;"></div>
+                    <div class="skeleton-line skeleton" style="width: 60%;"></div>
+                </div>
+            </div>
+        `).join('');
+
+            try {
+                const response = await fetch(`/api/comments?v=${videoId}`);
+                const data = await response.json();
+
+                document.getElementById('commentCount').innerText = formatViews(data.count);
+                document.getElementById('commentCountDisplay').innerText = `${formatViews(data.count)} Comments`;
+
+                commentsList.innerHTML = '';
+
+                if (data.comments && data.comments.length > 0) {
+                    data.comments.forEach(comment => {
+                        const commentEl = document.createElement('div');
+                        commentEl.className = 'yt-comment';
+                        commentEl.innerHTML = `
                         <div class="yt-comment-avatar">
                             ${comment.author_thumbnail
-                            ? `<img src="${comment.author_thumbnail}" alt="">`
-                            : escapeHtml(comment.author.charAt(0).toUpperCase())
-                        }
+                                ? `<img src="${comment.author_thumbnail}" alt="">`
+                                : escapeHtml(comment.author.charAt(0).toUpperCase())
+                            }
                         </div>
                         <div class="yt-comment-content">
                             <div class="yt-comment-header">
@@ -532,199 +1142,311 @@
                             </div>
                         </div>
                     `;
-                    commentsList.appendChild(commentEl);
-                });
-            } else {
-                commentsList.innerHTML = `<p class="yt-no-comments">Comments are disabled or unavailable for this video.</p>`;
+                        commentsList.appendChild(commentEl);
+                    });
+                } else {
+                    commentsList.innerHTML = `<p class="yt-no-comments">Comments are disabled or unavailable for this video.</p>`;
+                }
+            } catch (e) {
+                console.error('Error loading comments:', e);
+                commentsList.innerHTML = `<p class="yt-no-comments">Could not load comments.</p>`;
             }
-        } catch (e) {
-            console.error('Error loading comments:', e);
-            commentsList.innerHTML = `<p class="yt-no-comments">Could not load comments.</p>`;
-        }
-    }
-
-    document.addEventListener('DOMContentLoaded', async () => {
-        const videoType = "{{ video_type }}";
-        const loading = document.getElementById('loading');
-        const videoInfo = document.getElementById('videoInfo');
-        const videoId = "{{ video_id }}";
-
-        if (videoType === 'local') {
-            const player = initArtplayer("{{ src }}", "");
-            document.getElementById('videoTitle').innerText = "{{ title }}";
-            document.getElementById('channelName').innerText = "Local Video";
-            document.getElementById('channelAvatarLetter').innerText = 'L';
-            loading.style.display = 'none';
-            videoInfo.style.display = 'block';
-            document.getElementById('commentsSection').style.display = 'none';
-            return;
         }
 
-        try {
-            const response = await fetch(`/api/get_stream_info?v=${videoId}`);
+        document.addEventListener('DOMContentLoaded', async () => {
+            const videoType = "{{ video_type }}";
+            const loading = document.getElementById('loading');
+            const infoSkeleton = document.getElementById('infoSkeleton');
+            const videoInfo = document.getElementById('videoInfo');
+            const videoId = "{{ video_id }}";
 
-            if (response.status === 504) {
-                throw new Error("Server Timeout (504): content source is slow. Please refresh.");
-            }
-
-            if (!response.ok) {
-                throw new Error(`Server Error (${response.status})`);
-            }
-
-            // Check content type to avoid JSON syntax errors if HTML is returned
-            const contentType = response.headers.get("content-type");
-            if (!contentType || !contentType.includes("application/json")) {
-                throw new Error("Received invalid response from server");
-            }
-
-            const data = await response.json();
-
-            if (data.error) {
-                loading.innerHTML = `<p style="color:#f00; text-align:center;">${data.error}</p>`;
-                showToast(data.error, 'error');
+            if (videoType === 'local') {
+                const player = initArtplayer("{{ src }}", "");
+                document.getElementById('videoTitle').innerText = "{{ title }}";
+                document.getElementById('channelName').innerText = "Local Video";
+                document.getElementById('channelAvatarLetter').innerText = 'L';
+                loading.style.display = 'none';
+                if (infoSkeleton) infoSkeleton.style.display = 'none';
+                videoInfo.style.display = 'block';
+                document.getElementById('commentsSection').style.display = 'none';
                 return;
             }
 
-            const posterUrl = `https://i.ytimg.com/vi/${videoId}/maxresdefault.jpg`;
+            try {
+                const response = await fetch(`/api/get_stream_info?v=${videoId}`);
 
-            // Determine video type
-            let streamType = 'auto';
-            if (data.original_url && (data.original_url.includes('.m3u8') || data.original_url.includes('manifest'))) {
-                streamType = 'm3u8';
-            }
+                if (response.status === 504) {
+                    throw new Error("Server Timeout (504): content source is slow. Please refresh.");
+                }
 
-            const player = initArtplayer(data.stream_url, posterUrl, streamType);
+                if (!response.ok) {
+                    throw new Error(`Server Error (${response.status})`);
+                }
 
-            loading.style.display = 'none';
-            videoInfo.style.display = 'block';
+                // Check content type to avoid JSON syntax errors if HTML is returned
+                const contentType = response.headers.get("content-type");
+                if (!contentType || !contentType.includes("application/json")) {
+                    throw new Error("Received invalid response from server");
+                }
 
-            document.getElementById('videoTitle').innerText = data.title || 'Untitled';
-            document.getElementById('channelName').innerText = data.uploader || 'Unknown';
-            document.getElementById('viewCount').innerText = formatViews(data.view_count) + ' views';
-            document.getElementById('videoDesc').innerText = data.description || 'No description';
-            document.getElementById('descStats').innerText = `${formatViews(data.view_count)} views • ${data.upload_date || 'Recently'}`;
-            document.getElementById('downloadBtn').href = data.stream_url;
+                const data = await response.json();
 
-            const uploaderName = data.uploader || 'Unknown';
-            document.getElementById('channelAvatarLetter').innerText = uploaderName.charAt(0).toUpperCase();
-
-            // Save to History
-            fetch('/api/save_video', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
+                // Populate global data for Queue
+                currentVideoData = {
                     id: videoId,
                     title: data.title,
                     thumbnail: `https://i.ytimg.com/vi/${videoId}/mqdefault.jpg`,
-                    type: 'history'
-                })
-            });
+                    uploader: data.uploader || 'Unknown',
+                    duration: data.duration
+                };
 
-            // Subtitle Config
-            // Add subtitle to player config if available
-            player.subtitle.url = data.subtitle_url || '';
-            if (data.subtitle_url) {
-                player.subtitle.show = true;
-                player.notice.show = 'CC Enabled';
-            }
+                // Check if video is already in queue
+                updateQueueButtonState();
+                updateQueueCount();
+                updateQueueBadge();
 
-            document.getElementById('saveBtn').onclick = async () => {
-                const res = await fetch('/api/save_video', {
+                if (data.error) {
+                    loading.innerHTML = `<p style="color:#f00; text-align:center;">${data.error}</p>`;
+                    if (infoSkeleton) infoSkeleton.style.display = 'none';
+                    showToast(data.error, 'error');
+                    return;
+                }
+
+                const posterUrl = `https://i.ytimg.com/vi/${videoId}/maxresdefault.jpg`;
+
+                // Determine video type
+                let streamType = 'auto';
+                if (data.original_url && (data.original_url.includes('.m3u8') || data.original_url.includes('manifest'))) {
+                    streamType = 'm3u8';
+                }
+
+                const player = initArtplayer(data.stream_url, posterUrl, data.subtitle_url, streamType);
+                window.player = player; // Ensure global access for loop button
+                currentStreamUrl = data.stream_url; // For download button
+
+                loading.style.display = 'none';
+                if (infoSkeleton) infoSkeleton.style.display = 'none';
+                videoInfo.style.display = 'block';
+
+                const channelLink = data.uploader_id ? `/channel/${data.uploader_id}` : (data.channel_id ? `/channel/${data.channel_id}` : `/channel/${data.uploader || 'unknown'}`);
+
+                document.getElementById('videoTitle').innerText = data.title || 'Untitled';
+
+                const channelNameEl = document.getElementById('channelName');
+                channelNameEl.innerHTML = `<a href="${channelLink}" style="color:inherit; text-decoration:none;">${data.uploader || 'Unknown'}</a>`;
+
+                // Make avatar clickable too
+                const avatarEl = document.getElementById('channelAvatar');
+                avatarEl.style.cursor = 'pointer';
+                avatarEl.onclick = () => window.location.href = channelLink;
+                document.getElementById('viewCount').innerText = formatViews(data.view_count) + ' views';
+                document.getElementById('videoDesc').innerText = data.description || 'No description';
+                document.getElementById('descStats').innerText = `${formatViews(data.view_count)} views • ${data.upload_date || 'Recently'}`;
+                document.getElementById('downloadBtn').href = data.stream_url;
+
+                const uploaderName = data.uploader || 'Unknown';
+                document.getElementById('channelAvatarLetter').innerText = uploaderName.charAt(0).toUpperCase();
+
+                // Save to History (Local & Server)
+                const historyItem = {
+                    id: videoId,
+                    title: data.title,
+                    thumbnail: `https://i.ytimg.com/vi/${videoId}/mqdefault.jpg`,
+                    timestamp: new Date().toISOString(),
+                    uploader: data.uploader
+                };
+
+                // 1. Save Local
+                saveToLocalHistory(historyItem);
+
+                // 2. Save Server (if logged in - fail silently if 401/403)
+                fetch('/api/save_video', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                         id: videoId,
                         title: data.title,
                         thumbnail: `https://i.ytimg.com/vi/${videoId}/mqdefault.jpg`,
-                        type: 'saved'
+                        type: 'history'
                     })
-                });
-                const resData = await res.json();
-                if (resData.status === 'success' || resData.status === 'already_saved') {
-                    document.getElementById('saveBtn').innerHTML = '<i class="fas fa-bookmark"></i> Saved';
-                    showToast('Video saved to library', 'success');
+                }).catch(() => { }); // Ignore errors for anon users
+
+                // Subtitle Config
+                // Add subtitle to player config if available
+                player.subtitle.url = data.subtitle_url || '';
+                if (data.subtitle_url) {
+                    player.subtitle.show = true;
+                    player.notice.show = 'CC Enabled';
                 }
-            };
 
-            document.getElementById('shareBtn').onclick = () => {
-                navigator.clipboard.writeText(window.location.href);
-                showToast('Link copied to clipboard!', 'success');
-            };
+                // Save Button - Local Storage based
+                document.getElementById('saveBtn').onclick = () => {
+                    saveToLibrary();
+                };
 
-            // Related Videos
-            const relatedContainer = document.getElementById('relatedVideos');
-            if (data.related && data.related.length > 0) {
-                data.related.forEach(vid => {
-                    const card = document.createElement('div');
-                    card.className = 'yt-suggested-card';
-                    card.innerHTML = `
-                        <img src="${vid.thumbnail}" class="yt-suggested-thumb" loading="lazy">
-                        <div class="yt-suggested-info">
-                            <p class="yt-suggested-title">${escapeHtml(vid.title)}</p>
-                            <p class="yt-suggested-channel">${escapeHtml(vid.uploader || 'Unknown')}</p>
-                            <p class="yt-suggested-stats">${formatViews(vid.view_count)} views</p>
-                        </div>
-                    `;
-                    card.onclick = () => window.location.href = `/watch?v=${vid.id}`;
-                    relatedContainer.appendChild(card);
-                });
-            }
+                // Check if already saved
+                updateSaveButtonState();
 
-        } catch (e) {
-            console.error(e);
-            loading.innerHTML = `
+                document.getElementById('shareBtn').onclick = () => {
+                    navigator.clipboard.writeText(window.location.href);
+                    showToast('Link copied to clipboard!', 'success');
+                };
+
+                // Related Videos
+                // Related Videos
+                const relatedContainer = document.getElementById('relatedVideos');
+                // Clear but keep header
+                relatedContainer.innerHTML = '<h3 style="margin-bottom: 16px; font-size: 16px;">Related Videos</h3>';
+
+                if (data.related && data.related.length > 0) {
+                    renderRelated(data.related);
+                } else {
+                    const noRel = document.createElement('p');
+                    noRel.style.color = 'var(--yt-text-secondary)';
+                    noRel.innerText = 'No related videos found.';
+                    relatedContainer.appendChild(noRel);
+                }
+
+                // Add Sentinel for infinite scroll
+                const sentinel = document.createElement('div');
+                sentinel.id = 'relatedSentinel';
+                sentinel.style.height = '20px';
+                relatedContainer.appendChild(sentinel);
+
+                // Setup Observer
+                setupRelatedObserver();
+
+                // Set global title for pagination
+                currentVideoTitle = data.title;
+                relatedPage = 2; // Next page is 2
+            } catch (e) {
+                console.error(e);
+                loading.innerHTML = `
                 <div style="display:flex; flex-direction:column; align-items:center; justify-content:center; height:100%; gap:16px;">
                     <i class="fas fa-wifi" style="font-size: 32px; color: #ff4e45;"></i>
                     <p style="color:#fff;">${e.message || 'Connection Error'}</p>
                     <button onclick="window.location.reload()" style="background:#3ea6ff; color:white; border:none; padding:10px 20px; border-radius:18px; cursor:pointer; font-weight:500;">Try Again</button>
                 </div>
             `;
-            showToast(e.message || 'Connection Error', 'error');
-        }
-    });
-
-    function formatViews(views) {
-        if (!views) return '0';
-        const num = parseInt(views);
-        if (num >= 1000000) return (num / 1000000).toFixed(1) + 'M';
-        if (num >= 1000) return (num / 1000).toFixed(0) + 'K';
-        return num.toLocaleString();
-    }
-
-    function escapeHtml(text) {
-        if (!text) return '';
-        const div = document.createElement('div');
-        div.textContent = text;
-        return div.innerHTML;
-    }
-
-    async function summarizeVideo() {
-        const videoId = "{{ video_id }}";
-        const btn = document.getElementById('summarizeBtn');
-        const box = document.getElementById('summaryBox');
-        const text = document.getElementById('summaryText');
-
-        btn.disabled = true;
-        btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Generating...';
-
-        box.style.display = 'block';
-        text.innerText = 'Analyzing transcript and extracting key insights...';
-
-        try {
-            const response = await fetch(`/api/summarize?v=${videoId}`);
-            const data = await response.json();
-
-            if (data.success) {
-                text.innerText = data.summary;
-            } else {
-                text.innerText = data.message || 'Could not generate summary.';
+                if (infoSkeleton) infoSkeleton.style.display = 'none';
+                showToast(e.message || 'Connection Error', 'error');
             }
-        } catch (e) {
-            text.innerText = 'Network error during summarization.';
-        } finally {
-            btn.disabled = false;
-            btn.innerHTML = '<i class="fas fa-magic"></i> Summarize';
+        });
+
+        function formatViews(views) {
+            if (!views) return '0';
+            const num = parseInt(views);
+            if (num >= 1000000) return (num / 1000000).toFixed(1) + 'M';
+            if (num >= 1000) return (num / 1000).toFixed(0) + 'K';
+            return num.toLocaleString();
         }
-    }
-</script>
-{% endblock %}
+
+        function escapeHtml(text) {
+            if (!text) return '';
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        async function summarizeVideo() {
+            const videoId = "{{ video_id }}";
+            const btn = document.getElementById('summarizeBtn');
+            const box = document.getElementById('summaryBox');
+            const text = document.getElementById('summaryText');
+
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Generating...';
+
+            box.style.display = 'block';
+            text.innerText = 'Analyzing transcript and extracting key insights...';
+
+            try {
+                const response = await fetch(`/api/summarize?v=${videoId}`);
+                const data = await response.json();
+
+                if (data.success) {
+                    text.innerText = data.summary;
+                } else {
+                    text.innerText = data.message || 'Could not generate summary.';
+                }
+            } catch (e) {
+                text.innerText = 'Network error during summarization.';
+            }
+            btn.disabled = false;
+            btn.innerHTML = '<i class="fas fa-magic"></i> Summarize with AI';
+        }
+
+        // --- Related Videos Infinite Scroll Functions ---
+        let currentVideoTitle = '';
+        let relatedPage = 1;
+        let relatedIsLoading = false;
+
+        function setupRelatedObserver() {
+            const observer = new IntersectionObserver((entries) => {
+                if (entries[0].isIntersecting && !relatedIsLoading && currentVideoTitle) {
+                    loadMoreRelated();
+                }
+            }, { rootMargin: '200px' });
+
+            const sentinel = document.getElementById('relatedSentinel');
+            if (sentinel) observer.observe(sentinel);
+        }
+
+        async function loadMoreRelated() {
+            if (relatedIsLoading) return;
+            relatedIsLoading = true;
+
+            try {
+                // Show mini loader
+                const sentinel = document.getElementById('relatedSentinel');
+                if (sentinel) sentinel.innerHTML = '<div class="loader" style="margin:0 auto; width:20px; height:20px;"></div>';
+
+                const response = await fetch(`/api/related?title=${encodeURIComponent(currentVideoTitle)}&page=${relatedPage}`);
+                const videos = await response.json();
+
+                if (videos && videos.length > 0) {
+                    renderRelated(videos);
+                    relatedPage++;
+                    if (sentinel) sentinel.innerHTML = ''; // Clear loader
+                } else {
+                    if (sentinel) sentinel.remove(); // Stop observing if no more data
+                }
+            } catch (e) {
+                console.error("Failed to load related:", e);
+            } finally {
+                relatedIsLoading = false;
+            }
+        }
+
+        function renderRelated(videos) {
+            const container = document.getElementById('relatedVideos');
+            const sentinel = document.getElementById('relatedSentinel'); // Insert before sentinel
+
+            const fragment = document.createDocumentFragment();
+
+            videos.forEach(video => {
+                const card = document.createElement('div');
+                card.className = 'yt-video-card-horizontal';
+                card.onclick = () => window.location.href = `/watch?v=${video.id}`;
+                card.innerHTML = `
+                <div class="yt-thumb-container-h">
+                   <img src="${video.thumbnail || 'https://i.ytimg.com/vi/' + video.id + '/mqdefault.jpg'}" loading="lazy">
+                   ${video.duration ? `<div class="yt-duration">${video.duration}</div>` : ''}
+                </div>
+                <div class="yt-details-h">
+                   <div class="yt-title-h">${escapeHtml(video.title)}</div>
+                   <div class="yt-meta-h">${escapeHtml(video.uploader || 'Unknown')}</div>
+                   <div class="yt-meta-h">${formatViews(video.views)} • ${formatDate(video.uploaded)}</div>
+                </div>
+            `;
+                fragment.appendChild(card);
+            });
+
+            if (sentinel) {
+                container.insertBefore(fragment, sentinel);
+            } else {
+                container.appendChild(fragment); // Fallback
+            }
+        }
+    </script>
+    {% endblock %}

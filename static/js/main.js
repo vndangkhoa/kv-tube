@@ -21,6 +21,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
         // Load trending on init
         loadTrending();
+
+        // Init Infinite Scroll
+        initInfiniteScroll();
     }
 
     // Init Theme
@@ -28,9 +31,28 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 // Note: Global variables like currentCategory are defined below
-let currentCategory = 'general';
+let currentCategory = 'all';
 let currentPage = 1;
 let isLoading = false;
+let hasMore = true; // Track if there are more videos to load
+
+// --- Infinite Scroll ---
+function initInfiniteScroll() {
+    const observer = new IntersectionObserver((entries) => {
+        if (entries[0].isIntersecting && !isLoading && hasMore) {
+            loadMore();
+        }
+    }, { rootMargin: '200px' });
+
+    // Create sentinel logic or observe existing footer/element
+    // We'll observe a sentinel element at the bottom of the grid
+    const sentinel = document.createElement('div');
+    sentinel.id = 'scroll-sentinel';
+    sentinel.style.width = '100%';
+    sentinel.style.height = '20px';
+    document.getElementById('resultsArea').parentNode.appendChild(sentinel);
+    observer.observe(sentinel);
+}
 
 // --- UI Helpers ---
 function renderSkeleton() {
@@ -108,6 +130,7 @@ async function switchCategory(category, btn) {
     currentCategory = category;
     currentPage = 1;
     window.currentPage = 1;
+    hasMore = true; // Reset infinite scroll
 
     const resultsArea = document.getElementById('resultsArea');
     resultsArea.innerHTML = renderSkeleton();
@@ -115,6 +138,20 @@ async function switchCategory(category, btn) {
     // Hide pagination while loading
     const paginationArea = document.getElementById('paginationArea');
     if (paginationArea) paginationArea.style.display = 'none';
+
+    // Handle Shorts Layout
+    const shortsSection = document.getElementById('shortsSection');
+    const videosSection = document.getElementById('videosSection');
+
+    if (shortsSection) {
+        if (category === 'shorts') {
+            shortsSection.style.display = 'none'; // Hide carousel, show grid in results
+            if (videosSection) videosSection.querySelector('h2').style.display = 'none'; // Optional: hide "Videos" header
+        } else {
+            shortsSection.style.display = 'block';
+            if (videosSection) videosSection.querySelector('h2').style.display = 'flex';
+        }
+    }
 
     // Load both videos and shorts with current category, sort, and region
     await loadTrending(true);
@@ -149,6 +186,8 @@ async function loadTrending(reset = true) {
     isLoading = true;
     if (!reset && loadMoreBtn) {
         loadMoreBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Loading...';
+    } else if (reset) {
+        resultsArea.innerHTML = renderSkeleton();
     }
 
     try {
@@ -166,23 +205,69 @@ async function loadTrending(reset = true) {
             return;
         }
 
+        if (data.mode === 'sections') {
+            if (reset) resultsArea.innerHTML = '';
+
+            // Render Sections
+            data.data.forEach(section => {
+                const sectionDiv = document.createElement('div');
+                sectionDiv.style.gridColumn = '1 / -1';
+                sectionDiv.style.marginBottom = '24px';
+
+                // Header
+                sectionDiv.innerHTML = `
+                    <div class="yt-section-header" style="margin-bottom:12px;">
+                        <h2><i class="fas fa-${section.icon}"></i> ${section.title}</h2>
+                    </div>
+                 `;
+
+                // Scroll Container
+                const scrollContainer = document.createElement('div');
+                scrollContainer.className = 'yt-shorts-grid'; // Reuse horizontal scroll style
+                scrollContainer.style.gap = '16px';
+
+                section.videos.forEach(video => {
+                    const card = document.createElement('div');
+                    card.className = 'yt-video-card';
+                    card.style.minWidth = '280px'; // Fixed width for horizontal items
+                    card.style.width = '280px';
+
+                    card.innerHTML = `
+                        <div class="yt-thumbnail-container">
+                            <img class="yt-thumbnail" src="${video.thumbnail}" alt="${escapeHtml(video.title)}" loading="lazy">
+                            ${video.duration ? `<span class="yt-duration">${video.duration}</span>` : ''}
+                        </div>
+                        <div class="yt-video-details">
+                            <div class="yt-channel-avatar">
+                                ${video.uploader ? video.uploader.charAt(0).toUpperCase() : 'Y'}
+                            </div>
+                            <div class="yt-video-meta">
+                                <h3 class="yt-video-title">${escapeHtml(video.title)}</h3>
+                                <p class="yt-channel-name">${escapeHtml(video.uploader || 'Unknown')}</p>
+                                <p class="yt-video-stats">${formatViews(video.view_count)} views</p>
+                            </div>
+                        </div>
+                    `;
+                    card.onclick = () => window.location.href = `/watch?v=${video.id}`;
+                    scrollContainer.appendChild(card);
+                });
+
+                sectionDiv.appendChild(scrollContainer);
+                resultsArea.appendChild(sectionDiv);
+            });
+            return;
+        }
+
         if (reset) resultsArea.innerHTML = '';
 
         if (data.length === 0) {
             if (reset) {
                 resultsArea.innerHTML = renderNoContent();
             }
-            const paginationArea = document.getElementById('paginationArea');
-            if (paginationArea) paginationArea.style.display = 'none';
         } else {
             displayResults(data, !reset);
-            const paginationArea = document.getElementById('paginationArea');
-            if (paginationArea) paginationArea.style.display = 'flex';
-
-            // Update pagination if function exists
-            if (typeof renderPagination === 'function') {
-                renderPagination();
-            }
+            // Assume if we got less than limit (20), we reached the end
+            if (data.length < 20) hasMore = false;
         }
     } catch (e) {
         console.error('Failed to load trending:', e);
@@ -206,24 +291,48 @@ function displayResults(videos, append = false) {
 
     videos.forEach(video => {
         const card = document.createElement('div');
-        card.className = 'yt-video-card';
-        card.innerHTML = `
-            <div class="yt-thumbnail-container">
-                <img class="yt-thumbnail" src="${video.thumbnail}" alt="${escapeHtml(video.title)}" loading="lazy">
-                ${video.duration ? `<span class="yt-duration">${video.duration}</span>` : ''}
-            </div>
-            <div class="yt-video-details">
-                <div class="yt-channel-avatar">
-                    ${video.uploader ? video.uploader.charAt(0).toUpperCase() : 'Y'}
+
+        if (currentCategory === 'shorts') {
+            // Render as Short Card (Vertical)
+            card.className = 'yt-short-card';
+            // Adjust styling for grid view if needed
+            card.style.width = '100%';
+            card.style.maxWidth = '200px';
+            card.innerHTML = `
+                <img src="${video.thumbnail}" class="yt-short-thumb" style="width:100%; aspect-ratio:9/16; height:auto;" loading="lazy">
+                <p class="yt-short-title">${escapeHtml(video.title)}</p>
+                <p class="yt-short-views">${formatViews(video.view_count)} views</p>
+             `;
+        } else {
+            // Render as Standard Video Card
+            card.className = 'yt-video-card';
+            card.innerHTML = `
+                <div class="yt-thumbnail-container">
+                    <img class="yt-thumbnail" src="${video.thumbnail}" alt="${escapeHtml(video.title)}" loading="lazy">
+                    ${video.duration ? `<span class="yt-duration">${video.duration}</span>` : ''}
                 </div>
-                <div class="yt-video-meta">
-                    <h3 class="yt-video-title">${escapeHtml(video.title)}</h3>
-                    <p class="yt-channel-name">${escapeHtml(video.uploader || 'Unknown')}</p>
-                    <p class="yt-video-stats">${formatViews(video.view_count)} views • ${formatDate(video.upload_date)}</p>
+                <div class="yt-video-details">
+                    <div class="yt-channel-avatar">
+                        ${video.uploader ? video.uploader.charAt(0).toUpperCase() : 'Y'}
+                    </div>
+                    <div class="yt-video-meta">
+                        <h3 class="yt-video-title">${escapeHtml(video.title)}</h3>
+                        <p class="yt-channel-name">
+                            <a href="/channel/${video.channel_id || video.uploader_id || video.uploader || 'unknown'}" 
+                               class="yt-channel-link" 
+                               style="color:inherit; text-decoration:none;">
+                                ${escapeHtml(video.uploader || 'Unknown')}
+                            </a>
+                        </p>
+                        <p class="yt-video-stats">${formatViews(video.view_count)} views • ${formatDate(video.upload_date)}</p>
+                    </div>
                 </div>
-            </div>
-        `;
-        card.addEventListener('click', () => {
+            `;
+        }
+
+        card.addEventListener('click', (e) => {
+            // Prevent navigation if clicking on channel link
+            if (e.target.closest('.yt-channel-link')) return;
             window.location.href = `/watch?v=${video.id}`;
         });
         resultsArea.appendChild(card);
@@ -312,7 +421,16 @@ document.addEventListener('click', (e) => {
 
 // --- Theme Logic ---
 function initTheme() {
-    const savedTheme = localStorage.getItem('theme') || 'dark';
+    // Check for saved preference
+    let savedTheme = localStorage.getItem('theme');
+
+    // If no saved preference, use Time of Day (Auto)
+    // Approximation: 6 AM to 6 PM is Light (Sunrise/Sunset)
+    if (!savedTheme) {
+        const hour = new Date().getHours();
+        savedTheme = (hour >= 6 && hour < 18) ? 'light' : 'dark';
+    }
+
     document.documentElement.setAttribute('data-theme', savedTheme);
 
     // Update toggle if exists
