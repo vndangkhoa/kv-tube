@@ -598,7 +598,7 @@ def summarize_video():
     except Exception as e:
         return jsonify({'success': False, 'message': f'Could not summarize: {str(e)}'})
 
-@app.route('/api/trending')
+# Helper function to fetch videos (not a route)
 def fetch_videos(query, limit=20):
     try:
         cmd = [
