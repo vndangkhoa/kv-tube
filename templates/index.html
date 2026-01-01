@@ -11,16 +11,19 @@
 <!-- Filters & Categories -->
 <div class="yt-filter-bar">
     <div class="yt-categories" id="categoryList">
-        <!-- "All" removed, starting with Tech -->
-        <button class="yt-chip" onclick="switchCategory('tech')">Tech</button>
-        <button class="yt-chip" onclick="switchCategory('music')">Music</button>
-        <button class="yt-chip" onclick="switchCategory('movies')">Movies</button>
-        <button class="yt-chip" onclick="switchCategory('news')">News</button>
-        <button class="yt-chip" onclick="switchCategory('trending')">Trending</button>
-        <button class="yt-chip" onclick="switchCategory('podcasts')">Podcasts</button>
-        <button class="yt-chip" onclick="switchCategory('live')">Live</button>
-        <button class="yt-chip" onclick="switchCategory('gaming')">Gaming</button>
-        <button class="yt-chip" onclick="switchCategory('sports')">Sports</button>
+        <!-- Pinned Categories -->
+        <button class="yt-chip" onclick="switchCategory('history', this)"><i class="fas fa-history"></i> Watched</button>
+        <button class="yt-chip" onclick="switchCategory('suggested', this)"><i class="fas fa-magic"></i> Suggested</button>
+        <!-- Standard Categories -->
+        <button class="yt-chip" onclick="switchCategory('tech', this)">Tech</button>
+        <button class="yt-chip" onclick="switchCategory('music', this)">Music</button>
+        <button class="yt-chip" onclick="switchCategory('movies', this)">Movies</button>
+        <button class="yt-chip" onclick="switchCategory('news', this)">News</button>
+        <button class="yt-chip" onclick="switchCategory('trending', this)">Trending</button>
+        <button class="yt-chip" onclick="switchCategory('podcasts', this)">Podcasts</button>
+        <button class="yt-chip" onclick="switchCategory('live', this)">Live</button>
+        <button class="yt-chip" onclick="switchCategory('gaming', this)">Gaming</button>
+        <button class="yt-chip" onclick="switchCategory('sports', this)">Sports</button>
     </div>
 
     <div class="yt-filter-actions">

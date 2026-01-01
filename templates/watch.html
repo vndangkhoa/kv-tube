@@ -63,19 +63,14 @@
                     Queue
                     <span id="queueBadge" class="queue-badge" style="display:none;">0</span>
                 </button>
-                <button class="yt-action-btn" id="summarizeBtn" onclick="summarizeVideo()">
-                    <i class="fas fa-magic"></i>
-                    Summarize
-                </button>
+                <!-- Summarize button removed -->
+                <!-- Transcribe button removed -->
+                <!-- Rotation controls removed -->
             </div>
 
+
             <!-- Summary Box (Hidden by default) -->
-            <div class="yt-description-box" id="summaryBox"
-                style="display:none; margin-bottom:16px; border: 1px solid var(--yt-accent-blue); background: rgba(62, 166, 255, 0.1);">
-                <p class="yt-description-stats" style="color: var(--yt-accent-blue);"><i class="fas fa-sparkles"></i> AI
-                    Summary</p>
-                <p class="yt-description-text" id="summaryText">Generating summary...</p>
-            </div>
+            <!-- Summary Box removed -->
 
             <!-- Channel Info -->
             <div class="yt-channel-info">
@@ -710,7 +705,14 @@
             uploader: ""
         };
 
+        let currentRotation = 0;
+        // Rotation function removed
+
+        // Transcription functions removed
+
         function initArtplayer(url, poster, subtitleUrl = '', type = 'auto') {
+            // Store art instance globally for other functions
+            window.art = null;
             // Update currentVideoData with poster (thumbnail)
             if (poster) {
                 // Use stable YouTube thumbnail URL to prevent expiration of signed URLs
@@ -732,7 +734,7 @@
                 }, 2000);
             }
 
-            const art = new Artplayer({
+            window.art = new Artplayer({
                 container: '#artplayer-app',
                 url: url,
                 poster: poster,

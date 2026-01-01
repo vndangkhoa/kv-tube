@@ -13,7 +13,15 @@ from functools import wraps
 from youtube_transcript_api import YouTubeTranscriptApi, TranscriptsDisabled
 import re
 import heapq
-# nltk removed to avoid SSL/download issues. Using regex instead.
+import threading
+import uuid
+import datetime
+import time
+
+
+
+# Fix for OMP: Error #15
+os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 
 app = Flask(__name__)
 app.secret_key = 'super_secret_key_change_this'  # Required for sessions
@@ -59,7 +67,11 @@ def init_db():
 # Run init
 init_db()
 
+# Transcription Task Status
+transcription_tasks = {}
+
 def get_db_connection():
+
     conn = sqlite3.connect(DB_NAME)
     conn.row_factory = sqlite3.Row
     return conn
@@ -151,10 +163,43 @@ def save_video():
             return jsonify({'status': 'already_saved'})
 
     conn.execute('INSERT INTO user_videos (user_id, video_id, title, thumbnail, type) VALUES (?, ?, ?, ?, ?)',
-                 (session['user_id'], video_id, title, thumbnail, action_type))
+                 (1, video_id, title, thumbnail, action_type)) # Default user_id 1
     conn.commit()
     conn.close()
     return jsonify({'status': 'success'})
+
+@app.route('/api/history')
+def get_history():
+    conn = get_db_connection()
+    rows = conn.execute('SELECT video_id as id, title, thumbnail FROM user_videos WHERE type = "history" ORDER BY timestamp DESC LIMIT 50').fetchall()
+    conn.close()
+    return jsonify([dict(row) for row in rows])
+
+@app.route('/api/suggested')
+def get_suggested():
+    # Simple recommendation based on history: search for "trending" related to the last 3 viewed channels/titles
+    conn = get_db_connection()
+    history = conn.execute('SELECT title FROM user_videos WHERE type = "history" ORDER BY timestamp DESC LIMIT 3').fetchall()
+    conn.close()
+    
+    if not history:
+        return jsonify(fetch_videos("trending", limit=20))
+        
+    all_suggestions = []
+    with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
+        queries = [f"{row['title']} related" for row in history]
+        results = list(executor.map(lambda q: fetch_videos(q, limit=10), queries))
+        for res in results:
+            all_suggestions.extend(res)
+            
+    # Remove duplicates and shuffle
+    unique_vids = {v['id']: v for v in all_suggestions}.values()
+    import random
+    final_list = list(unique_vids)
+    random.shuffle(final_list)
+    
+    return jsonify(final_list[:30])
+
 
 @app.route('/stream/<path:filename>')
 def stream_local(filename):
@@ -615,7 +660,7 @@ def get_stream_info():
         response = jsonify(response_data)
         response.headers['X-Cache'] = 'MISS'
         return response
-
+    
     except Exception as e:
         return jsonify({'error': str(e)}), 500
 
@@ -975,6 +1020,9 @@ def trending():
             
             base = queries.get(cat, 'trending')
             
+            if s_sort == 'newest':
+                return base + ', today' # Or use explicit date filter
+            
             from datetime import datetime, timedelta
             three_months_ago = (datetime.now() - timedelta(days=90)).strftime('%Y-%m-%d')
             
@@ -987,10 +1035,13 @@ def trending():
             }
             return base + sort_filters.get(s_sort, f" after:{three_months_ago}")
 
+        sort = request.args.get('sort', 'newest') # Ensure newest is default
+        
         # === Parallel Fetching for Home Feed ===
         if category == 'all':
             sections_to_fetch = [
                 {'id': 'trending', 'title': 'Trending Now', 'icon': 'fire'},
+                {'id': 'all', 'title': 'New Releases', 'icon': 'clock'}, # 'all' results in trending, but we'll sort by newest
                 {'id': 'tech', 'title': 'AI & Tech', 'icon': 'microchip'},
                 {'id': 'music', 'title': 'Music', 'icon': 'music'},
                 {'id': 'movies', 'title': 'Movies', 'icon': 'film'},
@@ -1000,17 +1051,19 @@ def trending():
             ]
             
             def fetch_section(section):
-                q = get_query(section['id'], region, sort)
-                # Fetch 80 videos per section to guarantee density (target: 50+ after filters)
-                vids = fetch_videos(q, limit=80, filter_type='video', playlist_start=1) 
+                target_sort = 'newest' if section['id'] != 'trending' else 'relevance'
+                q = get_query(section['id'], region, target_sort)
+                # Add a unique component to query for freshness
+                q_fresh = f"{q} {int(time.time())}" if section['id'] == 'all' else q
+                vids = fetch_videos(q_fresh, limit=20, filter_type='video', playlist_start=1) 
                 return {
                     'id': section['id'],
                     'title': section['title'],
                     'icon': section['icon'],
-                    'videos': vids[:60] 
+                    'videos': vids[:16] 
                 }
 
-            with concurrent.futures.ThreadPoolExecutor(max_workers=7) as executor:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=8) as executor:
                 results = list(executor.map(fetch_section, sections_to_fetch))
             
             return jsonify({'mode': 'sections', 'data': results})
@@ -1029,7 +1082,13 @@ def trending():
             filter_mode = 'short' if category == 'shorts' else 'video'
 
         results = fetch_videos(query, limit=limit, filter_type=filter_mode, playlist_start=start)
+        # Randomize a bit for "freshness" if it's the first page
+        if page == 1:
+            import random
+            random.shuffle(results)
+            
         return jsonify(results)
+
 
     except Exception as e:
         return jsonify({'error': str(e)}), 500
@@ -1099,5 +1158,9 @@ def get_comments():
     except Exception as e:
         return jsonify({'comments': [], 'count': 0, 'error': str(e)})
 
+
+# --- AI Transcription REMOVED ---
+
 if __name__ == '__main__':
-    app.run(debug=True, host='0.0.0.0', port=5001)
+    print("Starting KV-Tube Server on port 5002 (Reloader Disabled)")
+    app.run(debug=True, host='0.0.0.0', port=5002, use_reloader=False)

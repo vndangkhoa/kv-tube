@@ -407,24 +407,45 @@ button {
 /* ===== Video Grid ===== */
 .yt-video-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
-    gap: 16px 16px;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 16px;
 }
 
-/* 4-Row Horizontal Grid for Sections */
+@media (max-width: 1400px) {
+
+    .yt-video-grid,
+    .yt-section-grid {
+        grid-template-columns: repeat(3, 1fr);
+    }
+}
+
+@media (max-width: 1100px) {
+
+    .yt-video-grid,
+    .yt-section-grid {
+        grid-template-columns: repeat(2, 1fr);
+    }
+}
+
+@media (max-width: 600px) {
+
+    .yt-video-grid,
+    .yt-section-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+/* Grid Layout for Sections (4 rows x 4 columns = 16 videos) */
 .yt-section-grid {
     display: grid;
-    grid-template-rows: repeat(4, min-content);
-    /* Force 4 rows */
-    grid-auto-flow: column;
-    /* Fill columns first (horizontal scroll) */
-    grid-auto-columns: 280px;
-    /* Fixed column width */
+    grid-template-columns: repeat(4, 1fr);
     gap: 16px;
-    overflow-x: auto;
-    padding-bottom: 16px;
-    /* Space for scrollbar if any (hidden typically) */
-    scrollbar-width: none;
+    padding-bottom: 24px;
+}
+
+.yt-section-grid .yt-video-card {
+    width: 100%;
+    min-width: 0;
 }
 
 @media (max-width: 768px) {
@@ -527,6 +548,7 @@ button {
     color: var(--yt-text-primary);
     display: -webkit-box;
     -webkit-line-clamp: 2;
+    line-clamp: 2;
     -webkit-box-orient: vertical;
     overflow: hidden;
     margin-bottom: 4px;
@@ -1246,6 +1268,7 @@ button {
     color: var(--yt-text-primary);
     display: -webkit-box;
     -webkit-line-clamp: 2;
+    line-clamp: 2;
     -webkit-box-orient: vertical;
     overflow: hidden;
     text-overflow: ellipsis;

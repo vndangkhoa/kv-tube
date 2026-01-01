@@ -1,16 +1,7 @@
 flask==3.0.2
 requests==2.31.0
-pytube==15.0.0
-python-dotenv==1.0.1
 yt-dlp
-moviepy
-numpy
-google-generativeai==0.8.3
-flask-cors==4.0.0
 youtube-transcript-api==0.6.2
 werkzeug==3.0.1
-Pillow
-pysrt==1.1.2
-cairosvg
 gunicorn==21.2.0
-gunicorn==21.2.0
+python-dotenv==1.0.1

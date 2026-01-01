@@ -197,8 +197,25 @@ async function switchCategory(category, btn) {
         }
     }
 
+    // Handle Special Categories
+    if (category === 'history') {
+        const response = await fetch('/api/history');
+        const data = await response.json();
+        displayResults(data, false);
+        isLoading = false;
+        return;
+    }
+    if (category === 'suggested') {
+        const response = await fetch('/api/suggested');
+        const data = await response.json();
+        displayResults(data, false);
+        isLoading = false;
+        return;
+    }
+
     // Load both videos and shorts with current category, sort, and region
     await loadTrending(true);
+
 
     // Also reload shorts to match category
     if (typeof loadShorts === 'function') {
@@ -235,11 +252,14 @@ async function loadTrending(reset = true) {
     }
 
     try {
-        // Get sort and region values from page (if available)
-        const sortValue = window.currentSort || 'month';
+        // Default to 'newest' for fresh content on main page
+        const sortValue = window.currentSort || (currentCategory === 'all' ? 'newest' : 'month');
         const regionValue = window.currentRegion || 'vietnam';
-        const response = await fetch(`/api/trending?category=${currentCategory}&page=${currentPage}&sort=${sortValue}&region=${regionValue}`);
+        // Add cache-buster for home page to ensure fresh content
+        const cb = reset && currentCategory === 'all' ? `&_=${Date.now()}` : '';
+        const response = await fetch(`/api/trending?category=${currentCategory}&page=${currentPage}&sort=${sortValue}&region=${regionValue}${cb}`);
         const data = await response.json();
+
 
         if (data.error) {
             console.error('Trending error:', data.error);
