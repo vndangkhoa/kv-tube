@@ -1088,7 +1088,7 @@ def trending():
 
             # === Define Standard Sections ===
             sections_to_fetch = [
-                {'id': 'trending', 'title': 'Trending Now', 'icon': 'fire'},
+                {'id': 'trending', 'title': 'Trending', 'icon': 'fire'},
                 {'id': 'music', 'title': 'Music', 'icon': 'music'},
                 {'id': 'tech', 'title': 'Tech & AI', 'icon': 'microchip'},
                 {'id': 'movies', 'title': 'Movies', 'icon': 'film'},
