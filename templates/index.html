@@ -12,8 +12,10 @@
 <div class="yt-filter-bar">
     <div class="yt-categories" id="categoryList">
         <!-- Pinned Categories -->
-        <button class="yt-chip" onclick="switchCategory('history', this)"><i class="fas fa-history"></i> Watched</button>
-        <button class="yt-chip" onclick="switchCategory('suggested', this)"><i class="fas fa-magic"></i> Suggested</button>
+        <button class="yt-chip" onclick="switchCategory('history', this)"><i class="fas fa-history"></i>
+            Watched</button>
+        <button class="yt-chip" onclick="switchCategory('suggested', this)"><i class="fas fa-magic"></i>
+            Suggested</button>
         <!-- Standard Categories -->
         <button class="yt-chip" onclick="switchCategory('tech', this)">Tech</button>
         <button class="yt-chip" onclick="switchCategory('music', this)">Music</button>
@@ -145,251 +147,7 @@
     </div>
 </div>
 
-<style>
-    /* Filter Bar Styles */
-    .yt-filter-bar {
-        display: flex;
-        align-items: center;
-        gap: 1rem;
-        padding: 0 1rem;
-        margin-bottom: 1rem;
-        position: sticky;
-        top: 56px;
-        /* Adjust based on header height */
-        z-index: 99;
-        background: var(--yt-bg-primary);
-        border-bottom: 1px solid var(--yt-border);
-    }
-
-    .yt-categories {
-        display: flex;
-        overflow-x: auto;
-        gap: 0.8rem;
-        padding: 0.5rem 0;
-        flex: 1;
-        scrollbar-width: none;
-        /* Firefox */
-    }
-
-    .yt-categories::-webkit-scrollbar {
-        display: none;
-    }
-
-    .yt-chip {
-        padding: 0.5rem 1rem;
-        border-radius: 8px;
-        background: var(--yt-bg-secondary);
-        color: var(--yt-text-primary);
-        border: none;
-        white-space: nowrap;
-        cursor: pointer;
-        font-size: 0.9rem;
-        transition: background 0.2s;
-    }
-
-    .yt-chip:hover {
-        background: var(--yt-bg-hover);
-    }
-
-    .yt-chip-active {
-        background: var(--yt-text-primary);
-        color: var(--yt-bg-primary);
-    }
-
-    .yt-chip-active:hover {
-        background: var(--yt-text-primary);
-        opacity: 0.9;
-    }
-
-    .yt-filter-actions {
-        flex-shrink: 0;
-        position: relative;
-    }
-
-    .yt-dropdown-menu {
-        display: none;
-        position: absolute;
-        top: 100%;
-        right: 0;
-        width: 200px;
-        background: var(--yt-bg-secondary);
-        border-radius: 12px;
-        padding: 1rem;
-        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
-        margin-top: 0.5rem;
-        z-index: 100;
-        border: 1px solid var(--yt-border);
-    }
-
-    .yt-dropdown-menu.show {
-        display: block;
-    }
-
-    .yt-menu-section {
-        margin-bottom: 1rem;
-    }
-
-    .yt-menu-section:last-child {
-        margin-bottom: 0;
-    }
-
-    .yt-menu-section h4 {
-        font-size: 0.8rem;
-        color: var(--yt-text-secondary);
-        margin-bottom: 0.5rem;
-        text-transform: uppercase;
-        letter-spacing: 0.5px;
-    }
-
-    .yt-menu-section button {
-        display: block;
-        width: 100%;
-        text-align: left;
-        padding: 0.5rem;
-        background: none;
-        border: none;
-        color: var(--yt-text-primary);
-        cursor: pointer;
-        border-radius: 6px;
-    }
-
-    .yt-menu-section button:hover {
-        background: var(--yt-bg-hover);
-    }
-
-    /* Shorts Section Styles */
-    .yt-section {
-        margin-bottom: 32px;
-        padding: 0 16px;
-    }
-
-    .yt-section-header {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        margin-bottom: 16px;
-    }
-
-    .yt-section-header h2 {
-        font-size: 20px;
-        font-weight: 600;
-        display: flex;
-        align-items: center;
-        gap: 10px;
-    }
-
-    .yt-section-header h2 i {
-        color: var(--yt-accent-red);
-    }
-
-    .yt-shorts-container {
-        position: relative;
-        display: flex;
-        align-items: center;
-    }
-
-    .yt-shorts-arrow {
-        position: absolute;
-        top: 50%;
-        transform: translateY(-50%);
-        width: 40px;
-        height: 40px;
-        border-radius: 50%;
-        background: var(--yt-bg-primary);
-        border: 1px solid var(--yt-border);
-        color: var(--yt-text-primary);
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        cursor: pointer;
-        z-index: 10;
-        transition: all 0.2s;
-        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
-    }
-
-    .yt-shorts-arrow:hover {
-        background: var(--yt-bg-secondary);
-        transform: translateY(-50%) scale(1.1);
-    }
-
-    .yt-shorts-left {
-        left: -20px;
-    }
-
-    .yt-shorts-right {
-        right: -20px;
-    }
-
-    .yt-shorts-grid {
-        display: flex;
-        gap: 12px;
-        overflow-x: auto;
-        padding: 8px 0;
-        scroll-behavior: smooth;
-        scrollbar-width: none;
-        flex: 1;
-    }
-
-    .yt-shorts-grid::-webkit-scrollbar {
-        display: none;
-    }
-
-    .yt-short-card {
-        flex-shrink: 0;
-        width: 180px;
-        cursor: pointer;
-        transition: transform 0.2s;
-    }
-
-    .yt-short-card:hover {
-        transform: scale(1.02);
-    }
-
-    .yt-short-thumb {
-        width: 180px;
-        height: 320px;
-        border-radius: 12px;
-        object-fit: cover;
-        background: var(--yt-bg-secondary);
-        opacity: 0;
-        transition: opacity 0.5s ease;
-    }
-
-    .yt-short-thumb.loaded {
-        opacity: 1;
-
-        .yt-short-title {
-            font-size: 14px;
-            font-weight: 500;
-            margin-top: 8px;
-            display: -webkit-box;
-            -webkit-line-clamp: 2;
-            line-clamp: 2;
-            -webkit-box-orient: vertical;
-            overflow: hidden;
-        }
-
-        .yt-short-views {
-            font-size: 12px;
-            color: var(--yt-text-secondary);
-            margin-top: 4px;
-        }
-
-        @media (max-width: 768px) {
-            .yt-shorts-arrow {
-                display: none;
-            }
-
-            .yt-filter-bar {
-                padding: 0 10px;
-                top: 56px;
-            }
-
-            .yt-sort-container {
-                /* Legacy override if needed */
-            }
-        }
-</style>
+<!-- Styles moved to CSS modules -->
 
 <script>
     // Global filter state
@@ -413,69 +171,13 @@
         window.currentSort = sort;
         // Global loadTrending from main.js will use this
         loadTrending(true);
-        loadShorts(); // Also reload shorts with new sort
         toggleFilterMenu();
     }
 
     function changeRegion(region) {
         window.currentRegion = region;
         loadTrending(true);
-        loadShorts(); // Also reload shorts with new region
         toggleFilterMenu();
-    }
-
-    // Scroll shorts logic
-    function scrollShorts(direction) {
-        const grid = document.getElementById('shortsGrid');
-        const scrollAmount = 400;
-
-        if (direction === 'left') {
-            grid.scrollBy({ left: -scrollAmount, behavior: 'smooth' });
-        } else {
-            grid.scrollBy({ left: scrollAmount, behavior: 'smooth' });
-        }
-    }
-
-    // Load Shorts Logic
-    // Load Shorts Logic
-    async function loadShorts() {
-        const shortsGrid = document.getElementById('shortsGrid');
-
-        // Skeleton loader
-        shortsGrid.innerHTML = Array(10).fill(0).map(() => `
-            <div class="skeleton-short"></div>
-        `).join('');
-
-        try {
-            const page = 1;
-            const category = window.currentCategory || 'general';
-            const shortsCategory = category === 'all' || category === 'general' ? 'shorts' : category;
-
-            const response = await fetch(`/api/trending?category=${shortsCategory}&page=${page}&sort=${window.currentSort}&region=${window.currentRegion}&shorts=1`);
-            const data = await response.json();
-
-            shortsGrid.innerHTML = '';
-            if (data && data.length > 0) {
-                // Show up to 20 shorts
-                data.slice(0, 20).forEach(video => {
-                    const card = document.createElement('div');
-                    card.className = 'yt-short-card';
-                    card.innerHTML = `
-                    <img data-src="${video.thumbnail}" class="yt-short-thumb">
-                    <p class="yt-short-title">${escapeHtml(video.title)}</p>
-                    <p class="yt-short-views">${formatViews(video.view_count)} views</p>
-                `;
-                    card.onclick = () => window.location.href = `/watch?v=${video.id}`;
-                    shortsGrid.appendChild(card);
-                });
-                if (window.observeImages) window.observeImages();
-            } else {
-                shortsGrid.innerHTML = '<p style="color:var(--yt-text-secondary);padding:20px;">No shorts found</p>';
-            }
-        } catch (e) {
-            console.error('Error loading shorts:', e);
-            shortsGrid.innerHTML = '<p style="color:var(--yt-text-secondary);padding:20px;">Could not load shorts</p>';
-        }
     }
 
     // Helpers (if main.js not loaded yet or for standalone usage)
@@ -496,7 +198,6 @@
 
     // Init Logic
     document.addEventListener('DOMContentLoaded', () => {
-        loadShorts();
         // Pagination logic removed for infinite scroll
 
         // Check URL params for category

@@ -1,0 +1,251 @@
+/* ===== App Layout ===== */
+.app-wrapper {
+    display: flex;
+    flex-direction: column;
+    min-height: 100vh;
+}
+
+/* ===== Header (YouTube Style) ===== */
+.yt-header {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: var(--yt-header-height);
+    background: var(--yt-bg-primary);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 16px;
+    z-index: 1000;
+    border-bottom: 1px solid var(--yt-border);
+}
+
+.yt-header-start {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    min-width: 200px;
+}
+
+.yt-header-center {
+    flex: 1;
+    display: flex;
+    justify-content: center;
+    max-width: 728px;
+    margin: 0 40px;
+}
+
+.yt-header-end {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 200px;
+    justify-content: flex-end;
+}
+
+/* Logo */
+.yt-logo {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 20px;
+    font-weight: 600;
+    color: var(--yt-text-primary);
+    text-decoration: none;
+}
+
+.yt-logo-icon {
+    width: 90px;
+    height: 20px;
+    background: var(--yt-accent-red);
+    border-radius: var(--yt-radius-sm);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 14px;
+    font-weight: 700;
+    letter-spacing: -0.5px;
+}
+
+/* ===== Sidebar (YouTube Style) ===== */
+.yt-sidebar {
+    position: fixed;
+    top: var(--yt-header-height);
+    left: 0;
+    bottom: 0;
+    width: var(--yt-sidebar-width);
+    background: var(--yt-bg-primary);
+    overflow-y: auto;
+    overflow-x: hidden;
+    padding: 12px 0;
+    z-index: 900;
+    transition: width 0.2s, transform 0.2s;
+}
+
+.yt-sidebar.collapsed {
+    width: var(--yt-sidebar-mini);
+}
+
+.yt-sidebar-item {
+    display: flex;
+    align-items: center;
+    gap: 24px;
+    padding: 10px 12px 10px 24px;
+    color: var(--yt-text-primary);
+    font-size: 14px;
+    border-radius: var(--yt-radius-lg);
+    margin: 0 12px;
+    transition: background 0.2s;
+}
+
+.yt-sidebar-item:hover {
+    background: var(--yt-bg-hover);
+}
+
+.yt-sidebar-item.active {
+    background: var(--yt-bg-secondary);
+    font-weight: 500;
+}
+
+.yt-sidebar-item i {
+    font-size: 18px;
+    width: 22px;
+    text-align: center;
+}
+
+.yt-sidebar-item span {
+    white-space: nowrap;
+}
+
+.yt-sidebar.collapsed .yt-sidebar-item {
+    flex-direction: column;
+    gap: 6px;
+    padding: 16px 0;
+    margin: 0;
+    border-radius: 0;
+    justify-content: center;
+    text-align: center;
+}
+
+.yt-sidebar.collapsed .yt-sidebar-item span {
+    font-size: 10px;
+}
+
+.yt-sidebar-divider {
+    height: 1px;
+    background: var(--yt-border);
+    margin: 12px 0;
+}
+
+.yt-sidebar-title {
+    padding: 8px 24px;
+    font-size: 14px;
+    color: var(--yt-text-secondary);
+    font-weight: 500;
+}
+
+/* Sidebar Overlay (Mobile) */
+.yt-sidebar-overlay {
+    position: fixed;
+    top: var(--yt-header-height);
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.5);
+    z-index: 899;
+    display: none;
+}
+
+.yt-sidebar-overlay.active {
+    display: block;
+}
+
+/* ===== Main Content ===== */
+.yt-main {
+    margin-top: var(--yt-header-height);
+    margin-left: var(--yt-sidebar-width);
+    padding: 24px;
+    min-height: calc(100vh - var(--yt-header-height));
+    transition: margin-left 0.2s;
+}
+
+.yt-main.sidebar-collapsed {
+    margin-left: var(--yt-sidebar-mini);
+}
+
+/* ===== Filter Bar ===== */
+/* From index.html originally */
+.yt-filter-bar {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    padding: 0 1rem;
+    margin-bottom: 1rem;
+    position: sticky;
+    top: 56px;
+    /* Adjust based on header height */
+    z-index: 99;
+    background: var(--yt-bg-primary);
+    border-bottom: 1px solid var(--yt-border);
+}
+
+/* ===== Responsive Layout Overrides ===== */
+@media (max-width: 1024px) {
+    .yt-sidebar {
+        transform: translateX(-100%);
+    }
+
+    .yt-sidebar.open {
+        transform: translateX(0);
+    }
+
+    .yt-main {
+        margin-left: 0;
+    }
+
+    .yt-header-center {
+        margin: 0 20px;
+    }
+}
+
+@media (max-width: 768px) {
+    .yt-header-center {
+        display: flex;
+        /* Show search on mobile */
+        margin: 0 8px;
+        max-width: none;
+        flex: 1;
+        justify-content: center;
+    }
+
+    .yt-header-start,
+    .yt-header-end {
+        min-width: auto;
+    }
+
+    .yt-logo span:last-child {
+        display: none;
+    }
+
+    .yt-main {
+        padding: 12px;
+    }
+
+    /* Reduce header padding to match */
+    .yt-header {
+        padding: 0 12px !important;
+    }
+
+    /* Filter bar spacing */
+    .yt-filter-bar {
+        padding-left: 0 !important;
+        padding-right: 0 !important;
+    }
+}
+
+@media (min-width: 769px) and (max-width: 1024px) {
+    .yt-main {
+        padding: 16px;
+    }
+}

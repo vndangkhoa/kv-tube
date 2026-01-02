@@ -1,0 +1,43 @@
+/* ===== YouTube Dark Theme Colors ===== */
+:root {
+    --yt-bg-primary: #0f0f0f;
+    --yt-bg-secondary: #333333;
+    --yt-bg-elevated: #282828;
+    --yt-bg-hover: #444444;
+    --yt-bg-active: #3ea6ff;
+
+    --yt-text-primary: #f1f1f1;
+    --yt-text-secondary: #aaaaaa;
+    --yt-text-disabled: #717171;
+    --yt-static-white: #ffffff;
+
+    --yt-accent-red: #ff0000;
+    --yt-accent-blue: #3ea6ff;
+
+    --yt-border: rgba(255, 255, 255, 0.1);
+    --yt-divider: rgba(255, 255, 255, 0.2);
+
+    --yt-header-height: 56px;
+    --yt-sidebar-width: 240px;
+    --yt-sidebar-mini: 72px;
+
+    --yt-radius-sm: 4px;
+    --yt-radius-md: 8px;
+    --yt-radius-lg: 12px;
+    --yt-radius-xl: 16px;
+    --yt-radius-pill: 9999px;
+}
+
+[data-theme="light"] {
+    --yt-bg-primary: #ffffff;
+    --yt-bg-secondary: #f2f2f2;
+    --yt-bg-elevated: #e5e5e5;
+    --yt-bg-hover: #e5e5e5;
+
+    --yt-text-primary: #0f0f0f;
+    --yt-text-secondary: #606060;
+    --yt-text-disabled: #909090;
+
+    --yt-border: rgba(0, 0, 0, 0.1);
+    --yt-divider: rgba(0, 0, 0, 0.1);
+}

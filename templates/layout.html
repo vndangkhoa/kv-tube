@@ -86,11 +86,6 @@
                 <i class="fas fa-home"></i>
                 <span>Home</span>
             </a>
-            <a href="javascript:void(0)" class="yt-sidebar-item" data-category="shorts"
-                onclick="navigateCategory('shorts')">
-                <i class="fas fa-bolt"></i>
-                <span>Shorts</span>
-            </a>
 
             <div class="yt-sidebar-divider"></div>
 
@@ -300,54 +295,7 @@
     </div>
     <div class="yt-queue-overlay" id="queueOverlay" onclick="toggleQueue()"></div>
 
-    <style>
-        .yt-toast-container {
-            position: fixed;
-            bottom: 24px;
-            left: 24px;
-            z-index: 9999;
-            display: flex;
-            flex-direction: column;
-            gap: 12px;
-            pointer-events: none;
-        }
-
-        .yt-toast {
-            background: #1f1f1f;
-            color: #fff;
-            padding: 12px 24px;
-            border-radius: 8px;
-            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
-            font-size: 14px;
-            animation: slideUp 0.3s ease;
-            pointer-events: auto;
-            display: flex;
-            align-items: center;
-            gap: 12px;
-            min-width: 280px;
-            border-left: 4px solid #3ea6ff;
-        }
-
-        .yt-toast.error {
-            border-left-color: #ff4e45;
-        }
-
-        .yt-toast.success {
-            border-left-color: #2ba640;
-        }
-
-        @keyframes slideUp {
-            from {
-                transform: translateY(100%);
-                opacity: 0;
-            }
-
-            to {
-                transform: translateY(0);
-                opacity: 1;
-            }
-        }
-    </style>
+    <!-- Toast Styles Moved to static/css/modules/utils.css -->
 
     <script>
         function showToast(message, type = 'info') {
@@ -424,148 +372,6 @@
         // --- Back Button Logic ---
         // Back Button Logic Removed (Handled Server-Side)
     </script>
-    <style>
-        /* Queue Drawer Styles */
-        .yt-queue-drawer {
-            position: fixed;
-            top: 0;
-            right: -350px;
-            width: 350px;
-            height: 100vh;
-            background: var(--yt-bg-secondary);
-            z-index: 10000;
-            transition: right 0.3s ease;
-            display: flex;
-            flex-direction: column;
-            /* Shadow removed here to prevent bleeding when closed */
-            box-shadow: none;
-        }
-
-        .yt-queue-drawer.open {
-            right: 0;
-            box-shadow: -4px 0 20px rgba(0, 0, 0, 0.5);
-            /* Apply shadow only when open */
-        }
-
-        .yt-queue-header {
-            padding: 16px;
-            border-bottom: 1px solid var(--yt-border);
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
-
-        .yt-queue-header h3 {
-            font-size: 18px;
-            font-weight: 600;
-        }
-
-        .yt-queue-list {
-            flex: 1;
-            overflow-y: auto;
-            padding: 16px;
-        }
-
-        .yt-queue-footer {
-            padding: 16px;
-            border-top: 1px solid var(--yt-border);
-            text-align: center;
-        }
-
-        .yt-queue-clear-btn {
-            background: transparent;
-            border: 1px solid var(--yt-border);
-            color: var(--yt-text-primary);
-            padding: 8px 16px;
-            border-radius: 18px;
-            cursor: pointer;
-        }
-
-        .yt-queue-clear-btn:hover {
-            background: var(--yt-bg-hover);
-        }
-
-        .yt-queue-item {
-            display: flex;
-            gap: 12px;
-            margin-bottom: 12px;
-            align-items: center;
-        }
-
-        .yt-queue-thumb {
-            width: 100px;
-            height: 56px;
-            border-radius: 8px;
-            overflow: hidden;
-            cursor: pointer;
-            flex-shrink: 0;
-        }
-
-        .yt-queue-thumb img {
-            width: 100%;
-            height: 100%;
-            object-fit: cover;
-        }
-
-        .yt-queue-info {
-            flex: 1;
-            overflow: hidden;
-        }
-
-        .yt-queue-title {
-            font-size: 14px;
-            font-weight: 500;
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
-            cursor: pointer;
-        }
-
-        .yt-queue-title:hover {
-            text-decoration: underline;
-        }
-
-        .yt-queue-uploader {
-            font-size: 12px;
-            color: var(--yt-text-secondary);
-        }
-
-        .yt-queue-remove {
-            background: none;
-            border: none;
-            color: var(--yt-text-secondary);
-            cursor: pointer;
-            padding: 4px;
-        }
-
-        .yt-queue-remove:hover {
-            color: #ff4e45;
-        }
-
-        .yt-queue-overlay {
-            position: fixed;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            background: rgba(0, 0, 0, 0.5);
-            z-index: 9999;
-            opacity: 0;
-            pointer-events: none;
-            transition: opacity 0.3s;
-        }
-
-        .yt-queue-overlay.active {
-            opacity: 1;
-            pointer-events: auto;
-        }
-
-        @media (max-width: 480px) {
-            .yt-queue-drawer {
-                width: 85%;
-                right: -85%;
-            }
-        }
-    </style>
+    <!-- Queue Drawer Styles Moved to static/css/modules/components.css -->
 
 </html>

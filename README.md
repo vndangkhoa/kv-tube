@@ -1,17 +1,22 @@
-# KV-Tube
+#
+**KV-Tube** is a distraction-free, privacy-focused YouTube frontend designed for a premium viewing experience.
 
-A modern, ad-free YouTube web client and video proxy designed for **Synology NAS** and personal home servers.
+### 🚀 **New Features (v2.0 Updates)**
+*   **Horizontal-First Experience**: Strictly enforces horizontal videos across all categories. "Shorts" and vertical content are aggressively filtered out for a cleaner, cinematic feed.
+*   **Personalized Discovery**:
+    *   **Suggested for You**: Dynamic recommendations based on your local watch history.
+    *   **You Might Like**: curated discovery topics to help you find new interests.
+*   **Refined Tech Feed**: Specialized "Tech & AI" section focusing on gadget reviews, unboxings, and deep dives (no spammy vertical clips).
+*   **Performance**: Optimized fetching limits to ensure rich, full grids of content despite strict filtering.
 
-## ✨ Features
-
-- **Ad-Free Watching**: Clean interface without distractions.
-- **Smart Search**: Directly search YouTube content.
+## Features
+*   **No Ads**: Watch videos without interruptions.
+*   **Privacy Focused**: No Google account required. Watch history is stored locally (managed by SQLite).
 - **Trending**: Browse trending videos by category (Tech, Music, Gaming, etc.).
 - **Auto-Captions**: English subtitles automatically enabled if available.
 - **AI Summary**: (Optional) Extractive summarization of video content running locally.
 - **PWA Ready**: Installable on mobile devices with a responsive drawer layout.
 - **Dark/Light Mode**: User preference persisted in settings.
-- **Privacy Focused**: Everything runs on your server.
 
 ## 🚀 Deployment
 

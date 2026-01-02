@@ -1,0 +1,96 @@
+/* ===== Video Grid ===== */
+.yt-video-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 16px;
+}
+
+@media (max-width: 1400px) {
+
+    .yt-video-grid,
+    .yt-section-grid {
+        grid-template-columns: repeat(3, 1fr);
+    }
+}
+
+@media (max-width: 1100px) {
+
+    .yt-video-grid,
+    .yt-section-grid {
+        grid-template-columns: repeat(2, 1fr);
+    }
+}
+
+@media (max-width: 600px) {
+
+    .yt-video-grid,
+    .yt-section-grid {
+        grid-template-columns: 1fr;
+    }
+}
+
+/* Grid Layout for Sections (4 rows x 4 columns = 16 videos) */
+.yt-section-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 16px;
+    padding-bottom: 24px;
+}
+
+.yt-section-grid .yt-video-card {
+    width: 100%;
+    min-width: 0;
+}
+
+/* Scrollbar hiding */
+.yt-section-grid::-webkit-scrollbar {
+    display: none;
+}
+
+/* Mobile Grid Overrides */
+@media (max-width: 768px) {
+
+    /* Main Grid */
+    .yt-video-grid {
+        grid-template-columns: repeat(2, 1fr) !important;
+        gap: 8px !important;
+        padding: 0 4px !important;
+        background: var(--yt-bg-primary);
+        gap: 1px !important;
+        /* Minimal gap from V4 override */
+        padding: 0 !important;
+        /* V4 override */
+    }
+
+    /* Section Grid (Horizontal Carousel) */
+    .yt-section-grid {
+        display: grid;
+        grid-auto-flow: column;
+        grid-template-columns: none;
+        grid-template-rows: 1fr;
+        grid-auto-columns: 85%;
+        gap: 12px;
+        overflow-x: auto;
+        padding-bottom: 12px;
+        scroll-snap-type: x mandatory;
+        scrollbar-width: none;
+    }
+
+    .yt-section-grid::-webkit-scrollbar {
+        display: none;
+    }
+
+    /* Adjust video card size for single row */
+    .yt-section-grid .yt-video-card {
+        width: 100%;
+        scroll-snap-align: start;
+        margin: 0;
+    }
+}
+
+/* Tablet Grid */
+@media (min-width: 769px) and (max-width: 1024px) {
+    .yt-video-grid {
+        grid-template-columns: repeat(2, 1fr);
+    }
+}

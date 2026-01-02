@@ -282,11 +282,30 @@ async function loadTrending(reset = true) {
                 sectionDiv.style.marginBottom = '24px';
 
                 // Header
+                // Make title clickable - user request
+                const categoryLink = section.id === 'suggested' || section.id === 'discovery'
+                    ? '#'
+                    : `/?category=${section.id}`;
+
+                // If it is suggested or discovery, maybe we don't link or link to something generic? 
+                // User asked for "categories name has a hyperlink". 
+                // Standard categories link to their pages. Suggested/Discovery link to # (no-op) or trending?
+                // Let's link standard ones. For Suggested/Discovery, we can just not link or link to home.
+                // Actually, if we link to /?category=tech it works.
+                // Use a conditional logic for href.
+
+                const titleHtml = (section.id !== 'suggested' && section.id !== 'discovery')
+                    ? `<a href="/?category=${section.id}" class="yt-section-title-link" style="text-decoration:none; color:inherit; display:flex; align-items:center; gap:10px;">
+                        <i class="fas fa-${section.icon}"></i> ${section.title}
+                        <i class="fas fa-chevron-right" style="font-size: 14px; opacity: 0.7;"></i>
+                       </a>`
+                    : `<span style="display:flex; align-items:center; gap:10px;"><i class="fas fa-${section.icon}"></i> ${section.title}</span>`;
+
                 sectionDiv.innerHTML = `
                     <div class="yt-section-header" style="margin-bottom:12px;">
-                        <h2><i class="fas fa-${section.icon}"></i> ${section.title}</h2>
+                        <h2>${titleHtml}</h2>
                     </div>
-                 `;
+                `;
 
                 const videos = section.videos || [];
                 let chunks = [];

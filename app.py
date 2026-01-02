@@ -916,6 +916,11 @@ def summarize_video():
 # Helper function to fetch videos (not a route)
 def fetch_videos(query, limit=20, filter_type=None, playlist_start=1, playlist_end=None):
     try:
+        # Source-Level Filter: Exclude Shorts for standard video requests
+        # REMOVED: Causing 0 results with complex queries. Rely on Python filtering.
+        # if filter_type == 'video':
+        #    query = f"{query} -shorts -#shorts"
+
         # If no end specified, default to start + limit - 1
         if not playlist_end:
             playlist_end = playlist_start + limit - 1
@@ -944,8 +949,19 @@ def fetch_videos(query, limit=20, filter_type=None, playlist_start=1, playlist_e
                     duration_secs = data.get('duration')
                     
                     # Filter Logic
-                    if filter_type == 'video' and duration_secs and int(duration_secs) <= 60:
-                        continue
+                    title_lower = data.get('title', '').lower()
+                    if filter_type == 'video':
+                         # STRICT: If duration is missing, DO NOT SKIP. Just trust the query exclusion.
+                         # if not duration_secs:
+                         #    continue
+                         
+                         # Exclude explicit Shorts
+                         if '#shorts' in title_lower:
+                             continue
+                         # Exclude short duration (buffer to 70s to avoid vertical clutter) ONLY IF WE KNOW IT
+                         if duration_secs and int(duration_secs) <= 70:
+                             continue
+                             
                     if filter_type == 'short' and duration_secs and int(duration_secs) > 60:
                         continue
                         
@@ -985,37 +1001,36 @@ def trending():
         region = request.args.get('region', 'vietnam')
         limit = 120 if category != 'all' else 20 # 120 for grid, 20 for sections
         
-        # Helper to build query
         def get_query(cat, reg, s_sort):
             if reg == 'vietnam':
                 queries = {
-                    'general': 'trending vietnam',
-                    'tech': 'AI tools software tech review IT việt nam',
-                    'all': 'trending vietnam',
-                    'music': 'nhạc việt trending',
-                    'gaming': 'gaming việt nam',
-                    'movies': 'phim việt nam',
-                    'news': 'tin tức việt nam hôm nay',
-                    'sports': 'thể thao việt nam',
-                    'shorts': 'trending việt nam',
-                    'trending': 'trending việt nam',
-                    'podcasts': 'podcast việt nam',
-                    'live': 'live stream việt nam'
+                    'general': 'trending vietnam -shorts',
+                    'tech': 'review công nghệ điện thoại laptop',
+                    'all': 'trending vietnam -shorts',
+                    'music': 'nhạc việt trending -shorts',
+                    'gaming': 'gaming việt nam -shorts',
+                    'movies': 'phim việt nam -shorts',
+                    'news': 'tin tức việt nam hôm nay -shorts',
+                    'sports': 'thể thao việt nam -shorts',
+                    'shorts': 'trending việt nam', 
+                    'trending': 'trending việt nam -shorts',
+                    'podcasts': 'podcast việt nam -shorts',
+                    'live': 'live stream việt nam -shorts'
                 }
             else:
                 queries = {
-                    'general': 'trending',
-                    'tech': 'AI tools software tech review IT',
-                    'all': 'trending',
-                    'music': 'music trending',
-                    'gaming': 'gaming trending',
-                    'movies': 'movies trending',
-                    'news': 'news today',
-                    'sports': 'sports highlights',
+                    'general': 'trending -shorts',
+                    'tech': 'tech gadget review smartphone',
+                    'all': 'trending -shorts',
+                    'music': 'music trending -shorts',
+                    'gaming': 'gaming trending -shorts',
+                    'movies': 'movies trending -shorts',
+                    'news': 'news today -shorts',
+                    'sports': 'sports highlights -shorts',
                     'shorts': 'trending',
-                    'trending': 'trending now',
-                    'podcasts': 'podcast trending',
-                    'live': 'live stream'
+                    'trending': 'trending now -shorts',
+                    'podcasts': 'podcast trending -shorts',
+                    'live': 'live stream -shorts'
                 }
             
             base = queries.get(cat, 'trending')
@@ -1039,14 +1054,46 @@ def trending():
         
         # === Parallel Fetching for Home Feed ===
         if category == 'all':
+            # === 1. Suggested For You (History Based) ===
+            suggested_videos = []
+            try:
+                conn = get_db_connection()
+                # Get last 5 videos for context
+                history = conn.execute('SELECT title, video_id, type FROM user_videos WHERE type = "history" ORDER BY timestamp DESC LIMIT 5').fetchall()
+                conn.close()
+
+                if history:
+                    # Create a composite query from history
+                    import random
+                    # Pick 1-2 random items from recent history to diversify
+                    bases = random.sample(history, min(len(history), 2))
+                    query_parts = [row['title'] for row in bases]
+                    # Add "related" to find similar content, not exact same
+                    suggestion_query = " ".join(query_parts) + " related"
+                    suggested_videos = fetch_videos(suggestion_query, limit=16, filter_type='video')
+            except Exception as e:
+                print(f"Suggestion Error: {e}")
+
+            # === 2. You Might Like (Discovery) ===
+            discovery_videos = []
+            try:
+                # curated list of interesting topics to rotate
+                topics = ['amazing inventions', 'primitive technology', 'street food around the world', 
+                          'documentary 2024', 'space exploration', 'wildlife 4k', 'satisfying restoration',
+                          'travel vlog 4k', 'tech gadgets review', 'coding tutorial']
+                import random
+                topic = random.choice(topics)
+                discovery_videos = fetch_videos(f"{topic} best", limit=16, filter_type='video')
+            except: pass
+
+            # === Define Standard Sections ===
             sections_to_fetch = [
                 {'id': 'trending', 'title': 'Trending Now', 'icon': 'fire'},
-                {'id': 'all', 'title': 'New Releases', 'icon': 'clock'}, # 'all' results in trending, but we'll sort by newest
-                {'id': 'tech', 'title': 'AI & Tech', 'icon': 'microchip'},
                 {'id': 'music', 'title': 'Music', 'icon': 'music'},
+                {'id': 'tech', 'title': 'Tech & AI', 'icon': 'microchip'},
                 {'id': 'movies', 'title': 'Movies', 'icon': 'film'},
-                {'id': 'news', 'title': 'News', 'icon': 'newspaper'},
                 {'id': 'gaming', 'title': 'Gaming', 'icon': 'gamepad'},
+                {'id': 'news', 'title': 'News', 'icon': 'newspaper'},
                 {'id': 'sports', 'title': 'Sports', 'icon': 'football-ball'}
             ]
             
@@ -1055,7 +1102,9 @@ def trending():
                 q = get_query(section['id'], region, target_sort)
                 # Add a unique component to query for freshness
                 q_fresh = f"{q} {int(time.time())}" if section['id'] == 'all' else q
-                vids = fetch_videos(q_fresh, limit=20, filter_type='video', playlist_start=1) 
+                
+                # Increase fetch limit to 150 (was 100) to compensate for strict filtering (dropping shorts/no-duration)
+                vids = fetch_videos(q_fresh, limit=150, filter_type='video', playlist_start=1) 
                 return {
                     'id': section['id'],
                     'title': section['title'],
@@ -1064,9 +1113,33 @@ def trending():
                 }
 
             with concurrent.futures.ThreadPoolExecutor(max_workers=8) as executor:
-                results = list(executor.map(fetch_section, sections_to_fetch))
+                standard_results = list(executor.map(fetch_section, sections_to_fetch))
             
-            return jsonify({'mode': 'sections', 'data': results})
+            # === Assemble Final Feed ===
+            final_sections = []
+            
+            # Add Suggested if we have them
+            if suggested_videos:
+                final_sections.append({
+                    'id': 'suggested',
+                    'title': 'Suggested for You',
+                    'icon': 'sparkles',
+                    'videos': suggested_videos
+                })
+            
+            # Add Discovery
+            if discovery_videos:
+                final_sections.append({
+                    'id': 'discovery',
+                    'title': 'You Might Like',
+                    'icon': 'compass',
+                    'videos': discovery_videos
+                })
+                
+            # Add Standard Sections
+            final_sections.extend(standard_results)
+            
+            return jsonify({'mode': 'sections', 'data': final_sections})
 
         # === Standard Single Category Fetch ===
         query = get_query(category, region, sort)
