@@ -18,7 +18,7 @@ COPY . .
 
 # Environment variables
 ENV PYTHONUNBUFFERED=1
-ENV FLASK_APP=app.py
+ENV FLASK_APP=wsgi.py
 ENV FLASK_ENV=production
 
 # Create directories for data persistence
@@ -28,4 +28,4 @@ RUN mkdir -p /app/videos /app/data
 EXPOSE 5000
 
 # Run with Gunicorn
-CMD ["gunicorn", "--bind", "0.0.0.0:5000", "--workers", "4", "--threads", "2", "--timeout", "120", "app:app"]
+CMD ["gunicorn", "--bind", "0.0.0.0:5000", "--workers", "4", "--threads", "2", "--timeout", "120", "wsgi:app"]
