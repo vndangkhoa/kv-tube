@@ -6,11 +6,11 @@ version: '3.8'
 services:
   kv-tube:
     # build: .
-    image: vndangkhoa/kvtube:latest
+    image: vndangkhoa/kv-tube:v2.0
     container_name: kv-tube
     restart: unless-stopped
     ports:
-      - "5011:5001"
+      - "5011:5000"
     volumes:
       # Persist data (Easy setup: Just maps a folder)
       - ./data:/app/data
@@ -20,7 +20,7 @@ services:
       - PYTHONUNBUFFERED=1
       - FLASK_ENV=production
     healthcheck:
-      test: [ "CMD", "curl", "-f", "http://localhost:5001/" ]
+      test: [ "CMD", "curl", "-f", "http://localhost:5000/" ]
       interval: 30s
       timeout: 10s
       retries: 3
