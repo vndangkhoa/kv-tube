@@ -6,7 +6,7 @@ version: '3.8'
 services:
   kv-tube:
     # build: .
-    image: vndangkhoa/kv-tube:v2.0
+    image: vndangkhoa/kv-tube:v2.1
     container_name: kv-tube
     restart: unless-stopped
     ports:
