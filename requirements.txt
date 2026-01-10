@@ -1,7 +1,6 @@
-flask==3.0.2
-requests==2.31.0
-yt-dlp
-youtube-transcript-api==0.6.2
-werkzeug==3.0.1
-gunicorn==21.2.0
-python-dotenv==1.0.1
+flask
+requests
+yt-dlp>=2024.1.0
+werkzeug
+gunicorn
+python-dotenv

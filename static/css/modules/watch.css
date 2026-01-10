@@ -1,0 +1,540 @@
+/**
+ * KV-Tube Watch Page Styles
+ * Extracted from watch.html for better maintainability
+ */
+
+/* ========== Base Reset ========== */
+html,
+body {
+    overflow-x: hidden;
+    width: 100%;
+    max-width: 100vw;
+}
+
+/* ========== Player Container ========== */
+.yt-player-container {
+    position: relative;
+    width: 100%;
+    aspect-ratio: 16/9;
+    background: #000;
+    border-radius: 12px;
+    overflow: hidden;
+}
+
+/* ========== Mini Player Mode ========== */
+.yt-mini-mode {
+    position: fixed;
+    bottom: 20px;
+    right: 20px;
+    width: 400px !important;
+    height: auto !important;
+    aspect-ratio: 16/9;
+    z-index: 10000;
+    box-shadow: 0 8px 30px rgba(0, 0, 0, 0.5);
+    border-radius: 12px;
+    cursor: grab;
+    transition: width 0.3s, height 0.3s;
+}
+
+.yt-mini-mode:active {
+    cursor: grabbing;
+}
+
+.yt-player-placeholder {
+    display: none;
+    width: 100%;
+    aspect-ratio: 16/9;
+    background: rgba(0, 0, 0, 0.1);
+}
+
+@media (max-width: 768px) {
+    .yt-mini-mode {
+        width: 250px !important;
+        bottom: 80px;
+        right: 10px;
+    }
+}
+
+/* ========== Skeleton Loading ========== */
+@keyframes shimmer {
+    0% {
+        background-position: 200% 0;
+    }
+
+    100% {
+        background-position: -200% 0;
+    }
+}
+
+.skeleton {
+    background: linear-gradient(90deg, var(--yt-bg-secondary) 25%, var(--yt-bg-hover) 50%, var(--yt-bg-secondary) 75%);
+    background-size: 200% 100%;
+    animation: shimmer 1.5s infinite;
+    border-radius: 4px;
+}
+
+.skeleton-line {
+    height: 20px;
+    margin-bottom: 8px;
+}
+
+.skeleton-avatar {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+}
+
+.skeleton-block {
+    display: block;
+    width: 100%;
+}
+
+/* ========== Watch Page Layout ========== */
+.yt-main {
+    padding: 0 !important;
+    margin-left: 240px;
+}
+
+.yt-watch-layout {
+    display: grid;
+    grid-template-columns: 1fr 400px;
+    gap: 24px;
+    max-width: 100%;
+    width: 100%;
+    padding: 24px;
+    margin: 0;
+    box-sizing: border-box;
+}
+
+.yt-watch-sidebar {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    position: sticky;
+    top: 80px;
+    align-self: start;
+    max-height: calc(100vh - 100px);
+    overflow: visible;
+}
+
+.yt-channel-avatar-lg {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 18px;
+    font-weight: 600;
+    color: white;
+}
+
+/* ========== Comments Section ========== */
+.yt-comments-section {
+    margin-top: 24px;
+    border-top: 1px solid var(--yt-border);
+    padding-top: 16px;
+}
+
+.yt-comments-toggle {
+    width: 100%;
+    background: var(--yt-bg-secondary);
+    border-radius: 12px;
+    padding: 16px;
+    cursor: pointer;
+    transition: background 0.2s;
+}
+
+.yt-comments-toggle:hover {
+    background: var(--yt-bg-hover);
+}
+
+.yt-comments-preview {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    color: var(--yt-text-primary);
+    font-size: 14px;
+    font-weight: 500;
+}
+
+.yt-comments-preview i {
+    transition: transform 0.3s;
+}
+
+.yt-comments-preview i.rotated {
+    transform: rotate(180deg);
+}
+
+.yt-comments-content {
+    margin-top: 16px;
+    animation: fadeIn 0.3s ease;
+}
+
+.yt-comments-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 16px;
+}
+
+.yt-comments-header h3 {
+    font-size: 16px;
+    font-weight: 500;
+}
+
+.yt-comments-list {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    max-height: 500px;
+    overflow-y: auto;
+}
+
+/* Hide in shorts mode */
+.shorts-mode .yt-video-info,
+.shorts-mode .yt-suggested {
+    display: none !important;
+}
+
+@media (max-width: 768px) {
+    .art-control-time {
+        display: none !important;
+    }
+}
+
+/* ========== Comment Styles ========== */
+.yt-comment {
+    display: flex;
+    gap: 12px;
+}
+
+.yt-comment-avatar {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    background: var(--yt-bg-hover);
+    flex-shrink: 0;
+    overflow: hidden;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 14px;
+    color: var(--yt-text-primary);
+}
+
+.yt-comment-avatar img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.yt-comment-content {
+    flex: 1;
+}
+
+.yt-comment-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 4px;
+    flex-wrap: wrap;
+}
+
+.yt-comment-author {
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--yt-text-primary);
+}
+
+.yt-comment-time {
+    font-size: 12px;
+    color: var(--yt-text-secondary);
+}
+
+.yt-comment-text {
+    font-size: 14px;
+    line-height: 1.5;
+    color: var(--yt-text-primary);
+    margin-bottom: 8px;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+}
+
+.yt-comment-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.yt-comment-action {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 12px;
+    color: var(--yt-text-secondary);
+    padding: 4px 8px;
+    border-radius: 20px;
+}
+
+/* ========== Action Buttons ========== */
+.yt-video-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    /* Reduced gap */
+    flex-wrap: wrap;
+    margin-top: 12px;
+}
+
+.yt-action-btn {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 0 12px;
+    /* Compact padding */
+    height: 32px;
+    /* Compact height */
+    border-radius: 16px;
+    /* Pill shape */
+    border: none;
+    background: var(--yt-bg-secondary);
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--yt-text-primary);
+    cursor: pointer;
+    transition: background 0.2s;
+}
+
+.yt-action-btn i {
+    font-size: 14px;
+}
+
+.yt-action-btn:hover {
+    background: var(--yt-bg-hover);
+}
+
+.yt-action-btn.active {
+    color: #fff !important;
+    background: #ff0000 !important;
+    border-color: #ff0000 !important;
+    box-shadow: 0 0 10px rgba(255, 0, 0, 0.4);
+}
+
+/* Queue Badge */
+.queue-badge {
+    position: absolute;
+    top: -6px;
+    right: -6px;
+    background: #ff0000;
+    color: #fff;
+    font-size: 10px;
+    font-weight: 600;
+    min-width: 18px;
+    height: 18px;
+    border-radius: 9px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0 4px;
+}
+
+.yt-pinned-badge {
+    background: var(--yt-bg-secondary);
+    font-size: 11px;
+    padding: 2px 8px;
+    border-radius: 2px;
+    color: var(--yt-text-secondary);
+}
+
+.yt-no-comments {
+    text-align: center;
+    color: var(--yt-text-secondary);
+    padding: 24px;
+}
+
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+        transform: translateY(-10px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+@media (max-width: 1200px) {
+    .yt-watch-layout {
+        grid-template-columns: 1fr;
+    }
+}
+
+/* ========== Queue Dropdown ========== */
+.yt-queue-dropdown {
+    position: relative;
+    background: var(--yt-bg-secondary);
+    border-radius: var(--yt-radius-md);
+    margin-bottom: 12px;
+}
+
+.yt-queue-dropdown-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px 14px;
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--yt-text-primary);
+    transition: background 0.2s;
+}
+
+.yt-queue-dropdown-header:hover {
+    background: var(--yt-bg-hover);
+    border-radius: var(--yt-radius-md);
+}
+
+.yt-queue-dropdown-header span {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.yt-queue-dropdown-header i.fa-chevron-down {
+    font-size: 12px;
+    transition: transform 0.3s;
+}
+
+.yt-queue-dropdown-header i.fa-chevron-down.rotated {
+    transform: rotate(180deg);
+}
+
+.yt-queue-dropdown-content {
+    max-height: 0;
+    overflow: hidden;
+    transition: max-height 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    background: var(--yt-bg-secondary);
+    border-radius: 0 0 var(--yt-radius-md) var(--yt-radius-md);
+    will-change: max-height;
+}
+
+.yt-queue-dropdown-content.expanded {
+    max-height: 500px;
+    overflow-y: auto;
+}
+
+#queueList {
+    padding: 8px;
+}
+
+.yt-queue-item {
+    display: flex;
+    gap: 10px;
+    padding: 8px;
+    border-radius: var(--yt-radius-md);
+    cursor: pointer;
+    transition: background 0.2s;
+}
+
+.yt-queue-item:hover {
+    background: var(--yt-bg-hover);
+}
+
+.yt-queue-item img {
+    width: 100px;
+    aspect-ratio: 16/9;
+    object-fit: cover;
+    border-radius: 4px;
+    flex-shrink: 0;
+}
+
+.yt-queue-item-info {
+    flex: 1;
+    min-width: 0;
+}
+
+.yt-queue-item-title {
+    font-size: 13px;
+    font-weight: 500;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    margin-bottom: 4px;
+}
+
+.yt-queue-item-uploader {
+    font-size: 11px;
+    color: var(--yt-text-secondary);
+}
+
+.yt-queue-remove-btn {
+    background: none;
+    border: none;
+    color: var(--yt-text-secondary);
+    cursor: pointer;
+    padding: 8px;
+    opacity: 0;
+    transition: opacity 0.2s, color 0.2s;
+    border-radius: 50%;
+}
+
+.yt-queue-item:hover .yt-queue-remove-btn {
+    opacity: 1;
+}
+
+.yt-queue-remove-btn:hover {
+    color: var(--yt-accent-red);
+    background: rgba(255, 0, 0, 0.1);
+}
+
+.yt-queue-empty {
+    text-align: center;
+    color: var(--yt-text-secondary);
+    padding: 12px;
+    font-size: 12px;
+}
+
+/* ========== Mobile/Tablet Responsiveness ========== */
+@media (max-width: 1024px) {
+    .yt-watch-layout {
+        display: block;
+        padding: 0;
+    }
+
+    .yt-main {
+        margin-left: 0 !important;
+        width: 100%;
+    }
+
+    .yt-player-section {
+        width: 100%;
+    }
+
+    .yt-player-container {
+        border-radius: 0;
+    }
+
+    .yt-video-info {
+        padding: 16px;
+    }
+
+    .yt-watch-sidebar {
+        position: static;
+        width: 100%;
+        max-height: none;
+        padding: 0 16px 24px;
+    }
+
+    #queueSection {
+        margin-top: 16px;
+    }
+
+    .yt-comments-toggle {
+        padding: 12px;
+    }
+}

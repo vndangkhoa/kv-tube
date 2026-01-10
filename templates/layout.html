@@ -23,8 +23,110 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/modules/downloads.css') }}">
     <link rel="manifest" href="{{ url_for('static', filename='manifest.json') }}">
     <script>
+        // Suppress expected browser/extension errors to clean console
+        // These errors are from YouTube API limitations and browser extensions
+        // and don't affect KV-Tube functionality
+        (function () {
+            const suppressedPatterns = [
+                /onboarding\.js/,
+                /content-script\.js/,
+                /timedtext.*CORS/,
+                /Too Many Requests/,
+                /ERR_FAILED/,
+                /Failed to fetch/,
+                /CORS policy/,
+                /WidgetId/,
+                /Banner not shown/,
+                /beforeinstallpromptevent/,
+                /Transcript error/,
+                /Transcript disabled/,
+                /Could not load transcript/,
+                /Client Error/,
+                /youtube\.com\/api\/timedtext/,
+                /Uncaught \(in promise\)/,
+                /Promise\.then/,
+                /createOnboardingFrame/
+            ];
+
+            // Override console.error
+            const originalError = console.error;
+            console.error = function (...args) {
+                const message = args.join(' ');
+                const shouldSuppress = suppressedPatterns.some(pattern => pattern.test(message));
+                if (!shouldSuppress) {
+                    originalError.apply(console, args);
+                }
+            };
+
+            // Override console.warn
+            const originalWarn = console.warn;
+            console.warn = function (...args) {
+                const message = args.join(' ');
+                const shouldSuppress = suppressedPatterns.some(pattern => pattern.test(message));
+                if (!shouldSuppress) {
+                    originalWarn.apply(console, args);
+                }
+            };
+
+            // Override console.log (for transcript errors)
+            const originalLog = console.log;
+            console.log = function (...args) {
+                const message = args.join(' ');
+                const shouldSuppress = suppressedPatterns.some(pattern => pattern.test(message));
+                if (!shouldSuppress) {
+                    originalLog.apply(console, args);
+                }
+            };
+
+            // Catch ALL unhandled errors at the window level
+            window.addEventListener('error', function (event) {
+                const message = event.message || '';
+                const filename = event.filename || '';
+                const shouldSuppress = suppressedPatterns.some(pattern => {
+                    return pattern.test(message) || pattern.test(filename);
+                });
+
+                if (shouldSuppress) {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    return false;
+                }
+            });
+
+            // Catch unhandled promise rejections
+            window.addEventListener('unhandledrejection', function (event) {
+                const message = event.reason?.message || String(event.reason) || '';
+                const shouldSuppress = suppressedPatterns.some(pattern => pattern.test(message));
+
+                if (shouldSuppress) {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    return false;
+                }
+            });
+
+            // Override EventTarget methods to catch extension errors
+            const originalAddEventListener = EventTarget.prototype.addEventListener;
+            EventTarget.prototype.addEventListener = function (type, listener, options) {
+                const wrappedListener = function (...args) {
+                    try {
+                        return listener.apply(this, args);
+                    } catch (error) {
+                        const shouldSuppress = suppressedPatterns.some(pattern =>
+                            pattern.test(error.message) || pattern.test(error.stack)
+                        );
+                        if (!shouldSuppress) {
+                            throw error;
+                        }
+                    }
+                };
+                return originalAddEventListener.call(this, type, wrappedListener, options);
+            };
+        })();
+
         // Immediate Theme Init to prevent FOUC
         (function () {
             let savedTheme = localStorage.getItem('theme');
@@ -35,9 +137,16 @@
             document.documentElement.setAttribute('data-theme', savedTheme);
         })();
     </script>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/modules/chat.css') }}">
 </head>
 
 <body>
+    <!-- Global Progress Bar -->
+    <div id="nprogress-container"
+        style="position:fixed; top:0; left:0; width:100%; height:3px; z-index:9999; pointer-events:none;">
+        <div id="nprogress-bar" style="width:0%; height:100%; background:red; transition: width 0.2s ease; opacity: 0;">
+        </div>
+    </div>
     <div class="app-wrapper">
         <!-- YouTube-style Header -->
         <header class="yt-header">
@@ -63,6 +172,9 @@
             </div>
 
             <div class="yt-header-end">
+                <button class="yt-icon-btn" onclick="toggleAIChat()" aria-label="AI Assistant">
+                    <i class="fas fa-robot"></i>
+                </button>
                 <!-- Mobile Search Icon Removed - Search will be visible -->
                 <!-- <button class="yt-icon-btn yt-mobile-search" onclick="toggleMobileSearch()" aria-label="Search">
                     <i class="fas fa-search"></i>
@@ -104,6 +216,12 @@
                 data-category="subscriptions">
                 <i class="fas fa-play-circle"></i>
                 <span>Subscriptions</span>
+            </a>
+            <a href="/downloads" class="yt-sidebar-item {% if request.path == '/downloads' %}active{% endif %}"
+                data-category="downloads">
+                <i class="fas fa-download"></i>
+                <span>Downloads</span>
+                <span id="downloadBadge" class="yt-badge" style="display:none">0</span>
             </a>
             <!-- Queue Removed -->
 
@@ -163,7 +281,9 @@
         </button>
     </div>
 
+    <script src="{{ url_for('static', filename='js/navigation-manager.js') }}"></script>
     <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/download-manager.js') }}"></script>
     <script>
         // Register Service Worker
         if ('serviceWorker' in navigator) {
@@ -280,6 +400,8 @@
     <!-- Toast Notification Container -->
     <div id="toastContainer" class="yt-toast-container"></div>
 
+
+
     <!-- Queue Drawer -->
     <div class="yt-queue-drawer" id="queueDrawer">
         <div class="yt-queue-header">
@@ -371,7 +493,233 @@
 
         // --- Back Button Logic ---
         // Back Button Logic Removed (Handled Server-Side)
+
+        // --- Download Badge Logic ---
+        function updateDownloadBadge(e) {
+            const badge = document.getElementById('downloadBadge');
+            if (!badge) return;
+
+            // Use the count from the event detail if available, otherwise check manager
+            let count = 0;
+            if (e && e.detail && typeof e.detail.activeCount === 'number') {
+                count = e.detail.activeCount;
+            } else if (window.downloadManager) {
+                count = window.downloadManager.activeDownloads.size;
+            }
+
+            if (count > 0) {
+                badge.innerText = count;
+                badge.style.display = 'inline-flex';
+            } else {
+                badge.style.display = 'none';
+            }
+        }
+
+        window.addEventListener('download-updated', updateDownloadBadge);
+        // Initial check
+        window.addEventListener('load', () => {
+            // small delay to ensure manager is ready
+            setTimeout(() => updateDownloadBadge(), 500);
+        });
+
+
     </script>
     <!-- Queue Drawer Styles Moved to static/css/modules/components.css -->
+
+    <!-- AI Chat Panel -->
+    <div id="aiChatPanel" class="ai-chat-panel">
+        <div class="ai-chat-header">
+            <div>
+                <h4><i class="fas fa-robot"></i> AI Assistant</h4>
+                <div id="aiModelStatus" class="ai-model-status">Click to load AI model</div>
+            </div>
+            <button class="ai-chat-close" onclick="toggleAIChat()">
+                <i class="fas fa-times"></i>
+            </button>
+        </div>
+        <div id="aiDownloadArea" class="ai-download-progress" style="display:none;">
+            <div>Downloading AI Model...</div>
+            <div class="ai-download-bar">
+                <div id="aiDownloadFill" class="ai-download-fill" style="width: 0%;"></div>
+            </div>
+            <div id="aiDownloadText" class="ai-download-text">Preparing...</div>
+        </div>
+        <div id="aiChatMessages" class="ai-chat-messages">
+            <div class="ai-message system">Ask me anything about this video!</div>
+        </div>
+        <div class="ai-chat-input">
+            <input type="text" id="aiInput" placeholder="Ask about the video..."
+                onkeypress="if(event.key==='Enter') sendAIMessage()">
+            <button class="ai-chat-send" onclick="sendAIMessage()" id="aiSendBtn">
+                <i class="fas fa-paper-plane"></i>
+            </button>
+        </div>
+    </div>
+
+    <!-- Chat styles -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/modules/chat.css') }}">
+
+    <!-- WebAI Script -->
+    <script src="{{ url_for('static', filename='js/webai.js') }}"></script>
+    <script>
+        // AI Chat Toggle and Message Handler
+        var aiChatVisible = false;
+        var aiInitialized = false;
+
+        window.toggleAIChat = function () {
+            const panel = document.getElementById('aiChatPanel');
+            if (!panel) return;
+
+            aiChatVisible = !aiChatVisible;
+
+            if (aiChatVisible) {
+                panel.classList.add('visible');
+
+                // Initialize AI on first open
+                if (!aiInitialized && window.transcriptAI && !window.transcriptAI.isModelLoading()) {
+                    initializeAI();
+                }
+            } else {
+                panel.classList.remove('visible');
+            }
+        }
+
+        async function initializeAI() {
+            if (aiInitialized || window.transcriptAI.isModelLoading()) return;
+
+            const status = document.getElementById('aiModelStatus');
+            const downloadArea = document.getElementById('aiDownloadArea');
+            const downloadFill = document.getElementById('aiDownloadFill');
+            const downloadText = document.getElementById('aiDownloadText');
+
+            status.textContent = 'Loading model...';
+            status.classList.add('loading');
+            downloadArea.style.display = 'block';
+
+            // Set transcript for AI (if available globally)
+            if (window.transcriptFullText) {
+                window.transcriptAI.setTranscript(window.transcriptFullText);
+            }
+
+            // Set progress callback
+            window.transcriptAI.setCallbacks({
+                onProgress: (report) => {
+                    const progress = report.progress || 0;
+                    downloadFill.style.width = `${progress * 100}%`;
+                    downloadText.textContent = report.text || 'Downloading...';
+                },
+                onReady: () => {
+                    status.textContent = 'AI Ready ✓';
+                    status.classList.remove('loading');
+                    status.classList.add('ready');
+                    downloadArea.style.display = 'none';
+                    aiInitialized = true;
+
+                    // Add welcome message
+                    addAIMessage('assistant', `I'm ready! Ask me anything about this video. Model: ${window.transcriptAI.getModelInfo().name}`);
+                }
+            });
+
+            try {
+                await window.transcriptAI.init();
+            } catch (err) {
+                status.textContent = 'Failed to load AI';
+                status.classList.remove('loading');
+                downloadArea.style.display = 'none';
+                addAIMessage('system', `Error: ${err.message}. WebGPU may not be supported in your browser.`);
+            }
+        }
+
+        window.sendAIMessage = async function () {
+            const input = document.getElementById('aiInput');
+            const sendBtn = document.getElementById('aiSendBtn');
+            const question = input.value.trim();
+
+            if (!question) return;
+
+            // Ensure transcript is set if available
+            if (window.transcriptFullText) {
+                window.transcriptAI.setTranscript(window.transcriptFullText);
+            }
+
+            // Initialize if needed
+            if (!window.transcriptAI.isModelReady()) {
+                addAIMessage('system', 'Initializing AI...');
+                await initializeAI();
+                if (!window.transcriptAI.isModelReady()) {
+                    return;
+                }
+            }
+
+            // Add user message
+            addAIMessage('user', question);
+            input.value = '';
+            sendBtn.disabled = true;
+
+            // Add typing indicator
+            const typingId = addTypingIndicator();
+
+            try {
+                // Stream response
+                let response = '';
+                const responseEl = addAIMessage('assistant', '');
+                removeTypingIndicator(typingId);
+
+                for await (const chunk of window.transcriptAI.askStreaming(question)) {
+                    response += chunk;
+                    responseEl.textContent = response;
+                    scrollChatToBottom();
+                }
+
+            } catch (err) {
+                removeTypingIndicator(typingId);
+                addAIMessage('system', `Error: ${err.message}`);
+            }
+
+            sendBtn.disabled = false;
+        }
+
+        function addAIMessage(role, text) {
+            const messages = document.getElementById('aiChatMessages');
+            const msg = document.createElement('div');
+            msg.className = `ai-message ${role}`;
+            msg.textContent = text;
+            messages.appendChild(msg);
+            scrollChatToBottom();
+            return msg;
+        }
+
+        function addTypingIndicator() {
+            const messages = document.getElementById('aiChatMessages');
+            const typing = document.createElement('div');
+            typing.className = 'ai-message assistant ai-typing';
+            typing.id = 'ai-typing-' + Date.now();
+            typing.innerHTML = '<span></span><span></span><span></span>';
+            messages.appendChild(typing);
+            scrollChatToBottom();
+            return typing.id;
+        }
+
+        function removeTypingIndicator(id) {
+            const el = document.getElementById(id);
+            if (el) el.remove();
+        }
+
+        function scrollChatToBottom() {
+            const messages = document.getElementById('aiChatMessages');
+            messages.scrollTop = messages.scrollHeight;
+        }
+    </script>
+    <!-- Global Download Modal (available on all pages) -->
+    <div id="downloadModal" class="download-modal" onclick="if(event.target===this) closeDownloadModal()">
+        <div class="download-modal-content">
+            <button class="download-close" onclick="closeDownloadModal()">
+                <i class="fas fa-times"></i>
+            </button>
+            <div id="downloadModalContent">
+                <!-- Content loaded dynamically by download-manager.js -->
+            </div>
+        </div>
+    </div>
 
 </html>

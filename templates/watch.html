@@ -12,6 +12,10 @@
             <div id="artplayer-app" style="width: 100%; height: 100%;"></div>
             <!-- Loading State (Confined to Player) -->
             <div id="loading" class="yt-loader"></div>
+            <!-- Closed Captions Overlay -->
+            <div id="ccOverlay" class="cc-overlay hidden">
+                <div id="ccText" class="cc-text"></div>
+            </div>
         </div>
         <!-- Placeholder for Mini Mode -->
         <div id="playerPlaceholder" class="yt-player-placeholder"></div>
@@ -46,7 +50,7 @@
                     <i class="fas fa-share"></i>
                     Share
                 </button>
-                <button class="yt-action-btn" id="downloadBtn" onclick="downloadVideo()">
+                <button class="yt-action-btn" id="downloadBtn" onclick="showDownloadModal(currentVideoData.id)">
                     <i class="fas fa-download"></i>
                     Download
                 </button>
@@ -172,545 +176,78 @@
         </div>
     </div>
 
-    <style>
-        html,
-        body {
-            overflow-x: hidden;
-            width: 100%;
-            max-width: 100vw;
-        }
-
-        .yt-player-container {
-            position: relative;
-            width: 100%;
-            aspect-ratio: 16/9;
-            background: #000;
-            border-radius: 12px;
-            overflow: hidden;
-        }
-
-
-
-        /* Movable Mini Player Styles */
-        .yt-mini-mode {
-            position: fixed;
-            bottom: 20px;
-            right: 20px;
-            width: 400px !important;
-            height: auto !important;
-            aspect-ratio: 16/9;
-            z-index: 10000;
-            box-shadow: 0 8px 30px rgba(0, 0, 0, 0.5);
-            border-radius: 12px;
-            cursor: grab;
-            transition: width 0.3s, height 0.3s;
-            /* Smooth resize, but NOT top/left so drag is instant */
-        }
-
-        .yt-mini-mode:active {
-            cursor: grabbing;
-        }
-
-        /* Placeholder to prevent layout shift */
-        .yt-player-placeholder {
-            display: none;
-            width: 100%;
-            aspect-ratio: 16/9;
-            background: rgba(0, 0, 0, 0.1);
-            /* Optional visual cue, usually transparent */
-        }
-
-        @media (max-width: 768px) {
-            .yt-mini-mode {
-                width: 250px !important;
-                bottom: 80px;
-                /* Above bottom nav if existed, or just higher */
-                right: 10px;
-            }
-        }
-
-        /* Skeleton Utils */
-        @keyframes shimmer {
-            0% {
-                background-position: 200% 0;
-            }
-
-            100% {
-                background-position: -200% 0;
-            }
-        }
-
-        .skeleton {
-            background: linear-gradient(90deg, var(--yt-bg-secondary) 25%, var(--yt-bg-hover) 50%, var(--yt-bg-secondary) 75%);
-            background-size: 200% 100%;
-            animation: shimmer 1.5s infinite;
-            border-radius: 4px;
-        }
-
-        .skeleton-line {
-            height: 20px;
-            margin-bottom: 8px;
-        }
-
-        .skeleton-avatar {
-            width: 40px;
-            height: 40px;
-            border-radius: 50%;
-        }
-
-        .skeleton-block {
-            display: block;
-            width: 100%;
-        }
-
-        /* Watch Page Layout */
-        /* Force override main content padding */
-        .yt-main {
-            padding: 0 !important;
-            margin-left: 240px;
-            /* Ensure sidebar width is respected */
-        }
-
-        .yt-watch-layout {
-            display: grid;
-            grid-template-columns: 1fr 400px;
-            gap: 24px;
-            max-width: 100%;
-            width: 100%;
-            padding: 24px;
-            margin: 0;
-            box-sizing: border-box;
-        }
-
-        .yt-watch-sidebar {
-            display: flex;
-            flex-direction: column;
-            gap: 0;
-            position: sticky;
-            top: 80px;
-            align-self: start;
-            max-height: calc(100vh - 100px);
-            overflow: visible;
-        }
-
-        .yt-channel-avatar-lg {
-            width: 40px;
-            height: 40px;
-            border-radius: 50%;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 18px;
-            font-weight: 600;
-            color: white;
-        }
-
-        /* Comments Section - Collapsible */
-        .yt-comments-section {
-            margin-top: 24px;
-            border-top: 1px solid var(--yt-border);
-            padding-top: 16px;
-        }
-
-        .yt-comments-toggle {
-            width: 100%;
-            background: var(--yt-bg-secondary);
-            border-radius: 12px;
-            padding: 16px;
-            cursor: pointer;
-            transition: background 0.2s;
-        }
-
-        .yt-comments-toggle:hover {
-            background: var(--yt-bg-hover);
-        }
-
-        .yt-comments-preview {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            color: var(--yt-text-primary);
-            font-size: 14px;
-            font-weight: 500;
-        }
-
-        .yt-comments-preview i {
-            transition: transform 0.3s;
-        }
-
-        .yt-comments-preview i.rotated {
-            transform: rotate(180deg);
-        }
-
-        .yt-comments-content {
-            margin-top: 16px;
-            animation: fadeIn 0.3s ease;
-        }
-
-        .yt-comments-header {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            margin-bottom: 16px;
-        }
-
-        .yt-comments-header h3 {
-            font-size: 16px;
-            font-weight: 500;
-        }
-
-        .yt-comments-list {
-            display: flex;
-            flex-direction: column;
-            gap: 16px;
-            max-height: 500px;
-            overflow-y: auto;
-        }
-
-        /* Hide standard info in shorts mode */
-        .shorts-mode .yt-video-info,
-        .shorts-mode .yt-suggested {
-            display: none !important;
-        }
-
-        @media (max-width: 768px) {
-
-            /* Hide time display on mobile to save space for other controls */
-            .art-control-time {
-                display: none !important;
-            }
-        }
-
-        .yt-comment {
-            display: flex;
-            gap: 12px;
-        }
-
-        .yt-comment-avatar {
-            width: 40px;
-            height: 40px;
-            border-radius: 50%;
-            background: var(--yt-bg-hover);
-            flex-shrink: 0;
-            overflow: hidden;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 14px;
-            color: var(--yt-text-primary);
-        }
-
-        .yt-comment-avatar img {
-            width: 100%;
-            height: 100%;
-            object-fit: cover;
-        }
-
-        .yt-comment-content {
-            flex: 1;
-        }
-
-        .yt-comment-header {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            margin-bottom: 4px;
-            flex-wrap: wrap;
-        }
-
-        .yt-comment-author {
-            font-size: 13px;
-            font-weight: 500;
-            color: var(--yt-text-primary);
-        }
-
-        .yt-comment-time {
-            font-size: 12px;
-            color: var(--yt-text-secondary);
-        }
-
-        .yt-comment-text {
-            font-size: 14px;
-            line-height: 1.5;
-            color: var(--yt-text-primary);
-            margin-bottom: 8px;
-            white-space: pre-wrap;
-            word-wrap: break-word;
-        }
-
-        .yt-comment-actions {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-        }
-
-        .yt-comment-action {
-            display: flex;
-            align-items: center;
-            gap: 4px;
-            font-size: 12px;
-            color: var(--yt-text-secondary);
-            padding: 4px 8px;
-            border-radius: 20px;
-        }
-
-        .yt-action-btn:hover {
-            background: var(--yt-bg-hover);
-        }
-
-        .yt-action-btn.active {
-            color: #fff !important;
-            background: #ff0000 !important;
-            border-color: #ff0000 !important;
-            box-shadow: 0 0 10px rgba(255, 0, 0, 0.4);
-        }
-
-        /* Queue Badge */
-        .queue-badge {
-            position: absolute;
-            top: -6px;
-            right: -6px;
-            background: #ff0000;
-            color: #fff;
-            font-size: 10px;
-            font-weight: 600;
-            min-width: 18px;
-            height: 18px;
-            border-radius: 9px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            padding: 0 4px;
-        }
-
-        .yt-pinned-badge {
-            background: var(--yt-bg-secondary);
-            font-size: 11px;
-            padding: 2px 8px;
-            border-radius: 2px;
-            color: var(--yt-text-secondary);
-        }
-
-        .yt-no-comments {
-            text-align: center;
-            color: var(--yt-text-secondary);
-            padding: 24px;
-        }
-
-        @keyframes fadeIn {
-            from {
-                opacity: 0;
-                transform: translateY(-10px);
-            }
-
-            to {
-                opacity: 1;
-                transform: translateY(0);
-            }
-        }
-
-        @media (max-width: 1200px) {
-            .yt-watch-layout {
-                grid-template-columns: 1fr;
-            }
-        }
-
-        /* Queue Dropdown (Collapsible Overlay) */
-        .yt-queue-dropdown {
-            position: relative;
-            background: var(--yt-bg-secondary);
-            border-radius: var(--yt-radius-md);
-            margin-bottom: 12px;
-        }
-
-        .yt-queue-dropdown-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            padding: 10px 14px;
-            cursor: pointer;
-            font-size: 13px;
-            font-weight: 500;
-            color: var(--yt-text-primary);
-            transition: background 0.2s;
-        }
-
-        .yt-queue-dropdown-header:hover {
-            background: var(--yt-bg-hover);
-            border-radius: var(--yt-radius-md);
-        }
-
-        .yt-queue-dropdown-header span {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-        }
-
-        .yt-queue-dropdown-header i.fa-chevron-down {
-            font-size: 12px;
-            transition: transform 0.3s;
-        }
-
-        .yt-queue-dropdown-header i.fa-chevron-down.rotated {
-            transform: rotate(180deg);
-        }
-
-        .yt-queue-dropdown-content {
-            max-height: 0;
-            overflow: hidden;
-            transition: max-height 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-            background: var(--yt-bg-secondary);
-            border-radius: 0 0 var(--yt-radius-md) var(--yt-radius-md);
-            will-change: max-height;
-        }
-
-        .yt-queue-dropdown-content.expanded {
-            max-height: 500px;
-            /* Increased slightly to accommodate more items */
-            overflow-y: auto;
-            /* Padding kept consistent or handled by inner list to avoid jump */
-        }
-
-        #queueList {
-            padding: 8px;
-            /* Move padding to inner container */
-        }
-
-        .yt-queue-item {
-            display: flex;
-            gap: 10px;
-            padding: 8px;
-            border-radius: var(--yt-radius-md);
-            cursor: pointer;
-            transition: background 0.2s;
-        }
-
-        .yt-queue-item:hover {
-            background: var(--yt-bg-hover);
-        }
-
-        .yt-queue-item img {
-            width: 100px;
-            aspect-ratio: 16/9;
-            object-fit: cover;
-            border-radius: 4px;
-            flex-shrink: 0;
-        }
-
-        .yt-queue-item-info {
-            flex: 1;
-            min-width: 0;
-        }
-
-        .yt-queue-item-title {
-            font-size: 13px;
-            font-weight: 500;
-            display: -webkit-box;
-            -webkit-line-clamp: 2;
-            line-clamp: 2;
-            -webkit-box-orient: vertical;
-            overflow: hidden;
-            margin-bottom: 4px;
-        }
-
-        .yt-queue-item-uploader {
-            font-size: 11px;
-            color: var(--yt-text-secondary);
-        }
-
-        .yt-queue-remove-btn {
-            background: none;
-            border: none;
-            color: var(--yt-text-secondary);
-            cursor: pointer;
-            padding: 8px;
-            opacity: 0;
-            transition: opacity 0.2s, color 0.2s;
-            border-radius: 50%;
-        }
-
-        .yt-queue-item:hover .yt-queue-remove-btn {
-            opacity: 1;
-        }
-
-        .yt-queue-remove-btn:hover {
-            color: var(--yt-accent-red);
-            background: rgba(255, 0, 0, 0.1);
-        }
-
-        .yt-queue-empty {
-            text-align: center;
-            color: var(--yt-text-secondary);
-            padding: 12px;
-            font-size: 12px;
-        }
-
-        /* Mobile/Tablet Responsiveness */
-        @media (max-width: 1024px) {
-            .yt-watch-layout {
-                display: block;
-                /* Stack vertically */
-                padding: 0;
-            }
-
-            .yt-main {
-                margin-left: 0 !important;
-                /* Remove sidebar reservation */
-                width: 100%;
-            }
-
-            .yt-player-section {
-                width: 100%;
-            }
-
-            .yt-player-container {
-                border-radius: 0;
-                /* Full bleed on mobile */
-            }
-
-            .yt-video-info {
-                padding: 16px;
-            }
-
-            .yt-watch-sidebar {
-                position: static;
-                /* Unstick */
-                width: 100%;
-                max-height: none;
-                padding: 0 16px 24px;
-            }
-
-            #queueSection {
-                margin-top: 16px;
-            }
-
-            /* Adjust comments toggle for mobile */
-            .yt-comments-toggle {
-                padding: 12px;
-            }
-        }
-    </style>
+    <!-- Watch page styles extracted to external file for better caching -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/modules/watch.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/modules/captions.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/modules/downloads.css') }}">
 
     <!-- HLS Support (Local) -->
     <script src="/static/js/hls.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/artplayer/5.1.1/artplayer.js"></script>
+
     <script>
-        let commentsLoaded = false;
+        var commentsLoaded = false;
         // Current video data for Queue/History/Saved - Populated by JS or Server
-        let currentVideoData = {
+        var currentVideoData = {
             id: "{{ request.args.get('v') }}",
             title: document.title.replace(' - KV-Tube', ''), // Initial fallback
             thumbnail: "", // Will be updated by Artplayer or API
             uploader: ""
         };
 
-        let currentRotation = 0;
+        // Initialize immediately from URL params for instant feedback
+        (function hydrateFromUrl() {
+            const urlParams = new URLSearchParams(window.location.search);
+            const title = urlParams.get('title');
+            const uploader = urlParams.get('uploader');
+            const thumbnail = urlParams.get('thumbnail');
+
+            if (title) {
+                currentVideoData.title = title;
+                document.title = title + ' - KV-Tube';
+                const titleEl = document.getElementById('videoTitle');
+                if (titleEl) {
+                    titleEl.innerText = title;
+                    document.getElementById('videoInfo').style.display = 'block'; // Show info immediately
+                    document.getElementById('infoSkeleton').style.display = 'none'; // Hide skeleton
+                }
+            }
+
+            if (uploader) {
+                currentVideoData.uploader = uploader;
+                const channelEl = document.getElementById('channelName');
+                if (channelEl) channelEl.innerText = uploader;
+
+                // Set avatar letter
+                const avatarLetter = document.getElementById('channelAvatarLetter');
+                if (avatarLetter) avatarLetter.innerText = uploader.charAt(0).toUpperCase();
+            }
+
+            if (thumbnail) {
+                currentVideoData.thumbnail = thumbnail;
+                // Show thumbnail as placeholder in player area
+                const playerContainer = document.getElementById('artplayer-app');
+                if (playerContainer) {
+                    playerContainer.style.backgroundImage = `url('${thumbnail}')`;
+                    playerContainer.style.backgroundSize = 'cover';
+                    playerContainer.style.backgroundPosition = 'center';
+                }
+            }
+        })();
+
         // Rotation function removed
+
+
 
         // Transcription functions removed
 
         function initArtplayer(url, poster, subtitleUrl = '', type = 'auto') {
+            // Check User Preference
+            const playerPref = localStorage.getItem('kv_player_pref');
+            if (playerPref === 'native') {
+                return initNativePlayer(url, poster);
+            }
+
+            // --- ARTPLAYER INITIALIZATION ---
             // Store art instance globally for other functions
             window.art = null;
             // Update currentVideoData with poster (thumbnail)
@@ -718,9 +255,7 @@
                 // Use stable YouTube thumbnail URL to prevent expiration of signed URLs
                 currentVideoData.thumbnail = `https://i.ytimg.com/vi/${currentVideoData.id}/hqdefault.jpg`;
                 // Auto-save to history now that we have the thumbnail
-                // Delay slightly to ensure title is also updated if possible
                 setTimeout(() => {
-                    // If title is still loading, try to grab it from DOM if updated
                     const titleEl = document.getElementById('videoTitle');
                     if (titleEl && titleEl.innerText !== 'Loading...') {
                         currentVideoData.title = titleEl.innerText;
@@ -729,17 +264,19 @@
                     if (uploaderEl && uploaderEl.innerText !== 'Loading...') {
                         currentVideoData.uploader = uploaderEl.innerText;
                     }
-
                     saveToLibrary('history', currentVideoData);
                 }, 2000);
             }
+
+            // Disable direct YouTube subtitle URL to avoid CORS errors
+            // We'll use our server-side /api/transcript endpoint instead
+
 
             window.art = new Artplayer({
                 container: '#artplayer-app',
                 url: url,
                 poster: poster,
                 type: type,
-                // ... (keep existing options)
                 volume: 0.5,
                 muted: false,
                 autoplay: false,
@@ -756,21 +293,36 @@
                 autoOrientation: true,
                 theme: '#ff0000',
                 autoMini: false, // Custom mini mode implemented below
-                ...(subtitleUrl ? {
-                    subtitle: {
-                        url: subtitleUrl,
-                        type: 'vtt',
-                        style: {
-                            color: '#fff',
-                            fontSize: '20px',
-                        },
-                        encoding: 'utf-8',
-                    }
-                } : {}),
                 lang: navigator.language.toLowerCase(),
                 moreVideoAttr: {
                     crossOrigin: 'anonymous',
                 },
+                controls: [
+                    {
+                        name: 'prev',
+                        index: 10,
+                        position: 'left',
+                        html: '<i class="fas fa-step-backward" style="font-size: 16px;"></i>',
+                        tooltip: 'Previous',
+                        click: function () {
+                            if (window.history.length > 1) {
+                                window.history.back();
+                            } else {
+                                window.location.href = '/';
+                            }
+                        },
+                    },
+                    {
+                        name: 'next',
+                        index: 20,
+                        position: 'left',
+                        html: '<i class="fas fa-step-forward" style="font-size: 16px;"></i>',
+                        tooltip: 'Next',
+                        click: function () {
+                            playNextVideo();
+                        },
+                    },
+                ],
                 customType: {
                     m3u8: function (video, url) {
                         if (Hls.isSupported()) {
@@ -781,25 +333,6 @@
                             });
                             hls.loadSource(url);
                             hls.attachMedia(video);
-                            hls.on(Hls.Events.ERROR, function (event, data) {
-                                console.error('HLS Error:', data);
-                                if (data.fatal) {
-                                    switch (data.type) {
-                                        case Hls.ErrorTypes.NETWORK_ERROR:
-                                            hls.startLoad();
-                                            showToast("Stream network error. Retrying...", "error");
-                                            break;
-                                        case Hls.ErrorTypes.MEDIA_ERROR:
-                                            hls.recoverMediaError();
-                                            showToast("Stream media error. Recovering...", "warning");
-                                            break;
-                                        default:
-                                            hls.destroy();
-                                            showToast("Fatal stream error.", "error");
-                                            break;
-                                    }
-                                }
-                            });
                         } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
                             video.src = url;
                         } else {
@@ -808,9 +341,9 @@
                     },
                 },
                 mounted: function (art) {
-                    // Expose player instance for loop toggle
                     window.player = art;
 
+                    // Ratio check
                     function checkVertical() {
                         const video = art.video;
                         if (video.videoHeight > 0 && video.videoHeight > video.videoWidth) {
@@ -834,9 +367,93 @@
 
                     // --- Custom Mini Player Logic ---
                     setupMiniPlayer();
+
+                    // --- Closed Captions sync ---
+                    art.on('video:timeupdate', () => {
+                        updateCaptions(art.currentTime);
+                    });
+
+                    // --- Auto Play Next ---
+                    art.on('video:ended', () => {
+                        playNextVideo();
+                    });
                 },
             });
             return art;
+        }
+
+        // --- NATIVE PLAYER FALLBACK ---
+        function initNativePlayer(url, poster) {
+            console.log("Initializing Native Player...");
+            const container = document.getElementById('artplayer-app');
+            container.innerHTML = ''; // Clear Artplayer
+
+            // Apply styles to match Artplayer container
+            container.style.backgroundColor = '#000';
+            container.style.display = 'flex';
+            container.style.alignItems = 'center';
+            container.style.justifyContent = 'center';
+
+            // Create Video Element
+            const video = document.createElement('video');
+            video.controls = true;
+            video.poster = poster;
+            video.style.width = '100%';
+            video.style.height = '100%';
+            video.style.maxHeight = '100vh';
+            video.style.maxHeight = '100vh';
+            video.playsInline = true;
+            video.autoplay = true; // Auto Play
+
+            container.appendChild(video);
+
+            // Auto Play Next
+            video.addEventListener('ended', () => {
+                playNextVideo();
+            });
+
+            // HLS Support
+            if (url.includes('.m3u8')) {
+                if (Hls.isSupported()) {
+                    const hls = new Hls();
+                    hls.loadSource(url);
+                    hls.attachMedia(video);
+                } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+                    video.src = url;
+                }
+            } else {
+                video.src = url;
+            }
+
+            // Update Global State (Shim for Artplayer)
+            window.player = {
+                video: video,
+                play: () => video.play(),
+                pause: () => video.pause(),
+                destroy: () => {
+                    video.pause();
+                    video.src = '';
+                    video.remove();
+                },
+                // Getter/Setter for loop shim
+                get loop() { return video.loop; },
+                set loop(val) { video.loop = val; }
+            };
+
+            // Update History Logic (Simplified)
+            currentVideoData.thumbnail = `https://i.ytimg.com/vi/${currentVideoData.id}/hqdefault.jpg`;
+            setTimeout(() => {
+                const titleEl = document.getElementById('videoTitle');
+                if (titleEl) currentVideoData.title = titleEl.innerText;
+                const uploaderEl = document.getElementById('channelName');
+                if (uploaderEl) currentVideoData.uploader = uploaderEl.innerText;
+                saveToLibrary('history', currentVideoData);
+            }, 2000);
+
+            // Setup Mini Player for native video
+            setupMiniPlayer();
+
+            return window.player;
         }
 
         // --- Movable Mini Player Logic ---
@@ -862,10 +479,18 @@
                 if (playerContainer.classList.contains('yt-mini-mode')) return;
                 playerContainer.classList.add('yt-mini-mode');
                 placeholder.style.display = 'block';
-
-                // Reset to default bottom-right if not previously moved? 
-                // Alternatively, just let it use CSS default.
+                // Trigger reflow?
+                playerContainer.style.position = 'fixed';
+                playerContainer.style.bottom = '20px';
+                playerContainer.style.right = '20px';
+                playerContainer.style.width = '320px';
+                playerContainer.style.height = '180px';
+                playerContainer.style.zIndex = '9999';
+                playerContainer.style.boxShadow = '0 4px 12px rgba(0,0,0,0.5)';
+                playerContainer.style.borderRadius = '12px';
             }
+
+
 
             function disableMiniMode() {
                 if (!playerContainer.classList.contains('yt-mini-mode')) return;
@@ -959,7 +584,7 @@
             function dragEnd() {
                 isDragging = false;
             }
-        }
+        } // End setupMiniPlayer
 
         // --- Loop Logic ---
         function toggleLoop(btn) {
@@ -983,6 +608,44 @@
                 btn.style.color = '';
                 btn.innerHTML = '<i class="fas fa-redo"></i> Loop';
                 showToast("Loop Mode is OFF");
+            }
+        }
+
+        // --- Auto Play Next Logic ---
+        // --- Auto Play Next Logic ---
+        async function playNextVideo() {
+            console.log("Video ended. Looking for next video...");
+            const relatedContainer = document.getElementById('relatedVideos');
+            if (!relatedContainer) return;
+
+            // Helper to get first card
+            const getNextCard = () => relatedContainer.querySelector('.yt-video-card-horizontal');
+
+            let nextCard = getNextCard();
+
+            if (!nextCard) {
+                console.log("No related videos loaded yet. Fetching...");
+                showToast("Loading next video...", "info");
+
+                // Trigger fetch if not already loading
+                if (!relatedIsLoading) {
+                    await loadMoreRelated();
+                } else {
+                    // Wait a bit if already loading
+                    await new Promise(r => setTimeout(r, 1500));
+                }
+
+                // Retry getting card
+                nextCard = getNextCard();
+            }
+
+            if (nextCard) {
+                console.log("Playing next video...");
+                showToast("Playing next video...", "info");
+                nextCard.click();
+            } else {
+                console.log("No related videos found even after fetch.");
+                showToast("No next video found.", "info");
             }
         }
 
@@ -1329,13 +992,15 @@
             }
         }
 
-        document.addEventListener('DOMContentLoaded', async () => {
+        // Initialize Watch Page Logic
+        (async function initWatchPage() {
             const videoType = "{{ video_type }}";
             const loading = document.getElementById('loading');
             const infoSkeleton = document.getElementById('infoSkeleton');
             const videoInfo = document.getElementById('videoInfo');
             const videoId = "{{ video_id }}";
 
+            // If local video, init immediately
             if (videoType === 'local') {
                 const player = initArtplayer("{{ src }}", "");
                 document.getElementById('videoTitle').innerText = "{{ title }}";
@@ -1348,174 +1013,198 @@
                 return;
             }
 
-            try {
-                const response = await fetch(`/api/get_stream_info?v=${videoId}`);
+            // Retry Configuration
+            const MAX_RETRIES = 2; // Try 3 times total
+            let retryCount = 0;
 
-                if (response.status === 504) {
-                    throw new Error("Server Timeout (504): content source is slow. Please refresh.");
-                }
-
-                if (!response.ok) {
-                    let errorMessage = `Server Error (${response.status})`;
-                    try {
-                        const errData = await response.json();
-                        if (errData.error) errorMessage = errData.error;
-                    } catch (e) {
-                        // If JSON parse fails, keep generic error
+            while (retryCount <= MAX_RETRIES) {
+                try {
+                    if (retryCount > 0) {
+                        loading.innerHTML = `<div class="yt-loader-spinner"></div><p style="color:#fff; margin-top:10px;">Taking longer than expected... (Attempt ${retryCount + 1}/${MAX_RETRIES + 1})</p>`;
                     }
-                    throw new Error(errorMessage);
+
+                    const response = await fetch(`/api/get_stream_info?v=${videoId}`);
+
+                    if (response.status === 504) {
+                        throw new Error("Server Timeout");
+                    }
+
+                    if (!response.ok) {
+                        // If 500/502/etc, might be temporary
+                        let errorMessage = `Server Error (${response.status})`;
+                        try {
+                            const errData = await response.json();
+                            if (errData.error) errorMessage = errData.error;
+                        } catch (e) { }
+                        throw new Error(errorMessage);
+                    }
+
+                    // Success! Break loop
+                    // ... (Proceed to process data)
+
+                    // Check content type to avoid JSON syntax errors if HTML is returned
+                    const contentType = response.headers.get("content-type");
+                    if (!contentType || !contentType.includes("application/json")) {
+                        throw new Error("Received invalid response from server");
+                    }
+
+                    // We need to break out of the while loop and continue below
+                    // But we can just execute the rest here and return.
+                    // Or assign data and break.
+                    var data = await response.json();
+                    break;
+
+                } catch (e) {
+                    console.warn(`Attempt ${retryCount + 1} failed:`, e);
+                    retryCount++;
+                    if (retryCount > MAX_RETRIES) {
+                        loading.innerHTML = `<p style="color:#f00; text-align:center;">Failed to load video: ${e.message}</p><button onclick="location.reload()" style="margin-top:10px; padding:8px 16px; border-radius:18px; border:none; background:#3ea6ff; color:#fff; cursor:pointer;">Retry</button>`;
+                        if (infoSkeleton) infoSkeleton.style.display = 'none';
+                        showToast("Failed to load video.", "error");
+                        return; // Exit
+                    }
+                    // Wait before retry (exponential backoff)
+                    await new Promise(r => setTimeout(r, 1500 * retryCount));
                 }
-
-                // Check content type to avoid JSON syntax errors if HTML is returned
-                const contentType = response.headers.get("content-type");
-                if (!contentType || !contentType.includes("application/json")) {
-                    throw new Error("Received invalid response from server");
-                }
-
-                const data = await response.json();
-
-                // Populate global data for Queue
-                currentVideoData = {
-                    id: videoId,
-                    title: data.title,
-                    thumbnail: `https://i.ytimg.com/vi/${videoId}/mqdefault.jpg`,
-                    uploader: data.uploader || 'Unknown',
-                    channel_id: data.channel_id || data.uploader_id || '',
-                    duration: data.duration
-                };
-
-                // Check if video is already in queue
-                updateQueueButtonState();
-                updateQueueCount();
-                updateQueueBadge();
-
-                if (data.error) {
-                    loading.innerHTML = `<p style="color:#f00; text-align:center;">${data.error}</p>`;
-                    if (infoSkeleton) infoSkeleton.style.display = 'none';
-                    showToast(data.error, 'error');
-                    return;
-                }
-
-                const posterUrl = `https://i.ytimg.com/vi/${videoId}/maxresdefault.jpg`;
-
-                // Determine video type
-                let streamType = 'auto';
-                if (data.original_url && (data.original_url.includes('.m3u8') || data.original_url.includes('manifest'))) {
-                    streamType = 'm3u8';
-                }
-
-                const player = initArtplayer(data.stream_url, posterUrl, data.subtitle_url, streamType);
-                window.player = player; // Ensure global access for loop button
-                currentStreamUrl = data.stream_url; // For download button
-
-                loading.style.display = 'none';
-                if (infoSkeleton) infoSkeleton.style.display = 'none';
-                videoInfo.style.display = 'block';
-
-                const channelLink = data.uploader_id ? `/channel/${data.uploader_id}` : (data.channel_id ? `/channel/${data.channel_id}` : `/channel/${data.uploader || 'unknown'}`);
-
-                document.getElementById('videoTitle').innerText = data.title || 'Untitled';
-
-                const channelNameEl = document.getElementById('channelName');
-                channelNameEl.innerHTML = `<a href="${channelLink}" style="color:inherit; text-decoration:none;">${data.uploader || 'Unknown'}</a>`;
-
-                // Make avatar clickable too
-                const avatarEl = document.getElementById('channelAvatar');
-                avatarEl.style.cursor = 'pointer';
-                avatarEl.onclick = () => window.location.href = channelLink;
-                document.getElementById('viewCount').innerText = formatViews(data.view_count) + ' views';
-                document.getElementById('videoDesc').innerText = data.description || 'No description';
-                document.getElementById('descStats').innerText = `${formatViews(data.view_count)} views • ${data.upload_date || 'Recently'}`;
-                document.getElementById('downloadBtn').href = data.stream_url;
-
-                const uploaderName = data.uploader || 'Unknown';
-                document.getElementById('channelAvatarLetter').innerText = uploaderName.charAt(0).toUpperCase();
-
-                // Save to History (Local & Server)
-                const historyItem = {
-                    id: videoId,
-                    title: data.title,
-                    thumbnail: `https://i.ytimg.com/vi/${videoId}/mqdefault.jpg`,
-                    timestamp: new Date().toISOString(),
-                    uploader: data.uploader
-                };
-
-                // 1. Save Local
-                saveToLocalHistory(historyItem);
-
-                // 2. Save Server (if logged in - fail silently if 401/403)
-                fetch('/api/save_video', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        id: videoId,
-                        title: data.title,
-                        thumbnail: `https://i.ytimg.com/vi/${videoId}/mqdefault.jpg`,
-                        type: 'history'
-                    })
-                }).catch(() => { }); // Ignore errors for anon users
-
-                // Subtitle Config
-                // Add subtitle to player config if available
-                player.subtitle.url = data.subtitle_url || '';
-                if (data.subtitle_url) {
-                    player.subtitle.show = true;
-                    player.notice.show = 'CC Enabled';
-                }
-
-                // Save Button - Local Storage based
-                // Save Button handler is setup in DOMContentLoaded below
-                // Just update state here
-                // document.getElementById('saveBtn').onclick setup moved to line ~1600
-
-                // Check if already saved
-                updateSaveButtonState();
-
-                document.getElementById('shareBtn').onclick = () => {
-                    navigator.clipboard.writeText(window.location.href);
-                    showToast('Link copied to clipboard!', 'success');
-                };
-
-                // Related Videos
-                // Related Videos
-                const relatedContainer = document.getElementById('relatedVideos');
-                // Clear but keep header
-                relatedContainer.innerHTML = '<h3 style="margin-bottom: 16px; font-size: 16px;">Related Videos</h3>';
-
-                if (data.related && data.related.length > 0) {
-                    renderRelated(data.related);
-                } else {
-                    const noRel = document.createElement('p');
-                    noRel.style.color = 'var(--yt-text-secondary)';
-                    noRel.innerText = 'No related videos found.';
-                    relatedContainer.appendChild(noRel);
-                }
-
-                // Add Sentinel for infinite scroll
-                const sentinel = document.createElement('div');
-                sentinel.id = 'relatedSentinel';
-                sentinel.style.height = '20px';
-                relatedContainer.appendChild(sentinel);
-
-                // Setup Observer
-                setupRelatedObserver();
-
-                // Set global title for pagination
-                currentVideoTitle = data.title;
-                relatedPage = 2; // Next page is 2
-            } catch (e) {
-                console.error(e);
-                loading.innerHTML = `
-                <div style="display:flex; flex-direction:column; align-items:center; justify-content:center; height:100%; gap:16px;">
-                    <i class="fas fa-wifi" style="font-size: 32px; color: #ff4e45;"></i>
-                    <p style="color:#fff;">${e.message || 'Connection Error'}</p>
-                    <button onclick="window.location.reload()" style="background:#3ea6ff; color:white; border:none; padding:10px 20px; border-radius:18px; cursor:pointer; font-weight:500;">Try Again</button>
-                </div>
-            `;
-                if (infoSkeleton) infoSkeleton.style.display = 'none';
-                showToast(e.message || 'Connection Error', 'error');
             }
-        });
+
+            // --- Process Data (Success) ---
+            // Existing logic to process 'data'
+            if (!data) return; // Should not happen due to return in catch
+
+
+
+            // Populate global data for Queue
+            currentVideoData = {
+                id: videoId,
+                title: data.title,
+                thumbnail: `https://i.ytimg.com/vi/${videoId}/mqdefault.jpg`,
+                uploader: data.uploader || 'Unknown',
+                channel_id: data.channel_id || data.uploader_id || '',
+                duration: data.duration
+            };
+
+            // Check if video is already in queue
+            updateQueueButtonState();
+            updateQueueCount();
+            updateQueueBadge();
+
+            if (data.error) {
+                loading.innerHTML = `<p style="color:#f00; text-align:center;">${data.error}</p>`;
+                if (infoSkeleton) infoSkeleton.style.display = 'none';
+                showToast(data.error, 'error');
+                return;
+            }
+
+            const posterUrl = `https://i.ytimg.com/vi/${videoId}/maxresdefault.jpg`;
+
+            // Determine video type
+            let streamType = 'auto';
+            if (data.original_url && (data.original_url.includes('.m3u8') || data.original_url.includes('manifest'))) {
+                streamType = 'm3u8';
+            }
+            // Disable direct YouTube subtitle URL to prevent CORS errors
+            // Use our server-side /api/transcript endpoint instead
+            const player = initArtplayer(data.stream_url, posterUrl, '', streamType);
+            window.player = player; // Ensure global access for loop button
+            currentStreamUrl = data.stream_url; // For download button
+
+            loading.style.display = 'none';
+            if (infoSkeleton) infoSkeleton.style.display = 'none';
+            videoInfo.style.display = 'block';
+
+            const channelLink = data.uploader_id ? `/channel/${data.uploader_id}` : (data.channel_id ? `/channel/${data.channel_id}` : `/channel/${data.uploader || 'unknown'}`);
+
+            document.getElementById('videoTitle').innerText = data.title || 'Untitled';
+
+            const channelNameEl = document.getElementById('channelName');
+            channelNameEl.innerHTML = `<a href="${channelLink}" style="color:inherit; text-decoration:none;">${data.uploader || 'Unknown'}</a>`;
+
+            // Make avatar clickable too
+            const avatarEl = document.getElementById('channelAvatar');
+            avatarEl.style.cursor = 'pointer';
+            avatarEl.onclick = () => window.location.href = channelLink;
+            document.getElementById('viewCount').innerText = formatViews(data.view_count) + ' views';
+            document.getElementById('videoDesc').innerText = data.description || 'No description';
+            document.getElementById('descStats').innerText = `${formatViews(data.view_count)} views • ${data.upload_date || 'Recently'}`;
+            document.getElementById('downloadBtn').href = data.stream_url;
+
+            const uploaderName = data.uploader || 'Unknown';
+            document.getElementById('channelAvatarLetter').innerText = uploaderName.charAt(0).toUpperCase();
+
+            // Save to History (Local & Server)
+            const historyItem = {
+                id: videoId,
+                title: data.title,
+                thumbnail: `https://i.ytimg.com/vi/${videoId}/mqdefault.jpg`,
+                timestamp: new Date().toISOString(),
+                uploader: data.uploader
+            };
+
+            // 1. Save Local
+            saveToLocalHistory(historyItem);
+
+            // 2. Save Server (if logged in - fail silently if 401/403)
+            fetch('/api/save_video', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    id: videoId,
+                    title: data.title,
+                    thumbnail: `https://i.ytimg.com/vi/${videoId}/mqdefault.jpg`,
+                    type: 'history'
+                })
+            }).catch(() => { }); // Ignore errors for anon users
+
+            // Subtitle Config
+            // Disable ArtPlayer's built-in subtitle to avoid CORS
+            // Our custom CC system uses instead
+            /*
+/api/transcript                player.subtitle.url = data.subtitle_url || '';
+            if (data.subtitle_url) {
+                player.subtitle.show = true;
+                player.notice.show = 'CC Enabled';
+            }
+            */
+
+            // Save Button - Local Storage based
+            // Save Button handler is setup in DOMContentLoaded below
+            // Just update state here
+            // document.getElementById('saveBtn').onclick setup moved to line ~1600
+
+            // Check if already saved
+            updateSaveButtonState();
+
+            document.getElementById('shareBtn').onclick = () => {
+                navigator.clipboard.writeText(window.location.href);
+                showToast('Link copied to clipboard!', 'success');
+            };
+
+            // Related Videos
+            // Related Videos
+            const relatedContainer = document.getElementById('relatedVideos');
+            // Clear but keep header
+            relatedContainer.innerHTML = '<h3 style="margin-bottom: 16px; font-size: 16px;">Related Videos</h3>';
+
+            if (data.related && data.related.length > 0) {
+                renderRelated(data.related);
+            }
+            // If no related videos initially, do nothing.
+            // The sentinel below will trigger the lazy loader to fetch them.
+
+            // Add Sentinel for infinite scroll
+            const sentinel = document.createElement('div');
+            sentinel.id = 'relatedSentinel';
+            sentinel.style.height = '20px';
+            relatedContainer.appendChild(sentinel);
+
+            // Setup Observer
+            setupRelatedObserver();
+
+            // Set global title for pagination
+            currentVideoTitle = data.title;
+            relatedPage = 2; // Next page is 2
+        })(); // End initWatchPage IIFE
 
         function formatViews(views) {
             if (!views) return '0';
@@ -1651,9 +1340,9 @@
         });
 
         // --- Related Videos Infinite Scroll Functions ---
-        let currentVideoTitle = '';
-        let relatedPage = 1;
-        let relatedIsLoading = false;
+        var currentVideoTitle = '';
+        var relatedPage = 1;
+        var relatedIsLoading = false;
 
         function setupRelatedObserver() {
             const observer = new IntersectionObserver((entries) => {
@@ -1675,7 +1364,9 @@
                 const sentinel = document.getElementById('relatedSentinel');
                 if (sentinel) sentinel.innerHTML = '<div class="loader" style="margin:0 auto; width:20px; height:20px;"></div>';
 
-                const response = await fetch(`/api/related?title=${encodeURIComponent(currentVideoTitle)}&page=${relatedPage}`);
+                const channel = currentVideoData?.channel_id || '';
+                const uploader = currentVideoData?.uploader || '';
+                const response = await fetch(`/api/related?title=${encodeURIComponent(currentVideoTitle)}&page=${relatedPage}&channel=${encodeURIComponent(channel)}&uploader=${encodeURIComponent(uploader)}`);
                 const videos = await response.json();
 
                 if (videos && videos.length > 0) {
@@ -1704,7 +1395,7 @@
                 card.onclick = () => window.location.href = `/watch?v=${video.id}`;
                 card.innerHTML = `
                 <div class="yt-thumb-container-h">
-                   <img src="${video.thumbnail || 'https://i.ytimg.com/vi/' + video.id + '/mqdefault.jpg'}" loading="lazy">
+                   <img src="${video.thumbnail || 'https://i.ytimg.com/vi/' + video.id + '/mqdefault.jpg'}" loading="lazy" onerror="this.onerror=null; this.src='https://i.ytimg.com/vi/${video.id}/mqdefault.jpg'">
                    ${video.duration ? `<div class="yt-duration">${video.duration}</div>` : ''}
                 </div>
                 <div class="yt-details-h">
@@ -1723,4 +1414,20 @@
             }
         }
     </script>
+
+
+
+    <!-- Download Modal -->
+    <div id="downloadModal" class="download-modal" onclick="if(event.target===this) closeDownloadModal()">
+        <div class="download-modal-content">
+            <button class="download-close" onclick="closeDownloadModal()">
+                <i class="fas fa-times"></i>
+            </button>
+            <div id="downloadModalContent">
+                <!-- Content loaded dynamically -->
+            </div>
+        </div>
+    </div>
+
+
     {% endblock %}

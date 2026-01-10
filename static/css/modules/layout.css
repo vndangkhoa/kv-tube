@@ -249,3 +249,49 @@
         padding: 16px;
     }
 }
+
+/* ===== Download Badge ===== */
+.yt-badge {
+    position: absolute;
+    top: 2px;
+    right: 8px;
+    min-width: 18px;
+    height: 18px;
+    padding: 0 5px;
+    background: #ff0000;
+    color: #fff;
+    font-size: 11px;
+    font-weight: 600;
+    border-radius: 50%;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+    animation: badge-pulse 2s infinite;
+}
+
+@keyframes badge-pulse {
+
+    0%,
+    100% {
+        transform: scale(1);
+    }
+
+    50% {
+        transform: scale(1.1);
+    }
+}
+
+/* Make sidebar item relative for badge positioning */
+.yt-sidebar-item {
+    position: relative;
+}
+
+/* When sidebar is collapsed, adjust badge position */
+.yt-sidebar.collapsed .yt-badge {
+    top: 6px;
+    right: 12px;
+    min-width: 16px;
+    height: 16px;
+    font-size: 10px;
+}

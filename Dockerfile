@@ -1,68 +1,31 @@
 # Build stage
-FROM python:3.11-slim as builder
+FROM python:3.11-slim
 
 WORKDIR /app
 
-# Install build dependencies
+# Install system dependencies (ffmpeg is critical for yt-dlp)
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    gcc \
-    python3-dev \
+    ffmpeg \
+    curl \
     && rm -rf /var/lib/apt/lists/*
-
-# Create and activate virtual environment
-RUN python -m venv /opt/venv
-ENV PATH="/opt/venv/bin:$PATH"
 
 # Install Python dependencies
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Runtime stage
-FROM python:3.11-slim
-
-# Install runtime dependencies
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    curl \
-    libcairo2 \
-    libpango-1.0-0 \
-    libpangocairo-1.0-0 \
-    libgdk-pixbuf-2.0-0 \
-    libffi-dev \
-    shared-mime-info \
-    && rm -rf /var/lib/apt/lists/*
-
-# Copy static ffmpeg
-COPY --from=mwader/static-ffmpeg:6.1 /ffmpeg /usr/local/bin/
-COPY --from=mwader/static-ffmpeg:6.1 /ffprobe /usr/local/bin/
-
-# Copy virtual environment from builder
-COPY --from=builder /opt/venv /opt/venv
-ENV PATH="/opt/venv/bin:$PATH"
-
-WORKDIR /app
-
 # Copy application code
-COPY app.py .
-COPY templates/ templates/
-COPY static/ static/
-
-# Create directories for data persistence
-RUN mkdir -p /app/videos /app/data
-
-# Create directories for data persistence
-RUN mkdir -p /app/videos /app/data
+COPY . .
 
 # Environment variables
 ENV PYTHONUNBUFFERED=1
 ENV FLASK_APP=app.py
 ENV FLASK_ENV=production
 
-# Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD curl -f http://localhost:5001/ || exit 1
+# Create directories for data persistence
+RUN mkdir -p /app/videos /app/data
 
 # Expose port
-EXPOSE 5001
+EXPOSE 5000
 
-# Run with Gunicorn for production
-CMD ["gunicorn", "--bind", "0.0.0.0:5001", "--workers", "2", "--threads", "4", "--timeout", "120", "app:app"]
+# Run with Gunicorn
+CMD ["gunicorn", "--bind", "0.0.0.0:5000", "--workers", "4", "--threads", "2", "--timeout", "120", "app:app"]

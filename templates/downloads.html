@@ -1,0 +1,205 @@
+{% extends "layout.html" %}
+
+{% block content %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/modules/downloads.css') }}">
+
+<div class="downloads-page">
+    <div class="downloads-header">
+        <h1><i class="fas fa-download"></i> Downloads</h1>
+        <button class="downloads-clear-btn" onclick="clearAllDownloads()">
+            <i class="fas fa-trash"></i> Clear All
+        </button>
+    </div>
+
+    <div id="downloadsList" class="downloads-list">
+        <!-- Downloads populated by JS -->
+    </div>
+
+    <div id="downloadsEmpty" class="downloads-empty" style="display: none;">
+        <i class="fas fa-download"></i>
+        <p>No downloads yet</p>
+        <p>Videos you download will appear here</p>
+    </div>
+</div>
+
+
+<script>
+    function renderDownloads() {
+        const list = document.getElementById('downloadsList');
+        const empty = document.getElementById('downloadsEmpty');
+
+        if (!list || !empty) return;
+
+        // Safety check for download manager
+        if (!window.downloadManager) {
+            console.log('Download manager not ready, retrying...');
+            setTimeout(renderDownloads, 100);
+            return;
+        }
+
+        const activeDownloads = window.downloadManager.getActiveDownloads();
+        const library = window.downloadManager.getLibrary();
+
+        if (library.length === 0 && activeDownloads.length === 0) {
+            list.style.display = 'none';
+            empty.style.display = 'block';
+            return;
+        }
+
+        list.style.display = 'flex';
+        empty.style.display = 'none';
+
+        // Render Active Downloads
+        const activeHtml = activeDownloads.map(item => {
+            const specs = item.specs ?
+                (item.type === 'video' ?
+                    `${item.specs.resolution || ''} ${item.specs.vcodec ? '• ' + item.specs.vcodec : ''}` :
+                    `${item.specs.acodec || ''} • ${item.specs.bitrate ? item.specs.bitrate + 'kbps' : ''}`
+                ).trim() : '';
+
+            const isPaused = item.status === 'paused';
+
+            return `
+            <div class="download-item active ${isPaused ? 'paused' : ''}" data-id="${item.id}">
+                <img src="${item.thumbnail || 'https://i.ytimg.com/vi/' + item.videoId + '/mqdefault.jpg'}" 
+                     class="download-item-thumb">
+                <div class="download-item-info">
+                    <div class="download-item-title">${escapeHtml(item.title)}</div>
+                    <div class="download-item-meta">
+                        <span class="status-text">
+                            ${isPaused ? '<i class="fas fa-pause-circle"></i> Paused • ' : ''}
+                            ${item.speedDisplay ? `<i class="fas fa-bolt"></i> ${item.speedDisplay} • ` : ''}
+                            ${item.eta ? `<i class="fas fa-clock"></i> ${item.eta} • ` : ''}
+                            ${isPaused ? 'Resuming...' : 'Downloading...'} ${item.progress}%
+                        </span>
+                    </div>
+                    ${specs ? `<div class="download-item-specs"><small>${specs}</small></div>` : ''}
+                    <div class="download-progress-container">
+                        <div class="download-progress-bar ${isPaused ? 'paused' : ''}" style="width: ${item.progress}%"></div>
+                    </div>
+                </div>
+                <div class="download-item-actions">
+                    <button class="download-item-pause" onclick="togglePause('${item.id}')" title="${isPaused ? 'Resume' : 'Pause'}">
+                        <i class="fas ${isPaused ? 'fa-play' : 'fa-pause'}"></i>
+                    </button>
+                    <button class="download-item-remove" onclick="cancelDownload('${item.id}')" title="Cancel">
+                        <i class="fas fa-stop"></i>
+                    </button>
+                </div>
+            </div>
+        `}).join('');
+
+        // Render History - with playback support
+        const historyHtml = library.map(item => {
+            const specs = item.specs ?
+                (item.type === 'video' ?
+                    `${item.specs.resolution || ''} ${item.specs.vcodec ? '• ' + item.specs.vcodec : ''}` :
+                    `${item.specs.acodec || ''} • ${item.specs.bitrate ? item.specs.bitrate + 'kbps' : ''}`
+                ).trim() : '';
+
+            return `
+            <div class="download-item playable" data-id="${item.id}" data-video-id="${item.videoId}" onclick="playDownload('${item.videoId}', event)">
+                <div class="download-item-thumb-wrapper">
+                    <img src="${item.thumbnail || 'https://i.ytimg.com/vi/' + item.videoId + '/mqdefault.jpg'}" 
+                         class="download-item-thumb" 
+                         onerror="this.src='https://via.placeholder.com/160x90?text=No+Thumbnail'">
+                    <div class="download-thumb-overlay">
+                        <i class="fas fa-play"></i>
+                    </div>
+                </div>
+                <div class="download-item-info">
+                    <div class="download-item-title">${escapeHtml(item.title)}</div>
+                    <div class="download-item-meta">
+                        ${item.quality} · ${item.type} · ${formatDate(item.downloadedAt)}
+                        ${specs ? `<span class="meta-specs">• ${specs}</span>` : ''}
+                    </div>
+                </div>
+                <div class="download-item-actions">
+                    <button class="download-item-play" onclick="playDownload('${item.videoId}', event); event.stopPropagation();" title="Play">
+                        <i class="fas fa-play"></i>
+                    </button>
+                    <button class="download-item-redownload" onclick="reDownload('${item.videoId}', event); event.stopPropagation();" title="Download Again">
+                        <i class="fas fa-download"></i>
+                    </button>
+                    <button class="download-item-remove" onclick="removeDownload('${item.id}'); event.stopPropagation();" title="Remove">
+                        <i class="fas fa-times"></i>
+                    </button>
+                </div>
+            </div>
+        `}).join('');
+
+
+        list.innerHTML = activeHtml + historyHtml;
+    }
+
+    function cancelDownload(id) {
+        window.downloadManager.cancelDownload(id);
+        renderDownloads();
+    }
+
+    function removeDownload(id) {
+        window.downloadManager.removeFromLibrary(id);
+        renderDownloads();
+    }
+
+    function togglePause(id) {
+        const downloads = window.downloadManager.activeDownloads;
+        const state = downloads.get(id);
+        if (!state) return;
+
+        if (state.item.status === 'paused') {
+            window.downloadManager.resumeDownload(id);
+        } else {
+            window.downloadManager.pauseDownload(id);
+        }
+        // renderDownloads will be called by event listener
+    }
+
+    function clearAllDownloads() {
+        if (confirm('Remove all downloads from history?')) {
+            window.downloadManager.clearLibrary();
+            renderDownloads();
+        }
+    }
+
+    function playDownload(videoId, event) {
+        if (event) event.preventDefault();
+        // Navigate to watch page for this video
+        window.location.href = `/watch?v=${videoId}`;
+    }
+
+    function reDownload(videoId, event) {
+        if (event) event.preventDefault();
+        // Open download modal for this video
+        if (typeof showDownloadModal === 'function') {
+            showDownloadModal(videoId);
+        } else {
+            // Fallback: navigate to watch page
+            window.location.href = `/watch?v=${videoId}`;
+        }
+    }
+
+    function escapeHtml(text) {
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    }
+
+    function formatDate(dateStr) {
+        if (!dateStr) return '';
+        const date = new Date(dateStr);
+        return date.toLocaleDateString();
+    }
+
+    // Render on load with slight delay for download manager
+    document.addEventListener('DOMContentLoaded', () => setTimeout(renderDownloads, 200));
+
+    // Listen for real-time updates
+    // Listen for real-time updates - Prevent duplicates
+    if (window._kvDownloadListener) {
+        window.removeEventListener('download-updated', window._kvDownloadListener);
+    }
+    window._kvDownloadListener = renderDownloads;
+    window.addEventListener('download-updated', renderDownloads);
+</script>
+{% endblock %}

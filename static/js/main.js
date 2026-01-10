@@ -1,23 +1,41 @@
 // KV-Tube Main JavaScript - YouTube Clone
 
-document.addEventListener('DOMContentLoaded', () => {
+// Re-usable init function for SPA
+window.initApp = function () {
     const searchInput = document.getElementById('searchInput');
     const resultsArea = document.getElementById('resultsArea');
+
+    // cleanup previous observers if any
+    if (window.currentObserver) {
+        window.currentObserver.disconnect();
+    }
 
     // Check APP_CONFIG if available (set in index.html)
     const socketConfig = window.APP_CONFIG || {};
     const pageType = socketConfig.page || 'home';
 
     if (searchInput) {
-        searchInput.addEventListener('keypress', async (e) => {
-            if (e.key === 'Enter') {
-                e.preventDefault();
-                const query = searchInput.value.trim();
-                if (query) {
-                    window.location.href = `/results?search_query=${encodeURIComponent(query)}`;
+        // Clear previous event listeners to avoid duplicates (optional, but safer to just re-attach if we are careful)
+        // Actually, searchInput is in the header, which is NOT replaced.
+        // So we should NOT re-attach listener to searchInput every time.
+        // We need to check if we already attached it.
+        if (!searchInput.dataset.listenerAttached) {
+            searchInput.addEventListener('keypress', async (e) => {
+                if (e.key === 'Enter') {
+                    e.preventDefault();
+                    const query = searchInput.value.trim();
+                    if (query) {
+                        // Use navigation manager if available
+                        if (window.navigationManager) {
+                            window.navigationManager.navigateTo(`/results?search_query=${encodeURIComponent(query)}`);
+                        } else {
+                            window.location.href = `/results?search_query=${encodeURIComponent(query)}`;
+                        }
+                    }
                 }
-            }
-        });
+            });
+            searchInput.dataset.listenerAttached = 'true';
+        }
 
         // Handle Page Initialization - only if resultsArea exists (not on channel.html)
         if (resultsArea) {
@@ -32,7 +50,10 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
             } else {
                 // Default Home
-                loadTrending();
+                // Check if we are actually on home page based on URL or Config
+                if (pageType === 'home') {
+                    loadTrending();
+                }
             }
 
             // Init Infinite Scroll
@@ -40,9 +61,27 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    // Init Theme
+    // Init Theme (check if already init)
     initTheme();
-});
+
+    // Check for category in URL if we are on home and need to switch
+    const urlParams = new URLSearchParams(window.location.search);
+    const category = urlParams.get('category');
+    if (category && typeof switchCategory === 'function' && pageType === 'home') {
+        // We might have already loaded trending above, but switchCategory handles UI state
+        // It also triggers a load, so maybe we want to avoid double loading.
+        // But switchCategory also sets the active pill.
+        // Let's just set the active pill visually for now if we already loaded trending.
+        const pill = document.querySelector(`.yt-chip[onclick*="'${category}'"]`);
+        if (pill) {
+            document.querySelectorAll('.yt-category-pill, .yt-chip').forEach(b => b.classList.remove('active'));
+            pill.classList.add('active');
+        }
+        // If switchCategory is called it will re-fetch.
+    }
+};
+
+document.addEventListener('DOMContentLoaded', window.initApp);
 
 // Note: Global variables like currentCategory are defined below
 let currentCategory = 'all';
@@ -348,7 +387,21 @@ async function loadTrending(reset = true) {
                                 </div>
                             </div>
                         `;
-                        card.onclick = () => window.location.href = `/watch?v=${video.id}`;
+                        card.onclick = () => {
+                            const params = new URLSearchParams({
+                                v: video.id,
+                                title: video.title || '',
+                                uploader: video.uploader || '',
+                                thumbnail: video.thumbnail || ''
+                            });
+                            const dest = `/watch?${params.toString()}`;
+
+                            if (window.navigationManager) {
+                                window.navigationManager.navigateTo(dest);
+                            } else {
+                                window.location.href = dest;
+                            }
+                        };
                         scrollContainer.appendChild(card);
                     });
 
@@ -436,7 +489,20 @@ function displayResults(videos, append = false) {
         card.addEventListener('click', (e) => {
             // Prevent navigation if clicking on channel link
             if (e.target.closest('.yt-channel-link')) return;
-            window.location.href = `/watch?v=${video.id}`;
+
+            const params = new URLSearchParams({
+                v: video.id,
+                title: video.title || '',
+                uploader: video.uploader || '',
+                thumbnail: video.thumbnail || ''
+            });
+            const dest = `/watch?${params.toString()}`;
+
+            if (window.navigationManager) {
+                window.navigationManager.navigateTo(dest);
+            } else {
+                window.location.href = dest;
+            }
         });
         resultsArea.appendChild(card);
     });
@@ -712,7 +778,7 @@ async function loadChannelVideos(channelId) {
 
         // Videos
         const videosHtml = data.map(video => `
-            <div class="yt-video-card" onclick="window.location.href='/watch?v=${video.id}'">
+            <div class="yt-video-card" onclick="window.navigationManager ? window.navigationManager.navigateTo('/watch?v=${video.id}') : window.location.href='/watch?v=${video.id}'">
                  <div class="yt-thumbnail-container">
                     <img class="yt-thumbnail" src="${video.thumbnail}" loading="lazy" onload="this.classList.add('loaded')" alt="${escapeHtml(video.title)}">
                     ${video.duration ? `<span class="yt-duration">${video.duration}</span>` : ''}

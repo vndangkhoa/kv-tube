@@ -151,21 +151,27 @@
 
 <script>
     // Global filter state
-    let currentSort = 'month';
-    let currentRegion = 'vietnam';
+    // Global filter state
+    var currentSort = 'month';
+    var currentRegion = 'vietnam';
 
     function toggleFilterMenu() {
-        document.getElementById('filterMenu').classList.toggle('show');
+        const menu = document.getElementById('filterMenu');
+        if (menu) menu.classList.toggle('show');
     }
 
-    // Close menu when clicking outside
-    document.addEventListener('click', function (e) {
-        const menu = document.getElementById('filterMenu');
-        const btn = document.getElementById('filterToggleBtn');
-        if (menu && btn && !menu.contains(e.target) && !btn.contains(e.target)) {
-            menu.classList.remove('show');
-        }
-    });
+    // Close menu when clicking outside - Prevent multiple listeners
+    if (!window.filterMenuListenerAttached) {
+        document.addEventListener('click', function (e) {
+            const menu = document.getElementById('filterMenu');
+            const btn = document.getElementById('filterToggleBtn');
+            // Only run if elements exist (we are on home page)
+            if (menu && btn && !menu.contains(e.target) && !btn.contains(e.target)) {
+                menu.classList.remove('show');
+            }
+        });
+        window.filterMenuListenerAttached = true;
+    }
 
     function changeSort(sort) {
         window.currentSort = sort;

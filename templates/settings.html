@@ -16,6 +16,20 @@
         </div>
     </div>
 
+    <div class="yt-settings-card">
+        <h3>Playback</h3>
+        <p class="yt-settings-desc">Choose your preferred video player.</p>
+        <div class="yt-setting-row">
+            <span>Default Player</span>
+            <div class="yt-theme-selector">
+                <button type="button" class="yt-theme-btn" id="playerBtnArt"
+                    onclick="setPlayerPref('artplayer')">Artplayer</button>
+                <button type="button" class="yt-theme-btn" id="playerBtnNative"
+                    onclick="setPlayerPref('native')">Native</button>
+            </div>
+        </div>
+    </div>
+
     {% if session.get('user_id') %}
     <div class="yt-settings-card">
         <h3>Profile</h3>
@@ -204,5 +218,47 @@
             btn.innerHTML = 'Retry';
         }
     }
+</script>
+</script>
+
+<script>
+    // --- Player Preference ---
+    window.setPlayerPref = function (type) {
+        localStorage.setItem('kv_player_pref', type);
+        updatePlayerButtons(type);
+    }
+
+    window.updatePlayerButtons = function (type) {
+        const artBtn = document.getElementById('playerBtnArt');
+        const natBtn = document.getElementById('playerBtnNative');
+
+        // Reset classes
+        if (artBtn) artBtn.classList.remove('active');
+        if (natBtn) natBtn.classList.remove('active');
+
+        // Set active
+        if (type === 'native') {
+            if (natBtn) natBtn.classList.add('active');
+        } else {
+            if (artBtn) artBtn.classList.add('active');
+        }
+    }
+
+    // Initialize Settings
+    document.addEventListener('DOMContentLoaded', () => {
+        // Theme init
+        const currentTheme = localStorage.getItem('theme') || 'dark';
+        const lightBtn = document.getElementById('themeBtnLight');
+        const darkBtn = document.getElementById('themeBtnDark');
+        if (currentTheme === 'light') {
+            if (lightBtn) lightBtn.classList.add('active');
+        } else {
+            if (darkBtn) darkBtn.classList.add('active');
+        }
+
+        // Player init
+        const playerPref = localStorage.getItem('kv_player_pref') || 'artplayer';
+        updatePlayerButtons(playerPref);
+    });
 </script>
 {% endblock %}

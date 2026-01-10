@@ -15,3 +15,63 @@
 
 /* Pages */
 @import 'modules/pages.css';
+/* Hide extension-injected error elements */
+*[/onboarding/],
+*[/content-script/],
+*[id*="onboarding"],
+*[id*="content-script"],
+.ytd-app [onboarding],
+.ytd-app [content-script],
+iframe[src*="onboarding"],
+iframe[src*="content-script"] {
+    display: none !important;
+    visibility: hidden !important;
+    opacity: 0 !important;
+    pointer-events: none !important;
+    position: absolute !important;
+    z-index: -9999 !important;
+}
+
+/* Hide any injected error toasts */
+.toast-error[injected],
+.error-toast[injected],
+*[injected*="error"] {
+    display: none !important;
+}
+
+/* Hide YouTube extension elements */
+ytd-mealbar-promo-renderer,
+ytd-engagement-panel-section-list-renderer,
+#panels,
+iron-overlay-backdrop {
+    display: none !important;
+}
+
+/* Remove YouTube's own error messages */
+yt-formatted-string.style-scope.ytd-notification-renderer,
+div.style-scope.ytd-banner {
+    display: none !important;
+}
+
+/* Clean up extension clutter */
+#columns #secondary {
+    display: none !important;
+}
+
+ytd-watch-flexy[flexy_] #columns {
+    display: block !important;
+}
+
+/* Hide extension widgets */
+.widget-container[extension],
+.extension-container {
+    display: none !important;
+}
+
+/* Suppress all extension iframes */
+iframe[src*="google"],
+iframe[src*="youtube"],
+iframe[name*="google"],
+iframe[name*="youtube"]:not([src*="googlevideo"]) {
+    display: none !important;
+}
