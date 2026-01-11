@@ -1,45 +1,52 @@
-#
-**KV-Tube** is a distraction-free, privacy-focused YouTube frontend designed for a premium viewing experience.
+# KV-Tube
+**A Distraction-Free, Privacy-Focused YouTube Client**
 
-### 🚀 **New Features (v2.0 Updates)**
-*   **Horizontal-First Experience**: Strictly enforces horizontal videos across all categories. "Shorts" and vertical content are aggressively filtered out for a cleaner, cinematic feed.
-*   **Personalized Discovery**:
-    *   **Suggested for You**: Dynamic recommendations based on your local watch history.
-    *   **You Might Like**: curated discovery topics to help you find new interests.
-*   **Refined Tech Feed**: Specialized "Tech & AI" section focusing on gadget reviews, unboxings, and deep dives (no spammy vertical clips).
-*   **Performance**: Optimized fetching limits to ensure rich, full grids of content despite strict filtering.
+> [!NOTE] 
+> Designed for a premium, cinematic viewing experience.
 
-## Features
-*   **No Ads**: Watch videos without interruptions.
-*   **Privacy Focused**: No Google account required. Watch history is stored locally (managed by SQLite).
-- **Trending**: Browse trending videos by category (Tech, Music, Gaming, etc.).
-- **Auto-Captions**: English subtitles automatically enabled if available.
-- **AI Summary**: (Optional) Extractive summarization of video content running locally.
-- **PWA Ready**: Installable on mobile devices with a responsive drawer layout.
-- **Dark/Light Mode**: User preference persisted in settings.
+KV-Tube removes the clutter and noise of modern YouTube, focusing purely on the content you love. It strictly enforces a horizontal-first video policy, aggressively filtering out Shorts and vertical "TikTok-style" content to keep your feed clean and high-quality.
 
-## 🚀 Deployment
+### 🚀 **Key Features (v2.0)**
 
-### Option A: Docker Compose (Recommended for Synology NAS)
+*   **🚫 Ads-Free & Privacy-First**: Watch without interruptions. No Google account required. All watch history is stored locally on your device (or self-hosted DB).
+*   **📺 Horizontal-First Experience**: Say goodbye to "Shorts". The feed only displays horizontal, cinematic content.
+*   **🔍 Specialized Feeds**:
+    *   **Tech & AI**: Clean feed for gadget reviews and deep dives.
+    *   **Trending**: See what's popular across major categories (Music, Gaming, News).
+    *   **Suggested for You**: Personalized recommendations based on your local watch history.
+*   **🧠 Local AI Integration**:
+    *   **Auto-Captions**: Automatically enables English subtitles.
+    *   **AI Summary**: (Optional) Generate quick text summaries of videos locally.
+*   **⚡ High Performance**: Optimized for speed with smart caching and rate-limit handling.
+*   **📱 PWA Ready**: Install on your phone or tablet with a responsive, app-like interface.
 
-This is the easiest way to run KV-Tube.
+---
 
-1.  Create a folder named `kv-tube` on your NAS/Server.
-2.  Copy `docker-compose.yml` into that folder.
-3.  Create a `data` folder inside `kv-tube`.
-4.  Run the container.
+## 🛠️ Deployment
 
-**docker-compose.yml**
+You can run KV-Tube easily using Docker (recommended for NAS/Servers) or directly with Python.
+
+### Option A: Docker Compose (Recommended)
+Ideal for Synology NAS, Unraid, or casual servers.
+
+1.  Create a folder `kv-tube` and add the `docker-compose.yml` file.
+2.  Run the container:
+    ```bash
+    docker-compose up -d
+    ```
+3.  Access the app at: **http://localhost:5011**
+
+**docker-compose.yml**:
 ```yaml
 version: '3.8'
 
 services:
   kv-tube:
-    image: vndangkhoa/kvtube:latest
+    image: vndangkhoa/kv-tube:v2.1
     container_name: kv-tube
     restart: unless-stopped
     ports:
-      - "5011:5001"
+      - "5011:5000"
     volumes:
       - ./data:/app/data
     environment:
@@ -47,38 +54,57 @@ services:
       - FLASK_ENV=production
 ```
 
-**Run Command:**
-```bash
-docker-compose up -d
-```
-Access the app at `http://YOUR_NAS_IP:5011`
-
 ### Option B: Local Development (Python)
+For developers or running locally on a PC.
 
-1.  **Clone the repository:**
+1.  **Clone & Install**:
     ```bash
     git clone https://github.com/vndangkhoa/kv-tube.git
     cd kv-tube
-    ```
-
-2.  **Install Dependencies:**
-    ```bash
-    python3 -m venv venv
-    source venv/bin/activate
+    python -m venv .venv
+    # Windows
+    .venv\Scripts\activate
+    # Linux/Mac
+    source .venv/bin/activate
+    
     pip install -r requirements.txt
     ```
 
-3.  **Run:**
+2.  **Run**:
     ```bash
-    python3 app.py
+    python wsgi.py
     ```
-    Open `http://127.0.0.1:5001` in your browser.
 
-## 🛠️ Configuration
+3.  Access the app at: **http://localhost:5002**
 
-The app is zero-config by default.
-- **Database**: SQLite (stored in `./data/kvtube.db`)
-- **Port**: 5001 (internal), mapped to 5011 in Docker compose example.
+---
 
-## 📝 License
-Proprietary / Personal Use.
+## ⚙️ Configuration
+
+KV-Tube is designed to be "Zero-Config", but you can customize it via Environment Variables (in `.env` or Docker).
+
+| Variable | Default | Description |
+| :--- | :--- | :--- |
+| `FLASK_ENV` | `production` | Set to `development` for debug mode. |
+| `KVTUBE_DATA_DIR` | `./data` | Location for the SQLite database. |
+| `KVTUBE_VIDEO_DIR` | `./videos` | (Optional) Location for downloaded videos. |
+| `SECRET_KEY` | *(Auto)* | Session security key. Set manually for persistence. |
+
+---
+
+## 🔌 API Endpoints
+KV-Tube exposes a RESTful API for its frontend.
+
+| Endpoint | Method | Description |
+| :--- | :--- | :--- |
+| `/api/search` | `GET` | Search for videos. |
+| `/api/stream_info` | `GET` | Get raw stream URLs (HLS/MP4). |
+| `/api/suggested` | `GET` | Get recommendations based on history. |
+| `/api/download` | `GET` | Get direct download link for a video. |
+| `/api/history` | `GET` | Retrieve local watch history. |
+
+---
+
+## 📜 License
+Proprietary / Personal Use. 
+Created by **Khoa N.D**
