@@ -1,25 +1,200 @@
 {% extends "layout.html" %}
 
 {% block content %}
-<div class="yt-container" style="padding-top: 20px;">
-    <div class="library-header"
-        style="margin-bottom: 3rem; display: flex; flex-direction: column; align-items: center; gap: 1.5rem;">
-        <h1 style="font-size: 2rem; font-weight: 700;">My Library</h1>
-        <div class="tabs"
-            style="display: flex; gap: 0.5rem; background: var(--yt-bg-secondary); padding: 0.4rem; border-radius: 100px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); align-items: center;">
-            <a href="/my-videos?type=history" class="yt-btn" id="tab-history"
-                style="border-radius: 100px; font-size: 0.95rem; padding: 0.6rem 2rem; font-weight:500; transition: all 0.2s;">History</a>
-            <a href="/my-videos?type=saved" class="yt-btn" id="tab-saved"
-                style="border-radius: 100px; font-size: 0.95rem; padding: 0.6rem 2rem; font-weight:500; transition: all 0.2s;">Saved</a>
-            <a href="/my-videos?type=subscriptions" class="yt-btn" id="tab-subscriptions"
-                style="border-radius: 100px; font-size: 0.95rem; padding: 0.6rem 2rem; font-weight:500; transition: all 0.2s;">Subscriptions</a>
+<style>
+    /* Library Page Premium Styles */
+    .library-container {
+        padding: 24px;
+        max-width: 1600px;
+        margin: 0 auto;
+    }
+
+    .library-header {
+        margin-bottom: 2rem;
+        text-align: center;
+    }
+
+    .library-title {
+        font-size: 1.8rem;
+        font-weight: 700;
+        margin-bottom: 1.5rem;
+        background: linear-gradient(135deg, var(--yt-text-primary) 0%, var(--yt-text-secondary) 100%);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        background-clip: text;
+    }
+
+    .library-tabs {
+        display: inline-flex;
+        gap: 8px;
+        background: var(--yt-bg-secondary);
+        padding: 6px;
+        border-radius: 16px;
+        box-shadow: 0 2px 12px rgba(0, 0, 0, 0.15);
+        margin-bottom: 1rem;
+    }
+
+    .library-tab {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 12px 24px;
+        border-radius: 12px;
+        font-size: 0.95rem;
+        font-weight: 600;
+        color: var(--yt-text-secondary);
+        text-decoration: none;
+        transition: all 0.25s ease;
+        border: none;
+        background: transparent;
+        cursor: pointer;
+    }
+
+    .library-tab:hover {
+        color: var(--yt-text-primary);
+        background: var(--yt-bg-hover);
+    }
+
+    .library-tab.active {
+        background: linear-gradient(135deg, #cc0000 0%, #ff4444 100%);
+        color: white;
+        box-shadow: 0 4px 12px rgba(204, 0, 0, 0.3);
+    }
+
+    .library-tab i {
+        font-size: 1rem;
+    }
+
+    .library-actions {
+        display: flex;
+        justify-content: center;
+        gap: 12px;
+        margin-top: 16px;
+    }
+
+    .clear-btn {
+        display: none;
+        align-items: center;
+        gap: 8px;
+        padding: 10px 20px;
+        background: transparent;
+        border: 1px solid var(--yt-border);
+        border-radius: 24px;
+        color: var(--yt-text-secondary);
+        font-size: 0.9rem;
+        font-weight: 500;
+        cursor: pointer;
+        transition: all 0.2s;
+    }
+
+    .clear-btn:hover {
+        background: rgba(204, 0, 0, 0.1);
+        border-color: #cc0000;
+        color: #cc0000;
+    }
+
+    .library-stats {
+        display: flex;
+        justify-content: center;
+        gap: 24px;
+        margin-top: 12px;
+        color: var(--yt-text-secondary);
+        font-size: 0.85rem;
+    }
+
+    .library-stat {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+    }
+
+    .library-stat i {
+        opacity: 0.7;
+    }
+
+    /* Empty State Enhancement */
+    .empty-state {
+        text-align: center;
+        padding: 4rem 2rem;
+        color: var(--yt-text-secondary);
+    }
+
+    .empty-state-icon {
+        width: 80px;
+        height: 80px;
+        margin: 0 auto 1.5rem;
+        border-radius: 50%;
+        background: var(--yt-bg-secondary);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 2rem;
+        opacity: 0.6;
+    }
+
+    .empty-state h3 {
+        font-size: 1.3rem;
+        margin-bottom: 0.5rem;
+        color: var(--yt-text-primary);
+    }
+
+    .empty-state p {
+        margin-bottom: 1.5rem;
+    }
+
+    .browse-btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 12px 24px;
+        background: linear-gradient(135deg, #cc0000 0%, #ff4444 100%);
+        color: white;
+        border: none;
+        border-radius: 24px;
+        font-weight: 600;
+        text-decoration: none;
+        transition: all 0.2s;
+        box-shadow: 0 4px 12px rgba(204, 0, 0, 0.3);
+    }
+
+    .browse-btn:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 6px 16px rgba(204, 0, 0, 0.4);
+    }
+</style>
+
+<div class="library-container">
+    <div class="library-header">
+        <h1 class="library-title">My Library</h1>
+
+        <div class="library-tabs">
+            <a href="/my-videos?type=history" class="library-tab" id="tab-history">
+                <i class="fas fa-history"></i>
+                <span>History</span>
+            </a>
+            <a href="/my-videos?type=saved" class="library-tab" id="tab-saved">
+                <i class="fas fa-bookmark"></i>
+                <span>Saved</span>
+            </a>
+            <a href="/my-videos?type=subscriptions" class="library-tab" id="tab-subscriptions">
+                <i class="fas fa-users"></i>
+                <span>Subscriptions</span>
+            </a>
         </div>
 
-        <!-- Clear Button (Hidden by default) -->
-        <button id="clearBtn" onclick="clearLibrary()" class="yt-btn"
-            style="display:none; color: var(--yt-text-secondary); background: transparent; border: 1px solid var(--yt-border); margin-top: 10px; font-size: 0.9rem;">
-            <i class="fas fa-trash-alt"></i> Clear <span id="clearType">All</span>
-        </button>
+        <div class="library-stats" id="libraryStats" style="display: none;">
+            <div class="library-stat">
+                <i class="fas fa-video"></i>
+                <span id="videoCount">0 videos</span>
+            </div>
+        </div>
+
+        <div class="library-actions">
+            <button id="clearBtn" onclick="clearLibrary()" class="clear-btn">
+                <i class="fas fa-trash-alt"></i>
+                <span>Clear <span id="clearType">All</span></span>
+            </button>
+        </div>
     </div>
 
     <!-- Video Grid -->
@@ -28,32 +203,44 @@
     </div>
 
     <!-- Empty State -->
-    <div id="emptyState" style="text-align: center; padding: 4rem; color: var(--yt-text-secondary); display: none;">
-        <i class="fas fa-folder-open fa-3x" style="margin-bottom: 1rem; opacity: 0.5;"></i>
+    <div id="emptyState" class="empty-state" style="display: none;">
+        <div class="empty-state-icon">
+            <i class="fas fa-folder-open"></i>
+        </div>
         <h3>Nothing here yet</h3>
         <p id="emptyMsg">Go watch some videos to fill this up!</p>
-        <a href="/" class="yt-btn"
-            style="margin-top: 1rem; background: var(--yt-text-primary); color: var(--yt-bg-primary);">Browse
-            Content</a>
+        <a href="/" class="browse-btn">
+            <i class="fas fa-play"></i>
+            Browse Content
+        </a>
     </div>
 </div>
 
 <script>
-    document.addEventListener('DOMContentLoaded', () => {
+    // Load library content - extracted to function for reuse on pageshow
+    function loadLibraryContent() {
         const urlParams = new URLSearchParams(window.location.search);
         // Default to history if no type or invalid type
         const type = urlParams.get('type') || 'history';
 
-        // Update Active Tab UI
+        // Reset all tabs first, then activate the correct one
+        document.querySelectorAll('.library-tab').forEach(tab => tab.classList.remove('active'));
         const activeTab = document.getElementById(`tab-${type}`);
         if (activeTab) {
-            activeTab.style.background = 'var(--yt-text-primary)';
-            activeTab.style.color = 'var(--yt-bg-primary)';
+            activeTab.classList.add('active');
         }
 
         const grid = document.getElementById('libraryGrid');
         const empty = document.getElementById('emptyState');
         const emptyMsg = document.getElementById('emptyMsg');
+        const statsDiv = document.getElementById('libraryStats');
+        const clearBtn = document.getElementById('clearBtn');
+
+        // Reset UI before loading
+        grid.innerHTML = '';
+        empty.style.display = 'none';
+        if (statsDiv) statsDiv.style.display = 'none';
+        if (clearBtn) clearBtn.style.display = 'none';
 
         // Mapping URL type to localStorage key suffix
         // saved -> kv_saved
@@ -62,16 +249,24 @@
         const storageKey = `kv_${type}`;
         const data = JSON.parse(localStorage.getItem(storageKey) || '[]').filter(i => i && i.id);
 
-        // Show Clear Button if there is data
+        // Show stats and Clear Button if there is data
         if (data.length > 0) {
             empty.style.display = 'none';
-            const clearBtn = document.getElementById('clearBtn');
+
+            // Update stats
+            const videoCount = document.getElementById('videoCount');
+            if (statsDiv && videoCount) {
+                statsDiv.style.display = 'flex';
+                const countText = type === 'subscriptions'
+                    ? `${data.length} channel${data.length !== 1 ? 's' : ''}`
+                    : `${data.length} video${data.length !== 1 ? 's' : ''}`;
+                videoCount.innerText = countText;
+            }
+
             const clearTypeSpan = document.getElementById('clearType');
 
             if (clearBtn) {
                 clearBtn.style.display = 'inline-flex';
-                clearBtn.style.alignItems = 'center';
-                clearBtn.style.gap = '8px';
 
                 // Format type name for display
                 const typeName = type.charAt(0).toUpperCase() + type.slice(1);
@@ -155,6 +350,28 @@
                 emptyMsg.innerText = "No saved videos yet.";
             }
         }
+    }
+
+    // Run on initial page load
+    document.addEventListener('DOMContentLoaded', () => {
+        loadLibraryContent();
+
+        // Intercept tab clicks for client-side navigation
+        document.querySelectorAll('.library-tab').forEach(tab => {
+            tab.addEventListener('click', (e) => {
+                e.preventDefault();
+                const newUrl = tab.getAttribute('href');
+                // Update URL without reloading
+                history.pushState(null, '', newUrl);
+                // Immediately load the new content
+                loadLibraryContent();
+            });
+        });
+    });
+
+    // Handle browser back/forward buttons
+    window.addEventListener('popstate', () => {
+        loadLibraryContent();
     });
 
     function clearLibrary() {

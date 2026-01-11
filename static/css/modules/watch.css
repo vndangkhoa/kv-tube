@@ -90,31 +90,116 @@ body {
 }
 
 /* ========== Watch Page Layout ========== */
-.yt-main {
+/* Only apply these overrides when the watch layout is present */
+.yt-main:has(.yt-watch-layout) {
     padding: 0 !important;
-    margin-left: 240px;
+    /* Auto-collapse main content margin on watch page to match collapsed sidebar */
+    margin-left: var(--yt-sidebar-mini) !important;
 }
 
+/* Auto-collapse sidebar on watch page */
+.yt-sidebar:has(~ .yt-sidebar-overlay ~ .yt-main .yt-watch-layout),
+body:has(.yt-watch-layout) .yt-sidebar {
+    width: var(--yt-sidebar-mini);
+}
+
+/* Sidebar item styling for mini mode on watch page */
+body:has(.yt-watch-layout) .yt-sidebar .yt-sidebar-item {
+    flex-direction: column;
+    gap: 0;
+    padding: 16px 0;
+    margin: 0;
+    border-radius: 0;
+    justify-content: center;
+    align-items: center;
+    text-align: center;
+}
+
+/* Hide text labels in mini mode - icons only */
+body:has(.yt-watch-layout) .yt-sidebar .yt-sidebar-item span {
+    display: none;
+}
+
+/* Center the icons */
+body:has(.yt-watch-layout) .yt-sidebar .yt-sidebar-item i {
+    font-size: 20px;
+    width: 100%;
+    text-align: center;
+}
+
+/* Hide Saved, Subscriptions, and dividers/titles on watch page */
+body:has(.yt-watch-layout) .yt-sidebar .yt-sidebar-title,
+body:has(.yt-watch-layout) .yt-sidebar .yt-sidebar-divider,
+body:has(.yt-watch-layout) .yt-sidebar a[data-category="saved"],
+body:has(.yt-watch-layout) .yt-sidebar a[data-category="subscriptions"] {
+    display: none;
+}
+
+/* Theater Mode (Default) - Full width video with sidebar below */
 .yt-watch-layout {
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+    padding: 8px 24px 24px;
+    box-sizing: border-box;
+}
+
+/* Default Mode - 2 column layout */
+.yt-watch-layout.default-mode {
     display: grid;
     grid-template-columns: 1fr 400px;
     gap: 24px;
     max-width: 100%;
-    width: 100%;
-    padding: 24px;
-    margin: 0;
-    box-sizing: border-box;
+}
+
+.yt-watch-layout.default-mode .yt-watch-sidebar {
+    position: sticky;
+    top: 80px;
+    align-self: start;
+    max-height: calc(100vh - 100px);
+}
+
+/* Theater mode sidebar moves below */
+.yt-watch-layout:not(.default-mode) .yt-watch-sidebar {
+    margin-top: 24px;
 }
 
 .yt-watch-sidebar {
     display: flex;
     flex-direction: column;
     gap: 0;
-    position: sticky;
-    top: 80px;
-    align-self: start;
-    max-height: calc(100vh - 100px);
     overflow: visible;
+}
+
+/* View Mode Button Styles */
+.view-mode-buttons {
+    display: flex;
+    gap: 8px;
+    margin-left: auto;
+}
+
+.view-mode-btn {
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    border: none;
+    background: var(--yt-bg-secondary);
+    color: var(--yt-text-secondary);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s;
+}
+
+.view-mode-btn:hover {
+    background: var(--yt-bg-hover);
+    color: var(--yt-text-primary);
+}
+
+.view-mode-btn.active {
+    background: linear-gradient(135deg, #cc0000 0%, #ff4444 100%);
+    color: white;
 }
 
 .yt-channel-avatar-lg {

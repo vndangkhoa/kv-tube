@@ -245,7 +245,18 @@ async function switchCategory(category, btn) {
         return;
     }
     if (category === 'suggested') {
-        const response = await fetch('/api/suggested');
+        // Build query params from localStorage history
+        const history = JSON.parse(localStorage.getItem('kv_history') || '[]');
+        const titles = history.slice(0, 5).map(v => v.title).filter(Boolean).join(',');
+        const channels = history.slice(0, 3).map(v => v.uploader).filter(Boolean).join(',');
+
+        let url = '/api/suggested';
+        const params = new URLSearchParams();
+        if (titles) params.append('titles', titles);
+        if (channels) params.append('channels', channels);
+        if (params.toString()) url += '?' + params.toString();
+
+        const response = await fetch(url);
         const data = await response.json();
         displayResults(data, false);
         isLoading = false;
@@ -296,7 +307,20 @@ async function loadTrending(reset = true) {
         const regionValue = window.currentRegion || 'vietnam';
         // Add cache-buster for home page to ensure fresh content
         const cb = reset && currentCategory === 'all' ? `&_=${Date.now()}` : '';
-        const response = await fetch(`/api/trending?category=${currentCategory}&page=${currentPage}&sort=${sortValue}&region=${regionValue}${cb}`);
+
+        // Include localStorage history for personalized suggestions on home page
+        let historyParams = '';
+        if (currentCategory === 'all') {
+            const history = JSON.parse(localStorage.getItem('kv_history') || '[]');
+            if (history.length > 0) {
+                const titles = history.slice(0, 5).map(v => v.title).filter(Boolean).join(',');
+                const channels = history.slice(0, 3).map(v => v.uploader).filter(Boolean).join(',');
+                if (titles) historyParams += `&history_titles=${encodeURIComponent(titles)}`;
+                if (channels) historyParams += `&history_channels=${encodeURIComponent(channels)}`;
+            }
+        }
+
+        const response = await fetch(`/api/trending?category=${currentCategory}&page=${currentPage}&sort=${sortValue}&region=${regionValue}${historyParams}${cb}`);
         const data = await response.json();
 
 

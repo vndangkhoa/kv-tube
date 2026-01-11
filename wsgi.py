@@ -215,27 +215,66 @@ def get_history():
 
 @app.route("/api/suggested")
 def get_suggested():
-    # Simple recommendation based on history: search for "trending" related to the last 3 viewed channels/titles
-    conn = get_db_connection()
-    history = conn.execute(
-        'SELECT title FROM user_videos WHERE type = "history" ORDER BY timestamp DESC LIMIT 3'
-    ).fetchall()
-    conn.close()
+    """
+    Get suggested videos based on watch history.
+    Accepts both server-side DB history and client-side localStorage history.
+    Query params:
+    - titles: comma-separated list of watched video titles (from localStorage)
+    - channels: comma-separated list of watched channel names (from localStorage)
+    """
+    import random
+    
+    # Get client-side history from query params
+    client_titles = request.args.get("titles", "")
+    client_channels = request.args.get("channels", "")
+    
+    history_titles = []
+    history_channels = []
+    
+    # Parse client-side history
+    if client_titles:
+        history_titles = [t.strip() for t in client_titles.split(",") if t.strip()][:5]
+    if client_channels:
+        history_channels = [c.strip() for c in client_channels.split(",") if c.strip()][:3]
+    
+    # Also get server-side history as fallback
+    if not history_titles:
+        try:
+            conn = get_db_connection()
+            rows = conn.execute(
+                'SELECT title FROM user_videos WHERE type = "history" ORDER BY timestamp DESC LIMIT 5'
+            ).fetchall()
+            conn.close()
+            history_titles = [row['title'] for row in rows]
+        except:
+            pass
 
-    if not history:
+    # If still no history, return trending
+    if not history_titles:
         return jsonify(fetch_videos("trending", limit=20))
 
     all_suggestions = []
-    with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
-        queries = [f"{row['title']} related" for row in history]
-        results = list(executor.map(lambda q: fetch_videos(q, limit=10), queries))
+    
+    # Build queries from history titles
+    queries = []
+    for title in history_titles[:3]:
+        # Extract key words from title (first 3-4 words usually capture the topic)
+        words = title.split()[:4]
+        query_base = " ".join(words)
+        queries.append(f"{query_base} related -shorts")
+    
+    # Add channel-based queries
+    for channel in history_channels[:2]:
+        queries.append(f"{channel} latest videos -shorts")
+    
+    # Fetch in parallel
+    with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
+        results = list(executor.map(lambda q: fetch_videos(q, limit=8, filter_type="video"), queries))
         for res in results:
             all_suggestions.extend(res)
 
-    # Remove duplicates and shuffle
+    # Remove duplicates
     unique_vids = {v["id"]: v for v in all_suggestions}.values()
-    import random
-
     final_list = list(unique_vids)
     random.shuffle(final_list)
 
@@ -364,8 +403,12 @@ def channel(channel_id):
         # Robustness: Resolve name to ID if needed (Metadata only fetch)
         real_id_or_url = channel_id
         is_search_fallback = False
+        
+        # If channel_id is @UCN... format, strip the @ to get the proper UC ID
+        if channel_id.startswith("@UC"):
+            real_id_or_url = channel_id[1:]  # Remove the @ prefix
 
-        if not channel_id.startswith("UC") and not channel_id.startswith("@"):
+        if not real_id_or_url.startswith("UC") and not real_id_or_url.startswith("@"):
             # Simple resolve logic - reusing similar block from before but optimized for metadata
             search_cmd = [
                 sys.executable,
@@ -431,6 +474,24 @@ def channel(channel_id):
                 )
                 channel_info["id"] = first.get("channel_id") or channel_info["id"]
                 # Try to get avatar/banner if available in flat dump (often NOT, but title/id are key)
+            except:
+                pass
+        
+        # If title is still just the ID, try to get channel name with --print
+        if channel_info["title"].startswith("UC") or channel_info["title"].startswith("@"):
+            try:
+                name_cmd = [
+                    sys.executable,
+                    "-m",
+                    "yt_dlp",
+                    target_url,
+                    "--print", "channel",
+                    "--playlist-items", "1",
+                    "--no-warnings",
+                ]
+                name_proc = subprocess.run(name_cmd, capture_output=True, text=True, timeout=15)
+                if name_proc.returncode == 0 and name_proc.stdout.strip():
+                    channel_info["title"] = name_proc.stdout.strip()
             except:
                 pass
 
@@ -625,47 +686,67 @@ def get_download_formats():
 
                 # Categorize by type
                 if f_ext == "mp4" or f_ext == "webm":
-                    # Check if it's video or audio
-                    if (
-                        f.get("vcodec", "none") != "none"
-                        and f.get("acodec", "none") == "none"
-                    ):
-                        # Video only - include detailed specs
+                    vcodec = f.get("vcodec", "none")
+                    acodec = f.get("acodec", "none")
+                    
+                    # Combined video+audio format (best for downloads with sound!)
+                    if vcodec != "none" and acodec != "none":
+                        width = f.get("width", 0)
+                        height = f.get("height", 0)
+                        resolution = f"{width}x{height}" if width and height else None
+                        fps = f.get("fps", 0)
+                        vbr = f.get("vbr", 0) or f.get("tbr", 0)
+                        
+                        video_formats.append({
+                            "quality": f"{quality} (with audio)",
+                            "ext": f_ext,
+                            "size": size_str,
+                            "size_bytes": f_filesize,
+                            "url": f_url,
+                            "type": "combined",  # Has both video and audio!
+                            "resolution": resolution,
+                            "width": width,
+                            "height": height,
+                            "fps": fps,
+                            "vcodec": vcodec.split(".")[0],
+                            "acodec": acodec.split(".")[0],
+                            "bitrate": int(vbr) if vbr else None,
+                            "has_audio": True,
+                        })
+                    
+                    # Video only - include detailed specs
+                    elif vcodec != "none" and acodec == "none":
+                        # Get resolution
+                        width = f.get("width", 0)
+                        height = f.get("height", 0)
+                        resolution = f"{width}x{height}" if width and height else None
+                        
+                        # Get codec (simplified name)
+                        codec_display = vcodec.split(".")[0] if vcodec else ""
+                        
+                        # Get fps and bitrate
+                        fps = f.get("fps", 0)
+                        vbr = f.get("vbr", 0) or f.get("tbr", 0)
+                        
                         if quality not in ["audio only", "unknown"]:
-                            # Get resolution
-                            width = f.get("width", 0)
-                            height = f.get("height", 0)
-                            resolution = f"{width}x{height}" if width and height else None
-                            
-                            # Get codec (simplified name)
-                            vcodec = f.get("vcodec", "")
-                            codec_display = vcodec.split(".")[0] if vcodec else ""  # e.g., "avc1" from "avc1.4d401f"
-                            
-                            # Get fps and bitrate
-                            fps = f.get("fps", 0)
-                            vbr = f.get("vbr", 0) or f.get("tbr", 0)  # video bitrate in kbps
-                            
-                            video_formats.append(
-                                {
-                                    "quality": quality,
-                                    "ext": f_ext,
-                                    "size": size_str,
-                                    "size_bytes": f_filesize,
-                                    "url": f_url,
-                                    "type": "video",
-                                    "resolution": resolution,
-                                    "width": width,
-                                    "height": height,
-                                    "fps": fps,
-                                    "vcodec": codec_display,
-                                    "bitrate": int(vbr) if vbr else None,
-                                }
-                            )
-                    elif (
-                        f.get("acodec", "none") != "none"
-                        and f.get("vcodec", "none") == "none"
-                    ):
-                        # Audio only - include detailed specs
+                            video_formats.append({
+                                "quality": quality,
+                                "ext": f_ext,
+                                "size": size_str,
+                                "size_bytes": f_filesize,
+                                "url": f_url,
+                                "type": "video",
+                                "resolution": resolution,
+                                "width": width,
+                                "height": height,
+                                "fps": fps,
+                                "vcodec": codec_display,
+                                "bitrate": int(vbr) if vbr else None,
+                                "has_audio": False,
+                            })
+                    
+                    # Audio only
+                    elif acodec != "none" and vcodec == "none":
                         acodec = f.get("acodec", "")
                         codec_display = acodec.split(".")[0] if acodec else ""
                         
@@ -1562,22 +1643,37 @@ def trending():
             # === 1. Suggested For You (History Based) ===
             suggested_videos = []
             try:
-                conn = get_db_connection()
-                # Get last 5 videos for context
-                history = conn.execute(
-                    'SELECT title, video_id, type FROM user_videos WHERE type = "history" ORDER BY timestamp DESC LIMIT 5'
-                ).fetchall()
-                conn.close()
+                import random
+                
+                # Get client-side history from query params (from localStorage)
+                client_titles = request.args.get("history_titles", "")
+                client_channels = request.args.get("history_channels", "")
+                
+                history_titles = []
+                history_channels = []
+                
+                if client_titles:
+                    history_titles = [t.strip() for t in client_titles.split(",") if t.strip()][:5]
+                if client_channels:
+                    history_channels = [c.strip() for c in client_channels.split(",") if c.strip()][:3]
+                
+                # Fallback to server-side history if no client history
+                if not history_titles:
+                    try:
+                        conn = get_db_connection()
+                        rows = conn.execute(
+                            'SELECT title, video_id FROM user_videos WHERE type = "history" ORDER BY timestamp DESC LIMIT 5'
+                        ).fetchall()
+                        conn.close()
+                        history_titles = [row["title"] for row in rows]
+                    except:
+                        pass
 
-                if history:
-                    # Create a composite query from history
-                    import random
-
+                if history_titles:
                     # Pick 1-2 random items from recent history to diversify
-                    bases = random.sample(history, min(len(history), 2))
-                    query_parts = [row["title"] for row in bases]
-                    # Add "related" to find similar content, not exact same
-                    suggestion_query = " ".join(query_parts) + " related"
+                    bases = random.sample(history_titles, min(len(history_titles), 2))
+                    query_parts = [" ".join(title.split()[:4]) for title in bases]  # First 4 words
+                    suggestion_query = " ".join(query_parts) + " related -shorts"
                     suggested_videos = fetch_videos(
                         suggestion_query, limit=16, filter_type="video"
                     )
@@ -1609,6 +1705,36 @@ def trending():
             except:
                 pass
 
+            # === 3. More From Your Channels (Same-Channel Recommendations) ===
+            channel_videos = []
+            channel_name = "Channels"
+            try:
+                conn = get_db_connection()
+                # Get unique channels from recent history
+                channels = conn.execute(
+                    '''SELECT DISTINCT channel_id, uploader FROM user_videos 
+                       WHERE type = "history" AND channel_id IS NOT NULL AND channel_id != ""
+                       ORDER BY timestamp DESC LIMIT 3'''
+                ).fetchall()
+                conn.close()
+
+                if channels:
+                    # Pick a random channel from recent history
+                    import random
+                    selected_channel = random.choice(channels)
+                    channel_id = selected_channel["channel_id"]
+                    channel_name = selected_channel["uploader"] or "Channel"
+                    
+                    # Fetch videos from this channel
+                    if channel_id:
+                        channel_videos = fetch_videos(
+                            f"channel:{channel_id}",
+                            limit=8,
+                            filter_type="video"
+                        )
+            except Exception as e:
+                print(f"Channel recommendation error: {e}")
+
             # === New Progressive Loading Strategy ===
             feed_type = request.args.get('feed_type', 'all') # 'primary', 'secondary', or 'all'
             final_sections = []
@@ -1633,7 +1759,16 @@ def trending():
                         "videos": discovery_videos[:8], # Limit to 8
                     })
 
-                # 3. Trending (Standard)
+                # 3. More From Your Channels (Same-Channel Recommendations)
+                if channel_videos:
+                    final_sections.append({
+                        "id": "channel_rec",
+                        "title": f"More from {channel_name}",
+                        "icon": "user-circle",
+                        "videos": channel_videos[:8],
+                    })
+
+                # 4. Trending (Standard)
                 # Limit reduced to 8 (2 rows) for speed
                 trending_videos = fetch_videos(get_query("trending", region, "relevance"), limit=8, filter_type="video")
                 if trending_videos:

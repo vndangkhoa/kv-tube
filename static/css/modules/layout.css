@@ -120,16 +120,37 @@
 
 .yt-sidebar.collapsed .yt-sidebar-item {
     flex-direction: column;
-    gap: 6px;
+    gap: 0;
     padding: 16px 0;
     margin: 0;
     border-radius: 0;
     justify-content: center;
+    align-items: center;
     text-align: center;
 }
 
+/* Hide text labels in collapsed mode - icons only */
 .yt-sidebar.collapsed .yt-sidebar-item span {
-    font-size: 10px;
+    display: none;
+}
+
+/* Center icons in collapsed mode */
+.yt-sidebar.collapsed .yt-sidebar-item i {
+    font-size: 20px;
+    width: 100%;
+    text-align: center;
+}
+
+/* Hide Saved, Subscriptions, dividers and titles in collapsed mode */
+.yt-sidebar.collapsed .yt-sidebar-title,
+.yt-sidebar.collapsed .yt-sidebar-divider {
+    display: none;
+}
+
+/* Hide Saved and Subscriptions globally (both full and collapsed sidebar) */
+.yt-sidebar a[data-category="saved"],
+.yt-sidebar a[data-category="subscriptions"] {
+    display: none;
 }
 
 .yt-sidebar-divider {

@@ -1,9 +1,9 @@
 /* ===== Watch Page ===== */
+/* Layout rules moved to watch.css - this is kept for compatibility */
 .yt-watch-layout {
     display: grid;
     grid-template-columns: 1fr 400px;
     gap: 24px;
-    max-width: 1800px;
 }
 
 .yt-player-section {

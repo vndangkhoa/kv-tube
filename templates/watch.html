@@ -67,9 +67,24 @@
                     Queue
                     <span id="queueBadge" class="queue-badge" style="display:none;">0</span>
                 </button>
-                <!-- Summarize button removed -->
-                <!-- Transcribe button removed -->
-                <!-- Rotation controls removed -->
+
+                <!-- View Mode Buttons -->
+                <div class="view-mode-buttons">
+                    <button class="view-mode-btn" id="defaultModeBtn" onclick="setViewMode('default')"
+                        title="Default View">
+                        <i class="fas fa-columns"></i>
+                    </button>
+                    <button class="view-mode-btn active" id="theaterModeBtn" onclick="setViewMode('theater')"
+                        title="Theater Mode">
+                        <i class="fas fa-expand-alt"></i>
+                    </button>
+                    <button class="view-mode-btn" id="pipModeBtn" onclick="togglePiP()" title="Picture-in-Picture">
+                        <i class="fas fa-external-link-square-alt"></i>
+                    </button>
+                    <button class="view-mode-btn" id="fullscreenBtn" onclick="toggleFullscreen()" title="Fullscreen">
+                        <i class="fas fa-expand"></i>
+                    </button>
+                </div>
             </div>
 
 
@@ -87,7 +102,7 @@
                         <p class="yt-video-stats" id="viewCount">0 views</p>
                     </div>
                 </div>
-                <button class="yt-subscribe-btn" id="subscribeBtn">Subscribe</button>
+                <button class="yt-subscribe-btn" id="subscribeBtn" onclick="toggleSubscribe()">Subscribe</button>
             </div>
 
             <!-- Description -->
@@ -730,7 +745,8 @@
         }
 
         // --- Save to Library (Local Storage) ---
-        function saveToLibrary() {
+        // Note: Named toggleSaveToLibrary to avoid shadowing global saveToLibrary(type, item) in main.js
+        function toggleSaveToLibrary() {
             const btn = document.getElementById('saveBtn');
             if (!currentVideoData.id) {
                 showToast("Video data not ready", "error");
@@ -787,6 +803,154 @@
                 btn.innerHTML = '<i class="fas fa-bookmark"></i> Saved';
             }
         }
+
+        // --- Subscribe Logic ---
+        function toggleSubscribe() {
+            const btn = document.getElementById('subscribeBtn');
+
+            // Get channel info from current video data
+            const channelName = document.getElementById('channelName')?.innerText || currentVideoData.uploader;
+            if (!channelName || channelName === 'Loading...') {
+                showToast("Channel info not ready yet", "error");
+                return;
+            }
+
+            // Try to get channel ID from the avatar link or construct from name
+            const avatarEl = document.getElementById('channelAvatar');
+            let channelId = avatarEl?.onclick ? avatarEl.getAttribute('data-channel-id') : null;
+
+            // If no channel ID stored, use channel name as ID (fallback)
+            if (!channelId) {
+                channelId = channelName.replace(/\s+/g, '');
+            }
+
+            let subscriptions = JSON.parse(localStorage.getItem('kv_subscriptions') || '[]');
+            const existingIndex = subscriptions.findIndex(s => s.id === channelId || s.title === channelName);
+
+            if (existingIndex !== -1) {
+                // Unsubscribe (toggle off)
+                subscriptions.splice(existingIndex, 1);
+                localStorage.setItem('kv_subscriptions', JSON.stringify(subscriptions));
+                showToast("Unsubscribed from " + channelName);
+
+                if (btn) {
+                    btn.classList.remove('subscribed');
+                    btn.style.background = '';
+                    btn.style.color = '';
+                    btn.innerHTML = 'Subscribe';
+                }
+            } else {
+                // Subscribe
+                const avatarLetter = document.getElementById('channelAvatarLetter')?.innerText || channelName.charAt(0).toUpperCase();
+                subscriptions.push({
+                    id: channelId,
+                    title: channelName,
+                    thumbnail: null, // Could be fetched from API if available
+                    letter: avatarLetter
+                });
+                localStorage.setItem('kv_subscriptions', JSON.stringify(subscriptions));
+                showToast("Subscribed to " + channelName, "success");
+
+                if (btn) {
+                    btn.classList.add('subscribed');
+                    btn.style.background = 'var(--yt-bg-secondary)';
+                    btn.style.color = 'var(--yt-text-secondary)';
+                    btn.innerHTML = '<i class="fas fa-bell"></i> Subscribed';
+                }
+            }
+        }
+
+        function updateSubscribeButtonState() {
+            const btn = document.getElementById('subscribeBtn');
+            if (!btn) return;
+
+            const channelName = document.getElementById('channelName')?.innerText;
+            if (!channelName || channelName === 'Loading...') return;
+
+            const subscriptions = JSON.parse(localStorage.getItem('kv_subscriptions') || '[]');
+            const isSubscribed = subscriptions.some(s => s.title === channelName);
+
+            if (isSubscribed) {
+                btn.classList.add('subscribed');
+                btn.style.background = 'var(--yt-bg-secondary)';
+                btn.style.color = 'var(--yt-text-secondary)';
+                btn.innerHTML = '<i class="fas fa-bell"></i> Subscribed';
+            } else {
+                btn.classList.remove('subscribed');
+                btn.style.background = '';
+                btn.style.color = '';
+                btn.innerHTML = 'Subscribe';
+            }
+        }
+
+        // --- View Mode Functions ---
+        function setViewMode(mode) {
+            const layout = document.querySelector('.yt-watch-layout');
+            const defaultBtn = document.getElementById('defaultModeBtn');
+            const theaterBtn = document.getElementById('theaterModeBtn');
+
+            if (mode === 'default') {
+                layout.classList.add('default-mode');
+                defaultBtn.classList.add('active');
+                theaterBtn.classList.remove('active');
+            } else {
+                layout.classList.remove('default-mode');
+                defaultBtn.classList.remove('active');
+                theaterBtn.classList.add('active');
+            }
+
+            // Save preference
+            localStorage.setItem('kv_view_mode', mode);
+        }
+
+        function togglePiP() {
+            const video = document.querySelector('video');
+            if (!video) {
+                showToast('Video not ready', 'error');
+                return;
+            }
+
+            if (document.pictureInPictureElement) {
+                document.exitPictureInPicture();
+                document.getElementById('pipModeBtn').classList.remove('active');
+            } else if (document.pictureInPictureEnabled) {
+                video.requestPictureInPicture();
+                document.getElementById('pipModeBtn').classList.add('active');
+            } else {
+                showToast('PiP not supported', 'info');
+            }
+        }
+
+        function toggleFullscreen() {
+            const container = document.querySelector('.yt-player-container');
+            const btn = document.getElementById('fullscreenBtn');
+
+            if (document.fullscreenElement) {
+                document.exitFullscreen();
+                btn.classList.remove('active');
+            } else {
+                container.requestFullscreen();
+                btn.classList.add('active');
+            }
+        }
+
+        // Initialize view mode from localStorage
+        document.addEventListener('DOMContentLoaded', () => {
+            const savedMode = localStorage.getItem('kv_view_mode') || 'theater';
+            setViewMode(savedMode);
+
+            // Listen for PiP exit
+            document.addEventListener('leavepictureinpicture', () => {
+                document.getElementById('pipModeBtn').classList.remove('active');
+            });
+
+            // Listen for fullscreen exit
+            document.addEventListener('fullscreenchange', () => {
+                if (!document.fullscreenElement) {
+                    document.getElementById('fullscreenBtn').classList.remove('active');
+                }
+            });
+        });
 
         // --- Download Video ---
         async function downloadVideo() {
@@ -1131,6 +1295,9 @@
 
             const uploaderName = data.uploader || 'Unknown';
             document.getElementById('channelAvatarLetter').innerText = uploaderName.charAt(0).toUpperCase();
+
+            // Update subscribe button state based on stored subscriptions
+            updateSubscribeButtonState();
 
             // Save to History (Local & Server)
             const historyItem = {

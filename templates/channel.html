@@ -22,10 +22,7 @@
                     %}@Loading...{% endif %}
                 </p>
                 <div class="yt-channel-stats">
-                    <span id="channelStats">Subscribe for more</span>
-                </div>
-                <div class="yt-channel-actions">
-                    <button class="yt-subscribe-btn-lg" id="subscribeChannelBtn">Subscribe</button>
+                    <span id="channelStats"></span>
                 </div>
             </div>
         </div>
@@ -35,14 +32,29 @@
     <div class="yt-section">
         <div class="yt-section-header">
             <div class="yt-tabs">
-                <a href="#" onclick="changeChannelTab('video', this); return false;" class="active">Videos</a>
-                <a href="#" onclick="changeChannelTab('shorts', this); return false;">Shorts</a>
+                <a href="#" onclick="changeChannelTab('video', this); return false;" class="active">
+                    <i class="fas fa-video"></i>
+                    <span>Videos</span>
+                </a>
+                <a href="#" onclick="changeChannelTab('shorts', this); return false;">
+                    <i class="fas fa-bolt"></i>
+                    <span>Shorts</span>
+                </a>
             </div>
 
             <div class="yt-sort-options">
-                <a href="#" onclick="changeChannelSort('latest', this); return false;" class="active">Latest</a>
-                <a href="#" onclick="changeChannelSort('popular', this); return false;">Popular</a>
-                <a href="#" onclick="changeChannelSort('oldest', this); return false;">Oldest</a>
+                <a href="#" onclick="changeChannelSort('latest', this); return false;" class="active">
+                    <i class="fas fa-clock"></i>
+                    <span>Latest</span>
+                </a>
+                <a href="#" onclick="changeChannelSort('popular', this); return false;">
+                    <i class="fas fa-fire"></i>
+                    <span>Popular</span>
+                </a>
+                <a href="#" onclick="changeChannelSort('oldest', this); return false;">
+                    <i class="fas fa-history"></i>
+                    <span>Oldest</span>
+                </a>
             </div>
         </div>
 
@@ -129,53 +141,58 @@
 
     .yt-tabs {
         display: inline-flex;
-        gap: 0;
+        gap: 8px;
         background: var(--yt-bg-secondary);
-        padding: 4px;
-        border-radius: 24px;
-        position: relative;
+        padding: 6px;
+        border-radius: 16px;
+        box-shadow: 0 2px 12px rgba(0, 0, 0, 0.15);
     }
 
     .yt-tabs a {
-        font-size: 14px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        padding: 12px 24px;
+        border-radius: 12px;
+        font-size: 0.95rem;
         font-weight: 600;
         color: var(--yt-text-secondary);
         text-decoration: none;
-        padding: 8px 24px;
-        border-radius: 20px;
-        border-bottom: none;
-        z-index: 1;
-        transition: color 0.2s;
-        position: relative;
+        transition: all 0.25s ease;
+        border: none;
+        background: transparent;
     }
 
     .yt-tabs a:hover {
         color: var(--yt-text-primary);
+        background: var(--yt-bg-hover);
     }
 
     .yt-tabs a.active {
-        color: var(--yt-bg-primary);
-        background: var(--yt-text-primary);
-        /* The "slider" is actually the active pill moving */
-        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+        background: linear-gradient(135deg, #cc0000 0%, #ff4444 100%);
+        color: white;
+        box-shadow: 0 4px 12px rgba(204, 0, 0, 0.3);
     }
 
     .yt-sort-options {
-        display: flex;
+        display: inline-flex;
         gap: 8px;
-        justify-content: center;
+        background: var(--yt-bg-secondary);
+        padding: 6px;
+        border-radius: 16px;
+        box-shadow: 0 2px 12px rgba(0, 0, 0, 0.15);
     }
 
     .yt-sort-options a {
-        padding: 6px 16px;
-        border-radius: 16px;
+        padding: 10px 20px;
+        border-radius: 12px;
         background: transparent;
-        border: 1px solid var(--yt-border);
+        border: none;
         color: var(--yt-text-secondary);
         text-decoration: none;
-        font-size: 13px;
-        font-weight: 500;
-        transition: all 0.2s;
+        font-size: 0.9rem;
+        font-weight: 600;
+        transition: all 0.25s ease;
     }
 
     .yt-sort-options a:hover {
@@ -184,9 +201,9 @@
     }
 
     .yt-sort-options a.active {
-        background: var(--yt-bg-secondary);
-        color: var(--yt-text-primary);
-        border-color: var(--yt-text-primary);
+        background: linear-gradient(135deg, #cc0000 0%, #ff4444 100%);
+        color: white;
+        box-shadow: 0 4px 12px rgba(204, 0, 0, 0.3);
     }
 
     /* Shorts Card Styling override for Channel Page grid */
@@ -245,133 +262,134 @@
 </style>
 
 <script>
-    console.log("Channel.html script loaded, channelId will be:", "{{ channel.id }}");
+    (function () {
+        // IIFE to prevent variable redeclaration errors on SPA navigation
+        console.log("Channel.html script loaded, channelId will be:", "{{ channel.id }}");
 
-    let currentChannelSort = 'latest';
-    let currentChannelPage = 1;
-    let isChannelLoading = false;
-    let hasMoreChannelVideos = true;
-    let currentFilterType = 'video';
-    const channelId = "{{ channel.id }}";
+        var currentChannelSort = 'latest';
+        var currentChannelPage = 1;
+        var isChannelLoading = false;
+        var hasMoreChannelVideos = true;
+        var currentFilterType = 'video';
+        var channelId = "{{ channel.id }}";
+        // Store initial channel title from server template (don't overwrite with empty API data)
+        var initialChannelTitle = "{{ channel.title }}";
 
-    document.addEventListener('DOMContentLoaded', () => {
-        console.log("DOMContentLoaded fired, calling fetchChannelContent...");
-        console.log("typeof fetchChannelContent:", typeof fetchChannelContent);
-        if (typeof fetchChannelContent === 'function') {
+        function init() {
+            console.log("Channel init called, fetching content...");
             fetchChannelContent();
+            setupInfiniteScroll();
+        }
+
+        // Handle both initial page load and SPA navigation
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', init);
         } else {
-            console.error("fetchChannelContent is NOT a function!");
-        }
-        setupInfiniteScroll();
-    });
-
-    function changeChannelTab(type, btn) {
-        if (type === currentFilterType || isChannelLoading) return;
-        currentFilterType = type;
-        currentChannelPage = 1;
-        hasMoreChannelVideos = true;
-        document.getElementById('channelVideosGrid').innerHTML = '';
-
-        // Update Tabs UI
-        document.querySelectorAll('.yt-tabs a').forEach(a => a.classList.remove('active'));
-        btn.classList.add('active');
-
-        // Adjust Grid layout for Shorts vs Videos
-        const grid = document.getElementById('channelVideosGrid');
-        if (type === 'shorts') {
-            grid.style.gridTemplateColumns = 'repeat(auto-fill, minmax(200px, 1fr))';
-        } else {
-            grid.style.gridTemplateColumns = 'repeat(auto-fill, minmax(320px, 1fr))';
+            // DOM is already ready (SPA navigation)
+            init();
         }
 
-        fetchChannelContent();
-    }
+        function changeChannelTab(type, btn) {
+            if (type === currentFilterType || isChannelLoading) return;
+            currentFilterType = type;
+            currentChannelPage = 1;
+            hasMoreChannelVideos = true;
+            document.getElementById('channelVideosGrid').innerHTML = '';
 
-    function changeChannelSort(sort, btn) {
-        if (isChannelLoading) return;
-        currentChannelSort = sort;
-        currentChannelPage = 1;
-        hasMoreChannelVideos = true;
-        document.getElementById('channelVideosGrid').innerHTML = ''; // Clear
+            // Update Tabs UI
+            document.querySelectorAll('.yt-tabs a').forEach(a => a.classList.remove('active'));
+            btn.classList.add('active');
 
-        // Update tabs
-        document.querySelectorAll('.yt-sort-options a').forEach(a => a.classList.remove('active'));
-        btn.classList.add('active');
-
-        fetchChannelContent();
-    }
-
-    async function fetchChannelContent() {
-        console.log("fetchChannelContent() called");
-        if (isChannelLoading || !hasMoreChannelVideos) {
-            console.log("Early return:", { isChannelLoading, hasMoreChannelVideos });
-            return;
-        }
-        isChannelLoading = true;
-
-        const grid = document.getElementById('channelVideosGrid');
-
-        // Append Loading indicator
-        if (typeof renderSkeleton === 'function') {
-            grid.insertAdjacentHTML('beforeend', renderSkeleton(4));
-        } else {
-            grid.insertAdjacentHTML('beforeend', '<div class="loading-text" style="color:var(--yt-text-secondary); padding: 20px;">Loading videos...</div>');
-        }
-
-        try {
-            console.log(`Fetching: /api/channel/videos?id=${channelId}&page=${currentChannelPage}`);
-            const response = await fetch(`/api/channel/videos?id=${channelId}&page=${currentChannelPage}&sort=${currentChannelSort}&filter_type=${currentFilterType}`);
-            const videos = await response.json();
-            console.log("Channel Videos Response:", videos);
-
-            // Remove skeletons (simple way: remove last N children or just clear all if page 1? 
-            // Better: mark skeletons with class and remove)
-            // For simplicity in this v1: We just clear skeletons by removing elements with 'skeleton-card' class
-            document.querySelectorAll('#channelVideosGrid .skeleton-card').forEach(el => el.remove());
-
-            // Check if response is an error
-            if (videos.error) {
-                hasMoreChannelVideos = false;
-                grid.innerHTML = `<p style="padding:20px; color:var(--yt-text-secondary);">Error: ${videos.error}</p>`;
-                return;
+            // Adjust Grid layout for Shorts vs Videos
+            const grid = document.getElementById('channelVideosGrid');
+            if (type === 'shorts') {
+                grid.style.gridTemplateColumns = 'repeat(auto-fill, minmax(200px, 1fr))';
+            } else {
+                grid.style.gridTemplateColumns = 'repeat(auto-fill, minmax(320px, 1fr))';
             }
 
-            if (!Array.isArray(videos) || videos.length === 0) {
-                hasMoreChannelVideos = false;
-                if (currentChannelPage === 1) grid.innerHTML = '<p style="padding:20px; color:var(--yt-text-secondary);">No videos found.</p>';
+            fetchChannelContent();
+        }
+
+        function changeChannelSort(sort, btn) {
+            if (isChannelLoading) return;
+            currentChannelSort = sort;
+            currentChannelPage = 1;
+            hasMoreChannelVideos = true;
+            document.getElementById('channelVideosGrid').innerHTML = ''; // Clear
+
+            // Update tabs
+            document.querySelectorAll('.yt-sort-options a').forEach(a => a.classList.remove('active'));
+            btn.classList.add('active');
+
+            fetchChannelContent();
+        }
+
+        async function fetchChannelContent() {
+            console.log("fetchChannelContent() called");
+            if (isChannelLoading || !hasMoreChannelVideos) {
+                console.log("Early return:", { isChannelLoading, hasMoreChannelVideos });
+                return;
+            }
+            isChannelLoading = true;
+
+            const grid = document.getElementById('channelVideosGrid');
+
+            // Append Loading indicator
+            if (typeof renderSkeleton === 'function') {
+                grid.insertAdjacentHTML('beforeend', renderSkeleton(4));
             } else {
-                // Update channel header with uploader info from first video (on first page only)
-                if (currentChannelPage === 1 && videos[0]) {
-                    // Try multiple sources for channel name
-                    let channelName = videos[0].uploader || videos[0].channel || '';
+                grid.insertAdjacentHTML('beforeend', '<div class="loading-text" style="color:var(--yt-text-secondary); padding: 20px;">Loading videos...</div>');
+            }
 
-                    // If still empty, try to get from video title (sometimes includes " - ChannelName")
-                    if (!channelName && videos[0].title) {
-                        const parts = videos[0].title.split(' - ');
-                        if (parts.length > 1) channelName = parts[parts.length - 1];
-                    }
+            try {
+                console.log(`Fetching: /api/channel/videos?id=${channelId}&page=${currentChannelPage}`);
+                const response = await fetch(`/api/channel/videos?id=${channelId}&page=${currentChannelPage}&sort=${currentChannelSort}&filter_type=${currentFilterType}`);
+                const videos = await response.json();
+                console.log("Channel Videos Response:", videos);
 
-                    // Final fallback: use channel ID
-                    if (!channelName) channelName = channelId;
+                // Remove skeletons (simple way: remove last N children or just clear all if page 1? 
+                // Better: mark skeletons with class and remove)
+                // For simplicity in this v1: We just clear skeletons by removing elements with 'skeleton-card' class
+                document.querySelectorAll('#channelVideosGrid .skeleton-card').forEach(el => el.remove());
 
-                    document.getElementById('channelTitle').textContent = channelName;
-                    document.getElementById('channelHandle').textContent = '@' + channelName.replace(/\s+/g, '');
-                    const avatarLetter = document.getElementById('channelAvatarLetter');
-                    if (avatarLetter) avatarLetter.textContent = channelName.charAt(0).toUpperCase();
-
-                    // Update browser URL to show friendly name
-                    const friendlyUrl = `/channel/@${encodeURIComponent(channelName.replace(/\s+/g, ''))}`;
-                    window.history.replaceState({ channelId: channelId }, '', friendlyUrl);
+                // Check if response is an error
+                if (videos.error) {
+                    hasMoreChannelVideos = false;
+                    grid.innerHTML = `<p style="padding:20px; color:var(--yt-text-secondary);">Error: ${videos.error}</p>`;
+                    return;
                 }
 
-                videos.forEach(video => {
-                    const card = document.createElement('div');
+                if (!Array.isArray(videos) || videos.length === 0) {
+                    hasMoreChannelVideos = false;
+                    if (currentChannelPage === 1) grid.innerHTML = '<p style="padding:20px; color:var(--yt-text-secondary);">No videos found.</p>';
+                } else {
+                    // Update channel header with uploader info from first video (on first page only)
+                    if (currentChannelPage === 1 && videos[0]) {
+                        // Use only proper channel/uploader fields - do NOT parse from title
+                        let channelName = videos[0].channel || videos[0].uploader || '';
 
-                    if (currentFilterType === 'shorts') {
-                        // Render Vertical Short Card
-                        card.className = 'yt-channel-short-card';
-                        card.onclick = () => window.location.href = `/watch?v=${video.id}`;
-                        card.innerHTML = `
+                        // Only update header if API returned a meaningful name
+                        // (not empty, not just the channel ID, and not "Loading...")
+                        if (channelName && channelName !== channelId &&
+                            !channelName.startsWith('UC') && channelName !== 'Loading...') {
+
+                            document.getElementById('channelTitle').textContent = channelName;
+                            document.getElementById('channelHandle').textContent = '@' + channelName.replace(/\s+/g, '');
+                            const avatarLetter = document.getElementById('channelAvatarLetter');
+                            if (avatarLetter) avatarLetter.textContent = channelName.charAt(0).toUpperCase();
+                        }
+                        // If no meaningful name from API, keep the initial template-rendered title
+                    }
+
+                    videos.forEach(video => {
+                        const card = document.createElement('div');
+
+                        if (currentFilterType === 'shorts') {
+                            // Render Vertical Short Card
+                            card.className = 'yt-channel-short-card';
+                            card.onclick = () => window.location.href = `/watch?v=${video.id}`;
+                            card.innerHTML = `
                              <div class="yt-short-thumb-container">
                                 <img src="${video.thumbnail}" class="yt-short-thumb loaded" loading="lazy" onload="this.classList.add('loaded')">
                              </div>
@@ -380,11 +398,11 @@
                                 <p class="yt-video-stats">${formatViews(video.view_count)} views</p>
                              </div>
                         `;
-                    } else {
-                        // Render Standard Video Card (Match Home)
-                        card.className = 'yt-video-card';
-                        card.onclick = () => window.location.href = `/watch?v=${video.id}`;
-                        card.innerHTML = `
+                        } else {
+                            // Render Standard Video Card (Match Home)
+                            card.className = 'yt-video-card';
+                            card.onclick = () => window.location.href = `/watch?v=${video.id}`;
+                            card.innerHTML = `
                             <div class="yt-thumbnail-container">
                                 <img class="yt-thumbnail loaded" src="${video.thumbnail}" loading="lazy" onload="this.classList.add('loaded')">
                                 ${video.duration ? `<span class="yt-duration">${video.duration}</span>` : ''}
@@ -398,64 +416,69 @@
                                 </div>
                             </div>
                         `;
-                    }
-                    grid.appendChild(card);
-                });
-                currentChannelPage++;
+                        }
+                        grid.appendChild(card);
+                    });
+                    currentChannelPage++;
+                }
+            } catch (e) {
+                console.error(e);
+            } finally {
+                isChannelLoading = false;
+                document.querySelectorAll('#channelVideosGrid .skeleton-card').forEach(el => el.remove());
             }
-        } catch (e) {
-            console.error(e);
-        } finally {
-            isChannelLoading = false;
-            document.querySelectorAll('#channelVideosGrid .skeleton-card').forEach(el => el.remove());
         }
-    }
 
-    function setupInfiniteScroll() {
-        const trigger = document.getElementById('channelLoadingTrigger');
-        const observer = new IntersectionObserver((entries) => {
-            if (entries[0].isIntersecting) {
-                fetchChannelContent();
+        function setupInfiniteScroll() {
+            const trigger = document.getElementById('channelLoadingTrigger');
+            const observer = new IntersectionObserver((entries) => {
+                if (entries[0].isIntersecting) {
+                    fetchChannelContent();
+                }
+            }, { threshold: 0.1 });
+            observer.observe(trigger);
+        }
+
+        // Helpers - Define locally to ensure availability
+        function escapeHtml(text) {
+            if (!text) return '';
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        function formatViews(views) {
+            if (!views) return '0';
+            const num = parseInt(views);
+            if (num >= 1000000) return (num / 1000000).toFixed(1) + 'M';
+            if (num >= 1000) return (num / 1000).toFixed(0) + 'K';
+            return num.toLocaleString();
+        }
+
+        function formatDate(dateStr) {
+            if (!dateStr) return 'Recently';
+            try {
+                // Format: YYYYMMDD
+                const year = dateStr.substring(0, 4);
+                const month = dateStr.substring(4, 6);
+                const day = dateStr.substring(6, 8);
+                const date = new Date(year, month - 1, day);
+                const now = new Date();
+                const diff = now - date;
+                const days = Math.floor(diff / (1000 * 60 * 60 * 24));
+                if (days < 1) return 'Today';
+                if (days < 7) return `${days} days ago`;
+                if (days < 30) return `${Math.floor(days / 7)} weeks ago`;
+                if (days < 365) return `${Math.floor(days / 30)} months ago`;
+                return `${Math.floor(days / 365)} years ago`;
+            } catch (e) {
+                return 'Recently';
             }
-        }, { threshold: 0.1 });
-        observer.observe(trigger);
-    }
-
-    // Helpers - Define locally to ensure availability
-    function escapeHtml(text) {
-        if (!text) return '';
-        const div = document.createElement('div');
-        div.textContent = text;
-        return div.innerHTML;
-    }
-
-    function formatViews(views) {
-        if (!views) return '0';
-        const num = parseInt(views);
-        if (num >= 1000000) return (num / 1000000).toFixed(1) + 'M';
-        if (num >= 1000) return (num / 1000).toFixed(0) + 'K';
-        return num.toLocaleString();
-    }
-
-    function formatDate(dateStr) {
-        if (!dateStr) return 'Recently';
-        try {
-            // Format: YYYYMMDD
-            const year = dateStr.substring(0, 4);
-            const month = dateStr.substring(4, 6);
-            const day = dateStr.substring(6, 8);
-            const date = new Date(year, month - 1, day);
-            const now = new Date();
-            const diff = now - date;
-            const days = Math.floor(diff / (1000 * 60 * 60 * 24));
-            if (days < 1) return 'Today';
-            if (days < 7) return `${days} days ago`;
-            if (days < 30) return `${Math.floor(days / 7)} weeks ago`;
-            if (days < 365) return `${Math.floor(days / 30)} months ago`;
-            return `${Math.floor(days / 365)} years ago`;
-        } catch (e) {
-            return 'Recently';
         }
-    }
+
+        // Expose functions globally for onclick handlers
+        window.changeChannelTab = changeChannelTab;
+        window.changeChannelSort = changeChannelSort;
+    })();
 </script>
 {% endblock %}
