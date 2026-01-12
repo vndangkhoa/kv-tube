@@ -39,13 +39,6 @@
 
             <!-- Actions -->
             <div class="yt-video-actions">
-                <button class="yt-action-btn" id="likeBtn">
-                    <i class="fas fa-thumbs-up"></i>
-                    <span id="likeCount">Like</span>
-                </button>
-                <button class="yt-action-btn" id="dislikeBtn">
-                    <i class="fas fa-thumbs-down"></i>
-                </button>
                 <button class="yt-action-btn" id="shareBtn">
                     <i class="fas fa-share"></i>
                     Share
@@ -54,7 +47,7 @@
                     <i class="fas fa-download"></i>
                     Download
                 </button>
-                <button class="yt-action-btn" id="saveBtn">
+                <button class="yt-action-btn" id="saveBtn" onclick="toggleSaveToLibrary()">
                     <i class="far fa-bookmark"></i>
                     Save
                 </button>
@@ -66,6 +59,10 @@
                     <i class="fas fa-list-ul"></i>
                     Queue
                     <span id="queueBadge" class="queue-badge" style="display:none;">0</span>
+                </button>
+                <button class="yt-action-btn" id="genSubBtn" onclick="generateSubtitles()" style="display:none;">
+                    <i class="fas fa-closed-captioning"></i>
+                    Generate Subs
                 </button>
 
                 <!-- View Mode Buttons -->
@@ -1247,13 +1244,20 @@
                 thumbnail: `https://i.ytimg.com/vi/${videoId}/mqdefault.jpg`,
                 uploader: data.uploader || 'Unknown',
                 channel_id: data.channel_id || data.uploader_id || '',
-                duration: data.duration
+                duration: data.duration,
+                audioUrl: data.audio_url
             };
 
             // Check if video is already in queue
             updateQueueButtonState();
             updateQueueCount();
             updateQueueBadge();
+
+            // Enable AI Subtitles (Always show for testing if audio is available)
+            if (data.audio_url) {
+                const genBtn = document.getElementById('genSubBtn');
+                if (genBtn) genBtn.style.display = 'inline-flex';
+            }
 
             if (data.error) {
                 loading.innerHTML = `<p style="color:#f00; text-align:center;">${data.error}</p>`;
@@ -1392,6 +1396,54 @@
             const div = document.createElement('div');
             div.textContent = text;
             return div.innerHTML;
+        }
+
+        async function generateSubtitles() {
+            const btn = document.getElementById('genSubBtn');
+
+            if (!currentVideoData.audioUrl) {
+                showToast("No audio source available for AI", "error");
+                return;
+            }
+
+            btn.disabled = true;
+            const originalHtml = btn.innerHTML;
+
+            try {
+                // Initialize/Load
+                await window.subtitleGenerator.init((msg) => {
+                    btn.innerHTML = `<i class="fas fa-spinner fa-spin"></i> ${msg}`;
+                });
+
+                // Generate
+                btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Transcribing...';
+
+                const vttContent = await window.subtitleGenerator.generate(currentVideoData.audioUrl, (msg) => {
+                    btn.innerHTML = `<i class="fas fa-circle-notch fa-spin"></i> ${msg}`;
+                });
+
+                console.log("Generated VTT:", vttContent);
+
+                // Inject into Player
+                if (window.player) {
+                    const blob = new Blob([vttContent], { type: 'text/vtt' });
+                    const url = URL.createObjectURL(blob);
+
+                    // Artplayer subtitle API
+                    window.player.subtitle.url = url;
+                    window.player.subtitle.show = true;
+                    window.player.notice.show = 'AI Subtitles Generated';
+
+                    showToast("Subtitles generated successfully!", "success");
+                    btn.style.display = 'none'; // Hide button after success
+                }
+
+            } catch (e) {
+                console.error(e);
+                showToast("Subtitle generation failed: " + e.message, "error");
+                btn.innerHTML = originalHtml;
+                btn.disabled = false;
+            }
         }
 
         async function summarizeVideo() {

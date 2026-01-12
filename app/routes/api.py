@@ -15,6 +15,8 @@ import time
 import random
 import concurrent.futures
 import yt_dlp
+import tempfile
+import threading
 
 logger = logging.getLogger(__name__)
 
@@ -27,6 +29,10 @@ DB_NAME = os.path.join(DATA_DIR, "kvtube.db")
 # Caching
 API_CACHE = {}
 CACHE_TIMEOUT = 600  # 10 minutes
+
+# AI Models
+WHISPER_MODEL = None
+WHISPER_LOCK = threading.Lock()
 
 
 def get_db_connection():
@@ -436,10 +442,10 @@ def get_stream_info():
             "format": "best[ext=mp4]/best",
             "noplaylist": True,
             "quiet": True,
-            "no_warnings": True,
             "skip_download": True,
-            "force_ipv4": True,
             "socket_timeout": 10,
+            "force_ipv4": True, 
+            "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36",
         }
 
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -452,6 +458,10 @@ def get_stream_info():
         stream_url = info.get("url")
         if not stream_url:
             return jsonify({"error": "No stream URL found"}), 500
+
+        # Log the headers yt-dlp expects us to use
+        expected_headers = info.get("http_headers", {})
+        logger.info(f"YT-DLP Expected Headers: {expected_headers}")
 
         # Extract subtitles
         subtitle_url = None
@@ -466,6 +476,33 @@ def get_stream_info():
                 subtitle_url = auto_subs[lang][0]["url"]
                 break
 
+        # Extract best audio-only URL for AI transcription
+        audio_url = None
+        try:
+            formats = info.get("formats", [])
+            # Debug: Log format details to understand why we aren't matching
+            # logger.info(f"Scanning {len(formats)} formats for audio-only...")
+            
+            audio_formats = []
+            for f in formats:
+                vcodec = f.get("vcodec")
+                acodec = f.get("acodec")
+                # Check for audio-only: vcodec should be none/None, acodec should be something
+                if (vcodec == "none" or vcodec is None) and (acodec != "none" and acodec is not None):
+                     audio_formats.append(f)
+
+            if audio_formats:
+                # Prefer m4a (itag 140) for best compatibility, or webm (251)
+                # Sort by filesize (smaller is faster for whisper) or bitrate?
+                # For now simply pick the first one that looks like m4a, else first available
+                chosen_audio = next((f for f in audio_formats if f.get("ext") == "m4a"), audio_formats[0])
+                audio_url = chosen_audio.get("url")
+                logger.info(f"Found audio-only URL: {audio_url[:30]}...")
+            else:
+                logger.warning("No audio-only formats found in valid stream info.")
+        except Exception as e:
+            logger.error(f"Failed to extract audio url: {e}")
+
         response_data = {
             "original_url": stream_url,
             "title": info.get("title", "Unknown"),
@@ -477,7 +514,15 @@ def get_stream_info():
             "view_count": info.get("view_count", 0),
             "related": [],
             "subtitle_url": subtitle_url,
+            "audio_url": None # Placeholder, filled below
         }
+
+        from urllib.parse import quote
+        proxied_url = f"/video_proxy?url={quote(stream_url, safe='')}"
+        response_data["stream_url"] = proxied_url
+        
+        if audio_url:
+             response_data["audio_url"] = f"/video_proxy?url={quote(audio_url, safe='')}"
 
         # Cache it
         expiry = current_time + 3600
@@ -487,10 +532,6 @@ def get_stream_info():
         )
         conn.commit()
         conn.close()
-
-        from urllib.parse import quote
-        proxied_url = f"/video_proxy?url={quote(stream_url, safe='')}"
-        response_data["stream_url"] = proxied_url
 
         response = jsonify(response_data)
         response.headers["X-Cache"] = "MISS"
@@ -513,7 +554,12 @@ def search():
         if url_match:
             video_id = url_match.group(1)
             # Fetch single video info
-            ydl_opts = {"quiet": True, "no_warnings": True, "noplaylist": True}
+            ydl_opts = {
+                "quiet": True,
+                "no_warnings": True,
+                "noplaylist": True,
+                "user_agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36",
+            }
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 info = ydl.extract_info(f"https://www.youtube.com/watch?v={video_id}", download=False)
                 return jsonify([{
@@ -539,17 +585,20 @@ def search():
 def get_channel_videos_simple():
     """Get videos from a channel."""
     channel_id = request.args.get("id")
+    filter_type = request.args.get("filter_type", "video")
     if not channel_id:
         return jsonify({"error": "No channel ID provided"}), 400
 
     try:
         # Construct URL
+        suffix = "shorts" if filter_type == "shorts" else "videos"
+        
         if channel_id.startswith("UC"):
-            url = f"https://www.youtube.com/channel/{channel_id}/videos"
+            url = f"https://www.youtube.com/channel/{channel_id}/{suffix}"
         elif channel_id.startswith("@"):
-            url = f"https://www.youtube.com/{channel_id}/videos"
+            url = f"https://www.youtube.com/{channel_id}/{suffix}"
         else:
-            url = f"https://www.youtube.com/channel/{channel_id}/videos"
+            url = f"https://www.youtube.com/channel/{channel_id}/{suffix}"
 
         cmd = [
             sys.executable, "-m", "yt_dlp",
@@ -741,6 +790,85 @@ def get_transcript():
 
     except Exception as e:
         return jsonify({"success": False, "error": f"Could not load transcript: {str(e)}"})
+
+
+@api_bp.route("/generate_subtitles", methods=["POST"])
+def generate_subtitles():
+    """Generate subtitles using server-side Whisper."""
+    global WHISPER_MODEL
+    
+    data = request.get_json()
+    video_id = data.get("video_id")
+
+    if not video_id:
+        return jsonify({"error": "No video ID provided"}), 400
+
+    temp_path = None
+    try:
+        # Lazy load model
+        with WHISPER_LOCK:
+            if WHISPER_MODEL is None:
+                import whisper
+                logger.info("Loading Whisper model (tiny)...")
+                WHISPER_MODEL = whisper.load_model("tiny")
+
+        # Extract Audio URL
+        url = f"https://www.youtube.com/watch?v={video_id}"
+        ydl_opts = {
+            "format": "bestaudio[ext=m4a]/bestaudio/best",
+            "noplaylist": True,
+            "quiet": True,
+            "force_ipv4": True,
+        }
+        
+        audio_url = None
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(url, download=False)
+            audio_url = info.get("url")
+            
+        if not audio_url:
+             return jsonify({"error": "Could not extract audio URL"}), 500
+
+        # Download audio to temp file
+        import requests
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36",
+        }
+        
+        logger.info(f"Downloading audio for transcription: {audio_url[:30]}...")
+        with requests.get(audio_url, headers=headers, stream=True) as r:
+            r.raise_for_status()
+            with tempfile.NamedTemporaryFile(suffix=".m4a", delete=False) as f:
+                temp_path = f.name
+                for chunk in r.iter_content(chunk_size=8192): 
+                    f.write(chunk)
+        
+        # Transcribe
+        logger.info("Transcribing...")
+        result = WHISPER_MODEL.transcribe(temp_path)
+        
+        # Convert to VTT
+        def format_timestamp(seconds):
+            hours = int(seconds // 3600)
+            minutes = int((seconds % 3600) // 60)
+            seconds = seconds % 60
+            return f"{hours:02d}:{minutes:02d}:{seconds:06.3f}"
+
+        vtt_output = "WEBVTT\n\n"
+        for segment in result["segments"]:
+            start = format_timestamp(segment["start"])
+            end = format_timestamp(segment["end"])
+            text = segment["text"].strip()
+            vtt_output += f"{start} --> {end}\n{text}\n\n"
+            
+        return jsonify({"success": True, "vtt": vtt_output})
+
+    except Exception as e:
+        logger.error(f"Subtitle generation failed: {e}")
+        return jsonify({"error": str(e)}), 500
+    finally:
+        if temp_path and os.path.exists(temp_path):
+            os.remove(temp_path)
 
 
 @api_bp.route("/update_ytdlp", methods=["POST"])

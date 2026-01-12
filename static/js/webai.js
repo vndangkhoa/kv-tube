@@ -1,144 +1,119 @@
 /**
- * KV-Tube WebAI Service
- * Local AI chatbot for transcript Q&A using WebLLM
- * 
- * Runs entirely in-browser, no server required after model download
+ * WebAI - Client-side AI features using Transformers.js
  */
 
-// WebLLM CDN import (lazy loaded)
-var WEBLLM_CDN = 'https://esm.run/@mlc-ai/web-llm';
+// Suppress ONNX Runtime warnings
+if (typeof ort !== 'undefined') {
+    ort.env.logLevel = 'fatal';
+}
 
-// Model options - using verified WebLLM model IDs
-var AI_MODELS = {
-    small: { id: 'Qwen2-0.5B-Instruct-q4f16_1-MLC', name: 'Qwen2 (0.5B)', size: '350MB' },
-    medium: { id: 'Qwen2-1.5B-Instruct-q4f16_1-MLC', name: 'Qwen2 (1.5B)', size: '1GB' },
-};
+class SubtitleGenerator {
+    constructor() {
+        this.pipeline = null;
+        this.isLoading = false;
+    }
 
-// Default to small model
-var DEFAULT_MODEL = AI_MODELS.small;
+    async init(progressCallback) {
+        if (this.pipeline) return;
+        if (this.isLoading) return;
 
-if (typeof TranscriptAI === 'undefined') {
-    window.TranscriptAI = class TranscriptAI {
-        constructor() {
-            this.engine = null;
-            this.isLoading = false;
-            this.isReady = false;
-            this.transcript = '';
-            this.onProgressCallback = null;
-            this.onReadyCallback = null;
-        }
+        this.isLoading = true;
 
-        setTranscript(text) {
-            this.transcript = text.slice(0, 8000); // Limit context size
-        }
+        try {
+            // Suppress ONNX warnings at import time
+            if (typeof ort !== 'undefined') {
+                ort.env.logLevel = 'fatal';
+            }
 
-        setCallbacks({ onProgress, onReady }) {
-            this.onProgressCallback = onProgress;
-            this.onReadyCallback = onReady;
-        }
+            progressCallback?.('Loading AI model...');
 
-        async init() {
-            if (this.isReady || this.isLoading) return;
+            const { pipeline, env } = await import('https://cdn.jsdelivr.net/npm/@xenova/transformers@2.17.2');
 
-            this.isLoading = true;
+            // Configure environment
+            env.allowLocalModels = false;
+            env.useBrowserCache = true;
 
-            try {
-                // Dynamic import WebLLM
-                const { CreateMLCEngine } = await import(WEBLLM_CDN);
+            // Suppress ONNX Runtime warnings
+            if (typeof ort !== 'undefined') {
+                ort.env.logLevel = 'fatal';
+            }
 
-                // Initialize engine with progress callback
-                this.engine = await CreateMLCEngine(DEFAULT_MODEL.id, {
-                    initProgressCallback: (report) => {
-                        if (this.onProgressCallback) {
-                            this.onProgressCallback(report);
+            progressCallback?.('Downloading Whisper model (~40MB)...');
+
+            this.pipeline = await pipeline(
+                'automatic-speech-recognition',
+                'Xenova/whisper-tiny',
+                {
+                    progress_callback: (progress) => {
+                        if (progress.status === 'downloading') {
+                            const pct = Math.round((progress.loaded / progress.total) * 100);
+                            progressCallback?.(`Downloading: ${pct}%`);
+                        } else if (progress.status === 'loading') {
+                            progressCallback?.('Loading model...');
                         }
-                        console.log('AI Load Progress:', report.text);
                     }
-                });
-
-                this.isReady = true;
-                this.isLoading = false;
-
-                if (this.onReadyCallback) {
-                    this.onReadyCallback();
                 }
+            );
 
-                console.log('TranscriptAI ready with model:', DEFAULT_MODEL.name);
-
-            } catch (err) {
-                this.isLoading = false;
-                console.error('Failed to load AI model:', err);
-                throw err;
-            }
-        }
-
-        async ask(question) {
-            if (!this.isReady) {
-                throw new Error('AI not initialized');
-            }
-
-            const systemPrompt = this.transcript
-                ? `You are a helpful AI assistant analyzing a video transcript. Answer the user's question based ONLY on the transcript content below. Be concise and direct. If the answer is not in the transcript, say so.\n\nTRANSCRIPT:\n${this.transcript}`
-                : `You are a helpful AI assistant for KV-Tube, a lightweight YouTube client. You can help the user with general questions, explain features of the app, or chat casually. Be concise and helpful.`;
-
-            try {
-                const response = await this.engine.chat.completions.create({
-                    messages: [
-                        { role: 'system', content: systemPrompt },
-                        { role: 'user', content: question }
-                    ],
-                    max_tokens: 256,
-                    temperature: 0.7,
-                });
-
-                return response.choices[0].message.content;
-
-            } catch (err) {
-                console.error('AI response error:', err);
-                throw err;
-            }
-        }
-
-        async *askStreaming(question) {
-            if (!this.isReady) {
-                throw new Error('AI not initialized');
-            }
-
-            const systemPrompt = this.transcript
-                ? `You are a helpful AI assistant analyzing a video transcript. Answer the user's question based ONLY on the transcript content below. Be concise and direct. If the answer is not in the transcript, say so.\n\nTRANSCRIPT:\n${this.transcript}`
-                : `You are a helpful AI assistant for KV-Tube, a lightweight YouTube client. You can help the user with general questions, explain features of the app, or chat casually. Be concise and helpful.`;
-
-            const chunks = await this.engine.chat.completions.create({
-                messages: [
-                    { role: 'system', content: systemPrompt },
-                    { role: 'user', content: question }
-                ],
-                max_tokens: 256,
-                temperature: 0.7,
-                stream: true,
-            });
-
-            for await (const chunk of chunks) {
-                const delta = chunk.choices[0]?.delta?.content;
-                if (delta) {
-                    yield delta;
-                }
-            }
-        }
-
-        getModelInfo() {
-            return DEFAULT_MODEL;
-        }
-
-        isModelReady() {
-            return this.isReady;
-        }
-
-        isModelLoading() {
-            return this.isLoading;
+            progressCallback?.('Model ready!');
+        } catch (e) {
+            console.error('Failed to load Whisper:', e);
+            throw e;
+        } finally {
+            this.isLoading = false;
         }
     }
 
-    // Global instance
-    window.transcriptAI = new TranscriptAI();
+    async generate(audioUrl, progressCallback) {
+        if (!this.pipeline) {
+            throw new Error('Model not initialized. Call init() first.');
+        }
+
+        progressCallback?.('Transcribing audio...');
+
+        try {
+            const result = await this.pipeline(audioUrl, {
+                chunk_length_s: 30,
+                stride_length_s: 5,
+                return_timestamps: true,
+            });
+
+            progressCallback?.('Formatting subtitles...');
+
+            // Convert to VTT format
+            return this.toVTT(result.chunks || []);
+        } catch (e) {
+            console.error('Transcription failed:', e);
+            throw e;
+        }
+    }
+
+    toVTT(chunks) {
+        let vtt = 'WEBVTT\n\n';
+
+        chunks.forEach((chunk, i) => {
+            const start = this.formatTime(chunk.timestamp[0]);
+            const end = this.formatTime(chunk.timestamp[1]);
+            const text = chunk.text.trim();
+
+            if (text) {
+                vtt += `${i + 1}\n`;
+                vtt += `${start} --> ${end}\n`;
+                vtt += `${text}\n\n`;
+            }
+        });
+
+        return vtt;
+    }
+
+    formatTime(seconds) {
+        if (seconds === null || seconds === undefined) seconds = 0;
+        const h = Math.floor(seconds / 3600);
+        const m = Math.floor((seconds % 3600) / 60);
+        const s = (seconds % 60).toFixed(3);
+        return `${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}:${s.padStart(6, '0')}`;
+    }
 }
+
+// Export singleton
+window.subtitleGenerator = new SubtitleGenerator();

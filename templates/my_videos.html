@@ -352,22 +352,35 @@
         }
     }
 
-    // Run on initial page load
-    document.addEventListener('DOMContentLoaded', () => {
+    // Run on initial page load and SPA navigation
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', () => {
+            loadLibraryContent();
+            initTabs();
+        });
+    } else {
+        // Document already loaded (SPA navigation)
         loadLibraryContent();
+        initTabs();
+    }
 
+    function initTabs() {
         // Intercept tab clicks for client-side navigation
         document.querySelectorAll('.library-tab').forEach(tab => {
-            tab.addEventListener('click', (e) => {
+            // Remove old listeners to be safe (optional but good practice in SPA)
+            const newTab = tab.cloneNode(true);
+            tab.parentNode.replaceChild(newTab, tab);
+
+            newTab.addEventListener('click', (e) => {
                 e.preventDefault();
-                const newUrl = tab.getAttribute('href');
+                const newUrl = newTab.getAttribute('href');
                 // Update URL without reloading
                 history.pushState(null, '', newUrl);
                 // Immediately load the new content
                 loadLibraryContent();
             });
         });
-    });
+    }
 
     // Handle browser back/forward buttons
     window.addEventListener('popstate', () => {

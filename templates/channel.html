@@ -32,26 +32,28 @@
     <div class="yt-section">
         <div class="yt-section-header">
             <div class="yt-tabs">
-                <a href="#" onclick="changeChannelTab('video', this); return false;" class="active">
+                <a href="javascript:void(0)" onclick="changeChannelTab('video', this); return false;"
+                    class="active no-spa">
                     <i class="fas fa-video"></i>
                     <span>Videos</span>
                 </a>
-                <a href="#" onclick="changeChannelTab('shorts', this); return false;">
+                <a href="javascript:void(0)" onclick="changeChannelTab('shorts', this); return false;" class="no-spa">
                     <i class="fas fa-bolt"></i>
                     <span>Shorts</span>
                 </a>
             </div>
 
             <div class="yt-sort-options">
-                <a href="#" onclick="changeChannelSort('latest', this); return false;" class="active">
+                <a href="javascript:void(0)" onclick="changeChannelSort('latest', this); return false;"
+                    class="active no-spa">
                     <i class="fas fa-clock"></i>
                     <span>Latest</span>
                 </a>
-                <a href="#" onclick="changeChannelSort('popular', this); return false;">
+                <a href="javascript:void(0)" onclick="changeChannelSort('popular', this); return false;" class="no-spa">
                     <i class="fas fa-fire"></i>
                     <span>Popular</span>
                 </a>
-                <a href="#" onclick="changeChannelSort('oldest', this); return false;">
+                <a href="javascript:void(0)" onclick="changeChannelSort('oldest', this); return false;" class="no-spa">
                     <i class="fas fa-history"></i>
                     <span>Oldest</span>
                 </a>
@@ -343,8 +345,8 @@
             }
 
             try {
-                console.log(`Fetching: /api/channel/videos?id=${channelId}&page=${currentChannelPage}`);
-                const response = await fetch(`/api/channel/videos?id=${channelId}&page=${currentChannelPage}&sort=${currentChannelSort}&filter_type=${currentFilterType}`);
+                console.log(`Fetching: /api/channel?id=${channelId}&page=${currentChannelPage}`);
+                const response = await fetch(`/api/channel?id=${channelId}&page=${currentChannelPage}&sort=${currentChannelSort}&filter_type=${currentFilterType}`);
                 const videos = await response.json();
                 console.log("Channel Videos Response:", videos);
 

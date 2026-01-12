@@ -8,7 +8,7 @@ try:
 except NameError:
     base_dir = os.getcwd()
 
-venv_dirs = ['env', '.venv']
+venv_dirs = ['.venv', 'env']
 activated = False
 
 for venv_name in venv_dirs:

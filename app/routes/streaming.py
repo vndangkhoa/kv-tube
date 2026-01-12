@@ -6,6 +6,14 @@ from flask import Blueprint, request, Response, stream_with_context, send_from_d
 import requests
 import os
 import logging
+import socket
+import urllib3.util.connection as urllib3_cn
+
+# Force IPv4 for requests (which uses urllib3)
+def allowed_gai_family():
+    return socket.AF_INET
+
+urllib3_cn.allowed_gai_family = allowed_gai_family
 
 logger = logging.getLogger(__name__)
 
@@ -30,7 +38,8 @@ def video_proxy():
 
     # Forward headers to mimic browser and support seeking
     headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36",
+        # "Referer": "https://www.youtube.com/",  # Removed to test if it fixes 403
     }
 
     # Support Range requests (scrubbing)
@@ -39,7 +48,13 @@ def video_proxy():
         headers["Range"] = range_header
 
     try:
+        logger.info(f"Proxying URL: {url}")
+        # logger.info(f"Proxy Request Headers: {headers}")
         req = requests.get(url, headers=headers, stream=True, timeout=30)
+        
+        logger.info(f"Upstream Status: {req.status_code}")
+        if req.status_code != 200:
+             logger.error(f"Upstream Error Body: {req.text[:500]}")
 
         # Handle HLS (M3U8) Rewriting - CRITICAL for 1080p+ and proper sync
         content_type = req.headers.get("content-type", "").lower()
@@ -50,7 +65,7 @@ def video_proxy():
             or "application/vnd.apple.mpegurl" in content_type
         )
 
-        if is_manifest:
+        if is_manifest and req.status_code == 200:
             content = req.text
             base_url = url.rsplit("/", 1)[0]
             new_lines = []

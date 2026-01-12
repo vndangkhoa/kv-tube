@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
-"""Check git status and redeploy."""
+"""Build and push multi-platform Docker image."""
 import subprocess
-import os
 
 def run_cmd(cmd):
     print(f"\n>>> {cmd}")
@@ -13,37 +12,17 @@ def run_cmd(cmd):
     return result.returncode == 0
 
 print("="*50)
-print("Checking git status...")
+print("Building Multi-Platform Docker Image")
+print("(linux/amd64 + linux/arm64)")
 print("="*50)
-run_cmd("git status")
+
+# Create buildx builder if it doesn't exist
+run_cmd("docker buildx create --name multiplatform --use 2>/dev/null || docker buildx use multiplatform")
+
+# Build and push multi-platform image
+print("\nBuilding and pushing...")
+run_cmd("docker buildx build --platform linux/amd64,linux/arm64 -t vndangkhoa/kv-tube:latest --push .")
 
 print("\n" + "="*50)
-print("Staging all changes...")
-print("="*50)
-run_cmd("git add .")
-
-print("\n" + "="*50)
-print("Committing...")
-print("="*50)
-run_cmd('git commit -m "Latest local changes"')
-
-print("\n" + "="*50)
-print("Pushing to GitHub...")
-print("="*50)
-run_cmd("git push origin main")
-
-print("\n" + "="*50)
-print("Pushing to Forgejo...")
-print("="*50)
-run_cmd("git push private main")
-
-print("\n" + "="*50)
-print("Building Docker image...")
-print("="*50)
-if run_cmd("docker build -t vndangkhoa/kv-tube:latest ."):
-    print("\nPushing Docker image...")
-    run_cmd("docker push vndangkhoa/kv-tube:latest")
-
-print("\n" + "="*50)
-print("DEPLOYMENT COMPLETE!")
+print("DONE! Image now supports both amd64 and arm64")
 print("="*50)
