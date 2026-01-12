@@ -4,5 +4,4 @@ yt-dlp>=2024.1.0
 werkzeug
 gunicorn
 python-dotenv
-openai-whisper
-numpy
+

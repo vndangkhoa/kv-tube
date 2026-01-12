@@ -12,10 +12,7 @@
             <div id="artplayer-app" style="width: 100%; height: 100%;"></div>
             <!-- Loading State (Confined to Player) -->
             <div id="loading" class="yt-loader"></div>
-            <!-- Closed Captions Overlay -->
-            <div id="ccOverlay" class="cc-overlay hidden">
-                <div id="ccText" class="cc-text"></div>
-            </div>
+
         </div>
         <!-- Placeholder for Mini Mode -->
         <div id="playerPlaceholder" class="yt-player-placeholder"></div>
@@ -60,10 +57,7 @@
                     Queue
                     <span id="queueBadge" class="queue-badge" style="display:none;">0</span>
                 </button>
-                <button class="yt-action-btn" id="genSubBtn" onclick="generateSubtitles()" style="display:none;">
-                    <i class="fas fa-closed-captioning"></i>
-                    Generate Subs
-                </button>
+
 
                 <!-- View Mode Buttons -->
                 <div class="view-mode-buttons">
@@ -190,7 +184,7 @@
 
     <!-- Watch page styles extracted to external file for better caching -->
     <link rel="stylesheet" href="{{ url_for('static', filename='css/modules/watch.css') }}">
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/modules/captions.css') }}">
+
     <link rel="stylesheet" href="{{ url_for('static', filename='css/modules/downloads.css') }}">
 
     <!-- HLS Support (Local) -->
@@ -380,10 +374,7 @@
                     // --- Custom Mini Player Logic ---
                     setupMiniPlayer();
 
-                    // --- Closed Captions sync ---
-                    art.on('video:timeupdate', () => {
-                        updateCaptions(art.currentTime);
-                    });
+
 
                     // --- Auto Play Next ---
                     art.on('video:ended', () => {
@@ -1253,11 +1244,7 @@
             updateQueueCount();
             updateQueueBadge();
 
-            // Enable AI Subtitles (Always show for testing if audio is available)
-            if (data.audio_url) {
-                const genBtn = document.getElementById('genSubBtn');
-                if (genBtn) genBtn.style.display = 'inline-flex';
-            }
+
 
             if (data.error) {
                 loading.innerHTML = `<p style="color:#f00; text-align:center;">${data.error}</p>`;
@@ -1329,16 +1316,7 @@
                 })
             }).catch(() => { }); // Ignore errors for anon users
 
-            // Subtitle Config
-            // Disable ArtPlayer's built-in subtitle to avoid CORS
-            // Our custom CC system uses instead
-            /*
-/api/transcript                player.subtitle.url = data.subtitle_url || '';
-            if (data.subtitle_url) {
-                player.subtitle.show = true;
-                player.notice.show = 'CC Enabled';
-            }
-            */
+
 
             // Save Button - Local Storage based
             // Save Button handler is setup in DOMContentLoaded below
@@ -1398,53 +1376,7 @@
             return div.innerHTML;
         }
 
-        async function generateSubtitles() {
-            const btn = document.getElementById('genSubBtn');
 
-            if (!currentVideoData.audioUrl) {
-                showToast("No audio source available for AI", "error");
-                return;
-            }
-
-            btn.disabled = true;
-            const originalHtml = btn.innerHTML;
-
-            try {
-                // Initialize/Load
-                await window.subtitleGenerator.init((msg) => {
-                    btn.innerHTML = `<i class="fas fa-spinner fa-spin"></i> ${msg}`;
-                });
-
-                // Generate
-                btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Transcribing...';
-
-                const vttContent = await window.subtitleGenerator.generate(currentVideoData.audioUrl, (msg) => {
-                    btn.innerHTML = `<i class="fas fa-circle-notch fa-spin"></i> ${msg}`;
-                });
-
-                console.log("Generated VTT:", vttContent);
-
-                // Inject into Player
-                if (window.player) {
-                    const blob = new Blob([vttContent], { type: 'text/vtt' });
-                    const url = URL.createObjectURL(blob);
-
-                    // Artplayer subtitle API
-                    window.player.subtitle.url = url;
-                    window.player.subtitle.show = true;
-                    window.player.notice.show = 'AI Subtitles Generated';
-
-                    showToast("Subtitles generated successfully!", "success");
-                    btn.style.display = 'none'; // Hide button after success
-                }
-
-            } catch (e) {
-                console.error(e);
-                showToast("Subtitle generation failed: " + e.message, "error");
-                btn.innerHTML = originalHtml;
-                btn.disabled = false;
-            }
-        }
 
         async function summarizeVideo() {
             const videoId = "{{ video_id }}";

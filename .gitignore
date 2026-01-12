@@ -2,7 +2,11 @@
 __pycache__/
 *.pyc
 venv/
+.venv/
+.venv_clean/
 .env
 data/
 videos/
 *.db
+server.log
+.ruff_cache/
