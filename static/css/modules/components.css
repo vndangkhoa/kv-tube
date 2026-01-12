@@ -111,6 +111,12 @@
     .yt-floating-back {
         display: flex;
         /* Show only on mobile */
+        width: 48px;
+        height: 48px;
+        font-size: 18px;
+        bottom: 24px;
+        right: 24px;
+        /* Aligned with AI bubble */
     }
 
     .yt-floating-back {

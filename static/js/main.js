@@ -64,6 +64,9 @@ window.initApp = function () {
     // Init Theme (check if already init)
     initTheme();
 
+    // Restore sidebar state from localStorage to prevent layout shift
+    initSidebarState();
+
     // Check for category in URL if we are on home and need to switch
     const urlParams = new URLSearchParams(window.location.search);
     const category = urlParams.get('category');
@@ -335,105 +338,59 @@ async function loadTrending(reset = true) {
         if (data.mode === 'sections') {
             if (reset) resultsArea.innerHTML = '';
 
-            // Render Sections
-            // Render Sections
-            const isMobile = window.innerWidth <= 768;
+            // Flatten all section videos into a single unified grid
+            // User requested single vertical scroll instead of per-section carousels
+            let allVideos = [];
 
             data.data.forEach(section => {
-                const sectionDiv = document.createElement('div');
-                sectionDiv.style.gridColumn = '1 / -1';
-                sectionDiv.style.marginBottom = '24px';
+                const videos = section.videos || [];
+                // Add section info to each video for potential category display
+                videos.forEach(video => {
+                    video._sectionId = section.id;
+                    video._sectionTitle = section.title;
+                });
+                allVideos = allVideos.concat(videos);
+            });
 
-                // Header
-                // Make title clickable - user request
-                const categoryLink = section.id === 'suggested' || section.id === 'discovery'
-                    ? '#'
-                    : `/?category=${section.id}`;
+            // Render all videos in a unified grid
+            allVideos.forEach(video => {
+                const card = document.createElement('div');
+                card.className = 'yt-video-card';
 
-                // If it is suggested or discovery, maybe we don't link or link to something generic? 
-                // User asked for "categories name has a hyperlink". 
-                // Standard categories link to their pages. Suggested/Discovery link to # (no-op) or trending?
-                // Let's link standard ones. For Suggested/Discovery, we can just not link or link to home.
-                // Actually, if we link to /?category=tech it works.
-                // Use a conditional logic for href.
-
-                const titleHtml = (section.id !== 'suggested' && section.id !== 'discovery')
-                    ? `<a href="/?category=${section.id}" class="yt-section-title-link" style="text-decoration:none; color:inherit; display:flex; align-items:center; gap:10px;">
-                        <i class="fas fa-${section.icon}"></i> ${section.title}
-                        <i class="fas fa-chevron-right" style="font-size: 14px; opacity: 0.7;"></i>
-                       </a>`
-                    : `<span style="display:flex; align-items:center; gap:10px;"><i class="fas fa-${section.icon}"></i> ${section.title}</span>`;
-
-                sectionDiv.innerHTML = `
-                    <div class="yt-section-header" style="margin-bottom:12px;">
-                        <h2>${titleHtml}</h2>
+                card.innerHTML = `
+                    <div class="yt-thumbnail-container">
+                        <img class="yt-thumbnail" src="${video.thumbnail}" loading="lazy" onload="this.classList.add('loaded')" alt="${escapeHtml(video.title)}">
+                        ${video.duration ? `<span class="yt-duration">${video.duration}</span>` : ''}
+                    </div>
+                    <div class="yt-video-details">
+                        <div class="yt-channel-avatar">
+                            ${video.uploader ? video.uploader.charAt(0).toUpperCase() : 'Y'}
+                        </div>
+                        <div class="yt-video-meta">
+                            <h3 class="yt-video-title">${escapeHtml(video.title)}</h3>
+                            <p class="yt-channel-name">${escapeHtml(video.uploader || 'Unknown')}</p>
+                            <p class="yt-video-stats">${formatViews(video.view_count)} views</p>
+                        </div>
                     </div>
                 `;
-
-                const videos = section.videos || [];
-                let chunks = [];
-
-                if (isMobile) {
-                    // Split into 4 chunks (rows) for independent scrolling
-                    // Each chunk gets ~1/4 of videos, or at least some
-                    const chunkSize = Math.ceil(videos.length / 4);
-                    for (let i = 0; i < 4; i++) {
-                        const chunk = videos.slice(i * chunkSize, (i + 1) * chunkSize);
-                        if (chunk.length > 0) chunks.push(chunk);
-                    }
-                } else {
-                    // Desktop: 1 big chunk (grid handles layout)
-                    chunks.push(videos);
-                }
-
-                chunks.forEach(chunk => {
-                    // Scroll Container
-                    const scrollContainer = document.createElement('div');
-                    scrollContainer.className = 'yt-section-grid';
-
-                    chunk.forEach(video => {
-                        const card = document.createElement('div');
-                        card.className = 'yt-video-card';
-
-                        card.innerHTML = `
-                            <div class="yt-thumbnail-container">
-                                <img class="yt-thumbnail" src="${video.thumbnail}" loading="lazy" onload="this.classList.add('loaded')" alt="${escapeHtml(video.title)}">
-                                ${video.duration ? `<span class="yt-duration">${video.duration}</span>` : ''}
-                            </div>
-                            <div class="yt-video-details">
-                                <div class="yt-channel-avatar">
-                                    ${video.uploader ? video.uploader.charAt(0).toUpperCase() : 'Y'}
-                                </div>
-                                <div class="yt-video-meta">
-                                    <h3 class="yt-video-title">${escapeHtml(video.title)}</h3>
-                                    <p class="yt-channel-name">${escapeHtml(video.uploader || 'Unknown')}</p>
-                                    <p class="yt-video-stats">${formatViews(video.view_count)} views</p>
-                                </div>
-                            </div>
-                        `;
-                        card.onclick = () => {
-                            const params = new URLSearchParams({
-                                v: video.id,
-                                title: video.title || '',
-                                uploader: video.uploader || '',
-                                thumbnail: video.thumbnail || ''
-                            });
-                            const dest = `/watch?${params.toString()}`;
-
-                            if (window.navigationManager) {
-                                window.navigationManager.navigateTo(dest);
-                            } else {
-                                window.location.href = dest;
-                            }
-                        };
-                        scrollContainer.appendChild(card);
+                card.onclick = () => {
+                    const params = new URLSearchParams({
+                        v: video.id,
+                        title: video.title || '',
+                        uploader: video.uploader || '',
+                        thumbnail: video.thumbnail || ''
                     });
+                    const dest = `/watch?${params.toString()}`;
 
-                    sectionDiv.appendChild(scrollContainer);
-                });
-
-                resultsArea.appendChild(sectionDiv);
+                    if (window.navigationManager) {
+                        window.navigationManager.navigateTo(dest);
+                    } else {
+                        window.location.href = dest;
+                    }
+                };
+                resultsArea.appendChild(card);
             });
+
             if (window.observeImages) window.observeImages();
             return;
         }
@@ -444,10 +401,12 @@ async function loadTrending(reset = true) {
             if (reset) {
                 resultsArea.innerHTML = renderNoContent();
             }
+            hasMore = false; // Only stop if we get no results at all
         } else {
             displayResults(data, !reset);
-            // Assume if we got less than limit (20), we reached the end
-            if (data.length < 20) hasMore = false;
+            // Keep loading unless we got 0 videos
+            // Multi-category API returns variable amounts, so don't limit by 20
+            hasMore = data.length > 0;
         }
     } catch (e) {
         console.error('Failed to load trending:', e);
@@ -586,14 +545,20 @@ function escapeHtml(text) {
     return div.innerHTML;
 }
 
-// Sidebar toggle (for mobile)
+// Sidebar toggle (for mobile and desktop)
 function toggleSidebar() {
     const sidebar = document.getElementById('sidebar');
     const main = document.getElementById('mainContent');
+    const overlay = document.querySelector('.yt-sidebar-overlay');
 
     if (window.innerWidth <= 1024) {
+        // Mobile: slide-in sidebar with overlay
         sidebar.classList.toggle('open');
+        if (overlay) {
+            overlay.classList.toggle('active', sidebar.classList.contains('open'));
+        }
     } else {
+        // Desktop: collapse/expand sidebar
         sidebar.classList.toggle('collapsed');
         main.classList.toggle('sidebar-collapsed');
         localStorage.setItem('sidebarCollapsed', sidebar.classList.contains('collapsed'));
@@ -604,6 +569,7 @@ function toggleSidebar() {
 document.addEventListener('click', (e) => {
     const sidebar = document.getElementById('sidebar');
     const menuBtn = document.querySelector('.yt-menu-btn');
+    const overlay = document.querySelector('.yt-sidebar-overlay');
 
     if (window.innerWidth <= 1024 &&
         sidebar &&
@@ -611,7 +577,56 @@ document.addEventListener('click', (e) => {
         !sidebar.contains(e.target) &&
         menuBtn && !menuBtn.contains(e.target)) {
         sidebar.classList.remove('open');
+        if (overlay) {
+            overlay.classList.remove('active');
+        }
     }
+});
+
+// Initialize sidebar state from localStorage to prevent layout shift
+function initSidebarState() {
+    const sidebar = document.getElementById('sidebar');
+    const main = document.getElementById('mainContent');
+    const overlay = document.querySelector('.yt-sidebar-overlay');
+
+    if (!sidebar || !main) return;
+
+    // Mobile: always hide sidebar (it will slide in when toggled)
+    if (window.innerWidth <= 1024) {
+        sidebar.classList.remove('open', 'collapsed');
+        main.classList.remove('sidebar-collapsed');
+        if (overlay) overlay.classList.remove('active');
+        return;
+    }
+
+    // Desktop: Check if we're on watch page
+    const isWatchPage = document.querySelector('.yt-watch-layout') !== null;
+
+    // On watch page, always use mini sidebar for more video space
+    if (isWatchPage) {
+        sidebar.classList.add('collapsed');
+        main.classList.add('sidebar-collapsed');
+        return;
+    }
+
+    // On other pages, restore from localStorage for consistent experience
+    const savedState = localStorage.getItem('sidebarCollapsed');
+    if (savedState === 'true') {
+        sidebar.classList.add('collapsed');
+        main.classList.add('sidebar-collapsed');
+    } else {
+        sidebar.classList.remove('collapsed');
+        main.classList.remove('sidebar-collapsed');
+    }
+}
+
+// Re-initialize sidebar state on window resize
+let resizeTimer;
+window.addEventListener('resize', () => {
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(() => {
+        initSidebarState();
+    }, 150);
 });
 
 // --- Theme Logic ---
@@ -619,10 +634,9 @@ function initTheme() {
     // Check for saved preference
     let savedTheme = localStorage.getItem('theme');
 
-    // If no saved preference, use Time of Day (Auto)
+    // If no saved preference, default to dark theme
     if (!savedTheme) {
-        const hour = new Date().getHours();
-        savedTheme = (hour >= 6 && hour < 18) ? 'light' : 'dark';
+        savedTheme = 'dark';
     }
 
     setTheme(savedTheme, false); // Initial set without saving (already saved or computed)

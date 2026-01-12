@@ -936,7 +936,9 @@
 
         // Initialize view mode from localStorage
         document.addEventListener('DOMContentLoaded', () => {
-            const savedMode = localStorage.getItem('kv_view_mode') || 'theater';
+            // On mobile, always use theater mode for better viewing
+            const isMobile = window.innerWidth <= 1024;
+            const savedMode = isMobile ? 'theater' : (localStorage.getItem('kv_view_mode') || 'theater');
             setViewMode(savedMode);
 
             // Listen for PiP exit
@@ -1355,9 +1357,11 @@
 
             if (data.related && data.related.length > 0) {
                 renderRelated(data.related);
+            } else {
+                // No initial related videos, trigger load immediately on mobile
+                relatedPage = 1; // Start from page 1
+                setTimeout(() => loadMoreRelated(), 500);
             }
-            // If no related videos initially, do nothing.
-            // The sentinel below will trigger the lazy loader to fetch them.
 
             // Add Sentinel for infinite scroll
             const sentinel = document.createElement('div');
@@ -1370,7 +1374,9 @@
 
             // Set global title for pagination
             currentVideoTitle = data.title;
-            relatedPage = 2; // Next page is 2
+            if (data.related && data.related.length > 0) {
+                relatedPage = 2; // Next page is 2 if we had initial data
+            }
         })(); // End initWatchPage IIFE
 
         function formatViews(views) {

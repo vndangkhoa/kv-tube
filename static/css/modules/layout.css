@@ -213,16 +213,30 @@
 
 /* ===== Responsive Layout Overrides ===== */
 @media (max-width: 1024px) {
+
+    /* Hide sidebar completely on mobile - it slides in as overlay when opened */
     .yt-sidebar {
         transform: translateX(-100%);
+        width: var(--yt-sidebar-width);
+        /* Full width when shown */
+        z-index: 1000;
+        /* Above main content */
     }
 
     .yt-sidebar.open {
         transform: translateX(0);
     }
 
+    /* Main content takes full width on mobile - no margin for sidebar */
     .yt-main {
-        margin-left: 0;
+        margin-left: 0 !important;
+        /* Override any sidebar-collapsed state */
+        width: 100%;
+    }
+
+    /* Ignore sidebar-collapsed class on mobile */
+    .yt-main.sidebar-collapsed {
+        margin-left: 0 !important;
     }
 
     .yt-header-center {
@@ -253,9 +267,19 @@
         padding: 12px;
     }
 
-    /* Reduce header padding to match */
+    /* Reduce header padding and make search fill space */
     .yt-header {
-        padding: 0 12px !important;
+        padding: 0 8px !important;
+        gap: 8px;
+    }
+
+    .yt-header-start {
+        gap: 4px;
+    }
+
+    .yt-header-end {
+        display: none;
+        /* Hide empty header end on mobile */
     }
 
     /* Filter bar spacing */

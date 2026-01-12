@@ -3,10 +3,62 @@
  * Styling for the transcript Q&A chatbot panel
  */
 
+/* Floating AI Bubble Button */
+.ai-chat-bubble {
+    position: fixed;
+    bottom: 90px;
+    /* Above the back button */
+    right: 20px;
+    width: 56px;
+    height: 56px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    border: none;
+    color: white;
+    font-size: 24px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 9998;
+    box-shadow: 0 4px 16px rgba(102, 126, 234, 0.4);
+    transition: transform 0.3s, box-shadow 0.3s;
+    animation: bubble-pulse 2s infinite;
+}
+
+.ai-chat-bubble:hover {
+    transform: scale(1.1);
+    box-shadow: 0 6px 24px rgba(102, 126, 234, 0.6);
+}
+
+.ai-chat-bubble.active {
+    animation: none;
+    background: linear-gradient(135deg, #764ba2 0%, #667eea 100%);
+}
+
+@keyframes bubble-pulse {
+
+    0%,
+    100% {
+        box-shadow: 0 4px 16px rgba(102, 126, 234, 0.4);
+    }
+
+    50% {
+        box-shadow: 0 4px 24px rgba(102, 126, 234, 0.7);
+    }
+}
+
+/* Hide bubble on desktop when chat is open */
+.ai-chat-panel.visible~.ai-chat-bubble,
+body.ai-chat-open .ai-chat-bubble {
+    animation: none;
+}
+
 /* Chat Panel Container */
 .ai-chat-panel {
     position: fixed;
-    bottom: 20px;
+    bottom: 160px;
+    /* Position above the bubble */
     right: 20px;
     width: 380px;
     max-height: 500px;
@@ -18,12 +70,16 @@
     flex-direction: column;
     z-index: 9999;
     overflow: hidden;
-    transform: translateY(110%);
-    transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    transform: translateY(20px) scale(0.95);
+    opacity: 0;
+    pointer-events: none;
+    transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.3s;
 }
 
 .ai-chat-panel.visible {
-    transform: translateY(0);
+    transform: translateY(0) scale(1);
+    opacity: 1;
+    pointer-events: auto;
 }
 
 /* Chat Header */
@@ -236,11 +292,21 @@
 
 /* Mobile */
 @media (max-width: 768px) {
+    .ai-chat-bubble {
+        bottom: 100px;
+        /* More space above back button */
+        right: 24px;
+        /* Aligned with back button */
+        width: 48px;
+        height: 48px;
+        font-size: 18px;
+    }
+
     .ai-chat-panel {
         width: calc(100% - 20px);
         left: 10px;
         right: 10px;
-        bottom: 10px;
-        max-height: 60vh;
+        bottom: 160px;
+        max-height: 50vh;
     }
 }

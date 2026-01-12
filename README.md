@@ -72,7 +72,7 @@ For developers or running locally on a PC.
 
 2.  **Run**:
     ```bash
-    python wsgi.py
+    python kv_server.py
     ```
 
 3.  Access the app at: **http://localhost:5002**

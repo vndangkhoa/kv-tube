@@ -131,8 +131,8 @@
         (function () {
             let savedTheme = localStorage.getItem('theme');
             if (!savedTheme) {
-                const hour = new Date().getHours();
-                savedTheme = (hour >= 6 && hour < 18) ? 'light' : 'dark';
+                // Default to dark theme for better experience
+                savedTheme = 'dark';
             }
             document.documentElement.setAttribute('data-theme', savedTheme);
         })();
@@ -166,13 +166,7 @@
             </div>
 
             <div class="yt-header-end">
-                <button class="yt-icon-btn" onclick="toggleAIChat()" aria-label="AI Assistant">
-                    <i class="fas fa-robot"></i>
-                </button>
-                <!-- Mobile Search Icon Removed - Search will be visible -->
-                <!-- <button class="yt-icon-btn yt-mobile-search" onclick="toggleMobileSearch()" aria-label="Search">
-                    <i class="fas fa-search"></i>
-                </button> -->
+                <!-- AI Assistant moved to floating bubble -->
                 <!-- User Avatar Removed -->
             </div>
         </header>
@@ -268,6 +262,11 @@
         <main class="yt-main" id="mainContent">
             {% block content %}{% endblock %}
         </main>
+
+        <!-- Floating AI Chat Bubble -->
+        <button id="aiChatBubble" class="ai-chat-bubble" onclick="toggleAIChat()" aria-label="AI Assistant">
+            <i class="fas fa-robot"></i>
+        </button>
 
         <!-- Floating Back Button (Mobile) -->
         <button id="floatingBackBtn" class="yt-floating-back" onclick="history.back()" aria-label="Go Back">
@@ -562,12 +561,17 @@
 
         window.toggleAIChat = function () {
             const panel = document.getElementById('aiChatPanel');
+            const bubble = document.getElementById('aiChatBubble');
             if (!panel) return;
 
             aiChatVisible = !aiChatVisible;
 
             if (aiChatVisible) {
                 panel.classList.add('visible');
+                if (bubble) {
+                    bubble.classList.add('active');
+                    bubble.innerHTML = '<i class="fas fa-times"></i>';
+                }
 
                 // Initialize AI on first open
                 if (!aiInitialized && window.transcriptAI && !window.transcriptAI.isModelLoading()) {
@@ -575,6 +579,10 @@
                 }
             } else {
                 panel.classList.remove('visible');
+                if (bubble) {
+                    bubble.classList.remove('active');
+                    bubble.innerHTML = '<i class="fas fa-robot"></i>';
+                }
             }
         }
 
