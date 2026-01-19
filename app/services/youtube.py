@@ -6,6 +6,8 @@ import yt_dlp
 import logging
 from typing import Optional, List, Dict, Any
 from config import Config
+from app.services.loader_to import LoaderToService
+from app.services.settings import SettingsService
 
 logger = logging.getLogger(__name__)
 
@@ -20,6 +22,7 @@ class YouTubeService:
         'extract_flat': 'in_playlist',
         'force_ipv4': True,
         'socket_timeout': Config.YTDLP_TIMEOUT,
+        'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
     }
     
     @staticmethod
@@ -113,6 +116,34 @@ class YouTubeService:
         Returns:
             Video info dict with stream_url, or None on error
         """
+        engine = SettingsService.get('youtube_engine', 'auto')
+        
+        # 1. Force Remote
+        if engine == 'remote':
+            return cls._get_info_remote(video_id)
+            
+        # 2. Local (or Auto first attempt)
+        info = cls._get_info_local(video_id)
+        
+        if info:
+            return info
+            
+        # 3. Failover if Auto
+        if engine == 'auto' and not info:
+            logger.warning(f"yt-dlp failed for {video_id}, falling back to remote loader")
+            return cls._get_info_remote(video_id)
+            
+        return None
+
+    @classmethod
+    def _get_info_remote(cls, video_id: str) -> Optional[Dict[str, Any]]:
+        """Fetch info using LoaderToService"""
+        url = f"https://www.youtube.com/watch?v={video_id}"
+        return LoaderToService.get_stream_url(url)
+
+    @classmethod
+    def _get_info_local(cls, video_id: str) -> Optional[Dict[str, Any]]:
+        """Fetch info using yt-dlp (original logic)"""
         try:
             url = f"https://www.youtube.com/watch?v={video_id}"
             
@@ -148,10 +179,12 @@ class YouTubeService:
                     'view_count': info.get('view_count', 0),
                     'subtitle_url': subtitle_url,
                     'duration': info.get('duration'),
+                    'thumbnail': info.get('thumbnail') or f"https://i.ytimg.com/vi/{video_id}/hqdefault.jpg",
+                    'http_headers': info.get('http_headers', {})
                 }
                 
         except Exception as e:
-            logger.error(f"Error getting video info for {video_id}: {e}")
+            logger.error(f"Error getting local video info for {video_id}: {e}")
             return None
     
     @staticmethod

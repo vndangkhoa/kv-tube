@@ -266,6 +266,55 @@
     background: var(--yt-bg-secondary);
 }
 
+/* --- Homepage Sections --- */
+.yt-homepage-section {
+    margin-bottom: 32px;
+}
+
+.yt-section-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 16px;
+    padding: 0 4px;
+}
+
+.yt-section-header h2 {
+    font-size: 20px;
+    font-weight: 600;
+    color: var(--yt-text-primary);
+    margin: 0;
+}
+
+.yt-see-all {
+    color: var(--yt-text-secondary);
+    font-size: 14px;
+    background: none;
+    border: none;
+    cursor: pointer;
+    padding: 8px 12px;
+    border-radius: var(--yt-radius-sm);
+    transition: background 0.2s;
+}
+
+.yt-see-all:hover {
+    background: var(--yt-bg-hover);
+}
+
+@media (max-width: 768px) {
+    .yt-homepage-section {
+        margin-bottom: 24px;
+    }
+    
+    .yt-section-header {
+        padding: 0 8px;
+    }
+    
+    .yt-section-header h2 {
+        font-size: 18px;
+    }
+}
+
 /* --- Categories / Pills --- */
 .yt-categories {
     display: flex;

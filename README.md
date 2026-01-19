@@ -1,110 +1,62 @@
-# KV-Tube
-**A Distraction-Free, Privacy-Focused YouTube Client**
+# KV-Tube v3.0
 
-> [!NOTE] 
-> Designed for a premium, cinematic viewing experience.
+> A lightweight, privacy-focused YouTube frontend web application with AI-powered features.
 
-KV-Tube removes the clutter and noise of modern YouTube, focusing purely on the content you love. It strictly enforces a horizontal-first video policy, aggressively filtering out Shorts and vertical "TikTok-style" content to keep your feed clean and high-quality.
+KV-Tube removes distractions, tracking, and ads from the YouTube watching experience. It provides a clean interface to search, watch, and discover related content without needing a Google account.
 
-### 🚀 **Key Features (v2.0)**
+## 🚀 Key Features (v3)
 
-*   **🚫 Ads-Free & Privacy-First**: Watch without interruptions. No Google account required. All watch history is stored locally on your device (or self-hosted DB).
-*   **📺 Horizontal-First Experience**: Say goodbye to "Shorts". The feed only displays horizontal, cinematic content.
-*   **🔍 Specialized Feeds**:
-    *   **Tech & AI**: Clean feed for gadget reviews and deep dives.
-    *   **Trending**: See what's popular across major categories (Music, Gaming, News).
-    *   **Suggested for You**: Personalized recommendations based on your local watch history.
-*   **🧠 Local AI Integration**:
-    *   **Auto-Captions**: Automatically enables English subtitles.
-    *   **AI Summary**: (Optional) Generate quick text summaries of videos locally.
-*   **⚡ High Performance**: Optimized for speed with smart caching and rate-limit handling.
-*   **📱 PWA Ready**: Install on your phone or tablet with a responsive, app-like interface.
+- **Privacy First**: No tracking, no ads.
+- **Clean Interface**: Distraction-free watching experience.
+- **Efficient Streaming**: Direct video stream extraction using `yt-dlp`.
+- **AI Summary (Experimental)**: Generate concise summaries of videos (Currently disabled due to upstream rate limits).
+- **Multi-Language**: Support for English and Vietnamese (UI & Content).
+- **Auto-Update**: Includes `update_deps.py` to easily keep core fetching tools up-to-date.
 
----
+## 🛠️ Architecture Data Flow
 
-## 🛠️ Deployment
+![Architecture Data Flow](https://mermaid.ink/img/Z3JhcGggVEQKICAgIHN1YmdyYXBoIENsaWVudCBbIkNsaWVudCBTaWRlIl0KICAgICAgICBVc2VyWyJVc2VyIEJyb3dzZXIiXQogICAgZW5kCgogICAgc3ViZ3JhcGggQmFja2VuZCBbIktWVHViZSBCYWNrZW5kIFN5c3RlbSJdCiAgICAgICAgU2VydmVyWyJLVlR1YmUgU2VydmVyIl0KICAgICAgICBZVERMUFsieXRkbHAgQ29yZSJdCiAgICAgICAgWVRGZXRjaGVyWyJZVEZldGNoZXIgTGliIl0KICAgIGVuZAoKICAgIHN1YmdyYXBoIEV4dGVybmFsIFsiRXh0ZXJuYWwgU2VydmljZXMiXQogICAgICAgIFlvdVR1YmVbIllvdVR1YmUgVjMgQVBJIl0KICAgIGVuZAoKICAgICUlIE1haW4gRmxvdwogICAgVXNlciAtLSAiMS4gU2VhcmNoL1dhdGNoIFJlcXVlc3QiIC0tPiBTZXJ2ZXIKICAgIFNlcnZlciAtLSAiMi4gRXh0cmFjdCBNZXRhZGF0YSIgLS0+IFlURExQCiAgICBZVERMUCAtLSAiMy4gTmV0d29yayBSZXEgKENvb2tpZXMpIiAtLT4gWW91VHViZQogICAgWW91VHViZSAtLSAiNC4gUmF3IFN0cmVhbXMiIC0tPiBZVERMUAogICAgWVRETFAgLS0gIjUuIFN0cmVhbSBVUkwiIC0tPiBTZXJ2ZXIKICAgIFNlcnZlciAtLSAiNi4gUmVuZGVyL1Byb3h5IiAtLT4gVXNlcgogICAgCiAgICAlJSBGYWxsYmFjay9TZWNvbmRhcnkgRmxvdwogICAgU2VydmVyIC0uLT4gWVRGZXRjaGVyCiAgICBZVEZldGNoZXIgLS4tPiBZb3VUdWJlCiAgICBZVEZldGNoZXIgLS4gIkVycm9yIC8gTm8gVHJhbnNjcmlwdCIgLi0+IFNlcnZlcgoKICAgICUlIFN0eWxpbmcgdG8gbWFrZSBpdCBwb3AKICAgIHN0eWxlIEJhY2tlbmQgZmlsbDojZjlmOWY5LHN0cm9rZTojMzMzLHN0cm9rZS13aWR0aDoycHgKICAgIHN0eWxlIEV4dGVybmFsIGZpbGw6I2ZmZWJlZSxzdHJva2U6I2YwMCxzdHJva2Utd2lkdGg6MnB4)
 
-You can run KV-Tube easily using Docker (recommended for NAS/Servers) or directly with Python.
+## 🔧 Installation & Usage
 
-### Option A: Docker Compose (Recommended)
-Ideal for Synology NAS, Unraid, or casual servers.
+### Prerequisites
+- Python 3.10+
+- Git
+- Valid `cookies.txt` (Optional, for bypassing age-restrictions or rate limits)
 
-1.  Create a folder `kv-tube` and add the `docker-compose.yml` file.
-2.  Run the container:
-    ```bash
-    docker-compose up -d
-    ```
-3.  Access the app at: **http://localhost:5011**
+### Local Setup
+1. Clone the repository:
+   ```bash
+   git clone https://git.khoavo.myds.me/vndangkhoa/kv-tube.git
+   cd kv-tube
+   ```
+2. Install dependencies:
+   ```bash
+   pip install -r requirements.txt
+   ```
+3. Run the application:
+   ```bash
+   python wsgi.py
+   ```
+4. Access at `http://localhost:5002`
 
-**docker-compose.yml**:
-```yaml
-version: '3.8'
+### Docker Deployment (Linux/AMD64)
 
-services:
-  kv-tube:
-    image: vndangkhoa/kv-tube:latest
-    container_name: kv-tube
-    restart: unless-stopped
-    ports:
-      - "5011:5000"
-    volumes:
-      - ./data:/app/data
-    environment:
-      - PYTHONUNBUFFERED=1
-      - FLASK_ENV=production
+Built for stability and ease of use.
+
+```bash
+docker pull vndangkhoa/kv-tube:latest
+docker run -d -p 5002:5002 -v $(pwd)/cookies.txt:/app/cookies.txt vndangkhoa/kv-tube:latest
 ```
 
-### Option B: Local Development (Python)
-For developers or running locally on a PC.
+## 📦 Updates
 
-1.  **Clone & Install**:
-    ```bash
-    git clone https://github.com/vndangkhoa/kv-tube.git
-    cd kv-tube
-    python -m venv .venv
-    # Windows
-    .venv\Scripts\activate
-    # Linux/Mac
-    source .venv/bin/activate
-    
-    pip install -r requirements.txt
-    ```
-
-2.  **Run**:
-    ```bash
-    python kv_server.py
-    ```
-
-3.  Access the app at: **http://localhost:5002**
+- **v3.0**: Major release. 
+    - Full modularization of backend routes.
+    - Integrated `ytfetcher` for specialized fetching.
+    - Added manual dependency update script (`update_deps.py`).
+    - Enhanced error handling for upstream rate limits.
+    - Docker `linux/amd64` support verified.
 
 ---
-
-## ⚙️ Configuration
-
-KV-Tube is designed to be "Zero-Config", but you can customize it via Environment Variables (in `.env` or Docker).
-
-| Variable | Default | Description |
-| :--- | :--- | :--- |
-| `FLASK_ENV` | `production` | Set to `development` for debug mode. |
-| `KVTUBE_DATA_DIR` | `./data` | Location for the SQLite database. |
-| `KVTUBE_VIDEO_DIR` | `./videos` | (Optional) Location for downloaded videos. |
-| `SECRET_KEY` | *(Auto)* | Session security key. Set manually for persistence. |
-
----
-
-## 🔌 API Endpoints
-KV-Tube exposes a RESTful API for its frontend.
-
-| Endpoint | Method | Description |
-| :--- | :--- | :--- |
-| `/api/search` | `GET` | Search for videos. |
-| `/api/stream_info` | `GET` | Get raw stream URLs (HLS/MP4). |
-| `/api/suggested` | `GET` | Get recommendations based on history. |
-| `/api/download` | `GET` | Get direct download link for a video. |
-| `/api/history` | `GET` | Retrieve local watch history. |
-
----
-
-## 📜 License
-Proprietary / Personal Use. 
-Created by **Khoa N.D**
+*Developed by Khoa Vo*

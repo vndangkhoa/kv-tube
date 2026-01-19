@@ -29,8 +29,15 @@ class Config:
     CACHE_CHANNEL_TTL = 1800  # 30 minutes
     
     # yt-dlp settings
-    YTDLP_FORMAT = 'best[ext=mp4]/best'
+    # yt-dlp settings - MUST use progressive formats with combined audio+video
+    # Format 22 = 720p mp4, 18 = 360p mp4 (both have audio+video combined)
+    # HLS m3u8 streams have CORS issues with segment proxying, so we avoid them
+    YTDLP_FORMAT = '22/18/best[protocol^=https][ext=mp4]/best[ext=mp4]/best'
     YTDLP_TIMEOUT = 30
+    
+    # YouTube Engine Settings
+    YOUTUBE_ENGINE = os.environ.get('YOUTUBE_ENGINE', 'auto')  # auto, local, remote
+    LOADER_TO_API_KEY = os.environ.get('LOADER_TO_API_KEY', '')  # Optional
     
     @staticmethod
     def init_app(app):

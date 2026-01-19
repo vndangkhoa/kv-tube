@@ -85,6 +85,13 @@ def create_app(config_name=None):
     # Register Blueprints
     register_blueprints(app)
     
+    # Start Background Cache Warmer (x5 Speedup)
+    try:
+        from app.routes.api import start_background_warmer
+        start_background_warmer()
+    except Exception as e:
+        logger.warning(f"Failed to start background warmer: {e}")
+    
     logger.info("KV-Tube app created successfully")
     return app
 

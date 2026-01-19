@@ -21,39 +21,7 @@ body {
     overflow: hidden;
 }
 
-/* ========== Mini Player Mode ========== */
-.yt-mini-mode {
-    position: fixed;
-    bottom: 20px;
-    right: 20px;
-    width: 400px !important;
-    height: auto !important;
-    aspect-ratio: 16/9;
-    z-index: 10000;
-    box-shadow: 0 8px 30px rgba(0, 0, 0, 0.5);
-    border-radius: 12px;
-    cursor: grab;
-    transition: width 0.3s, height 0.3s;
-}
-
-.yt-mini-mode:active {
-    cursor: grabbing;
-}
-
-.yt-player-placeholder {
-    display: none;
-    width: 100%;
-    aspect-ratio: 16/9;
-    background: rgba(0, 0, 0, 0.1);
-}
-
-@media (max-width: 768px) {
-    .yt-mini-mode {
-        width: 250px !important;
-        bottom: 80px;
-        right: 10px;
-    }
-}
+/* Mini player removed per user request */
 
 /* ========== Skeleton Loading ========== */
 @keyframes shimmer {
