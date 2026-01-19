@@ -4,138 +4,212 @@
 <div class="yt-settings-container">
     <h2 class="yt-settings-title">Settings</h2>
 
-    <div class="yt-settings-card">
-        <h3>Appearance</h3>
-        <p class="yt-settings-desc">Customize how KV-Tube looks on your device.</p>
+    <!-- Appearance & Playback in one card -->
+    <div class="yt-settings-card compact">
         <div class="yt-setting-row">
-            <span>Theme Mode</span>
-            <div class="yt-theme-selector">
-                <button type="button" class="yt-theme-btn" id="themeBtnLight" onclick="setTheme('light')">Light</button>
-                <button type="button" class="yt-theme-btn" id="themeBtnDark" onclick="setTheme('dark')">Dark</button>
+            <span class="yt-setting-label">Theme</span>
+            <div class="yt-toggle-group">
+                <button type="button" class="yt-toggle-btn" id="themeBtnLight"
+                    onclick="setTheme('light')">Light</button>
+                <button type="button" class="yt-toggle-btn" id="themeBtnDark" onclick="setTheme('dark')">Dark</button>
             </div>
         </div>
-    </div>
-
-    <div class="yt-settings-card">
-        <h3>Playback</h3>
-        <p class="yt-settings-desc">Choose your preferred video player.</p>
         <div class="yt-setting-row">
-            <span>Default Player</span>
-            <div class="yt-theme-selector">
-                <button type="button" class="yt-theme-btn" id="playerBtnArt"
+            <span class="yt-setting-label">Player</span>
+            <div class="yt-toggle-group">
+                <button type="button" class="yt-toggle-btn" id="playerBtnArt"
                     onclick="setPlayerPref('artplayer')">Artplayer</button>
-                <button type="button" class="yt-theme-btn" id="playerBtnNative"
+                <button type="button" class="yt-toggle-btn" id="playerBtnNative"
                     onclick="setPlayerPref('native')">Native</button>
             </div>
         </div>
     </div>
 
-    {% if session.get('user_id') %}
+    <!-- System Updates -->
     <div class="yt-settings-card">
-        <h3>Profile</h3>
-        <p class="yt-settings-desc">Update your public profile information.</p>
-        <form id="profileForm" onsubmit="updateProfile(event)">
-            <div class="yt-form-group">
-                <label>Display Name</label>
-                <input type="text" class="yt-form-input" id="displayName" value="{{ session.username }}" required>
+        <h3>System Updates</h3>
+
+        <!-- yt-dlp Stable -->
+        <div class="yt-update-row">
+            <div class="yt-update-info">
+                <strong>yt-dlp</strong>
+                <span class="yt-update-version" id="ytdlpVersion">Stable</span>
             </div>
-            <button type="submit" class="yt-update-btn">Save Changes</button>
-        </form>
+            <button id="updateYtdlpStable" onclick="updatePackage('ytdlp', 'stable')" class="yt-update-btn small">
+                <i class="fas fa-sync-alt"></i> Update
+            </button>
+        </div>
+
+        <!-- yt-dlp Nightly -->
+        <div class="yt-update-row">
+            <div class="yt-update-info">
+                <strong>yt-dlp Nightly</strong>
+                <span class="yt-update-version">Experimental</span>
+            </div>
+            <button id="updateYtdlpNightly" onclick="updatePackage('ytdlp', 'nightly')"
+                class="yt-update-btn small nightly">
+                <i class="fas fa-flask"></i> Install
+            </button>
+        </div>
+
+        <!-- ytfetcher -->
+        <div class="yt-update-row">
+            <div class="yt-update-info">
+                <strong>ytfetcher</strong>
+                <span class="yt-update-version" id="ytfetcherVersion">CC & Transcripts</span>
+            </div>
+            <button id="updateYtfetcher" onclick="updatePackage('ytfetcher', 'latest')" class="yt-update-btn small">
+                <i class="fas fa-sync-alt"></i> Update
+            </button>
+        </div>
+
+        <div id="updateStatus" class="yt-update-status"></div>
+    </div>
+
+    {% if session.get('user_id') %}
+    <div class="yt-settings-card compact">
+        <div class="yt-setting-row">
+            <span class="yt-setting-label">Display Name</span>
+            <form id="profileForm" onsubmit="updateProfile(event)"
+                style="display: flex; gap: 8px; flex: 1; max-width: 300px;">
+                <input type="text" class="yt-form-input" id="displayName" value="{{ session.username }}" required
+                    style="flex: 1;">
+                <button type="submit" class="yt-update-btn small">Save</button>
+            </form>
+        </div>
     </div>
     {% endif %}
 
-    <div class="yt-settings-card">
-        <h3>System Updates</h3>
-        <p class="yt-settings-desc">Manage core components of KV-Tube.</p>
-
-        <div class="yt-update-section">
-            <div class="yt-update-info">
-                <div>
-                    <h4>yt-dlp</h4>
-                    <span class="yt-update-subtitle">Core video extraction engine</span>
-                </div>
-                <button id="updateBtn" onclick="updateYtDlp()" class="yt-update-btn">
-                    <i class="fas fa-sync-alt"></i> Check for Updates
-                </button>
-            </div>
-            <div id="updateStatus" class="yt-update-status"></div>
+    <div class="yt-settings-card compact">
+        <div class="yt-setting-row" style="justify-content: center;">
+            <span class="yt-about-text">KV-Tube v1.0 • YouTube-like streaming</span>
         </div>
-    </div>
-
-    <div class="yt-settings-card">
-        <h3>About</h3>
-        <p class="yt-settings-desc">KV-Tube v1.0</p>
-        <p class="yt-settings-desc">A YouTube-like streaming application.</p>
     </div>
 </div>
 
 <style>
     .yt-settings-container {
-        max-width: 600px;
+        max-width: 500px;
         margin: 0 auto;
-        padding: 24px;
+        padding: 16px;
     }
 
     .yt-settings-title {
-        font-size: 24px;
+        font-size: 20px;
         font-weight: 500;
-        margin-bottom: 24px;
+        margin-bottom: 16px;
         text-align: center;
     }
 
     .yt-settings-card {
         background: var(--yt-bg-secondary);
         border-radius: 12px;
-        padding: 24px;
-        margin-bottom: 16px;
+        padding: 16px;
+        margin-bottom: 12px;
+    }
+
+    .yt-settings-card.compact {
+        padding: 12px 16px;
     }
 
     .yt-settings-card h3 {
-        font-size: 18px;
-        margin-bottom: 8px;
-    }
-
-    .yt-settings-desc {
-        color: var(--yt-text-secondary);
         font-size: 14px;
-        margin-bottom: 16px;
+        margin-bottom: 12px;
+        color: var(--yt-text-secondary);
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
     }
 
-    .yt-update-section {
+    .yt-setting-row {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 8px 0;
+    }
+
+    .yt-setting-row:not(:last-child) {
+        border-bottom: 1px solid var(--yt-bg-hover);
+    }
+
+    .yt-setting-label {
+        font-size: 14px;
+        font-weight: 500;
+    }
+
+    .yt-toggle-group {
+        display: flex;
         background: var(--yt-bg-elevated);
-        border-radius: 8px;
-        padding: 16px;
+        padding: 3px;
+        border-radius: 20px;
+        gap: 2px;
+    }
+
+    .yt-toggle-btn {
+        padding: 6px 14px;
+        border-radius: 16px;
+        font-size: 13px;
+        font-weight: 500;
+        color: var(--yt-text-secondary);
+        background: transparent;
+        transition: all 0.2s;
+    }
+
+    .yt-toggle-btn:hover {
+        color: var(--yt-text-primary);
+    }
+
+    .yt-toggle-btn.active {
+        background: var(--yt-accent-red);
+        color: white;
+    }
+
+    .yt-update-row {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 10px 0;
+        border-bottom: 1px solid var(--yt-bg-hover);
+    }
+
+    .yt-update-row:last-of-type {
+        border-bottom: none;
     }
 
     .yt-update-info {
         display: flex;
-        justify-content: space-between;
-        align-items: center;
-        flex-wrap: wrap;
-        gap: 12px;
+        flex-direction: column;
+        gap: 2px;
     }
 
-    .yt-update-info h4 {
-        font-size: 16px;
-        margin-bottom: 4px;
+    .yt-update-info strong {
+        font-size: 14px;
     }
 
-    .yt-update-subtitle {
-        font-size: 12px;
+    .yt-update-version {
+        font-size: 11px;
         color: var(--yt-text-secondary);
     }
 
     .yt-update-btn {
         background: var(--yt-accent-red);
         color: white;
-        padding: 12px 24px;
-        border-radius: 24px;
-        font-size: 14px;
+        padding: 8px 16px;
+        border-radius: 20px;
+        font-size: 12px;
         font-weight: 500;
         display: flex;
         align-items: center;
-        gap: 8px;
-        transition: opacity 0.2s, transform 0.2s;
+        gap: 6px;
+        transition: all 0.2s;
+    }
+
+    .yt-update-btn.small {
+        padding: 6px 12px;
+        font-size: 12px;
+    }
+
+    .yt-update-btn.nightly {
+        background: #9c27b0;
     }
 
     .yt-update-btn:hover {
@@ -144,84 +218,102 @@
     }
 
     .yt-update-btn:disabled {
-        background: var(--yt-bg-hover);
+        background: var(--yt-bg-hover) !important;
         cursor: not-allowed;
+        transform: none;
     }
 
     .yt-update-status {
-        margin-top: 12px;
-        font-size: 13px;
+        margin-top: 10px;
+        font-size: 12px;
         text-align: center;
+        min-height: 20px;
     }
 
-    /* Theme Selector */
-    .yt-theme-selector {
-        display: flex;
-        gap: 12px;
+    .yt-form-input {
         background: var(--yt-bg-elevated);
-        padding: 4px;
-        border-radius: 24px;
+        border: 1px solid var(--yt-bg-hover);
+        border-radius: 8px;
+        padding: 8px 12px;
+        color: var(--yt-text-primary);
+        font-size: 13px;
     }
 
-    .yt-theme-btn {
-        flex: 1;
-        padding: 8px 16px;
-        border-radius: 20px;
-        font-size: 14px;
-        font-weight: 500;
+    .yt-about-text {
+        font-size: 12px;
         color: var(--yt-text-secondary);
-        background: transparent;
-        transition: all 0.2s;
-        border: 2px solid transparent;
-    }
-
-    .yt-theme-btn:hover {
-        color: var(--yt-text-primary);
-        background: rgba(255, 255, 255, 0.05);
-    }
-
-    .yt-theme-btn.active {
-        background: var(--yt-bg-primary);
-        color: var(--yt-text-primary);
-        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
     }
 </style>
 
 <script>
-    async function updateYtDlp() {
-        const btn = document.getElementById('updateBtn');
+    async function fetchVersions() {
+        const pkgs = ['ytdlp', 'ytfetcher'];
+        for (const pkg of pkgs) {
+            try {
+                const res = await fetch(`/api/package/version?package=${pkg}`);
+                const data = await res.json();
+                if (data.success) {
+                    const el = document.getElementById(pkg === 'ytdlp' ? 'ytdlpVersion' : 'ytfetcherVersion');
+                    if (el) {
+                        el.innerText = `Installed: ${data.version}`;
+                        // Highlight if nightly
+                        if (pkg === 'ytdlp' && (data.version.includes('2026') || data.version.includes('.dev'))) {
+                            el.style.color = '#9c27b0';
+                            el.innerText += ' (Nightly)';
+                        }
+                    }
+                }
+            } catch (e) {
+                console.error(e);
+            }
+        }
+    }
+
+    async function updatePackage(pkg, version) {
+        const btnId = pkg === 'ytdlp' ?
+            (version === 'nightly' ? 'updateYtdlpNightly' : 'updateYtdlpStable') :
+            'updateYtfetcher';
+        const btn = document.getElementById(btnId);
         const status = document.getElementById('updateStatus');
+        const originalHTML = btn.innerHTML;
 
         btn.disabled = true;
         btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Updating...';
         status.style.color = 'var(--yt-text-secondary)';
-        status.innerText = 'Running pip install -U yt-dlp... This may take a moment.';
+        status.innerText = `Updating ${pkg}${version === 'nightly' ? ' (nightly)' : ''}...`;
 
         try {
-            const response = await fetch('/api/update_ytdlp', { method: 'POST' });
+            const response = await fetch('/api/update_package', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ package: pkg, version: version })
+            });
             const data = await response.json();
 
             if (data.success) {
                 status.style.color = '#4caf50';
                 status.innerText = '✓ ' + data.message;
                 btn.innerHTML = '<i class="fas fa-check"></i> Updated';
+                // Refresh versions
+                setTimeout(fetchVersions, 1000);
+                setTimeout(() => {
+                    btn.innerHTML = originalHTML;
+                    btn.disabled = false;
+                }, 3000);
             } else {
                 status.style.color = '#f44336';
                 status.innerText = '✗ ' + data.message;
-                btn.innerHTML = '<i class="fas fa-exclamation-triangle"></i> Failed';
+                btn.innerHTML = originalHTML;
                 btn.disabled = false;
             }
         } catch (e) {
             status.style.color = '#f44336';
-            status.innerText = '✗ Network error: ' + e.message;
+            status.innerText = '✗ Error: ' + e.message;
+            btn.innerHTML = originalHTML;
             btn.disabled = false;
-            btn.innerHTML = 'Retry';
         }
     }
-</script>
-</script>
 
-<script>
     // --- Player Preference ---
     window.setPlayerPref = function (type) {
         localStorage.setItem('kv_player_pref', type);
@@ -231,12 +323,8 @@
     window.updatePlayerButtons = function (type) {
         const artBtn = document.getElementById('playerBtnArt');
         const natBtn = document.getElementById('playerBtnNative');
-
-        // Reset classes
         if (artBtn) artBtn.classList.remove('active');
         if (natBtn) natBtn.classList.remove('active');
-
-        // Set active
         if (type === 'native') {
             if (natBtn) natBtn.classList.add('active');
         } else {
@@ -256,9 +344,12 @@
             if (darkBtn) darkBtn.classList.add('active');
         }
 
-        // Player init
+        // Player init - default to artplayer
         const playerPref = localStorage.getItem('kv_player_pref') || 'artplayer';
         updatePlayerButtons(playerPref);
+
+        // Fetch versions
+        fetchVersions();
     });
 </script>
 {% endblock %}

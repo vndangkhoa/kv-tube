@@ -1,21 +1,33 @@
 {% extends "layout.html" %}
 
 {% block content %}
-<!-- Artplayer -->
-<script src="https://cdn.jsdelivr.net/npm/artplayer/dist/artplayer.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+<!-- YouTube IFrame Player -->
+<!-- Scripts removed -->
 
 <div class="yt-watch-layout">
+
+    <!-- Dependencies -->
+    <script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
+    <script src="{{ url_for('static', filename='js/artplayer.js') }}?v=debug3"
+        onload="console.log('ArtPlayer Script Loaded. Global:', window.Artplayer);"></script>
     <!-- Player Section -->
     <div class="yt-player-section">
         <div class="yt-player-container">
             <div id="artplayer-app" style="width: 100%; height: 100%;"></div>
+            <style>
+                #artplayer-app iframe {
+                    width: 100%;
+                    height: 100%;
+                    border: none;
+                    z-index: 10;
+                    position: relative;
+                }
+            </style>
             <!-- Loading State (Confined to Player) -->
             <div id="loading" class="yt-loader"></div>
 
         </div>
-        <!-- Placeholder for Mini Mode -->
-        <div id="playerPlaceholder" class="yt-player-placeholder"></div>
+
 
         <!-- Info Skeleton -->
         <div id="infoSkeleton" style="margin-top:20px;">
@@ -44,7 +56,7 @@
                     <i class="fas fa-download"></i>
                     Download
                 </button>
-                <button class="yt-action-btn" id="saveBtn" onclick="toggleSaveToLibrary()">
+                <button class="yt-action-btn" id="saveBtn">
                     <i class="far fa-bookmark"></i>
                     Save
                 </button>
@@ -56,6 +68,14 @@
                     <i class="fas fa-list-ul"></i>
                     Queue
                     <span id="queueBadge" class="queue-badge" style="display:none;">0</span>
+                </button>
+                <button class="yt-action-btn" id="ccBtn" onclick="toggleCaptions()">
+                    <i class="fas fa-closed-captioning"></i>
+                    CC
+                </button>
+                <button class="yt-action-btn" id="summaryBtn" onclick="showSummaryModal()">
+                    <i class="fas fa-magic"></i>
+                    Summarize
                 </button>
 
 
@@ -94,6 +114,71 @@
                     </div>
                 </div>
                 <button class="yt-subscribe-btn" id="subscribeBtn" onclick="toggleSubscribe()">Subscribe</button>
+            </div>
+
+
+            <!-- AI Summary Box (Enhanced with icons and translation) -->
+            <div class="yt-summary-box" id="summaryBox"
+                style="margin-top:16px; padding:20px; background:linear-gradient(135deg, var(--yt-bg-secondary) 0%, rgba(255,0,0,0.05) 100%); border-radius:16px; display:none; border: 1px solid rgba(255,0,0,0.1);">
+                <!-- Header -->
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
+                    <div style="display:flex; align-items:center; gap:10px;">
+                        <div
+                            style="width:36px; height:36px; background:linear-gradient(135deg, #ff0000, #ff6b6b); border-radius:10px; display:flex; align-items:center; justify-content:center;">
+                            <i class="fas fa-robot" style="color:white; font-size:18px;"></i>
+                        </div>
+                        <div>
+                            <h3 style="margin:0; font-size:16px; font-weight:600; color:var(--yt-text-primary);">AI
+                                Summary</h3>
+                            <span id="summaryLang" style="font-size:11px; color:var(--yt-text-secondary);">🇬🇧
+                                English</span>
+                        </div>
+                    </div>
+                    <div style="display:flex; gap:8px;">
+                        <button id="copySummaryBtn" onclick="copySummaryContent()"
+                            style="padding:6px 12px; background:var(--yt-bg-primary); border:1px solid var(--yt-border); border-radius:20px; color:var(--yt-text-primary); cursor:pointer; font-size:12px; display:flex; align-items:center; gap:4px;"
+                            title="Copy summary to clipboard">
+                            <i class="fas fa-copy"></i> <span>Copy</span>
+                        </button>
+                        <button id="translateBtn" onclick="toggleSummaryTranslation()"
+                            style="padding:6px 12px; background:var(--yt-bg-primary); border:1px solid var(--yt-border); border-radius:20px; color:var(--yt-text-primary); cursor:pointer; font-size:12px; display:flex; align-items:center; gap:4px;">
+                            🇻🇳 <span>Tiếng Việt</span>
+                        </button>
+                        <button onclick="document.getElementById('summaryBox').style.display='none'"
+                            style="width:28px; height:28px; background:var(--yt-bg-primary); border:1px solid var(--yt-border); border-radius:50%; color:var(--yt-text-secondary); cursor:pointer; display:flex; align-items:center; justify-content:center;">
+                            <i class="fas fa-times" style="font-size:12px;"></i>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Summary Content -->
+                <div id="summaryContent" style="color:var(--yt-text-secondary); line-height:1.7; font-size:14px;">
+                    <div class="loader" style="margin:20px auto;"></div>
+                    <p style="text-align:center; color:var(--yt-text-secondary);">✨ Generating AI summary...</p>
+                </div>
+
+                <!-- Key Points Section -->
+                <div id="keyPointsSection"
+                    style="display:none; margin-top:16px; padding-top:16px; border-top:1px solid var(--yt-border);">
+                    <h4
+                        style="margin:0 0 12px 0; font-size:14px; color:var(--yt-text-primary); display:flex; align-items:center; gap:8px;">
+                        <i class="fas fa-lightbulb" style="color:#ffd700;"></i> Key Points
+                    </h4>
+                    <ul id="keyPointsList" style="margin:0; padding-left:20px; color:var(--yt-text-secondary);">
+                    </ul>
+                </div>
+
+                <!-- Footer -->
+                <div
+                    style="margin-top:16px; padding-top:12px; border-top:1px solid var(--yt-border); display:flex; justify-content:space-between; align-items:center;">
+                    <span style="font-size:11px; color:var(--yt-text-tertiary);">
+                        <i class="fas fa-sparkles" style="margin-right:4px;"></i>Generated by KV-Tube AI
+                    </span>
+                    <button onclick="loadSummaryInline()"
+                        style="font-size:11px; color:var(--yt-text-secondary); background:none; border:none; cursor:pointer;">
+                        <i class="fas fa-sync-alt"></i> Refresh
+                    </button>
+                </div>
             </div>
 
             <!-- Description -->
@@ -182,13 +267,54 @@
         </div>
     </div>
 
+    <!-- Summary Modal -->
+    <div id="summaryModal" class="yt-modal"
+        style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.7); z-index:10000; justify-content:center; align-items:center;">
+        <div class="yt-modal-content"
+            style="background:var(--yt-bg-primary); border-radius:12px; max-width:600px; width:90%; max-height:80vh; overflow:auto; padding:24px; position:relative;">
+            <button onclick="closeSummaryModal()"
+                style="position:absolute; top:12px; right:12px; background:transparent; border:none; color:var(--yt-text-primary); font-size:20px; cursor:pointer;">
+                <i class="fas fa-times"></i>
+            </button>
+            <h2 style="margin-top:0; margin-bottom:16px; color:var(--yt-text-primary);">AI Summary</h2>
+            <div id="summaryModalContent" style="color:var(--yt-text-secondary); line-height:1.6;">
+                <!-- Summary content loads here -->
+            </div>
+        </div>
+    </div>
+
     <!-- Watch page styles extracted to external file for better caching -->
     <link rel="stylesheet" href="{{ url_for('static', filename='css/modules/watch.css') }}">
 
     <link rel="stylesheet" href="{{ url_for('static', filename='css/modules/downloads.css') }}">
 
-    <!-- HLS Support (Local) -->
-    <script src="/static/js/hls.min.js"></script>
+    <!-- WebLLM Styles -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/modules/webllm.css') }}">
+
+    <!-- WebLLM Loading Overlay -->
+    <div id="webllmLoadingOverlay" class="webllm-loading-overlay hidden">
+        <div class="webllm-header">
+            <div class="webllm-icon">
+                <i class="fas fa-robot"></i>
+            </div>
+            <div>
+                <p class="webllm-title">Loading AI Model</p>
+                <p class="webllm-subtitle">Qwen2-0.5B · Vietnamese Support</p>
+            </div>
+        </div>
+        <div class="webllm-progress-container">
+            <div class="webllm-progress-bar" id="webllmProgressBar" style="width: 0%"></div>
+        </div>
+        <div class="webllm-status">
+            <span id="webllmStatusText">Initializing...</span>
+            <span class="webllm-percent" id="webllmPercent">0%</span>
+        </div>
+    </div>
+
+    <!-- WebLLM Service -->
+    <script src="{{ url_for('static', filename='js/webllm-service.js') }}"></script>
+
+
 
     <script>
         var commentsLoaded = false;
@@ -242,209 +368,211 @@
 
         // Rotation function removed
 
+        // End of hydration script
+    </script>
 
+    <script>
+        // Start of initialization script
+        // ... (existing hydrating logic) ...
 
-        // Transcription functions removed
+        // --- ARTPLAYER IMPLEMENTATION ---
+        function initRealArtplayer(url, poster, subtitleUrl) {
+            console.log("Initializing ArtPlayer with URL:", url);
+            const container = document.getElementById('artplayer-app');
+            if (!container) return;
 
-        function initArtplayer(url, poster, subtitleUrl = '', type = 'auto') {
-            // Check User Preference
-            const playerPref = localStorage.getItem('kv_player_pref');
-            if (playerPref === 'native') {
-                return initNativePlayer(url, poster);
+            // Clean container
+            container.innerHTML = '';
+            container.style = "width: 100%; height: 100%;"; // Reset styles
+
+            // HLS Integration
+            function playM3u8(video, url, art) {
+                if (Hls.isSupported()) {
+                    if (art.hls) art.hls.destroy();
+                    const hls = new Hls();
+                    hls.loadSource(url);
+                    hls.attachMedia(video);
+                    art.hls = hls;
+                    art.on('destroy', () => hls.destroy());
+                } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+                    video.src = url;
+                } else {
+                    art.notice.show = 'Unsupported playback format: m3u8';
+                }
             }
 
-            // --- ARTPLAYER INITIALIZATION ---
-            // Store art instance globally for other functions
-            window.art = null;
-            // Update currentVideoData with poster (thumbnail)
-            if (poster) {
-                // Use stable YouTube thumbnail URL to prevent expiration of signed URLs
-                currentVideoData.thumbnail = `https://i.ytimg.com/vi/${currentVideoData.id}/hqdefault.jpg`;
-                // Auto-save to history now that we have the thumbnail
-                setTimeout(() => {
-                    const titleEl = document.getElementById('videoTitle');
-                    if (titleEl && titleEl.innerText !== 'Loading...') {
-                        currentVideoData.title = titleEl.innerText;
-                    }
-                    const uploaderEl = document.getElementById('channelName');
-                    if (uploaderEl && uploaderEl.innerText !== 'Loading...') {
-                        currentVideoData.uploader = uploaderEl.innerText;
-                    }
-                    saveToLibrary('history', currentVideoData);
-                }, 2000);
-            }
-
-            // Disable direct YouTube subtitle URL to avoid CORS errors
-            // We'll use our server-side /api/transcript endpoint instead
-
-
-            window.art = new Artplayer({
-                container: '#artplayer-app',
+            const art = new Artplayer({
+                container: container,
                 url: url,
                 poster: poster,
-                type: type,
+                title: currentVideoData.title || document.title,
                 volume: 0.5,
+                isLive: false,
                 muted: false,
-                autoplay: false,
+                autoplay: true,
                 pip: true,
-                autoSize: false,
+                autoSize: true,
+                autoMini: true,
+                screenshot: true,
+                setting: true,
+                loop: true,
+                flip: true,
+                playbackRate: true,
+                aspectRatio: true,
+                fullscreen: true,
                 fullscreenWeb: true,
+                subtitleOffset: true,
                 miniProgressBar: true,
                 mutex: true,
                 backdrop: true,
                 playsInline: true,
                 autoPlayback: true,
-                lock: true,
-                fastForward: true,
-                autoOrientation: true,
+                airplay: true,
                 theme: '#ff0000',
-                autoMini: false, // Custom mini mode implemented below
-                lang: navigator.language.toLowerCase(),
+                lang: 'en',
+                whitelist: ['*'],
                 moreVideoAttr: {
                     crossOrigin: 'anonymous',
+                    playsInline: true,
+                    'webkit-playsinline': true
                 },
-                controls: [
-                    {
-                        name: 'prev',
-                        index: 10,
-                        position: 'left',
-                        html: '<i class="fas fa-step-backward" style="font-size: 16px;"></i>',
-                        tooltip: 'Previous',
-                        click: function () {
-                            if (window.history.length > 1) {
-                                window.history.back();
-                            } else {
-                                window.location.href = '/';
-                            }
-                        },
-                    },
-                    {
-                        name: 'next',
-                        index: 20,
-                        position: 'left',
-                        html: '<i class="fas fa-step-forward" style="font-size: 16px;"></i>',
-                        tooltip: 'Next',
-                        click: function () {
-                            playNextVideo();
-                        },
-                    },
-                ],
                 customType: {
-                    m3u8: function (video, url) {
-                        if (Hls.isSupported()) {
-                            const hls = new Hls({
-                                maxBufferLength: 30,
-                                maxMaxBufferLength: 60,
-                                debug: false,
-                            });
-                            hls.loadSource(url);
-                            hls.attachMedia(video);
-                        } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
-                            video.src = url;
-                        } else {
-                            showToast("Browser does not support HLS.", "error");
-                        }
-                    },
+                    m3u8: playM3u8
                 },
-                mounted: function (art) {
-                    window.player = art;
-
-                    // Ratio check
-                    function checkVertical() {
-                        const video = art.video;
-                        if (video.videoHeight > 0 && video.videoHeight > video.videoWidth) {
-                            const ratio = `${video.videoWidth}/${video.videoHeight}`;
-                            art.aspectRatio = ratio;
-                            art.video.style.objectFit = 'contain';
-                            const container = document.querySelector('.yt-player-container');
-                            if (container) {
-                                container.style.aspectRatio = ratio;
-                                container.style.width = '100%';
-                                container.style.maxWidth = '100%';
-                                if (window.innerWidth > 768) {
-                                    container.style.maxWidth = '450px';
-                                    container.style.margin = '0 auto';
-                                }
-                            }
-                        }
-                    }
-                    checkVertical();
-                    art.on('video:loadedmetadata', checkVertical);
-
-                    // --- Custom Mini Player Logic ---
-                    setupMiniPlayer();
-
-
-
-                    // --- Auto Play Next ---
-                    art.on('video:ended', () => {
-                        playNextVideo();
-                    });
-                },
+                plugins: [
+                    // Quality plugin if qualities are available
+                ],
+                // Quality selector will be added after initialization
             });
+
+            // Subtitles
+            if (subtitleUrl) {
+                art.subtitle.url = subtitleUrl;
+                art.subtitle.show = true;
+            }
+
+            // Bind global logic
+            art.on('video:ended', () => {
+                playNextVideo();
+            });
+
+            // Expose to window
+            window.player = art;
+
+            // --- Quality Selector ---
+            // Fetch available qualities and add to settings
+            const videoId = currentVideoData.id;
+            if (videoId) {
+                fetch(`/api/stream/qualities?v=${videoId}`)
+                    .then(res => res.json())
+                    .then(data => {
+                        if (data.success && data.qualities && data.qualities.length > 0) {
+                            const qualities = data.qualities;
+
+                            // Add quality selector to settings
+                            art.setting.add({
+                                html: 'Quality',
+                                icon: '<svg width="22" height="22" viewBox="0 0 24 24"><path fill="currentColor" d="M14.5 4C10.93 4 8.05 6.89 8.05 10.47H5.05L8.55 13.97L12.05 10.47H9.06C9.06 7.44 11.48 5.01 14.5 5.01S19.94 7.44 19.94 10.47C19.94 13.5 17.52 15.93 14.5 15.93H12V16.94H14.5C18.07 16.94 20.95 14.05 20.95 10.47C20.95 6.89 18.07 4 14.5 4Z"/></svg>',
+                                tooltip: 'Auto',
+                                selector: qualities.map((q, index) => ({
+                                    html: q.label,
+                                    url: q.url,
+                                    default: q.default || false,
+                                })),
+                                onSelect: function (item) {
+                                    console.log('Quality selected:', item.html);
+                                    // Save current position
+                                    const currentTime = art.currentTime;
+                                    const wasPlaying = art.playing;
+
+                                    // Switch to new quality
+                                    art.switchUrl(item.url).then(() => {
+                                        // Restore position
+                                        art.currentTime = currentTime;
+                                        if (wasPlaying) art.play();
+                                        art.notice.show = `Quality: ${item.html}`;
+                                    });
+
+                                    return item.html;
+                                },
+                            });
+
+                            console.log('Quality selector added with', qualities.length, 'options');
+                        }
+                    })
+                    .catch(err => {
+                        console.log('Could not load quality options:', err);
+                    });
+            }
+
             return art;
         }
 
-        // --- NATIVE PLAYER FALLBACK ---
-        function initNativePlayer(url, poster) {
-            console.log("Initializing Native Player...");
-            const container = document.getElementById('artplayer-app');
-            container.innerHTML = ''; // Clear Artplayer
+        // --- YOUTUBE IFRAME PLAYER ---
+        function initYouTubePlayer(videoId) {
+            console.log("Initializing YouTube IFrame Player for:", videoId);
 
-            // Apply styles to match Artplayer container
+            // Check if already initialized for this video
+            if (window.player && window.player.videoId === videoId) {
+                console.log("Player already initialized for this video. Skipping.");
+                return;
+            }
+
+            const container = document.getElementById('artplayer-app');
+            if (!container) return;
+
+            // Clear previous properly
+            if (window.player && window.player.destroy) {
+                window.player.destroy();
+            }
+            container.innerHTML = '';
+
+            // Apply styles
             container.style.backgroundColor = '#000';
             container.style.display = 'flex';
             container.style.alignItems = 'center';
             container.style.justifyContent = 'center';
+            container.style.width = '100%';
+            container.style.height = '100%';
+            // Ensure absolute positioning overrides
+            container.style.position = 'absolute';
+            container.style.top = '0';
+            container.style.left = '0';
 
-            // Create Video Element
-            const video = document.createElement('video');
-            video.controls = true;
-            video.poster = poster;
-            video.style.width = '100%';
-            video.style.height = '100%';
-            video.style.maxHeight = '100vh';
-            video.style.maxHeight = '100vh';
-            video.playsInline = true;
-            video.autoplay = true; // Auto Play
+            // Create IFrame
+            const iframe = document.createElement('iframe');
+            iframe.width = "100%";
+            iframe.height = "100%";
 
-            container.appendChild(video);
+            // Force display block with !important to override any external CSS
+            iframe.style.setProperty('display', 'block', 'important');
+            iframe.style.setProperty('visibility', 'visible', 'important');
+            iframe.style.setProperty('opacity', '1', 'important');
+            iframe.style.setProperty('z-index', '20', 'important');
+            iframe.style.position = 'relative';
 
-            // Auto Play Next
-            video.addEventListener('ended', () => {
-                playNextVideo();
-            });
+            iframe.src = `https://www.youtube.com/embed/${videoId}?autoplay=1&modestbranding=1&rel=0&playsinline=1&enablejsapi=1&origin=${window.location.origin}`;
+            iframe.frameBorder = "0";
+            iframe.allow = "accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture";
+            iframe.allowFullscreen = true;
 
-            // HLS Support
-            if (url.includes('.m3u8')) {
-                if (Hls.isSupported()) {
-                    const hls = new Hls();
-                    hls.loadSource(url);
-                    hls.attachMedia(video);
-                } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
-                    video.src = url;
-                }
-            } else {
-                video.src = url;
-            }
+            container.appendChild(iframe);
 
-            // Update Global State (Shim for Artplayer)
+            // Mock player object
             window.player = {
-                video: video,
-                play: () => video.play(),
-                pause: () => video.pause(),
+                isNative: true,
+                videoId: videoId,
                 destroy: () => {
-                    video.pause();
-                    video.src = '';
-                    video.remove();
+                    container.innerHTML = '';
+                    window.player = null;
                 },
-                // Getter/Setter for loop shim
-                get loop() { return video.loop; },
-                set loop(val) { video.loop = val; }
+                loop: false,
+                play: () => iframe.contentWindow.postMessage('{"event":"command","func":"playVideo","args":""}', '*'),
+                pause: () => iframe.contentWindow.postMessage('{"event":"command","func":"pauseVideo","args":""}', '*'),
             };
 
-            // Update History Logic (Simplified)
-            currentVideoData.thumbnail = `https://i.ytimg.com/vi/${currentVideoData.id}/hqdefault.jpg`;
+            // Auto-save history
+            currentVideoData.thumbnail = `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`;
             setTimeout(() => {
                 const titleEl = document.getElementById('videoTitle');
                 if (titleEl) currentVideoData.title = titleEl.innerText;
@@ -453,141 +581,37 @@
                 saveToLibrary('history', currentVideoData);
             }, 2000);
 
-            // Setup Mini Player for native video
-            setupMiniPlayer();
-
             return window.player;
         }
 
-        // --- Movable Mini Player Logic ---
-        function setupMiniPlayer() {
-            const playerContainer = document.querySelector('.yt-player-container');
-            const placeholder = document.getElementById('playerPlaceholder');
-            const playerSection = document.querySelector('.yt-player-section');
+        // --- MASTER INIT FUNCTION ---
+        // This replaces the old redirected initArtplayer
+        function initArtplayer(url, poster, subtitleUrl) {
+            // Check User Preference
+            const pref = localStorage.getItem('kv_player_pref') || 'artplayer'; // Default to ArtPlayer
 
-            // Scroll Observer
-            const observer = new IntersectionObserver((entries) => {
-                // If player section top is out of view (scrolling down)
-                const entry = entries[0];
-                if (!entry.isIntersecting && entry.boundingClientRect.top < 0) {
-                    enableMiniMode();
-                } else {
-                    disableMiniMode();
+            // Should we force use of proxy URL for ArtPlayer?
+            // The 'url' passed here is usually the proxy url from the API
+
+            if (pref === 'native') {
+                // Use YouTube IFrame
+                const videoId = "{{ request.args.get('v') }}" || new URLSearchParams(window.location.search).get('v');
+                if (videoId) {
+                    return initYouTubePlayer(videoId);
                 }
-            }, { threshold: 0, rootMargin: '-100px 0px 0px 0px' }); // Trigger when header passes
-
-            observer.observe(playerSection);
-
-            function enableMiniMode() {
-                if (playerContainer.classList.contains('yt-mini-mode')) return;
-                playerContainer.classList.add('yt-mini-mode');
-                placeholder.style.display = 'block';
-                // Trigger reflow?
-                playerContainer.style.position = 'fixed';
-                playerContainer.style.bottom = '20px';
-                playerContainer.style.right = '20px';
-                playerContainer.style.width = '320px';
-                playerContainer.style.height = '180px';
-                playerContainer.style.zIndex = '9999';
-                playerContainer.style.boxShadow = '0 4px 12px rgba(0,0,0,0.5)';
-                playerContainer.style.borderRadius = '12px';
             }
 
+            // Default: Use ArtPlayer
+            return initRealArtplayer(url, poster, subtitleUrl);
+        }
 
+        // Redirect native calls (if any still exist)
+        function initNativePlayer(url, poster) {
+            const videoId = "{{ request.args.get('v') }}" || new URLSearchParams(window.location.search).get('v');
+            return initYouTubePlayer(videoId);
+        }
 
-            function disableMiniMode() {
-                if (!playerContainer.classList.contains('yt-mini-mode')) return;
-                playerContainer.classList.remove('yt-mini-mode');
-                placeholder.style.display = 'none';
-
-                // Reset styles to ensure normal layout
-                playerContainer.style.top = '';
-                playerContainer.style.left = '';
-                playerContainer.style.bottom = '';
-                playerContainer.style.right = '';
-                playerContainer.style.transform = '';
-            }
-
-            // Drag Logic
-            let isDragging = false;
-            let startX, startY, initialLeft, initialTop;
-
-            playerContainer.addEventListener('mousedown', dragStart);
-            document.addEventListener('mousemove', drag);
-            document.addEventListener('mouseup', dragEnd);
-
-            // Touch support
-            playerContainer.addEventListener('touchstart', dragStart, { passive: false });
-            document.addEventListener('touchmove', drag, { passive: false });
-            document.addEventListener('touchend', dragEnd);
-
-            function dragStart(e) {
-                if (!playerContainer.classList.contains('yt-mini-mode')) return;
-                // Don't drag if clicking controls (could be tricky, but basic grab works)
-                // Filter out clicks on seekbar or buttons if needed, but container grab is ok usually.
-                if (e.target.closest('.art-controls') || e.target.closest('.art-video')) {
-                    // Allow interaction with controls, but maybe handle drag on edges/title if existed.
-                    // For now, let's allow grab anywhere but maybe standard controls prevent propagation?
-                    // Actually Artplayer captures clicks. We might need a specific handle or overlay.
-                    // But user asked for "movable". Let's try grabbing the container directly.
-                }
-
-                // For better UX, maybe only drag when holding header or empty space?
-                // Given artplayer fills it, we drag the whole thing.
-
-                isDragging = true;
-
-                const clientX = e.type === 'touchstart' ? e.touches[0].clientX : e.clientX;
-                const clientY = e.type === 'touchstart' ? e.touches[0].clientY : e.clientY;
-
-                // Get current position
-                const rect = playerContainer.getBoundingClientRect();
-                startX = clientX;
-                startY = clientY;
-                initialLeft = rect.left;
-                initialTop = rect.top;
-
-                // Unset bottom/right to switch to top/left positioning for dragging
-                playerContainer.style.bottom = 'auto';
-                playerContainer.style.right = 'auto';
-                playerContainer.style.left = initialLeft + 'px';
-                playerContainer.style.top = initialTop + 'px';
-
-                e.preventDefault(); // Prevent text selection
-            }
-
-            function drag(e) {
-                if (!isDragging) return;
-
-                const clientX = e.type === 'touchmove' ? e.touches[0].clientX : e.clientX;
-                const clientY = e.type === 'touchmove' ? e.touches[0].clientY : e.clientY;
-
-                const dx = clientX - startX;
-                const dy = clientY - startY;
-
-                let newLeft = initialLeft + dx;
-                let newTop = initialTop + dy;
-
-                // Boundaries
-                const winWidth = window.innerWidth;
-                const winHeight = window.innerHeight;
-                const rect = playerContainer.getBoundingClientRect();
-
-                if (newLeft < 0) newLeft = 0;
-                if (newTop < 0) newTop = 0;
-                if (newLeft + rect.width > winWidth) newLeft = winWidth - rect.width;
-                if (newTop + rect.height > winHeight) newTop = winHeight - rect.height;
-
-                playerContainer.style.left = newLeft + 'px';
-                playerContainer.style.top = newTop + 'px';
-
-                e.preventDefault();
-            }
-
-            function dragEnd() {
-                isDragging = false;
-            }
-        } // End setupMiniPlayer
+        // Mini player removed per user request
 
         // --- Loop Logic ---
         function toggleLoop(btn) {
@@ -1167,108 +1191,183 @@
                 return;
             }
 
+            // --- PLAYER INITIALIZATION LOGIC ---
+            const pref = localStorage.getItem('kv_player_pref') || 'artplayer';
+
+            // Helper to render metadata once fetched
+            function renderMetadata(data) {
+                // Update Metadata
+                document.getElementById('videoTitle').innerText = data.title || 'Untitled';
+                currentVideoTitle = data.title; // Set this EARLY for related videos fetch
+
+                // Set window title
+                document.title = (data.title || 'Video') + ' - KV-Tube';
+
+                const channelLink = data.uploader_id ? `/channel/${data.uploader_id}` : (data.channel_id ? `/channel/${data.channel_id}` : `/channel/${data.uploader || 'unknown'}`);
+                const channelNameEl = document.getElementById('channelName');
+                channelNameEl.innerHTML = `<a href="${channelLink}" style="color:inherit; text-decoration:none;">${data.uploader || 'Unknown'}</a>`;
+
+                const avatarEl = document.getElementById('channelAvatar');
+                avatarEl.style.cursor = 'pointer';
+                avatarEl.onclick = () => window.location.href = channelLink;
+
+                document.getElementById('viewCount').innerText = formatViews(data.view_count) + ' views';
+                document.getElementById('videoDesc').innerText = data.description || 'No description';
+                document.getElementById('descStats').innerText = `${formatViews(data.view_count)} views • ${formatDate(data.upload_date)}`;
+
+                // Update global data (merging with existing ID)
+                currentVideoData = {
+                    ...currentVideoData,
+                    title: data.title,
+                    thumbnail: `https://i.ytimg.com/vi/${videoId}/mqdefault.jpg`,
+                    uploader: data.uploader || 'Unknown',
+                    channel_id: data.channel_id || data.uploader_id || '',
+                    duration: data.duration,
+                    stream_url: data.stream_url // Store for download/reference
+                };
+
+                // Update download button if exists
+                const dlBtn = document.getElementById('downloadBtn');
+                if (dlBtn && data.stream_url) dlBtn.href = data.stream_url;
+
+                document.getElementById('channelAvatarLetter').innerText = (data.uploader || '?').charAt(0).toUpperCase();
+
+                // Update states
+                updateSaveButtonState();
+                updateQueueButtonState();
+                updateSubscribeButtonState();
+
+                // Related
+                const relatedContainer = document.getElementById('relatedVideos');
+                // Ensure we don't wipe if we already rendered (unlikely but safe)
+                if (relatedContainer.querySelectorAll('.yt-video-card-horizontal').length === 0) {
+                    relatedContainer.innerHTML = '<h3 style="margin-bottom: 16px; font-size: 16px;">Related Videos</h3>';
+                    if (data.related && data.related.length > 0) {
+                        renderRelated(data.related);
+                    } else {
+                        relatedPage = 1;
+                        loadMoreRelated();
+                    }
+                    // Add Sentinel
+                    const sentinel = document.createElement('div');
+                    sentinel.id = 'relatedSentinel';
+                    sentinel.style.height = '20px';
+                    relatedContainer.appendChild(sentinel);
+                    setupRelatedObserver();
+                }
+
+                if (infoSkeleton) infoSkeleton.style.display = 'none';
+                videoInfo.style.display = 'block';
+            }
+
+            // Start Data Fetch
+            const dataPromise = fetch(`/api/get_stream_info?v=${videoId}`)
+                .then(r => {
+                    if (!r.ok) throw new Error("Metadata fetch failed");
+                    return r.json();
+                });
+
+            if (pref === 'native') {
+                // --- FAST PATH: Native Player ---
+                console.log("Preference: Native. Init IFrame immediately.");
+                initYouTubePlayer(videoId);
+                loading.style.display = 'none';
+
+                // Render metadata when ready
+                if (infoSkeleton) infoSkeleton.style.display = 'block';
+                dataPromise
+                    .then(data => {
+                        if (data.error) throw new Error(data.error);
+                        renderMetadata(data);
+                    })
+                    .catch(e => {
+                        console.warn("Metadata load failed for Native player:", e);
+                        if (infoSkeleton) infoSkeleton.style.display = 'none';
+                        // Fallbacks are handled by hydrateFromUrl mostly
+                    });
+
+            } else {
+                // --- ARTPLAYER PATH ---
+                // Must wait for stream URL
+                console.log("Preference: ArtPlayer. Fetching stream info...");
+                if (infoSkeleton) infoSkeleton.style.display = 'block';
+
+                dataPromise
+                    .then(data => {
+                        if (data.error) throw new Error(data.error);
+
+                        // Initialize ArtPlayer
+                        if (data.stream_url) {
+                            // Ensure poster is a valid string (fallback to generated thumbnail or empty string)
+                            const posterUrl = data.thumbnail || `https://i.ytimg.com/vi/${videoId}/mqdefault.jpg` || "";
+                            initArtplayer(data.stream_url, posterUrl, data.subtitleUrl);
+                        } else {
+                            throw new Error("No stream URL in metadata");
+                        }
+
+                        loading.style.display = 'none';
+                        renderMetadata(data);
+                    })
+                    .catch(e => {
+                        console.error("ArtPlayer init failed:", e);
+                        showToast("Failed to load video: " + e.message, "error");
+                        loading.style.display = 'none';
+                        if (infoSkeleton) infoSkeleton.style.display = 'none';
+                        videoInfo.style.display = 'block';
+
+                        // Show error message in player area
+                        const container = document.getElementById('artplayer-app');
+                        if (container) {
+                            container.innerHTML = `
+                                <div style="display: flex; align-items: center; justify-content: center; height: 100%; background: #000; color: #fff; flex-direction: column; padding: 20px; text-align: center;">
+                                    <i class="fas fa-exclamation-triangle" style="font-size: 48px; margin-bottom: 16px; color: #ff0000;"></i>
+                                    <h3 style="margin-bottom: 8px;">Failed to load video</h3>
+                                    <p style="color: #aaa;">${e.message || 'Unknown error'}</p>
+                                    <button onclick="location.reload()" style="margin-top: 16px; padding: 8px 16px; background: #ff0000; color: #fff; border: none; border-radius: 4px; cursor: pointer;">Retry</button>
+                                </div>
+                            `;
+                        }
+
+                        // Use hydrated data from URL params for metadata
+                        const urlParams = new URLSearchParams(window.location.search);
+                        const fallbackTitle = urlParams.get('title') || currentVideoData.title || 'Video';
+                        const fallbackUploader = urlParams.get('uploader') || currentVideoData.uploader || 'Unknown';
+
+                        document.getElementById('videoDesc').innerText = 'Description not available (API error)';
+                        document.getElementById('descStats').innerText = '';
+                        document.getElementById('videoTitle').innerText = fallbackTitle;
+                        document.getElementById('channelName').innerText = fallbackUploader;
+                        document.getElementById('channelAvatarLetter').innerText = fallbackUploader.charAt(0).toUpperCase();
+
+                        updateSaveButtonState();
+                        updateQueueButtonState();
+
+                        currentVideoData.title = fallbackTitle;
+                        currentVideoData.uploader = fallbackUploader;
+                        currentVideoData.thumbnail = `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`;
+
+                        // Load related videos
+                        const relatedContainer = document.getElementById('relatedVideos');
+                        relatedContainer.innerHTML = '<h3 style="margin-bottom: 16px; font-size: 16px;">Related Videos</h3>';
+                        relatedPage = 1;
+                        currentVideoTitle = fallbackTitle;
+                        loadMoreRelated();
+                        const sentinel = document.createElement('div');
+                        sentinel.id = 'relatedSentinel';
+                        sentinel.style.height = '20px';
+                        relatedContainer.appendChild(sentinel);
+                        setupRelatedObserver();
+                    });
+            }
+
+            // OLD LOGIC BELOW IS SKIPPED
+            /*
             // Retry Configuration
             const MAX_RETRIES = 2; // Try 3 times total
             let retryCount = 0;
-
+            
             while (retryCount <= MAX_RETRIES) {
-                try {
-                    if (retryCount > 0) {
-                        loading.innerHTML = `<div class="yt-loader-spinner"></div><p style="color:#fff; margin-top:10px;">Taking longer than expected... (Attempt ${retryCount + 1}/${MAX_RETRIES + 1})</p>`;
-                    }
-
-                    const response = await fetch(`/api/get_stream_info?v=${videoId}`);
-
-                    if (response.status === 504) {
-                        throw new Error("Server Timeout");
-                    }
-
-                    if (!response.ok) {
-                        // If 500/502/etc, might be temporary
-                        let errorMessage = `Server Error (${response.status})`;
-                        try {
-                            const errData = await response.json();
-                            if (errData.error) errorMessage = errData.error;
-                        } catch (e) { }
-                        throw new Error(errorMessage);
-                    }
-
-                    // Success! Break loop
-                    // ... (Proceed to process data)
-
-                    // Check content type to avoid JSON syntax errors if HTML is returned
-                    const contentType = response.headers.get("content-type");
-                    if (!contentType || !contentType.includes("application/json")) {
-                        throw new Error("Received invalid response from server");
-                    }
-
-                    // We need to break out of the while loop and continue below
-                    // But we can just execute the rest here and return.
-                    // Or assign data and break.
-                    var data = await response.json();
-                    break;
-
-                } catch (e) {
-                    console.warn(`Attempt ${retryCount + 1} failed:`, e);
-                    retryCount++;
-                    if (retryCount > MAX_RETRIES) {
-                        loading.innerHTML = `<p style="color:#f00; text-align:center;">Failed to load video: ${e.message}</p><button onclick="location.reload()" style="margin-top:10px; padding:8px 16px; border-radius:18px; border:none; background:#3ea6ff; color:#fff; cursor:pointer;">Retry</button>`;
-                        if (infoSkeleton) infoSkeleton.style.display = 'none';
-                        showToast("Failed to load video.", "error");
-                        return; // Exit
-                    }
-                    // Wait before retry (exponential backoff)
-                    await new Promise(r => setTimeout(r, 1500 * retryCount));
-                }
-            }
-
-            // --- Process Data (Success) ---
-            // Existing logic to process 'data'
-            if (!data) return; // Should not happen due to return in catch
-
-
-
-            // Populate global data for Queue
-            currentVideoData = {
-                id: videoId,
-                title: data.title,
-                thumbnail: `https://i.ytimg.com/vi/${videoId}/mqdefault.jpg`,
-                uploader: data.uploader || 'Unknown',
-                channel_id: data.channel_id || data.uploader_id || '',
-                duration: data.duration,
-                audioUrl: data.audio_url
-            };
-
-            // Check if video is already in queue
-            updateQueueButtonState();
-            updateQueueCount();
-            updateQueueBadge();
-
-
-
-            if (data.error) {
-                loading.innerHTML = `<p style="color:#f00; text-align:center;">${data.error}</p>`;
-                if (infoSkeleton) infoSkeleton.style.display = 'none';
-                showToast(data.error, 'error');
-                return;
-            }
-
-            const posterUrl = `https://i.ytimg.com/vi/${videoId}/maxresdefault.jpg`;
-
-            // Determine video type
-            let streamType = 'auto';
-            if (data.original_url && (data.original_url.includes('.m3u8') || data.original_url.includes('manifest'))) {
-                streamType = 'm3u8';
-            }
-            // Disable direct YouTube subtitle URL to prevent CORS errors
-            // Use our server-side /api/transcript endpoint instead
-            const player = initArtplayer(data.stream_url, posterUrl, '', streamType);
-            window.player = player; // Ensure global access for loop button
-            currentStreamUrl = data.stream_url; // For download button
-
-            loading.style.display = 'none';
-            if (infoSkeleton) infoSkeleton.style.display = 'none';
-            videoInfo.style.display = 'block';
+             ...
 
             const channelLink = data.uploader_id ? `/channel/${data.uploader_id}` : (data.channel_id ? `/channel/${data.channel_id}` : `/channel/${data.uploader || 'unknown'}`);
 
@@ -1359,6 +1458,8 @@
             if (data.related && data.related.length > 0) {
                 relatedPage = 2; // Next page is 2 if we had initial data
             }
+            */
+            // End OLD LOGIC
         })(); // End initWatchPage IIFE
 
         function formatViews(views) {
@@ -1555,10 +1656,10 @@
                    <img src="${video.thumbnail || 'https://i.ytimg.com/vi/' + video.id + '/mqdefault.jpg'}" loading="lazy" onerror="this.onerror=null; this.src='https://i.ytimg.com/vi/${video.id}/mqdefault.jpg'">
                    ${video.duration ? `<div class="yt-duration">${video.duration}</div>` : ''}
                 </div>
-                <div class="yt-details-h">
+                   <div class="yt-details-h">
                    <div class="yt-title-h">${escapeHtml(video.title)}</div>
                    <div class="yt-meta-h">${escapeHtml(video.uploader || 'Unknown')}</div>
-                   <div class="yt-meta-h">${formatViews(video.views)} • ${formatDate(video.uploaded)}</div>
+                   <div class="yt-meta-h">${formatViews(video.view_count)} views • ${formatDate(video.upload_date)}</div>
                 </div>
             `;
                 fragment.appendChild(card);
@@ -1585,6 +1686,443 @@
             </div>
         </div>
     </div>
+
+    <!-- Summary Modal -->
+    <div id="summaryModal" class="download-modal" onclick="if(event.target===this) closeSummaryModal()">
+        <div class="download-modal-content">
+            <button class="download-close" onclick="closeSummaryModal()">
+                <i class="fas fa-times"></i>
+            </button>
+            <h3>Video Summary</h3>
+            <div id="summaryModalContent"
+                style="margin-top: 15px; line-height: 1.6; max-height: 60vh; overflow-y: auto;">
+                <div class="loader" style="margin: 20px auto;"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Track current language state and WebLLM status
+        let currentSummaryLang = 'en';
+        let webllmInitialized = false;
+        let currentTranscriptText = null;
+        let currentSummaryData = { en: null, vi: null };
+
+        // WebLLM Progress Update Handler - Silent loading (just log to console)
+        function updateWebLLMProgress(percent, status) {
+            // Silent loading - only log to console for debugging
+            console.log(`WebLLM: ${percent}% - ${status}`);
+        }
+
+        // Initialize WebLLM in background (silent, no UI)
+        async function initWebLLMIfNeeded() {
+            if (webllmInitialized || !window.webLLMService) return false;
+
+            if (!WebLLMService.isSupported()) {
+                console.log('WebGPU not supported, using server-side AI');
+                return false;
+            }
+
+            try {
+                // Silent init - no UI callback
+                webllmInitialized = await window.webLLMService.init(null, updateWebLLMProgress);
+                console.log('WebLLM initialized successfully');
+                return webllmInitialized;
+            } catch (e) {
+                console.error('WebLLM init failed:', e);
+                return false;
+            }
+        }
+
+        // Fetch transcript text (for WebLLM local processing)
+        async function fetchTranscript(videoId) {
+            if (currentTranscriptText) return currentTranscriptText;
+
+            try {
+                const response = await fetch(`/api/transcript?v=${videoId}`);
+                if (response.ok) {
+                    const text = await response.text();
+                    // Parse VTT to plain text
+                    currentTranscriptText = text
+                        .split('\n')
+                        .filter(line => !line.includes('-->') && !line.startsWith('WEBVTT') && line.trim())
+                        .join(' ')
+                        .replace(/<[^>]+>/g, '')
+                        .substring(0, 8000);
+                    return currentTranscriptText;
+                }
+            } catch (e) {
+                console.error('Transcript fetch error:', e);
+            }
+            return null;
+        }
+
+        // Auto-load summary on page load (inline display)
+        async function loadSummaryInline(lang = 'en') {
+            if (!currentVideoData.id) return;
+
+            const summaryBox = document.getElementById('summaryBox');
+            const content = document.getElementById('summaryContent');
+            const keyPointsSection = document.getElementById('keyPointsSection');
+            const keyPointsList = document.getElementById('keyPointsList');
+            const summaryLang = document.getElementById('summaryLang');
+            const translateBtn = document.getElementById('translateBtn');
+
+            if (!summaryBox || !content) return;
+
+            // Show the box with loading state
+            summaryBox.style.display = 'block';
+            content.innerHTML = '<div class="loader" style="margin:20px auto;"></div><p style="text-align:center; color:var(--yt-text-secondary);">✨ Generating AI summary...</p>';
+            if (keyPointsSection) keyPointsSection.style.display = 'none';
+
+            // Check if WebLLM is ready and try to use it
+            let useLocalAI = false;
+            if (window.webLLMService && window.webLLMService.isReady()) {
+                useLocalAI = true;
+            }
+
+            if (useLocalAI) {
+                // Use Local WebLLM AI
+                try {
+                    const transcript = await fetchTranscript(currentVideoData.id);
+                    if (!transcript) {
+                        throw new Error('No transcript available');
+                    }
+
+                    // Generate summary with WebLLM
+                    const summary = await window.webLLMService.summarize(transcript, lang);
+                    currentSummaryData[lang] = summary;
+                    currentSummaryLang = lang;
+
+                    // Update UI
+                    displaySummary(summary, null, lang, true);
+
+                    // Extract key points
+                    if (keyPointsSection && keyPointsList) {
+                        try {
+                            const keyPoints = await window.webLLMService.extractKeyPoints(transcript, lang);
+                            if (keyPoints && keyPoints.length > 0) {
+                                keyPointsList.innerHTML = keyPoints.map(point =>
+                                    `<li style="margin-bottom:6px;">${point}</li>`
+                                ).join('');
+                                keyPointsSection.style.display = 'block';
+                            }
+                        } catch (e) {
+                            console.error('Key points extraction failed:', e);
+                        }
+                    }
+
+                    return;
+                } catch (e) {
+                    console.error('WebLLM summarization failed, falling back to server:', e);
+                    // Fall through to server API
+                }
+            }
+
+            // Fallback to Server API
+            let url = `/api/summarize?v=${currentVideoData.id}`;
+            if (lang === 'vi') url += '&lang=vi';
+
+            try {
+                const response = await fetch(url);
+                const data = await response.json();
+
+                if (data.success && data.summary) {
+                    currentSummaryLang = data.lang || 'en';
+                    displaySummary(data.summary, data.translated_summary, currentSummaryLang, false);
+
+                    // Display key points
+                    if (data.key_points && data.key_points.length > 0 && keyPointsSection && keyPointsList) {
+                        keyPointsList.innerHTML = data.key_points.map(point =>
+                            `<li style="margin-bottom:6px;">${point}</li>`
+                        ).join('');
+                        keyPointsSection.style.display = 'block';
+                    }
+                } else {
+                    content.innerHTML = `<p style="color:var(--yt-text-tertiary); text-align:center;">
+                        <i class="fas fa-info-circle"></i> ${data.error || 'No summary available for this video.'}
+                    </p>`;
+                    // Hide key points and disable translate when no summary available
+                    if (keyPointsSection) keyPointsSection.style.display = 'none';
+                    // Disable translate button (no content to translate)
+                    const translateBtn = document.getElementById('translateBtn');
+                    if (translateBtn) {
+                        translateBtn.disabled = true;
+                        translateBtn.style.opacity = '0.5';
+                        translateBtn.style.cursor = 'not-allowed';
+                        translateBtn.classList.remove('loading');
+                        translateBtn.innerHTML = '🇻🇳 <span>Tiếng Việt</span>';
+                    }
+                }
+            } catch (err) {
+                console.error('Summary error:', err);
+                summaryBox.style.display = 'none';
+            }
+        }
+
+        // Display summary with proper formatting
+        // summary = English content, translatedSummary = Vietnamese content (if available)
+        function displaySummary(summary, translatedSummary, lang, isLocal) {
+            const content = document.getElementById('summaryContent');
+            const summaryLang = document.getElementById('summaryLang');
+            const translateBtn = document.getElementById('translateBtn');
+
+            if (!content) return;
+
+            // Store original English summary for later use
+            if (lang === 'en' || !currentSummaryData.en) {
+                currentSummaryData.en = summary;
+            }
+            if (translatedSummary) {
+                currentSummaryData.vi = translatedSummary;
+            }
+
+            // Update language indicator
+            if (summaryLang) {
+                const langLabel = translatedSummary ? '🇬🇧 + 🇻🇳' : (lang === 'vi' ? '🇻🇳 Tiếng Việt' : '🇬🇧 English');
+                const aiLabel = isLocal ? '<span class="ai-source-indicator local"><i class="fas fa-microchip"></i> Local AI</span>' : '';
+                summaryLang.innerHTML = langLabel + ' ' + aiLabel;
+            }
+
+            if (translateBtn) {
+                translateBtn.innerHTML = translatedSummary
+                    ? '🇬🇧 <span>English Only</span>'
+                    : (lang === 'vi' ? '🇬🇧 <span>English</span>' : '🇻🇳 <span>Tiếng Việt</span>');
+            }
+
+            // Display summary - show dual language if we have translation
+            if (translatedSummary && summary !== translatedSummary) {
+                // Dual display: English + Vietnamese (from API with both)
+                content.innerHTML = `
+                    <div style="margin-bottom:12px;">
+                        <div style="display:flex; align-items:center; gap:6px; margin-bottom:6px;">
+                            <span style="font-size:12px; background:#e3f2fd; color:#1976d2; padding:2px 8px; border-radius:4px;">🇬🇧 English</span>
+                        </div>
+                        <p style="margin:0; padding:10px; background:var(--yt-bg-primary); border-radius:8px; border-left:3px solid #1976d2;">${summary}</p>
+                    </div>
+                    <div>
+                        <div style="display:flex; align-items:center; gap:6px; margin-bottom:6px;">
+                            <span style="font-size:12px; background:#fff3e0; color:#e65100; padding:2px 8px; border-radius:4px;">🇻🇳 Tiếng Việt</span>
+                        </div>
+                        <p style="margin:0; padding:10px; background:var(--yt-bg-primary); border-radius:8px; border-left:3px solid #e65100;">${translatedSummary}</p>
+                    </div>
+                `;
+                currentSummaryData.en = summary;
+                currentSummaryData.vi = translatedSummary;
+            } else if (currentSummaryData.en && currentSummaryData.vi && currentSummaryData.en !== currentSummaryData.vi) {
+                // We have cached both versions - validate and show dual display
+                // Verify which is actually English vs Vietnamese using character detection
+                const hasVietnameseInEn = /[àáạảãâầấậẩẫăằắặẳẵèéẹẻẽêềếệểễìíịỉĩòóọỏõôồốộổỗơờớợởỡùúụủũưừứựửữỳýỵỷỹđ]/i.test(currentSummaryData.en);
+                const hasVietnameseInVi = /[àáạảãâầấậẩẫăằắặẳẵèéẹẻẽêềếệểễìíịỉĩòóọỏõôồốộổỗơờớợởỡùúụủũưừứựửữỳýỵỷỹđ]/i.test(currentSummaryData.vi);
+
+                // Correct if labels are swapped (en has Vietnamese chars, vi doesn't)
+                let actualEn = currentSummaryData.en;
+                let actualVi = currentSummaryData.vi;
+                if (hasVietnameseInEn && !hasVietnameseInVi) {
+                    // Labels were swapped - fix them
+                    actualEn = currentSummaryData.vi;
+                    actualVi = currentSummaryData.en;
+                    currentSummaryData.en = actualEn;
+                    currentSummaryData.vi = actualVi;
+                }
+
+                content.innerHTML = `
+                    <div style="margin-bottom:12px;">
+                        <div style="display:flex; align-items:center; gap:6px; margin-bottom:6px;">
+                            <span style="font-size:12px; background:#e3f2fd; color:#1976d2; padding:2px 8px; border-radius:4px;">🇬🇧 English</span>
+                        </div>
+                        <p style="margin:0; padding:10px; background:var(--yt-bg-primary); border-radius:8px; border-left:3px solid #1976d2;">${actualEn}</p>
+                    </div>
+                    <div>
+                        <div style="display:flex; align-items:center; gap:6px; margin-bottom:6px;">
+                            <span style="font-size:12px; background:#fff3e0; color:#e65100; padding:2px 8px; border-radius:4px;">🇻🇳 Tiếng Việt</span>
+                        </div>
+                        <p style="margin:0; padding:10px; background:var(--yt-bg-primary); border-radius:8px; border-left:3px solid #e65100;">${actualVi}</p>
+                    </div>
+                `;
+            } else {
+                // Single language display - detect language from content
+                // Simple heuristic: Vietnamese has characters like ạ, ế, ư, ơ, etc.
+                const hasVietnamese = /[àáạảãâầấậẩẫăằắặẳẵèéẹẻẽêềếệểễìíịỉĩòóọỏõôồốộổỗơờớợởỡùúụủũưừứựửữỳýỵỷỹđ]/i.test(summary);
+                const actualLang = hasVietnamese ? 'vi' : 'en';
+
+                // Store in cache
+                if (actualLang === 'en') {
+                    currentSummaryData.en = summary;
+                } else {
+                    currentSummaryData.vi = summary;
+                }
+
+                const labelFlag = actualLang === 'vi' ? '🇻🇳' : '🇬🇧';
+                const labelText = actualLang === 'vi' ? 'Tiếng Việt' : 'English';
+                const labelBg = actualLang === 'vi' ? '#fff3e0' : '#e3f2fd';
+                const labelColor = actualLang === 'vi' ? '#e65100' : '#1976d2';
+
+                content.innerHTML = `
+                    <div>
+                        <div style="display:flex; align-items:center; gap:6px; margin-bottom:6px;">
+                            <span style="font-size:12px; background:${labelBg}; color:${labelColor}; padding:2px 8px; border-radius:4px;">${labelFlag} ${labelText}</span>
+                        </div>
+                        <p style="margin:0; padding:10px; background:var(--yt-bg-primary); border-radius:8px; border-left:3px solid ${labelColor};">${summary}</p>
+                    </div>
+                `;
+            }
+        }
+
+        // Toggle between English and Vietnamese translation
+        async function toggleSummaryTranslation() {
+            const newLang = currentSummaryLang === 'vi' ? 'en' : 'vi';
+            const translateBtn = document.getElementById('translateBtn');
+
+            // Show loading state
+            if (translateBtn) {
+                translateBtn.innerHTML = '<div class="spinner"></div> Translating...';
+                translateBtn.classList.add('loading');
+            }
+
+            // Try WebLLM first for instant translation
+            if (window.webLLMService && window.webLLMService.isReady() && currentSummaryData[currentSummaryLang]) {
+                try {
+                    if (currentSummaryData[newLang]) {
+                        // Already have translation cached
+                        displaySummary(currentSummaryData[newLang], null, newLang, true);
+                        currentSummaryLang = newLang;
+                    } else {
+                        // Translate with WebLLM
+                        const translated = await window.webLLMService.translate(
+                            currentSummaryData[currentSummaryLang],
+                            currentSummaryLang,
+                            newLang
+                        );
+                        currentSummaryData[newLang] = translated;
+                        displaySummary(translated, null, newLang, true);
+                        currentSummaryLang = newLang;
+                    }
+
+                    if (translateBtn) translateBtn.classList.remove('loading');
+                    return;
+                } catch (e) {
+                    console.error('WebLLM translation failed:', e);
+                }
+            }
+
+            // Fallback to server
+            loadSummaryInline(newLang);
+            if (translateBtn) translateBtn.classList.remove('loading');
+        }
+
+        // Copy summary content to clipboard
+        function copySummaryContent() {
+            const content = document.getElementById('summaryContent');
+            const copyBtn = document.getElementById('copySummaryBtn');
+
+            if (!content) return;
+
+            // Get text content (strip HTML)
+            const text = content.innerText || content.textContent;
+
+            // Copy to clipboard
+            navigator.clipboard.writeText(text).then(() => {
+                // Show success feedback
+                if (copyBtn) {
+                    const originalHTML = copyBtn.innerHTML;
+                    copyBtn.innerHTML = '<i class="fas fa-check"></i> <span>Copied!</span>';
+                    copyBtn.style.background = 'linear-gradient(135deg, #10b981, #059669)';
+                    copyBtn.style.color = 'white';
+                    copyBtn.style.borderColor = 'transparent';
+
+                    setTimeout(() => {
+                        copyBtn.innerHTML = originalHTML;
+                        copyBtn.style.background = '';
+                        copyBtn.style.color = '';
+                        copyBtn.style.borderColor = '';
+                    }, 2000);
+                }
+
+                if (typeof showToast === 'function') {
+                    showToast('Summary copied to clipboard!', 'success');
+                }
+            }).catch(err => {
+                console.error('Copy failed:', err);
+                if (typeof showToast === 'function') {
+                    showToast('Failed to copy', 'error');
+                }
+            });
+        }
+
+        function closeSummaryModal() {
+            const modal = document.getElementById('summaryModal');
+            if (modal) modal.style.display = 'none';
+        }
+
+        // Keep the button click function for manual trigger
+        function showSummaryModal() {
+            // Start loading WebLLM in background
+            initWebLLMIfNeeded();
+            loadSummaryInline();
+        }
+
+        // Auto-load summary when page loads (after a short delay to ensure video ID is set)
+        document.addEventListener('DOMContentLoaded', function () {
+            setTimeout(function () {
+                if (currentVideoData.id) {
+                    // Pre-fetch transcript for WebLLM
+                    fetchTranscript(currentVideoData.id);
+                    loadSummaryInline();
+                }
+            }, 2000);
+        });
+
+        function toggleCaptions() {
+            if (window.player) {
+                // If using Native Player (YouTube IFrame)
+                const pref = localStorage.getItem('kv_player_pref') || 'artplayer';
+                if (pref === 'native') {
+                    showToast("Please use the 'CC' button in the YouTube player.", "info");
+                    return;
+                }
+
+                // If using ArtPlayer
+                const art = window.player;
+                if (!art.subtitle) {
+                    showToast("Captions not supported for this player mode.", "error");
+                    return;
+                }
+
+                if (art.subtitle.url) {
+                    art.subtitle.show = !art.subtitle.show;
+                    if (art.subtitle.show) {
+                        art.notice.show = 'Captions On';
+                    } else {
+                        art.notice.show = 'Captions Off';
+                    }
+                } else {
+                    // Try to fetch transcript if not loaded
+                    art.notice.show = 'Fetching captions...';
+                    fetch(`/api/transcript?v=${currentVideoData.id}`)
+                        .then(res => res.text()) // Assuming it returns VTT or text
+                        .then(data => {
+                            if (data && data.length > 0) {
+                                // Create a blob URL for the subtitle
+                                const blob = new Blob([data], { type: 'text/vtt' });
+                                const url = URL.createObjectURL(blob);
+                                art.subtitle.url = url;
+                                art.subtitle.show = true;
+                                art.notice.show = 'Captions Loaded';
+                            } else {
+                                art.notice.show = 'No captions available';
+                            }
+                        })
+                        .catch(err => {
+                            console.error(err);
+                            art.notice.show = 'Error loading captions';
+                        });
+                }
+            } else {
+                showToast("Player not ready", "error");
+            }
+        }
+    </script>
 
 
     {% endblock %}

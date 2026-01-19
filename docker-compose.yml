@@ -5,7 +5,7 @@ version: '3.8'
 
 services:
   kv-tube:
-    # build: .
+    build: .
     image: vndangkhoa/kv-tube:latest
     container_name: kv-tube
     restart: unless-stopped

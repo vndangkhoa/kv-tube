@@ -1,0 +1,277 @@
+/**
+ * WebLLM Styles - Loading UI and Progress Bar
+ */
+
+/* Model loading overlay */
+.webllm-loading-overlay {
+    position: fixed;
+    bottom: 100px;
+    right: 20px;
+    background: linear-gradient(135deg, 
+        rgba(15, 15, 20, 0.95) 0%, 
+        rgba(25, 25, 35, 0.95) 100%);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 16px;
+    padding: 20px 24px;
+    min-width: 320px;
+    z-index: 9999;
+    box-shadow: 
+        0 8px 32px rgba(0, 0, 0, 0.4),
+        0 0 0 1px rgba(255, 255, 255, 0.05) inset;
+    animation: slideInRight 0.3s ease-out;
+}
+
+@keyframes slideInRight {
+    from {
+        opacity: 0;
+        transform: translateX(20px);
+    }
+    to {
+        opacity: 1;
+        transform: translateX(0);
+    }
+}
+
+.webllm-loading-overlay.hidden {
+    display: none;
+}
+
+/* Header with icon */
+.webllm-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 16px;
+}
+
+.webllm-icon {
+    width: 40px;
+    height: 40px;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    border-radius: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 18px;
+    color: white;
+    box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
+}
+
+.webllm-title {
+    font-size: 14px;
+    font-weight: 600;
+    color: #fff;
+    margin: 0;
+}
+
+.webllm-subtitle {
+    font-size: 11px;
+    color: rgba(255, 255, 255, 0.5);
+    margin: 2px 0 0 0;
+}
+
+/* Progress bar */
+.webllm-progress-container {
+    background: rgba(255, 255, 255, 0.08);
+    border-radius: 8px;
+    height: 8px;
+    overflow: hidden;
+    margin-bottom: 12px;
+}
+
+.webllm-progress-bar {
+    height: 100%;
+    background: linear-gradient(90deg, #667eea 0%, #764ba2 50%, #f093fb 100%);
+    background-size: 200% 100%;
+    border-radius: 8px;
+    transition: width 0.3s ease;
+    animation: shimmer 2s infinite linear;
+}
+
+@keyframes shimmer {
+    0% { background-position: 200% 0; }
+    100% { background-position: -200% 0; }
+}
+
+/* Status text */
+.webllm-status {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 12px;
+    color: rgba(255, 255, 255, 0.7);
+}
+
+.webllm-percent {
+    font-weight: 600;
+    color: #667eea;
+}
+
+/* Ready state */
+.webllm-ready-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
+    background: linear-gradient(135deg, rgba(16, 185, 129, 0.2) 0%, rgba(16, 185, 129, 0.1) 100%);
+    border: 1px solid rgba(16, 185, 129, 0.3);
+    border-radius: 20px;
+    font-size: 11px;
+    color: #10b981;
+    font-weight: 500;
+}
+
+.webllm-ready-badge i {
+    font-size: 10px;
+}
+
+/* Summary box WebLLM indicator */
+.ai-source-indicator {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 11px;
+    color: var(--yt-text-tertiary, #aaa);
+    padding: 4px 0;
+}
+
+.ai-source-indicator.local {
+    color: #667eea;
+}
+
+.ai-source-indicator.server {
+    color: #f59e0b;
+}
+
+/* Translation button states */
+.translate-btn {
+    padding: 6px 12px;
+    background: var(--yt-bg-primary, #0f0f0f);
+    border: 1px solid var(--yt-border, #303030);
+    border-radius: 20px;
+    color: var(--yt-text-primary, #fff);
+    cursor: pointer;
+    font-size: 12px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    transition: all 0.2s ease;
+}
+
+.translate-btn:hover {
+    background: linear-gradient(135deg, rgba(102, 126, 234, 0.2) 0%, rgba(118, 75, 162, 0.2) 100%);
+    border-color: rgba(102, 126, 234, 0.4);
+}
+
+.translate-btn.active {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    border-color: transparent;
+    color: white;
+}
+
+.translate-btn.loading {
+    opacity: 0.7;
+    pointer-events: none;
+}
+
+.translate-btn .spinner {
+    width: 12px;
+    height: 12px;
+    border: 2px solid transparent;
+    border-top-color: currentColor;
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+    to { transform: rotate(360deg); }
+}
+
+/* Model selector in settings */
+.webllm-model-selector {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-top: 12px;
+}
+
+.webllm-model-option {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 16px;
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 12px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.webllm-model-option:hover {
+    background: rgba(255, 255, 255, 0.08);
+    border-color: rgba(102, 126, 234, 0.3);
+}
+
+.webllm-model-option.selected {
+    background: linear-gradient(135deg, rgba(102, 126, 234, 0.15) 0%, rgba(118, 75, 162, 0.15) 100%);
+    border-color: rgba(102, 126, 234, 0.5);
+}
+
+.webllm-model-option input[type="radio"] {
+    accent-color: #667eea;
+}
+
+.webllm-model-info {
+    flex: 1;
+}
+
+.webllm-model-name {
+    font-size: 13px;
+    font-weight: 500;
+    color: #fff;
+}
+
+.webllm-model-size {
+    font-size: 11px;
+    color: rgba(255, 255, 255, 0.5);
+}
+
+/* Toast notification for WebLLM status */
+.webllm-toast {
+    position: fixed;
+    bottom: 20px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: linear-gradient(135deg, rgba(102, 126, 234, 0.95) 0%, rgba(118, 75, 162, 0.95) 100%);
+    color: white;
+    padding: 12px 24px;
+    border-radius: 12px;
+    font-size: 13px;
+    font-weight: 500;
+    z-index: 10000;
+    box-shadow: 0 8px 32px rgba(102, 126, 234, 0.4);
+    animation: toastIn 0.3s ease-out;
+}
+
+@keyframes toastIn {
+    from {
+        opacity: 0;
+        transform: translateX(-50%) translateY(20px);
+    }
+    to {
+        opacity: 1;
+        transform: translateX(-50%) translateY(0);
+    }
+}
+
+/* Responsive adjustments */
+@media (max-width: 480px) {
+    .webllm-loading-overlay {
+        left: 10px;
+        right: 10px;
+        bottom: 80px;
+        min-width: unset;
+    }
+}

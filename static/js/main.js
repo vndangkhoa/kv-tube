@@ -167,7 +167,138 @@ function renderNoContent(message = 'Try searching for something else', title = '
     `;
 }
 
-// Search YouTube videos
+// Render homepage with personalized sections
+function renderHomepageSections(sections, container, localHistory = []) {
+    // Check if container exists
+    if (!container) {
+        console.warn('renderHomepageSections: container is null');
+        return;
+    }
+
+    // Create a map for quick history lookup
+    const historyMap = {};
+    localHistory.forEach(v => {
+        if (v && v.id) historyMap[v.id] = v;
+    });
+
+    sections.forEach(section => {
+        if (!section.videos || section.videos.length === 0) return;
+
+        // Create section wrapper
+        const sectionEl = document.createElement('div');
+        sectionEl.className = 'yt-homepage-section';
+        sectionEl.id = `section-${section.id}`;
+
+        // Section header
+        const header = document.createElement('div');
+        header.className = 'yt-section-header';
+        header.innerHTML = `
+            <h2>${escapeHtml(section.title)}</h2>
+        `;
+        sectionEl.appendChild(header);
+
+        // Video grid for this section
+        const grid = document.createElement('div');
+        grid.className = 'yt-video-grid';
+
+        // LIMIT VISIBLE VIDEOS TO 8 (2 rows of 4 on desktop)
+        const INITIAL_LIMIT = 8;
+        const hasMore = section.videos.length > INITIAL_LIMIT;
+
+        section.videos.forEach((video, index) => {
+            // For continue watching
+            if (video._from_history && historyMap[video.id]) {
+                const hist = historyMap[video.id];
+                video.title = hist.title || video.title;
+                video.uploader = hist.uploader || video.uploader;
+                video.thumbnail = hist.thumbnail || video.thumbnail;
+            }
+
+            const card = document.createElement('div');
+            card.className = 'yt-video-card';
+            // Hide videos beyond limit initially
+            if (index >= INITIAL_LIMIT) {
+                card.classList.add('yt-hidden-video');
+                card.style.display = 'none';
+            }
+
+            card.innerHTML = `
+                <div class="yt-thumbnail-container">
+                    <img class="yt-thumbnail" src="${video.thumbnail}" alt="${escapeHtml(video.title || 'Video')}" loading="lazy" onload="this.classList.add('loaded')">
+                    ${video.duration ? `<span class="yt-duration">${video.duration}</span>` : ''}
+                </div>
+                <div class="yt-video-details">
+                    <div class="yt-channel-avatar">
+                        ${video.uploader ? video.uploader.charAt(0).toUpperCase() : 'Y'}
+                    </div>
+                    <div class="yt-video-meta">
+                        <h3 class="yt-video-title">${escapeHtml(video.title || 'Unknown')}</h3>
+                        <p class="yt-channel-name">${escapeHtml(video.uploader || 'Unknown')}</p>
+                        <p class="yt-video-stats">${formatViews(video.view_count)} views${video.upload_date ? ' • ' + formatDate(video.upload_date) : ''}</p>
+                    </div>
+                </div>
+            `;
+
+            card.addEventListener('click', () => {
+                const params = new URLSearchParams({
+                    v: video.id,
+                    title: video.title || '',
+                    uploader: video.uploader || '',
+                    thumbnail: video.thumbnail || ''
+                });
+                const dest = `/watch?${params.toString()}`;
+
+                if (window.navigationManager) {
+                    window.navigationManager.navigateTo(dest);
+                } else {
+                    window.location.href = dest;
+                }
+            });
+
+            grid.appendChild(card);
+        });
+
+        sectionEl.appendChild(grid);
+
+        // ADD LOAD MORE BUTTON IF NEEDED
+        if (hasMore) {
+            const btnContainer = document.createElement('div');
+            btnContainer.className = 'yt-section-footer';
+            btnContainer.style.textAlign = 'center';
+            btnContainer.style.padding = '10px';
+
+            const btn = document.createElement('button');
+            btn.className = 'yt-action-btn'; // Re-use existing or generic class
+            btn.style.padding = '8px 24px';
+            btn.style.borderRadius = '18px';
+            btn.style.border = '1px solid var(--yt-border)';
+            btn.style.background = 'var(--yt-bg-secondary)';
+            btn.style.color = 'var(--yt-text-primary)';
+            btn.style.cursor = 'pointer';
+            btn.style.fontWeight = '500';
+            btn.innerText = 'Show more';
+
+            btn.onmouseover = () => btn.style.background = 'var(--yt-bg-hover)';
+            btn.onmouseout = () => btn.style.background = 'var(--yt-bg-secondary)';
+
+            btn.onclick = function () {
+                // Reveal hidden videos
+                const hidden = grid.querySelectorAll('.yt-hidden-video');
+                hidden.forEach(el => el.style.display = 'flex'); // Restore display
+                btnContainer.remove(); // Remove button
+            };
+
+            btnContainer.appendChild(btn);
+            sectionEl.appendChild(btnContainer);
+        }
+
+        container.appendChild(sectionEl);
+    });
+
+    if (window.observeImages) window.observeImages();
+}
+
+
 async function searchYouTube(query) {
     if (isLoading) return;
 
@@ -219,6 +350,15 @@ async function switchCategory(category, btn) {
     hasMore = true; // Reset infinite scroll
 
     const resultsArea = document.getElementById('resultsArea');
+    const videosSection = document.getElementById('videosSection');
+
+    // Show resultsArea (may have been hidden by homepage sections)
+    resultsArea.style.display = '';
+    // Remove any homepage sections
+    if (videosSection) {
+        videosSection.querySelectorAll('.yt-homepage-section').forEach(el => el.remove());
+    }
+
     resultsArea.innerHTML = renderSkeleton();
 
     // Hide pagination while loading
@@ -227,7 +367,7 @@ async function switchCategory(category, btn) {
 
     // Handle Shorts Layout
     const shortsSection = document.getElementById('shortsSection');
-    const videosSection = document.getElementById('videosSection');
+    // videosSection already declared above
 
     if (shortsSection) {
         if (category === 'shorts') {
@@ -305,27 +445,79 @@ async function loadTrending(reset = true) {
     }
 
     try {
-        // Default to 'newest' for fresh content on main page
-        const sortValue = window.currentSort || (currentCategory === 'all' ? 'newest' : 'month');
         const regionValue = window.currentRegion || 'vietnam';
-        // Add cache-buster for home page to ensure fresh content
-        const cb = reset && currentCategory === 'all' ? `&_=${Date.now()}` : '';
 
-        // Include localStorage history for personalized suggestions on home page
-        let historyParams = '';
+        // For 'all' category, use new homepage API with personalization
         if (currentCategory === 'all') {
+            // Build personalization params from localStorage
             const history = JSON.parse(localStorage.getItem('kv_history') || '[]');
-            if (history.length > 0) {
-                const titles = history.slice(0, 5).map(v => v.title).filter(Boolean).join(',');
-                const channels = history.slice(0, 3).map(v => v.uploader).filter(Boolean).join(',');
-                if (titles) historyParams += `&history_titles=${encodeURIComponent(titles)}`;
-                if (channels) historyParams += `&history_channels=${encodeURIComponent(channels)}`;
+            const subscriptions = JSON.parse(localStorage.getItem('kv_subscriptions') || '[]');
+
+            const params = new URLSearchParams();
+            params.append('region', regionValue);
+            params.append('page', currentPage); // Add Pagination
+            params.append('_', Date.now()); // Cache buster
+
+            if (history.length > 0 && reset) { // Only send history on first page for relevance
+                const historyIds = history.slice(0, 10).map(v => v.id).filter(Boolean);
+                const historyTitles = history.slice(0, 5).map(v => v.title).filter(Boolean);
+                const historyChannels = history.slice(0, 5).map(v => v.uploader).filter(Boolean);
+
+                if (historyIds.length) params.append('history', historyIds.join(','));
+                if (historyTitles.length) params.append('titles', historyTitles.join(','));
+                if (historyChannels.length) params.append('channels', historyChannels.join(','));
+            }
+
+            if (subscriptions.length > 0 && reset) {
+                const subIds = subscriptions.slice(0, 10).map(s => s.id).filter(Boolean);
+                if (subIds.length) params.append('subs', subIds.join(','));
+            }
+
+            // Show skeleton for infinite scroll
+            if (!reset) {
+                const videosSection = document.getElementById('videosSection');
+                // Avoid duplicates
+                if (!document.getElementById('infinite-scroll-skeleton')) {
+                    const skelDiv = document.createElement('div');
+                    skelDiv.id = 'infinite-scroll-skeleton';
+                    skelDiv.className = 'yt-video-grid';
+                    skelDiv.style.marginTop = '20px';
+                    skelDiv.innerHTML = renderSkeleton(); // Reuse existing skeleton generator
+                    videosSection.appendChild(skelDiv);
+                }
+            }
+
+            const response = await fetch(`/api/homepage?${params.toString()}`);
+            const data = await response.json();
+
+            if (data.mode === 'sections' && data.data) {
+                // Hide the grid-based resultsArea and render sections to parent
+                resultsArea.style.display = 'none';
+                const videosSection = document.getElementById('videosSection');
+
+                if (reset) {
+                    // Remove previous sections if reset
+                    videosSection.querySelectorAll('.yt-homepage-section').forEach(el => el.remove());
+                }
+
+                // Remove infinite scroll skeleton if it exists
+                const existingSkeleton = document.getElementById('infinite-scroll-skeleton');
+                if (existingSkeleton) existingSkeleton.remove();
+
+                // Append new sections (for Infinite Scroll)
+                renderHomepageSections(data.data, videosSection, history);
+                isLoading = false;
+                hasMore = data.data.length > 0; // Continue if we got sections
+                return;
             }
         }
 
-        const response = await fetch(`/api/trending?category=${currentCategory}&page=${currentPage}&sort=${sortValue}&region=${regionValue}${historyParams}${cb}`);
-        const data = await response.json();
+        // Fallback: Original trending logic for category pages
+        const sortValue = window.currentSort || 'month';
+        const cb = reset ? `&_=${Date.now()}` : '';
 
+        const response = await fetch(`/api/trending?category=${currentCategory}&page=${currentPage}&sort=${sortValue}&region=${regionValue}${cb}`);
+        const data = await response.json();
 
         if (data.error) {
             console.error('Trending error:', data.error);
@@ -507,6 +699,10 @@ function formatViews(views) {
 function formatDate(dateStr) {
     if (!dateStr) return 'Recently';
 
+    // Ensure string
+    dateStr = String(dateStr);
+    console.log('[Debug] formatDate input:', dateStr);
+
     // Handle YYYYMMDD format
     if (/^\d{8}$/.test(dateStr)) {
         const year = dateStr.substring(0, 4);
@@ -516,7 +712,9 @@ function formatDate(dateStr) {
     }
 
     const date = new Date(dateStr);
-    if (isNaN(date.getTime())) return 'Recently';
+    console.log('[Debug] Date Logic:', { input: dateStr, parsed: date, valid: !isNaN(date.getTime()) });
+
+    if (isNaN(date.getTime())) return 'Invalid Date';
 
     const now = new Date();
     const diffMs = now - date;
@@ -732,7 +930,9 @@ function saveToLibrary(type, item) {
     if (!lib.some(i => i.id === item.id)) {
         lib.unshift(item); // Add to top
         localStorage.setItem(`kv_${type}`, JSON.stringify(lib));
-        showToast(`Saved to ${type}`, 'success');
+        if (type !== 'history') {
+            showToast(`Saved to ${type}`, 'success');
+        }
     }
 }
 
@@ -825,8 +1025,8 @@ async function loadChannelVideos(channelId) {
                     <div class="yt-video-meta">
                         <h3 class="yt-video-title">${escapeHtml(video.title)}</h3>
                         <div class="yt-video-info">
-                            <span>${formatViews(video.views)} views</span>
-                            <span>• ${video.uploaded}</span>
+                            <span>${formatViews(video.view_count)} views</span>
+                            <span>• ${formatDate(video.upload_date)}</span>
                         </div>
                     </div>
                 </div>

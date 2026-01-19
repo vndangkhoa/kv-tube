@@ -137,7 +137,7 @@
             document.documentElement.setAttribute('data-theme', savedTheme);
         })();
     </script>
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/modules/chat.css') }}">
+
 </head>
 
 <body>
@@ -263,10 +263,7 @@
             {% block content %}{% endblock %}
         </main>
 
-        <!-- Floating AI Chat Bubble -->
-        <button id="aiChatBubble" class="ai-chat-bubble" onclick="toggleAIChat()" aria-label="AI Assistant">
-            <i class="fas fa-robot"></i>
-        </button>
+
 
         <!-- Floating Back Button (Mobile) -->
         <button id="floatingBackBtn" class="yt-floating-back" onclick="history.back()" aria-label="Go Back">
@@ -519,200 +516,7 @@
     </script>
     <!-- Queue Drawer Styles Moved to static/css/modules/components.css -->
 
-    <!-- AI Chat Panel -->
-    <div id="aiChatPanel" class="ai-chat-panel">
-        <div class="ai-chat-header">
-            <div>
-                <h4><i class="fas fa-robot"></i> AI Assistant</h4>
-                <div id="aiModelStatus" class="ai-model-status">Click to load AI model</div>
-            </div>
-            <button class="ai-chat-close" onclick="toggleAIChat()">
-                <i class="fas fa-times"></i>
-            </button>
-        </div>
-        <div id="aiDownloadArea" class="ai-download-progress" style="display:none;">
-            <div>Downloading AI Model...</div>
-            <div class="ai-download-bar">
-                <div id="aiDownloadFill" class="ai-download-fill" style="width: 0%;"></div>
-            </div>
-            <div id="aiDownloadText" class="ai-download-text">Preparing...</div>
-        </div>
-        <div id="aiChatMessages" class="ai-chat-messages">
-            <div class="ai-message system">Ask me anything about this video!</div>
-        </div>
-        <div class="ai-chat-input">
-            <input type="text" id="aiInput" placeholder="Ask about the video..."
-                onkeypress="if(event.key==='Enter') sendAIMessage()">
-            <button class="ai-chat-send" onclick="sendAIMessage()" id="aiSendBtn">
-                <i class="fas fa-paper-plane"></i>
-            </button>
-        </div>
-    </div>
 
-    <!-- Chat styles -->
-    <link rel="stylesheet" href="{{ url_for('static', filename='css/modules/chat.css') }}">
-
-    <!-- WebAI Script -->
-    <script src="{{ url_for('static', filename='js/webai.js') }}"></script>
-
-    <script>
-        // AI Chat Toggle and Message Handler
-        var aiChatVisible = false;
-        var aiInitialized = false;
-
-        window.toggleAIChat = function () {
-            const panel = document.getElementById('aiChatPanel');
-            const bubble = document.getElementById('aiChatBubble');
-            if (!panel) return;
-
-            aiChatVisible = !aiChatVisible;
-
-            if (aiChatVisible) {
-                panel.classList.add('visible');
-                if (bubble) {
-                    bubble.classList.add('active');
-                    bubble.innerHTML = '<i class="fas fa-times"></i>';
-                }
-
-                // Initialize AI on first open
-                if (!aiInitialized && window.transcriptAI && !window.transcriptAI.isModelLoading()) {
-                    initializeAI();
-                }
-            } else {
-                panel.classList.remove('visible');
-                if (bubble) {
-                    bubble.classList.remove('active');
-                    bubble.innerHTML = '<i class="fas fa-robot"></i>';
-                }
-            }
-        }
-
-        async function initializeAI() {
-            if (aiInitialized || window.transcriptAI.isModelLoading()) return;
-
-            const status = document.getElementById('aiModelStatus');
-            const downloadArea = document.getElementById('aiDownloadArea');
-            const downloadFill = document.getElementById('aiDownloadFill');
-            const downloadText = document.getElementById('aiDownloadText');
-
-            status.textContent = 'Loading model...';
-            status.classList.add('loading');
-            downloadArea.style.display = 'block';
-
-            // Set transcript for AI (if available globally)
-            if (window.transcriptFullText) {
-                window.transcriptAI.setTranscript(window.transcriptFullText);
-            }
-
-            // Set progress callback
-            window.transcriptAI.setCallbacks({
-                onProgress: (report) => {
-                    const progress = report.progress || 0;
-                    downloadFill.style.width = `${progress * 100}%`;
-                    downloadText.textContent = report.text || 'Downloading...';
-                },
-                onReady: () => {
-                    status.textContent = 'AI Ready ✓';
-                    status.classList.remove('loading');
-                    status.classList.add('ready');
-                    downloadArea.style.display = 'none';
-                    aiInitialized = true;
-
-                    // Add welcome message
-                    addAIMessage('assistant', `I'm ready! Ask me anything about this video. Model: ${window.transcriptAI.getModelInfo().name}`);
-                }
-            });
-
-            try {
-                await window.transcriptAI.init();
-            } catch (err) {
-                status.textContent = 'Failed to load AI';
-                status.classList.remove('loading');
-                downloadArea.style.display = 'none';
-                addAIMessage('system', `Error: ${err.message}. WebGPU may not be supported in your browser.`);
-            }
-        }
-
-        window.sendAIMessage = async function () {
-            const input = document.getElementById('aiInput');
-            const sendBtn = document.getElementById('aiSendBtn');
-            const question = input.value.trim();
-
-            if (!question) return;
-
-            // Ensure transcript is set if available
-            if (window.transcriptFullText) {
-                window.transcriptAI.setTranscript(window.transcriptFullText);
-            }
-
-            // Initialize if needed
-            if (!window.transcriptAI.isModelReady()) {
-                addAIMessage('system', 'Initializing AI...');
-                await initializeAI();
-                if (!window.transcriptAI.isModelReady()) {
-                    return;
-                }
-            }
-
-            // Add user message
-            addAIMessage('user', question);
-            input.value = '';
-            sendBtn.disabled = true;
-
-            // Add typing indicator
-            const typingId = addTypingIndicator();
-
-            try {
-                // Stream response
-                let response = '';
-                const responseEl = addAIMessage('assistant', '');
-                removeTypingIndicator(typingId);
-
-                for await (const chunk of window.transcriptAI.askStreaming(question)) {
-                    response += chunk;
-                    responseEl.textContent = response;
-                    scrollChatToBottom();
-                }
-
-            } catch (err) {
-                removeTypingIndicator(typingId);
-                addAIMessage('system', `Error: ${err.message}`);
-            }
-
-            sendBtn.disabled = false;
-        }
-
-        function addAIMessage(role, text) {
-            const messages = document.getElementById('aiChatMessages');
-            const msg = document.createElement('div');
-            msg.className = `ai-message ${role}`;
-            msg.textContent = text;
-            messages.appendChild(msg);
-            scrollChatToBottom();
-            return msg;
-        }
-
-        function addTypingIndicator() {
-            const messages = document.getElementById('aiChatMessages');
-            const typing = document.createElement('div');
-            typing.className = 'ai-message assistant ai-typing';
-            typing.id = 'ai-typing-' + Date.now();
-            typing.innerHTML = '<span></span><span></span><span></span>';
-            messages.appendChild(typing);
-            scrollChatToBottom();
-            return typing.id;
-        }
-
-        function removeTypingIndicator(id) {
-            const el = document.getElementById(id);
-            if (el) el.remove();
-        }
-
-        function scrollChatToBottom() {
-            const messages = document.getElementById('aiChatMessages');
-            messages.scrollTop = messages.scrollHeight;
-        }
-    </script>
     <!-- Global Download Modal (available on all pages) -->
     <div id="downloadModal" class="download-modal" onclick="if(event.target===this) closeDownloadModal()">
         <div class="download-modal-content">
