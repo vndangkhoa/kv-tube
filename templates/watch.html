@@ -1703,10 +1703,11 @@
 
     <script>
         // Track current language state and WebLLM status
-        let currentSummaryLang = 'en';
-        let webllmInitialized = false;
-        let currentTranscriptText = null;
-        let currentSummaryData = { en: null, vi: null };
+        // Use var and guards to prevent redeclaration errors on SPA navigation
+        if (typeof currentSummaryLang === 'undefined') var currentSummaryLang = 'en';
+        if (typeof webllmInitialized === 'undefined') var webllmInitialized = false;
+        if (typeof currentTranscriptText === 'undefined') var currentTranscriptText = null;
+        if (typeof currentSummaryData === 'undefined') var currentSummaryData = { en: null, vi: null };
 
         // WebLLM Progress Update Handler - Silent loading (just log to console)
         function updateWebLLMProgress(percent, status) {

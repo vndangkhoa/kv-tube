@@ -14,11 +14,14 @@ services:
     volumes:
       # Persist data (Easy setup: Just maps a folder)
       - ./data:/app/data
+      # Cookies file for YouTube (Required for NAS/Server to fix "Transcript not available")
+      - ./data/cookies.txt:/app/cookies.txt
       # Local videos folder (Optional)
       # - ./videos:/app/youtube_downloads
     environment:
       - PYTHONUNBUFFERED=1
       - FLASK_ENV=production
+      - COOKIES_FILE=/app/cookies.txt
     healthcheck:
       test: [ "CMD", "curl", "-f", "http://localhost:5000/" ]
       interval: 30s
