@@ -4,9 +4,9 @@
  */
 
 // Guard against redeclaration on SPA navigation
-if (typeof WebLLMService === 'undefined') {
+if (typeof window.WebLLMService === 'undefined') {
 
-    class WebLLMService {
+    window.WebLLMService = class WebLLMService {
         constructor() {
             this.engine = null;
             this.isLoading = false;
@@ -335,7 +335,7 @@ Do NOT copy sentences from the transcript. Instead, synthesize the core ideas in
     }
 
     // Global singleton instance
-    window.webLLMService = new WebLLMService();
+    window.webLLMService = new window.WebLLMService();
 
     // Export for module usage
     if (typeof module !== 'undefined' && module.exports) {
