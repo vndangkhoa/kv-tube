@@ -5,5 +5,5 @@ werkzeug
 gunicorn
 python-dotenv
 googletrans==4.0.0-rc1
-# ytfetcher - optional, requires Python 3.11-3.13
+ytfetcher
 
