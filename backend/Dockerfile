@@ -2,13 +2,13 @@ FROM golang:1.24-alpine AS builder
 
 WORKDIR /app
 
-RUN apk add --no-cache git
+RUN apk add --no-cache git gcc musl-dev
 
 COPY backend/go.mod backend/go.sum ./
 RUN go mod download
 
 COPY backend/ ./
-RUN CGO_ENABLED=0 GOOS=linux go build -o kv-tube .
+RUN CGO_ENABLED=1 GOOS=linux go build -o kv-tube .
 
 FROM alpine:latest
 
