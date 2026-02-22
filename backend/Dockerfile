@@ -1,4 +1,4 @@
-FROM golang:1.21-alpine AS builder
+FROM golang:1.24-alpine AS builder
 
 WORKDIR /app
 
@@ -17,7 +17,6 @@ RUN apk add --no-cache ca-certificates ffmpeg curl
 WORKDIR /app
 
 COPY --from=builder /app/kv-tube .
-COPY data ./data
 
 EXPOSE 8080
 
