@@ -52,8 +52,6 @@ COPY supervisord.conf /etc/supervisord.conf
 # Setup Environment
 ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
-ENV PORT=3000
-ENV HOSTNAME="0.0.0.0"
 ENV KVTUBE_DATA_DIR=/app/data
 ENV GIN_MODE=release
 ENV NEXT_PUBLIC_API_URL=http://127.0.0.1:8080
