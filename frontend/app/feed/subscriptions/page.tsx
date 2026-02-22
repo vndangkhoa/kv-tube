@@ -19,7 +19,7 @@ interface Subscription {
 
 async function getSubscriptions() {
     try {
-        const res = await fetch('http://127.0.0.1:8080/api/subscriptions', { cache: 'no-store' });
+        const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8080'}/api/subscriptions`, { cache: 'no-store' });
         if (!res.ok) return [];
         return res.json() as Promise<Subscription[]>;
     } catch {
@@ -29,7 +29,7 @@ async function getSubscriptions() {
 
 async function getChannelVideos(channelId: string, limit: number = 5) {
     try {
-        const res = await fetch(`http://127.0.0.1:8080/api/channel/videos?id=${channelId}&limit=${limit}`, { cache: 'no-store' });
+        const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8080'}/api/channel/videos?id=${channelId}&limit=${limit}`, { cache: 'no-store' });
         if (!res.ok) return [];
         return res.json() as Promise<VideoData[]>;
     } catch {
@@ -65,10 +65,10 @@ export default async function SubscriptionsPage() {
     return (
         <div style={{ padding: '24px', maxWidth: '1400px', margin: '0 auto' }}>
             <h1 style={{ fontSize: '24px', fontWeight: '600', marginBottom: '24px' }}>Subscriptions</h1>
-            
+
             {videosPerChannel.map(({ subscription, videos }) => (
                 <section key={subscription.channel_id} style={{ marginBottom: '32px' }}>
-                    <Link 
+                    <Link
                         href={`/channel/${subscription.channel_id}`}
                         style={{
                             display: 'flex',
@@ -93,7 +93,7 @@ export default async function SubscriptionsPage() {
                         </div>
                         <h2 style={{ fontSize: '18px', fontWeight: '500' }}>{subscription.channel_name || subscription.channel_id}</h2>
                     </Link>
-                    
+
                     {videos.length > 0 ? (
                         <div style={{
                             display: 'grid',

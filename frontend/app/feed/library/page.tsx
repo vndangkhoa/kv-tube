@@ -18,7 +18,7 @@ interface Subscription {
 
 async function getHistory() {
     try {
-        const res = await fetch('http://127.0.0.1:8080/api/history?limit=20', { cache: 'no-store' });
+        const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8080'}/api/history?limit=20`, { cache: 'no-store' });
         if (!res.ok) return [];
         return res.json() as Promise<VideoData[]>;
     } catch {
@@ -28,7 +28,7 @@ async function getHistory() {
 
 async function getSubscriptions() {
     try {
-        const res = await fetch('http://127.0.0.1:8080/api/subscriptions', { cache: 'no-store' });
+        const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8080'}/api/subscriptions`, { cache: 'no-store' });
         if (!res.ok) return [];
         return res.json() as Promise<Subscription[]>;
     } catch {

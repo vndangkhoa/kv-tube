@@ -12,7 +12,9 @@ RUN CGO_ENABLED=1 GOOS=linux go build -o kv-tube .
 
 FROM alpine:latest
 
-RUN apk add --no-cache ca-certificates ffmpeg curl
+RUN apk add --no-cache ca-certificates ffmpeg curl python3 py3-pip && \
+    curl -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o /usr/local/bin/yt-dlp && \
+    chmod a+rx /usr/local/bin/yt-dlp
 
 WORKDIR /app
 
