@@ -1,0 +1,15 @@
+version: '3.8'
+
+services:
+  kv-tube-app-local:
+    build: .
+    container_name: kv-tube-app-local
+    platform: linux/amd64
+    ports:
+      - "5012:3000"
+    volumes:
+      - ./data:/app/data
+    environment:
+      - KVTUBE_DATA_DIR=/app/data
+      - GIN_MODE=release
+      - NODE_ENV=production

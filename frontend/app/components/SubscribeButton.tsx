@@ -41,6 +41,7 @@ export default function SubscribeButton({ channelId, channelName, initialSubscri
                     body: JSON.stringify({
                         channel_id: channelId,
                         channel_name: channelName || channelId,
+                        channel_avatar: channelName ? channelName[0].toUpperCase() : '?',
                     }),
                 });
                 if (res.ok) {

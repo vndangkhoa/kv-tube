@@ -97,7 +97,8 @@ export default function VideoPlayer({ videoId, title }: VideoPlayerProps) {
         const audio = audioRef.current;
         if (!video || !audio || !hasSeparateAudio) return;
 
-        if (Math.abs(video.currentTime - audio.currentTime) > 0.2) {
+        // Relax the tolerance to 0.4s to prevent choppy audio resetting on Safari
+        if (Math.abs(video.currentTime - audio.currentTime) > 0.4) {
             audio.currentTime = video.currentTime;
         }
 
@@ -147,6 +148,17 @@ export default function VideoPlayer({ videoId, title }: VideoPlayerProps) {
         };
 
         tryLoad();
+
+        // Record history once per videoId
+        fetch('/api/history', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                video_id: videoId,
+                title: title,
+                thumbnail: `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`,
+            }),
+        }).catch(err => console.error('Failed to record history', err));
 
         return () => {
             if (hlsRef.current) {
@@ -206,7 +218,11 @@ export default function VideoPlayer({ videoId, title }: VideoPlayerProps) {
         if (isHLS && window.Hls && window.Hls.isSupported()) {
             if (hlsRef.current) hlsRef.current.destroy();
 
+            // Enhance buffer to mitigate Safari slow loading and choppiness
             const hls = new window.Hls({
+                maxBufferLength: 60,
+                maxMaxBufferLength: 120,
+                enableWorker: true,
                 xhrSetup: (xhr: XMLHttpRequest) => {
                     xhr.setRequestHeader('Referer', 'https://www.youtube.com/');
                 },
@@ -227,7 +243,7 @@ export default function VideoPlayer({ videoId, title }: VideoPlayerProps) {
                     setUseFallback(true);
                 }
             });
-        } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+        } else if (isHLS && video.canPlayType('application/vnd.apple.mpegurl')) {
             video.src = streamUrl;
             video.onloadedmetadata = () => video.play().catch(() => { });
         } else {
@@ -244,6 +260,9 @@ export default function VideoPlayer({ videoId, title }: VideoPlayerProps) {
                     if (audioHlsRef.current) audioHlsRef.current.destroy();
 
                     const audioHls = new window.Hls({
+                        maxBufferLength: 60,
+                        maxMaxBufferLength: 120,
+                        enableWorker: true,
                         xhrSetup: (xhr: XMLHttpRequest) => {
                             xhr.setRequestHeader('Referer', 'https://www.youtube.com/');
                         },
@@ -252,6 +271,8 @@ export default function VideoPlayer({ videoId, title }: VideoPlayerProps) {
 
                     audioHls.loadSource(audioStreamUrl!);
                     audioHls.attachMedia(audio);
+                } else if (audioIsHLS && audio.canPlayType('application/vnd.apple.mpegurl')) {
+                    audio.src = audioStreamUrl!;
                 } else {
                     audio.src = audioStreamUrl!;
                 }
