@@ -1,9 +1,0 @@
-flask
-requests
-yt-dlp>=2024.1.0
-werkzeug
-gunicorn
-python-dotenv
-googletrans==4.0.0-rc1
-# ytfetcher - optional, requires Python 3.11-3.13
-

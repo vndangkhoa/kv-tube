@@ -4,29 +4,31 @@
 version: '3.8'
 
 services:
-  kv-tube:
-    build: .
-    image: vndangkhoa/kv-tube:latest
-    container_name: kv-tube
+  kv-tube-backend:
+    image: git.khoavo.myds.me/vndangkhoa/kv-tube-backend:v4.0.0
+    container_name: kv-tube-backend
     restart: unless-stopped
-    ports:
-      - "5011:5000"
     volumes:
-      # Persist data (Easy setup: Just maps a folder)
       - ./data:/app/data
-      # Cookies file for YouTube (Required for NAS/Server to fix "Transcript not available")
-      - ./data/cookies.txt:/app/cookies.txt
-      # Local videos folder (Optional)
-      # - ./videos:/app/youtube_downloads
     environment:
-      - PYTHONUNBUFFERED=1
-      - FLASK_ENV=production
-      - COOKIES_FILE=/app/cookies.txt
+      - KVTUBE_DATA_DIR=/app/data
+      - GIN_MODE=release
     healthcheck:
-      test: [ "CMD", "curl", "-f", "http://localhost:5000/" ]
+      test: [ "CMD", "curl", "-f", "http://localhost:8080/api/health" ]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 10s
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
+
+  kv-tube-frontend:
+    image: git.khoavo.myds.me/vndangkhoa/kv-tube-frontend:v4.0.0
+    container_name: kv-tube-frontend
+    restart: unless-stopped
+    ports:
+      - "5011:3000"
+    depends_on:
+      - kv-tube-backend
     labels:
       - "com.centurylinklabs.watchtower.enable=true"
