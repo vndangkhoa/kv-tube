@@ -13,8 +13,9 @@ A modern, fast, and fully-featured YouTube-like video streaming platform. Built 
 - **Containerized**: Fully Dockerized for easy setup using `docker-compose`.
 
 ## Architecture
-- **Backend**: Go (Gin framework), SQLite for watch history, optimized for `linux/amd64`.
-- **Frontend**: Next.js utilizing React Server Components and standalone output for minimal container footprint.
+- **Backend & Frontend**: Go (Gin framework) and Next.js are combined into a single unified Docker container using a multi-stage `Dockerfile`. 
+- **Process Management**: `supervisord` manages the concurrent execution of the backend API and Next.js frontend within the same network namespace.
+- **Data storage**: SQLite is used for watch history, optimized for `linux/amd64`.
 
 ## Deployment on Synology NAS
 
@@ -32,30 +33,18 @@ Create a `docker-compose.yml` file matching the one provided in the repository:
 version: '3.8'
 
 services:
-  kv-tube-backend:
-    image: git.khoavo.myds.me/vndangkhoa/kv-tube-backend:v4.0.0
-    container_name: kv-tube-backend
+  kv-tube-app:
+    image: git.khoavo.myds.me/vndangkhoa/kv-tube-app:v4.0.1
+    container_name: kv-tube-app
     restart: unless-stopped
+    ports:
+      - "5011:3000"
     volumes:
       - ./data:/app/data
     environment:
       - KVTUBE_DATA_DIR=/app/data
       - GIN_MODE=release
-    healthcheck:
-      test: [ "CMD", "curl", "-f", "http://localhost:8080/api/health" ]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-      start_period: 10s
-
-  kv-tube-frontend:
-    image: git.khoavo.myds.me/vndangkhoa/kv-tube-frontend:v4.0.0
-    container_name: kv-tube-frontend
-    restart: unless-stopped
-    ports:
-      - "5011:3000"
-    depends_on:
-      - kv-tube-backend
+      - NODE_ENV=production
 ```
 
 ### 3. Run
