@@ -15,6 +15,16 @@ const roboto = Roboto({
 export const metadata: Metadata = {
   title: 'KV-Tube',
   description: 'A pixel perfect YouTube clone',
+  manifest: '/manifest.json',
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: 'default',
+    title: 'KV-Tube',
+  },
+};
+
+export const viewport = {
+  themeColor: '#000000',
 };
 
 import { ThemeProvider } from './context/ThemeContext';
@@ -36,6 +46,17 @@ export default function RootLayout({
                   document.documentElement.setAttribute('data-theme', theme);
                 } catch (e) {}
               })();
+            `,
+          }}
+        />
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `
+              if ('serviceWorker' in navigator) {
+                window.addEventListener('load', function() {
+                  navigator.serviceWorker.register('/sw.js');
+                });
+              }
             `,
           }}
         />

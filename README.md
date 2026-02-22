@@ -10,6 +10,7 @@ A modern, fast, and fully-featured YouTube-like video streaming platform. Built 
 - **Watch History & Suggestions**: Keep track of what you've watched seamlessly! Fully integrated library history tracking.
 - **Subscriptions Management**: Keep up to date with seamless subscription updates for YouTube channels.
 - **Optimized for Safari**: Stutter-free playback algorithms and high-tolerance Hls.js configurations tailored for macOS users.
+- **Progressive Web App**: Fully installable PWA out of the box with offline fallbacks and custom vector iconography.
 - **Region Selection**: Tailor your content to specific regions (e.g., Vietnam).
 - **Responsive Design**: Beautiful, mobile-friendly interface with light and dark theme support.
 - **Containerized**: Fully Dockerized for easy setup using `docker-compose`.
@@ -36,7 +37,7 @@ version: '3.8'
 
 services:
   kv-tube-app:
-    image: git.khoavo.myds.me/vndangkhoa/kv-tube-app:v4.0.2
+    image: git.khoavo.myds.me/vndangkhoa/kv-tube-app:v4.0.3
     container_name: kv-tube-app
     restart: unless-stopped
     ports:
