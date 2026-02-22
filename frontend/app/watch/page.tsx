@@ -1,18 +1,10 @@
+import { Suspense } from 'react';
 import VideoPlayer from './VideoPlayer';
 import Link from 'next/link';
 import WatchActions from './WatchActions';
 import SubscribeButton from '../components/SubscribeButton';
+import RelatedVideos from './RelatedVideos';
 import { API_BASE } from '../constants';
-
-interface VideoData {
-    id: string;
-    title: string;
-    uploader: string;
-    channel_id?: string;
-    thumbnail: string;
-    view_count: number;
-    duration: string;
-}
 
 interface VideoInfo {
     title: string;
@@ -42,24 +34,6 @@ async function getVideoInfo(id: string): Promise<VideoInfo | null> {
     }
 }
 
-async function getRelatedVideos(videoId: string, title: string, uploader: string) {
-    try {
-        const params = new URLSearchParams({ v: videoId, title: title || '', uploader: uploader || '', limit: '15' });
-        const res = await fetch(`${API_BASE}/api/related?${params.toString()}`, { cache: 'no-store' });
-        if (!res.ok) return [];
-        return res.json() as Promise<VideoData[]>;
-    } catch (e) {
-        console.error(e);
-        return [];
-    }
-}
-
-function formatViews(views: number): string {
-    if (views >= 1000000) return (views / 1000000).toFixed(1) + 'M';
-    if (views >= 1000) return (views / 1000).toFixed(1) + 'K';
-    return views.toString();
-}
-
 function formatNumber(num: number): string {
     if (num >= 1000000) return (num / 1000000).toFixed(1) + 'M';
     if (num >= 1000) return (num / 1000).toFixed(0) + 'K';
@@ -79,17 +53,14 @@ export default async function WatchPage({
     }
 
     const info = await getVideoInfo(v);
-    const relatedVideos = await getRelatedVideos(v, info?.title || '', info?.uploader || '');
-    const nextVideoId = relatedVideos.length > 0 ? relatedVideos[0].id : undefined;
 
     return (
         <div className="watch-container fade-in">
             <div className="watch-primary">
                 <div className="watch-player-wrapper">
-                    <VideoPlayer 
-                        videoId={v} 
+                    <VideoPlayer
+                        videoId={v}
                         title={info?.title}
-                        nextVideoId={nextVideoId}
                     />
                 </div>
 
@@ -127,30 +98,9 @@ export default async function WatchPage({
             </div>
 
             <div className="watch-secondary">
-                <div className="watch-related-list">
-                    {relatedVideos.map((video, i) => {
-                        const views = formatViews(video.view_count);
-                        const staggerClass = `stagger-${Math.min(i + 1, 6)}`;
-
-                        return (
-                            <Link key={video.id} href={`/watch?v=${video.id}`} className={`related-video-item fade-in-up ${staggerClass}`} style={{ opacity: 0 }}>
-                                <div className="related-thumb-container">
-                                    <img src={video.thumbnail} alt={video.title} className="related-thumb-img" />
-                                    {video.duration && (
-                                        <div className="duration-badge">
-                                            {video.duration}
-                                        </div>
-                                    )}
-                                </div>
-                                <div className="related-video-info">
-                                    <span className="related-video-title">{video.title}</span>
-                                    <span className="related-video-channel">{video.uploader}</span>
-                                    <span className="related-video-meta">{views} views</span>
-                                </div>
-                            </Link>
-                        );
-                    })}
-                </div>
+                <Suspense fallback={<div style={{ padding: '2rem', textAlign: 'center' }}><div className="skeleton" style={{ width: '100%', height: '100px', marginBottom: '1rem', borderRadius: '8px' }}></div><div className="skeleton" style={{ width: '100%', height: '100px', marginBottom: '1rem', borderRadius: '8px' }}></div><div className="skeleton" style={{ width: '100%', height: '100px', marginBottom: '1rem', borderRadius: '8px' }}></div></div>}>
+                    <RelatedVideos videoId={v} title={info?.title || ''} uploader={info?.uploader || ''} />
+                </Suspense>
             </div>
         </div>
     );

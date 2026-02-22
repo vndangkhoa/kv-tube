@@ -251,7 +251,7 @@
   align-items: center;
   justify-content: center;
   padding: 12px 4px;
-  z-index: 400;
+  z-index: 600;
   gap: 4px;
 }
 
@@ -1384,4 +1384,14 @@ a {
     grid-template-columns: 1fr;
     gap: 0;
   }
-}@keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+}
+
+@keyframes spin {
+  0% {
+    transform: rotate(0deg);
+  }
+
+  100% {
+    transform: rotate(360deg);
+  }
+}

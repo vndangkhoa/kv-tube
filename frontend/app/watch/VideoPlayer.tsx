@@ -12,7 +12,6 @@ declare global {
 interface VideoPlayerProps {
     videoId: string;
     title?: string;
-    nextVideoId?: string;
 }
 
 interface QualityOption {
@@ -56,7 +55,7 @@ function PlayerSkeleton() {
     );
 }
 
-export default function VideoPlayer({ videoId, title, nextVideoId }: VideoPlayerProps) {
+export default function VideoPlayer({ videoId, title }: VideoPlayerProps) {
     const router = useRouter();
     const videoRef = useRef<HTMLVideoElement>(null);
     const audioRef = useRef<HTMLAudioElement>(null);
@@ -71,7 +70,18 @@ export default function VideoPlayer({ videoId, title, nextVideoId }: VideoPlayer
     const [hasSeparateAudio, setHasSeparateAudio] = useState(false);
     const [isLoading, setIsLoading] = useState(true);
     const [isBuffering, setIsBuffering] = useState(false);
+    const [nextVideoId, setNextVideoId] = useState<string | undefined>();
     const audioUrlRef = useRef<string>('');
+
+    useEffect(() => {
+        const handleSetNextVideo = (e: CustomEvent) => {
+            if (e.detail && e.detail.videoId) {
+                setNextVideoId(e.detail.videoId);
+            }
+        };
+        window.addEventListener('setNextVideoId', handleSetNextVideo as EventListener);
+        return () => window.removeEventListener('setNextVideoId', handleSetNextVideo as EventListener);
+    }, []);
 
     useEffect(() => {
         const script = document.createElement('script');
@@ -94,7 +104,7 @@ export default function VideoPlayer({ videoId, title, nextVideoId }: VideoPlayer
         if (video.paused && !audio.paused) {
             audio.pause();
         } else if (!video.paused && audio.paused) {
-            audio.play().catch(() => {});
+            audio.play().catch(() => { });
         }
     };
 
@@ -195,19 +205,19 @@ export default function VideoPlayer({ videoId, title, nextVideoId }: VideoPlayer
 
         if (isHLS && window.Hls && window.Hls.isSupported()) {
             if (hlsRef.current) hlsRef.current.destroy();
-            
+
             const hls = new window.Hls({
                 xhrSetup: (xhr: XMLHttpRequest) => {
                     xhr.setRequestHeader('Referer', 'https://www.youtube.com/');
                 },
             });
             hlsRef.current = hls;
-            
+
             hls.loadSource(streamUrl);
             hls.attachMedia(video);
-            
+
             hls.on(window.Hls.Events.MANIFEST_PARSED, () => {
-                video.play().catch(() => {});
+                video.play().catch(() => { });
             });
 
             hls.on(window.Hls.Events.ERROR, (_: any, data: any) => {
@@ -219,27 +229,27 @@ export default function VideoPlayer({ videoId, title, nextVideoId }: VideoPlayer
             });
         } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
             video.src = streamUrl;
-            video.onloadedmetadata = () => video.play().catch(() => {});
+            video.onloadedmetadata = () => video.play().catch(() => { });
         } else {
             video.src = streamUrl;
-            video.onloadeddata = () => video.play().catch(() => {});
+            video.onloadeddata = () => video.play().catch(() => { });
         }
 
         if (needsSeparateAudio) {
             const audio = audioRef.current;
             if (audio) {
                 const audioIsHLS = audioStreamUrl!.includes('.m3u8') || audioStreamUrl!.includes('manifest');
-                
+
                 if (audioIsHLS && window.Hls && window.Hls.isSupported()) {
                     if (audioHlsRef.current) audioHlsRef.current.destroy();
-                    
+
                     const audioHls = new window.Hls({
                         xhrSetup: (xhr: XMLHttpRequest) => {
                             xhr.setRequestHeader('Referer', 'https://www.youtube.com/');
                         },
                     });
                     audioHlsRef.current = audioHls;
-                    
+
                     audioHls.loadSource(audioStreamUrl!);
                     audioHls.attachMedia(audio);
                 } else {
@@ -268,12 +278,12 @@ export default function VideoPlayer({ videoId, title, nextVideoId }: VideoPlayer
         setCurrentQuality(quality.height);
 
         video.currentTime = currentTime;
-        if (wasPlaying) video.play().catch(() => {});
+        if (wasPlaying) video.play().catch(() => { });
     };
 
     useEffect(() => {
         if (!useFallback) return;
-        
+
         const handleMessage = (event: MessageEvent) => {
             if (event.origin !== 'https://www.youtube.com') return;
             try {
@@ -281,7 +291,7 @@ export default function VideoPlayer({ videoId, title, nextVideoId }: VideoPlayer
                 if (data.event === 'onStateChange' && data.info === 0 && nextVideoId) {
                     router.push(`/watch?v=${nextVideoId}`);
                 }
-            } catch {}
+            } catch { }
         };
         window.addEventListener('message', handleMessage);
         return () => window.removeEventListener('message', handleMessage);
@@ -308,7 +318,7 @@ export default function VideoPlayer({ videoId, title, nextVideoId }: VideoPlayer
     return (
         <div style={containerStyle} onMouseEnter={() => setShowControls(true)} onMouseLeave={() => { setShowControls(false); setShowQualityMenu(false); }}>
             {isLoading && <PlayerSkeleton />}
-            
+
             <video
                 ref={videoRef}
                 style={{ ...videoStyle, visibility: isLoading ? 'hidden' : 'visible' }}
@@ -316,16 +326,16 @@ export default function VideoPlayer({ videoId, title, nextVideoId }: VideoPlayer
                 playsInline
                 poster={`https://i.ytimg.com/vi/${videoId}/maxresdefault.jpg`}
             />
-            
-            {hasSeparateAudio && <audio ref={audioRef} style={{ display: 'none' }} />}
-            
+
+            <audio ref={audioRef} style={{ display: 'none' }} />
+
             {error && (
                 <div style={errorStyle}>
                     <span>{error}</span>
                     <button onClick={() => setUseFallback(true)} style={retryBtnStyle}>Try YouTube Player</button>
                 </div>
             )}
-            
+
             {showControls && !error && !isLoading && (
                 <>
                     <a href={`https://www.youtube.com/watch?v=${videoId}`} target="_blank" rel="noopener noreferrer" style={openBtnStyle}>
@@ -337,7 +347,7 @@ export default function VideoPlayer({ videoId, title, nextVideoId }: VideoPlayer
                             <button onClick={() => setShowQualityMenu(!showQualityMenu)} style={qualityBtnStyle}>
                                 {qualities.find(q => q.height === currentQuality)?.label || 'Auto'}
                             </button>
-                            
+
                             {showQualityMenu && (
                                 <div style={qualityMenuStyle}>
                                     {qualities.map((q) => (

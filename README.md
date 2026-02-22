@@ -5,6 +5,7 @@ A modern, fast, and fully-featured YouTube-like video streaming platform. Built 
 ## Features
 
 - **Modern Video Player**: High-resolution video playback with HLS support and quality selection.
+- **Fast Navigation**: Instant click feedback with skeleton loaders for related videos.
 - **Infinite Scrolling**: Scroll seamlessly through a dynamic video grid on the homepage.
 - **Watch History & Suggestions**: Keep track of what you've watched, with smart video suggestions.
 - **Region Selection**: Tailor your content to specific regions (e.g., Vietnam).

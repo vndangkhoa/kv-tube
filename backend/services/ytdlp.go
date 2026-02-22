@@ -461,6 +461,201 @@ func GetVideoQualitiesWithAudio(videoID string) ([]QualityFormat, string, error)
 	return qualities, audioURL, nil
 }
 
+// GetFullStreamData runs a single yt-dlp command to fetch all essential information at once
+// This avoids doing 3 separate slow calls for video info, qualities, and best audio.
+func GetFullStreamData(videoID string) (*VideoData, []QualityFormat, string, error) {
+	urlStr := fmt.Sprintf("https://www.youtube.com/watch?v=%s", videoID)
+
+	cmdArgs := []string{
+		"--dump-json",
+		"--no-warnings",
+		"--quiet",
+		"--force-ipv4",
+		"--no-playlist",
+		"--user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+		urlStr,
+	}
+
+	binPath := "yt-dlp"
+	if _, err := exec.LookPath("yt-dlp"); err != nil {
+		fallbacks := []string{
+			os.ExpandEnv("$HOME/Library/Python/3.14/bin/yt-dlp"),
+			os.ExpandEnv("$HOME/Library/Python/3.13/bin/yt-dlp"),
+			os.ExpandEnv("$HOME/Library/Python/3.12/bin/yt-dlp"),
+			os.ExpandEnv("$HOME/.local/bin/yt-dlp"),
+			"/usr/local/bin/yt-dlp",
+			"/opt/homebrew/bin/yt-dlp",
+			"/config/.local/bin/yt-dlp",
+		}
+		for _, fb := range fallbacks {
+			if _, err := os.Stat(fb); err == nil {
+				binPath = fb
+				break
+			}
+		}
+	}
+
+	cmd := exec.Command(binPath, cmdArgs...)
+
+	var out bytes.Buffer
+	var stderr bytes.Buffer
+	cmd.Stdout = &out
+	cmd.Stderr = &stderr
+
+	if err := cmd.Run(); err != nil {
+		log.Printf("yt-dlp error in GetFullStreamData: %v, stderr: %s", err, stderr.String())
+		return nil, nil, "", err
+	}
+
+	// Unmarshal common metadata
+	var entry YtDlpEntry
+	if err := json.Unmarshal(out.Bytes(), &entry); err != nil {
+		return nil, nil, "", err
+	}
+
+	videoData := sanitizeVideoData(entry)
+	videoData.StreamURL = entry.URL
+
+	// Unmarshal formats specifically
+	var raw struct {
+		Formats []struct {
+			FormatID    string      `json:"format_id"`
+			FormatNote  string      `json:"format_note"`
+			Ext         string      `json:"ext"`
+			Resolution  string      `json:"resolution"`
+			Width       interface{} `json:"width"`
+			Height      interface{} `json:"height"`
+			URL         string      `json:"url"`
+			ManifestURL string      `json:"manifest_url"`
+			VCodec      string      `json:"vcodec"`
+			ACodec      string      `json:"acodec"`
+			Filesize    interface{} `json:"filesize"`
+			ABR         interface{} `json:"abr"`
+		} `json:"formats"`
+	}
+
+	if err := json.Unmarshal(out.Bytes(), &raw); err != nil {
+		return nil, nil, "", err
+	}
+
+	var qualities []QualityFormat
+	seen := make(map[int]int) // height -> index in qualities
+	var bestAudio string
+	var bestABR float64
+
+	for _, f := range raw.Formats {
+		// Determine if it's the best audio
+		if f.VCodec == "none" && f.ACodec != "none" && f.URL != "" {
+			var abr float64
+			switch v := f.ABR.(type) {
+			case float64:
+				abr = v
+			case int:
+				abr = float64(v)
+			}
+			if bestAudio == "" || abr > bestABR {
+				bestABR = abr
+				bestAudio = f.URL
+			}
+		}
+
+		if f.VCodec == "none" || f.URL == "" {
+			continue
+		}
+
+		var height int
+		switch v := f.Height.(type) {
+		case float64:
+			height = int(v)
+		case int:
+			height = v
+		}
+
+		if height == 0 {
+			continue
+		}
+
+		hasAudio := f.ACodec != "none" && f.ACodec != ""
+
+		var filesize int64
+		switch v := f.Filesize.(type) {
+		case float64:
+			filesize = int64(v)
+		case int64:
+			filesize = v
+		}
+
+		isHLS := f.ManifestURL != "" || strings.Contains(f.URL, ".m3u8") || strings.Contains(f.URL, "manifest")
+
+		label := f.FormatNote
+		if label == "" {
+			switch height {
+			case 2160:
+				label = "4K"
+			case 1440:
+				label = "1440p"
+			case 1080:
+				label = "1080p"
+			case 720:
+				label = "720p"
+			case 480:
+				label = "480p"
+			case 360:
+				label = "360p"
+			default:
+				label = fmt.Sprintf("%dp", height)
+			}
+		}
+
+		streamURL := f.URL
+		if f.ManifestURL != "" {
+			streamURL = f.ManifestURL
+		}
+
+		qf := QualityFormat{
+			FormatID:   f.FormatID,
+			Label:      label,
+			Resolution: f.Resolution,
+			Height:     height,
+			URL:        streamURL,
+			IsHLS:      isHLS,
+			VCodec:     f.VCodec,
+			ACodec:     f.ACodec,
+			Filesize:   filesize,
+			HasAudio:   hasAudio,
+		}
+
+		// Prefer formats with audio, otherwise just add
+		if idx, exists := seen[height]; exists {
+			// Replace if this one has audio and the existing one doesn't
+			if hasAudio && !qualities[idx].HasAudio {
+				qualities[idx] = qf
+			}
+		} else {
+			seen[height] = len(qualities)
+			qualities = append(qualities, qf)
+		}
+	}
+
+	// Sort by height descending
+	for i := range qualities {
+		for j := i + 1; j < len(qualities); j++ {
+			if qualities[j].Height > qualities[i].Height {
+				qualities[i], qualities[j] = qualities[j], qualities[i]
+			}
+		}
+	}
+
+	// Attach audio URL to qualities without audio
+	for i := range qualities {
+		if !qualities[i].HasAudio && bestAudio != "" {
+			qualities[i].AudioURL = bestAudio
+		}
+	}
+
+	return &videoData, qualities, bestAudio, nil
+}
+
 func GetStreamURLForQuality(videoID string, height int) (string, error) {
 	qualities, err := GetVideoQualities(videoID)
 	if err != nil {

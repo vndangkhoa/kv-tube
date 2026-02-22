@@ -1,4 +1,7 @@
+'use client';
+
 import Link from 'next/link';
+import { useState } from 'react';
 
 interface VideoData {
     id: string;
@@ -25,10 +28,15 @@ function getRelativeTime(id: string): string {
 
 export default function VideoCard({ video, hideChannelAvatar }: { video: VideoData; hideChannelAvatar?: boolean }) {
     const relativeTime = video.uploaded_date || getRelativeTime(video.id);
+    const [isNavigating, setIsNavigating] = useState(false);
 
     return (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', width: '100%', marginBottom: '12px' }} className="videocard-container">
-            <Link href={`/watch?v=${video.id}`} style={{ position: 'relative', display: 'block', width: '100%', aspectRatio: '16/9', overflow: 'hidden', borderRadius: '12px' }}>
+            <Link
+                href={`/watch?v=${video.id}`}
+                onClick={() => setIsNavigating(true)}
+                style={{ position: 'relative', display: 'block', width: '100%', aspectRatio: '16/9', overflow: 'hidden', borderRadius: '12px' }}
+            >
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img
                     src={video.thumbnail}
@@ -39,6 +47,23 @@ export default function VideoCard({ video, hideChannelAvatar }: { video: VideoDa
                 {video.duration && (
                     <div className="duration-badge" style={{ position: 'absolute', bottom: '8px', right: '8px' }}>
                         {video.duration}
+                    </div>
+                )}
+
+                {isNavigating && (
+                    <div style={{
+                        position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
+                        backgroundColor: 'rgba(0, 0, 0, 0.5)',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        zIndex: 10
+                    }}>
+                        <div style={{
+                            width: '40px', height: '40px',
+                            border: '3px solid rgba(255,255,255,0.3)',
+                            borderTopColor: '#fff',
+                            borderRadius: '50%',
+                            animation: 'spin 1s linear infinite'
+                        }} />
                     </div>
                 )}
             </Link>

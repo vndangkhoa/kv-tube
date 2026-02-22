@@ -7,6 +7,7 @@ services:
   kv-tube-backend:
     image: git.khoavo.myds.me/vndangkhoa/kv-tube-backend:v4.0.0
     container_name: kv-tube-backend
+    platform: linux/amd64
     restart: unless-stopped
     volumes:
       - ./data:/app/data
@@ -25,6 +26,7 @@ services:
   kv-tube-frontend:
     image: git.khoavo.myds.me/vndangkhoa/kv-tube-frontend:v4.0.0
     container_name: kv-tube-frontend
+    platform: linux/amd64
     restart: unless-stopped
     ports:
       - "5011:3000"

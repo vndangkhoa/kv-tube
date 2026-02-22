@@ -108,15 +108,12 @@ func handleGetStreamInfo(c *gin.Context) {
 		return
 	}
 
-	info, err := services.GetVideoInfo(videoID)
+	info, qualities, audioURL, err := services.GetFullStreamData(videoID)
 	if err != nil {
-		log.Printf("GetVideoInfo Error: %v", err)
+		log.Printf("GetFullStreamData Error: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get video info"})
 		return
 	}
-
-	// Get available qualities with audio
-	qualities, audioURL, _ := services.GetVideoQualitiesWithAudio(videoID)
 
 	// Build quality options for frontend
 	var qualityOptions []gin.H

@@ -30,15 +30,15 @@ export default function Sidebar() {
                             justifyContent: 'center',
                             padding: '16px 0 14px 0',
                             borderRadius: '10px',
-                            backgroundColor: isActive ? 'var(--yt-hover)' : 'transparent',
+                            backgroundColor: 'transparent',
                             marginBottom: '4px',
                             transition: 'var(--yt-transition)',
                             gap: '4px',
                             position: 'relative',
+                            width: '100%'
                         }}
                         className="yt-sidebar-item"
                     >
-                        {isActive && <div className="sidebar-active-indicator" />}
                         <div style={{ color: 'var(--yt-text-primary)', transition: 'transform 0.15s ease' }}>
                             {item.icon}
                         </div>
