@@ -97,13 +97,18 @@ export default function VideoPlayer({ videoId, title }: VideoPlayerProps) {
         const audio = audioRef.current;
         if (!video || !audio || !hasSeparateAudio) return;
 
-        // Relax the tolerance to 0.4s to prevent choppy audio resetting on Safari
+        const isHidden = document.visibilityState === 'hidden';
+
         if (Math.abs(video.currentTime - audio.currentTime) > 0.4) {
-            audio.currentTime = video.currentTime;
+            if (!isHidden || !video.paused) {
+                audio.currentTime = video.currentTime;
+            }
         }
 
         if (video.paused && !audio.paused) {
-            audio.pause();
+            if (!isHidden) {
+                audio.pause();
+            }
         } else if (!video.paused && audio.paused) {
             audio.play().catch(() => { });
         }
@@ -189,10 +194,21 @@ export default function VideoPlayer({ videoId, title }: VideoPlayerProps) {
             video.addEventListener(event, handler);
         });
 
+        const handleVisibilityChange = () => {
+            if (document.visibilityState === 'visible' && video && audioRef.current && hasSeparateAudio) {
+                if (video.paused && !audioRef.current.paused) {
+                    video.currentTime = audioRef.current.currentTime;
+                    video.play().catch(() => { });
+                }
+            }
+        };
+        document.addEventListener('visibilitychange', handleVisibilityChange);
+
         return () => {
             Object.entries(handlers).forEach(([event, handler]) => {
                 video.removeEventListener(event, handler);
             });
+            document.removeEventListener('visibilitychange', handleVisibilityChange);
         };
     }, [hasSeparateAudio]);
 
@@ -209,6 +225,24 @@ export default function VideoPlayer({ videoId, title }: VideoPlayerProps) {
         const handlePlaying = () => { setIsLoading(false); setIsBuffering(false); };
         const handleWaiting = () => setIsBuffering(true);
         const handleLoadStart = () => setIsLoading(true);
+
+        if ('mediaSession' in navigator) {
+            navigator.mediaSession.metadata = new MediaMetadata({
+                title: title || 'KV-Tube Video',
+                artist: 'KV-Tube',
+                artwork: [
+                    { src: `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`, sizes: '480x360', type: 'image/jpeg' }
+                ]
+            });
+            navigator.mediaSession.setActionHandler('play', () => {
+                video.play().catch(() => { });
+                if (needsSeparateAudio && audioRef.current) audioRef.current.play().catch(() => { });
+            });
+            navigator.mediaSession.setActionHandler('pause', () => {
+                video.pause();
+                if (needsSeparateAudio && audioRef.current) audioRef.current.pause();
+            });
+        }
 
         video.addEventListener('canplay', handleCanPlay);
         video.addEventListener('playing', handlePlaying);
