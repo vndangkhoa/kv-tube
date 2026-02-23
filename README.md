@@ -38,7 +38,7 @@ version: '3.8'
 
 services:
   kv-tube-app:
-    image: git.khoavo.myds.me/vndangkhoa/kv-tube-app:v4.0.4
+    image: git.khoavo.myds.me/vndangkhoa/kv-tube-app:v4.0.5
     container_name: kv-tube-app
     restart: unless-stopped
     ports:
