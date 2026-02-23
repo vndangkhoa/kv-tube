@@ -23,7 +23,8 @@ async function getHistory() {
     try {
         const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8080'}/api/history?limit=20`, { cache: 'no-store' });
         if (!res.ok) return [];
-        return res.json() as Promise<VideoData[]>;
+        const data = await res.json();
+        return Array.isArray(data) ? data : [];
     } catch {
         return [];
     }
@@ -33,7 +34,8 @@ async function getSubscriptions() {
     try {
         const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8080'}/api/subscriptions`, { cache: 'no-store' });
         if (!res.ok) return [];
-        return res.json() as Promise<Subscription[]>;
+        const data = await res.json();
+        return Array.isArray(data) ? data : [];
     } catch {
         return [];
     }
