@@ -3,7 +3,7 @@ FROM golang:1.24-alpine AS backend-builder
 WORKDIR /app
 RUN apk add --no-cache git gcc musl-dev
 COPY backend/go.mod backend/go.sum ./
-RUN sed -i 's/^go .*/go 1.24.0/' go.mod && sed -i '/^toolchain /d' go.mod && go mod tidy
+RUN (echo "module kvtube-go"; echo ""; echo "go 1.24.0"; tail -n +4 go.mod) > go.mod.new && mv go.mod.new go.mod && go mod tidy
 RUN go mod download
 COPY backend/ ./
 RUN CGO_ENABLED=1 GOOS=linux GOARCH=amd64 go build -o kv-tube .
