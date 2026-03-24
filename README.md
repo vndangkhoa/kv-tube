@@ -40,9 +40,9 @@ We recommend using **Container Manager** (DSM 7.2+) or **Docker** (DSM 6/7.1) fo
 version: '3.8'
 
 services:
-  kv-tube-app:
+  kv-tube:
     image: git.khoavo.myds.me/vndangkhoa/kv-tube:v4.0.7
-    container_name: kv-tube-app
+    container_name: kv-tube
     platform: linux/amd64
     restart: unless-stopped
     ports:
