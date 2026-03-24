@@ -26,15 +26,14 @@ RUN echo "NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL" && npm run build
 FROM alpine:latest
 
 # Install dependencies for Go backend, Node.js frontend, and Supervisord
-RUN apk add --no-cache \
-    nodejs \
-    ca-certificates \
-    ffmpeg \
-    curl \
-    python3 \
-    py3-pip \
-    supervisor \
-    && curl -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o /usr/local/bin/yt-dlp \
+RUN apk add --no-cache nodejs
+RUN apk add --no-cache ca-certificates
+RUN apk add --no-cache ffmpeg
+RUN apk add --no-cache curl
+RUN apk add --no-cache python3
+RUN apk add --no-cache py3-pip
+RUN apk add --no-cache supervisor
+RUN curl -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o /usr/local/bin/yt-dlp \
     && chmod a+rx /usr/local/bin/yt-dlp
 
 WORKDIR /app
