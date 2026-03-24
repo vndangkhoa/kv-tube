@@ -1,5 +1,6 @@
 # ---- Backend Builder ----
 FROM golang:1.24-alpine AS backend-builder
+ENV GOTOOLCHAIN=local
 WORKDIR /app
 RUN apk add --no-cache git gcc musl-dev
 COPY backend/go.mod backend/go.sum ./
