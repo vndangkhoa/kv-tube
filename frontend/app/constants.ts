@@ -8,6 +8,8 @@ export interface VideoData {
     view_count: number;
     duration: string;
     avatar_url?: string;
+    list_id?: string;
+    is_mix?: boolean;
 }
 
 export const CATEGORY_MAP: Record<string, string> = {

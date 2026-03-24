@@ -13,18 +13,28 @@ export async function GET(request: NextRequest) {
     }
 
     try {
-        const url = `${API_BASE}/api/download?v=${encodeURIComponent(videoId)}${formatId ? `&f=${encodeURIComponent(formatId)}` : ''}`;
+        const url = `${API_BASE}/api/download-file?v=${encodeURIComponent(videoId)}${formatId ? `&f=${encodeURIComponent(formatId)}` : ''}`;
         const res = await fetch(url, {
             cache: 'no-store',
         });
 
-        const data = await res.json();
-
         if (!res.ok) {
-            return NextResponse.json({ error: data.error || 'Download failed' }, { status: 500 });
+            const data = await res.json().catch(() => ({}));
+            return NextResponse.json({ error: data.error || 'Download failed' }, { status: res.status });
         }
 
-        return NextResponse.json(data);
+        // Stream the file directly
+        const headers = new Headers();
+        const contentType = res.headers.get('content-type');
+        const contentDisposition = res.headers.get('content-disposition');
+        
+        if (contentType) headers.set('content-type', contentType);
+        if (contentDisposition) headers.set('content-disposition', contentDisposition);
+        
+        return new NextResponse(res.body, {
+            status: res.status,
+            headers,
+        });
     } catch (error) {
         return NextResponse.json({ error: 'Failed to get download link' }, { status: 500 });
     }

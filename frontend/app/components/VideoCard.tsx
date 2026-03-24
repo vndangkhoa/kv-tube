@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import Image from 'next/image';
 import { useState } from 'react';
 
 interface VideoData {
@@ -12,6 +13,8 @@ interface VideoData {
     view_count: number;
     duration: string;
     uploaded_date?: string;
+    list_id?: string;
+    is_mix?: boolean;
 }
 
 function formatViews(views: number): string {
@@ -26,27 +29,45 @@ function getRelativeTime(id: string): string {
     return times[index];
 }
 
-export default function VideoCard({ video, hideChannelAvatar }: { video: VideoData; hideChannelAvatar?: boolean }) {
+import { memo } from 'react';
+
+function VideoCard({ video, hideChannelAvatar }: { video: VideoData; hideChannelAvatar?: boolean }) {
     const relativeTime = video.uploaded_date || getRelativeTime(video.id);
     const [isNavigating, setIsNavigating] = useState(false);
+    const destination = video.list_id ? `/watch?v=${video.id}&list=${video.list_id}` : `/watch?v=${video.id}`;
 
     return (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', width: '100%', marginBottom: '12px' }} className="videocard-container">
             <Link
-                href={`/watch?v=${video.id}`}
+                href={destination}
                 onClick={() => setIsNavigating(true)}
                 style={{ position: 'relative', display: 'block', width: '100%', aspectRatio: '16/9', overflow: 'hidden', borderRadius: '12px' }}
             >
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
+                <Image
                     src={video.thumbnail}
                     alt={video.title}
-                    style={{ width: '100%', height: '100%', objectFit: 'cover', backgroundColor: 'var(--yt-hover)' }}
+                    fill
+                    sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
+                    style={{ objectFit: 'cover', backgroundColor: 'var(--yt-hover)' }}
                     className="videocard-thumb"
+                    priority={false}
                 />
-                {video.duration && (
+                {video.duration && !video.is_mix && (
                     <div className="duration-badge" style={{ position: 'absolute', bottom: '8px', right: '8px' }}>
                         {video.duration}
+                    </div>
+                )}
+                
+                {video.is_mix && (
+                    <div style={{
+                        position: 'absolute', bottom: 0, right: 0,
+                        backgroundColor: 'rgba(0, 0, 0, 0.8)', color: 'white',
+                        padding: '4px 8px', fontSize: '12px', fontWeight: 500,
+                        borderTopLeftRadius: '8px', zIndex: 5,
+                        display: 'flex', alignItems: 'center', gap: '4px'
+                    }}>
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M22 7H2v1h20V7zm-9 5H2v-1h11v1zm0 4H2v-1h11v1zm2 3v-8l7 4-7 4z"></path></svg>
+                        Mix
                     </div>
                 )}
 
@@ -71,7 +92,7 @@ export default function VideoCard({ video, hideChannelAvatar }: { video: VideoDa
             <div style={{ display: 'flex', gap: '12px', padding: '0 12px' }} className="videocard-info">
                 {/* Video Info */}
                 <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0 }}>
-                    <Link href={`/watch?v=${video.id}`} style={{ textDecoration: 'none' }}>
+                    <Link href={destination} style={{ textDecoration: 'none' }}>
                         <h3 className="truncate-2-lines" style={{ fontSize: '16px', fontWeight: 500, lineHeight: '22px', margin: 0, color: 'var(--yt-text-primary)', transition: 'color 0.2s' }}>
                             {video.title}
                         </h3>
@@ -95,3 +116,5 @@ export default function VideoCard({ video, hideChannelAvatar }: { video: VideoDa
         </div>
     );
 }
+
+export default memo(VideoCard);

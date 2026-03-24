@@ -3,9 +3,10 @@
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useState, useRef, useEffect } from 'react';
-import { IoSearchOutline, IoMoonOutline, IoSunnyOutline, IoArrowBack } from 'react-icons/io5';
+import { IoSearchOutline, IoMoonOutline, IoSunnyOutline, IoArrowBack, IoMenuOutline } from 'react-icons/io5';
 import RegionSelector from './RegionSelector';
 import { useTheme } from '../context/ThemeContext';
+import { useSidebar } from '../context/SidebarContext';
 
 export default function Header() {
     const [searchQuery, setSearchQuery] = useState('');
@@ -15,6 +16,7 @@ export default function Header() {
     const mobileInputRef = useRef<HTMLInputElement>(null);
     const router = useRouter();
     const { theme, toggleTheme } = useTheme();
+    const { toggleSidebar, toggleMobileMenu } = useSidebar();
 
     const handleSearch = (e: React.FormEvent) => {
         e.preventDefault();
@@ -37,6 +39,12 @@ export default function Header() {
                 <>
                     {/* Left */}
                     <div className="yt-header-left">
+                        <button className="yt-icon-btn hamburger-btn" onClick={() => {
+                            toggleSidebar();
+                            toggleMobileMenu();
+                        }} title="Menu">
+                            <IoMenuOutline size={22} />
+                        </button>
                         <Link href="/" style={{ display: 'flex', alignItems: 'center', gap: '4px', marginLeft: '12px' }}>
                             <span style={{ fontSize: '18px', fontWeight: '700', letterSpacing: '-0.5px', fontFamily: 'YouTube Sans, Roboto, Arial, sans-serif' }} className="hidden-mobile">KV-Tube</span>
                         </Link>

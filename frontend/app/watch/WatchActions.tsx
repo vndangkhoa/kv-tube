@@ -236,95 +236,32 @@ export default function WatchActions({ videoId }: { videoId: string }) {
         setDownloadProgress('Preparing download...');
 
         try {
-            const needsAudioMerge = format && !format.has_audio && format.type !== 'both';
-
-            if (!needsAudioMerge) {
-                setDownloadProgress('Getting download link...');
-                const res = await fetch(`/api/download?v=${encodeURIComponent(videoId)}${format ? `&f=${encodeURIComponent(format.format_id)}` : ''}`);
-                const data = await res.json();
-                if (data.url) {
-                    window.open(data.url, '_blank');
-                    setIsDownloading(false);
-                    setDownloadProgress('');
-                    return;
-                }
-            }
-
-            await loadFFmpeg();
+            // Simple approach: use the backend's download-file endpoint
+            const downloadUrl = `/api/download-file?v=${encodeURIComponent(videoId)}${format ? `&f=${encodeURIComponent(format.format_id)}` : ''}`;
             
-            if (!ffmpegRef.current) {
-                throw new Error('Video processor failed to load. Please try again.');
-            }
-
-            const ffmpeg = ffmpegRef.current;
-
-            setDownloadProgress('Fetching video...');
-            const videoRes = await fetch(`/api/download?v=${encodeURIComponent(videoId)}${format ? `&f=${encodeURIComponent(format.format_id)}` : ''}`);
-            const videoData = await videoRes.json();
+            // Create a temporary anchor tag to trigger download
+            const a = document.createElement('a');
+            a.href = downloadUrl;
+            a.download = ''; // Let the server set filename via Content-Disposition
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
             
-            if (!videoData.url) {
-                throw new Error(videoData.error || 'Failed to get video URL');
-            }
-
-            let audioUrl: string | null = null;
-            if (needsAudioMerge && audioFormats.length > 0) {
-                const audioRes = await fetch(`/api/download?v=${encodeURIComponent(videoId)}&f=${encodeURIComponent(audioFormats[0].format_id)}`);
-                const audioData = await audioRes.json();
-                audioUrl = audioData.url;
-            }
-
-            const videoBuffer = await fetchFile(videoData.url, 'Video');
-            
-            if (audioUrl) {
-                setProgressPercent(0);
-                const audioBuffer = await fetchFile(audioUrl, 'Audio');
-                
-                setDownloadProgress('Merging video & audio...');
-                setProgressPercent(-1);
-                
-                const videoExt = format?.ext || 'mp4';
-                await ffmpeg.writeFile(`input.${videoExt}`, videoBuffer);
-                await ffmpeg.writeFile('audio.m4a', audioBuffer);
-                
-                await ffmpeg.exec([
-                    '-i', `input.${videoExt}`,
-                    '-i', 'audio.m4a',
-                    '-c:v', 'copy',
-                    '-c:a', 'aac',
-                    '-map', '0:v',
-                    '-map', '1:a',
-                    '-shortest',
-                    'output.mp4'
-                ]);
-                
-                setDownloadProgress('Saving file...');
-                const mergedData = await ffmpeg.readFile('output.mp4');
-                const mergedBuffer = new Uint8Array(mergedData as ArrayBuffer);
-                
-                const qualityLabel = getQualityLabel(format?.resolution || '').replace(/\s/g, '_');
-                const blob = new Blob([mergedBuffer], { type: 'video/mp4' });
-                downloadBlob(blob, `${videoId}_${qualityLabel}.mp4`);
-                
-                await ffmpeg.deleteFile(`input.${videoExt}`);
-                await ffmpeg.deleteFile('audio.m4a');
-                await ffmpeg.deleteFile('output.mp4');
-            } else {
-                const qualityLabel = getQualityLabel(format?.resolution || '').replace(/\s/g, '_');
-                const blob = new Blob([new Uint8Array(videoBuffer)], { type: 'video/mp4' });
-                downloadBlob(blob, `${videoId}_${qualityLabel}.mp4`);
-            }
-
-            setDownloadProgress('Download complete!');
+            setDownloadProgress('Download started!');
             setProgressPercent(100);
-        } catch (e: any) {
-            console.error(e);
-            alert(e.message || 'Download failed. Please try again.');
-        } finally {
+            
+            // Reset after a short delay
             setTimeout(() => {
                 setIsDownloading(false);
                 setDownloadProgress('');
                 setProgressPercent(0);
-            }, 1500);
+            }, 2000);
+        } catch (e: any) {
+            console.error(e);
+            alert(e.message || 'Download failed. Please try again.');
+            setIsDownloading(false);
+            setDownloadProgress('');
+            setProgressPercent(0);
         }
     };
 
@@ -348,6 +285,21 @@ export default function WatchActions({ videoId }: { videoId: string }) {
             </button>
             
             <div ref={menuRef} style={{ position: 'relative' }}>
+                {showFormats && (
+                    <div 
+                        className="download-backdrop"
+                        style={{
+                            position: 'fixed',
+                            top: 0,
+                            left: 0,
+                            right: 0,
+                            bottom: 0,
+                            backgroundColor: 'rgba(0,0,0,0.5)',
+                            zIndex: 9999
+                        }}
+                        onClick={() => setShowFormats(false)}
+                    />
+                )}
                 <button
                     type="button"
                     onClick={fetchFormats}
@@ -365,22 +317,48 @@ export default function WatchActions({ videoId }: { videoId: string }) {
                 </button>
 
                 {showFormats && (
-                    <div style={{
-                        position: 'absolute',
-                        top: '42px',
-                        right: 0,
+                    <div 
+                        className="download-dropdown"
+                        style={{
+                        position: 'fixed',
+                        top: '50%',
+                        left: '50%',
+                        transform: 'translate(-50%, -50%)',
                         backgroundColor: 'var(--yt-background)',
-                        borderRadius: '12px',
-                        boxShadow: 'var(--yt-shadow-lg)',
-                        padding: '8px 0',
-                        zIndex: 1000,
-                        minWidth: '240px',
-                        maxHeight: '360px',
+                        borderRadius: '16px',
+                        boxShadow: '0 8px 32px rgba(0,0,0,0.5)',
+                        padding: '0',
+                        zIndex: 10000,
+                        width: 'calc(100% - 32px)',
+                        maxWidth: '360px',
+                        maxHeight: '70vh',
                         overflowY: 'auto',
                         border: '1px solid var(--yt-border)',
                     }}>
-                        <div style={{ padding: '10px 16px', fontSize: '13px', fontWeight: '600', color: 'var(--yt-text-primary)', borderBottom: '1px solid var(--yt-border)' }}>
-                            Select Quality
+                        <div style={{ 
+                            padding: '16px', 
+                            fontSize: '16px', 
+                            fontWeight: '600', 
+                            color: 'var(--yt-text-primary)', 
+                            borderBottom: '1px solid var(--yt-border)',
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            alignItems: 'center'
+                        }}>
+                            <span>Select Quality</span>
+                            <button 
+                                onClick={() => setShowFormats(false)}
+                                style={{
+                                    background: 'none',
+                                    border: 'none',
+                                    color: 'var(--yt-text-secondary)',
+                                    fontSize: '20px',
+                                    cursor: 'pointer',
+                                    padding: '4px 8px'
+                                }}
+                            >
+                                ×
+                            </button>
                         </div>
                         
                         {isLoadingFormats ? (

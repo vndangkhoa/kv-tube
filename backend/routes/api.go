@@ -2,24 +2,114 @@ package routes
 
 import (
 	"bufio"
+	"fmt"
 	"io"
 	"log"
 	"net/http"
 	"net/url"
+	"os"
+	"regexp"
 	"strconv"
 	"strings"
+	"time"
 
 	"kvtube-go/services"
 
 	"github.com/gin-gonic/gin"
 )
 
+// getAllowedOrigins returns allowed CORS origins from environment variable or defaults
+func getAllowedOrigins() []string {
+	originsEnv := os.Getenv("CORS_ALLOWED_ORIGINS")
+	if originsEnv == "" {
+		// Default: allow localhost for development
+		return []string{
+			"http://localhost:3000",
+			"http://127.0.0.1:3000",
+			"http://localhost:5011",
+			"http://127.0.0.1:5011",
+		}
+	}
+	origins := strings.Split(originsEnv, ",")
+	for i := range origins {
+		origins[i] = strings.TrimSpace(origins[i])
+	}
+	return origins
+}
+
+// isAllowedOrigin checks if the given origin is in the allowed list
+func isAllowedOrigin(origin string, allowedOrigins []string) bool {
+	for _, allowed := range allowedOrigins {
+		if allowed == "*" || allowed == origin {
+			return true
+		}
+	}
+	return false
+}
+
+// isAllowedDomain checks if the URL belongs to allowed domains (YouTube/Google)
+func isAllowedDomain(targetURL string) error {
+	parsedURL, err := url.Parse(targetURL)
+	if err != nil {
+		return err
+	}
+
+	// Allowed domains for video proxy
+	allowedDomains := []string{
+		".youtube.com",
+		".googlevideo.com",
+		".ytimg.com",
+		".google.com",
+		".gstatic.com",
+	}
+
+	host := strings.ToLower(parsedURL.Hostname())
+
+	// Check if host matches any allowed domain
+	for _, domain := range allowedDomains {
+		if strings.HasSuffix(host, domain) || host == strings.TrimPrefix(domain, ".") {
+			return nil
+		}
+	}
+
+	return fmt.Errorf("domain %s not allowed", host)
+}
+
+// validateSearchQuery ensures search query contains only safe characters
+func validateSearchQuery(query string) error {
+	// Allow alphanumeric, spaces, hyphens, underscores, dots, commas, exclamation marks
+	safePattern := regexp.MustCompile(`^[a-zA-Z0-9\s\-_.,!]+$`)
+	if !safePattern.MatchString(query) {
+		return fmt.Errorf("search query contains invalid characters")
+	}
+	if len(query) > 200 {
+		return fmt.Errorf("search query too long")
+	}
+	return nil
+}
+
+// Global HTTP client with connection pooling and timeouts
+var httpClient = &http.Client{
+	Timeout: 30 * time.Second,
+	Transport: &http.Transport{
+		MaxIdleConns:        100,
+		MaxIdleConnsPerHost: 10,
+		IdleConnTimeout:     90 * time.Second,
+	},
+}
+
 func SetupRouter() *gin.Engine {
 	r := gin.Default()
 
+	// CORS middleware - restrict to specific origins from environment variable
+	allowedOrigins := getAllowedOrigins()
 	r.Use(func(c *gin.Context) {
-		c.Writer.Header().Set("Access-Control-Allow-Origin", "*")
+		origin := c.GetHeader("Origin")
+		if origin != "" && isAllowedOrigin(origin, allowedOrigins) {
+			c.Writer.Header().Set("Access-Control-Allow-Origin", origin)
+		}
 		c.Writer.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+		c.Writer.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
 		if c.Request.Method == "OPTIONS" {
 			c.AbortWithStatus(204)
 			return
@@ -38,6 +128,7 @@ func SetupRouter() *gin.Engine {
 		api.GET("/trending", handleTrending)
 		api.GET("/get_stream_info", handleGetStreamInfo)
 		api.GET("/download", handleDownload)
+		api.GET("/download-file", handleDownloadFile)
 		api.GET("/transcript", handleTranscript)
 		api.GET("/comments", handleComments)
 		api.GET("/channel/videos", handleChannelVideos)
@@ -68,6 +159,12 @@ func handleSearch(c *gin.Context) {
 	query := c.Query("q")
 	if query == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Query parameter 'q' is required"})
+		return
+	}
+
+	// Validate search query for security
+	if err := validateSearchQuery(query); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
@@ -189,6 +286,88 @@ func handleDownload(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, info)
+}
+
+func handleDownloadFile(c *gin.Context) {
+	videoID := c.Query("v")
+	if videoID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Video ID 'v' is required"})
+		return
+	}
+
+	formatID := c.Query("f")
+
+	// Get the download URL from yt-dlp
+	info, err := services.GetDownloadURL(videoID, formatID)
+	if err != nil {
+		log.Printf("GetDownloadURL Error: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get download URL"})
+		return
+	}
+
+	if info.URL == "" {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "No download URL available"})
+		return
+	}
+
+	// Create request to the video URL
+	req, err := http.NewRequest("GET", info.URL, nil)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create request"})
+		return
+	}
+
+	// Copy range header if present (for partial content/resumable downloads)
+	if rangeHeader := c.GetHeader("Range"); rangeHeader != "" {
+		req.Header.Set("Range", rangeHeader)
+	}
+
+	// Set appropriate headers for YouTube
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36")
+	req.Header.Set("Referer", "https://www.youtube.com/")
+	req.Header.Set("Origin", "https://www.youtube.com")
+
+	// Make the request
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		log.Printf("Failed to fetch video: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch video"})
+		return
+	}
+	defer resp.Body.Close()
+
+	// Copy relevant headers from YouTube response to our response
+	for key, values := range resp.Header {
+		if key == "Content-Type" || key == "Content-Length" || key == "Content-Range" ||
+			key == "Accept-Ranges" || key == "Content-Disposition" {
+			for _, value := range values {
+				c.Header(key, value)
+			}
+		}
+	}
+
+	// Set content type based on extension
+	contentType := resp.Header.Get("Content-Type")
+	if contentType == "" {
+		if info.Ext == "mp4" {
+			contentType = "video/mp4"
+		} else if info.Ext == "webm" {
+			contentType = "video/webm"
+		} else {
+			contentType = "application/octet-stream"
+		}
+	}
+	c.Header("Content-Type", contentType)
+
+	// Set content disposition for download
+	filename := fmt.Sprintf("%s.%s", info.Title, info.Ext)
+	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", filename))
+
+	// Copy status code
+	c.Status(resp.StatusCode)
+
+	// Stream the video
+	io.Copy(c.Writer, resp.Body)
 }
 
 func handleGetFormats(c *gin.Context) {
@@ -419,6 +598,12 @@ func handleVideoProxy(c *gin.Context) {
 		return
 	}
 
+	// SSRF Protection: Validate target domain
+	if err := isAllowedDomain(targetURL); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "URL domain not allowed"})
+		return
+	}
+
 	req, err := http.NewRequest("GET", targetURL, nil)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create request"})
@@ -434,8 +619,7 @@ func handleVideoProxy(c *gin.Context) {
 		req.Header.Set("Range", rangeHeader)
 	}
 
-	client := &http.Client{}
-	resp, err := client.Do(req)
+	resp, err := httpClient.Do(req)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch video stream"})
 		return

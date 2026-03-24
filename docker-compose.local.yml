@@ -7,6 +7,7 @@ services:
     platform: linux/amd64
     ports:
       - "5012:3000"
+      - "8080:8080"
     volumes:
       - ./data:/app/data
     environment:

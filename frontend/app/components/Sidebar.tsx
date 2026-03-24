@@ -4,9 +4,11 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { MdHomeFilled, MdOutlineSubscriptions, MdOutlineVideoLibrary } from 'react-icons/md';
 import { SiYoutubeshorts } from 'react-icons/si';
+import { useSidebar } from '../context/SidebarContext';
 
 export default function Sidebar() {
     const pathname = usePathname();
+    const { isSidebarOpen } = useSidebar();
 
     const navItems = [
         { icon: <MdHomeFilled size={24} />, label: 'Home', path: '/' },
@@ -16,7 +18,10 @@ export default function Sidebar() {
     ];
 
     return (
-        <aside className="yt-sidebar-mini">
+        <aside 
+            className={`yt-sidebar-mini ${isSidebarOpen ? 'sidebar-open' : 'sidebar-collapsed'}`}
+            style={{ transition: 'transform 0.3s ease, width 0.3s ease, opacity 0.3s ease' }}
+        >
             {navItems.map((item) => {
                 const isActive = pathname === item.path;
                 return (

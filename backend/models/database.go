@@ -6,7 +6,7 @@ import (
 	"os"
 	"path/filepath"
 
-	_ "github.com/mattn/go-sqlite3"
+	_ "modernc.org/sqlite"
 )
 
 var DB *sql.DB
@@ -22,7 +22,7 @@ func InitDB() {
 	}
 
 	dbPath := filepath.Join(dataDir, "kvtube.db")
-	db, err := sql.Open("sqlite3", dbPath)
+	db, err := sql.Open("sqlite", dbPath)
 	if err != nil {
 		log.Fatalf("Failed to open database: %v", err)
 	}
@@ -68,8 +68,21 @@ func InitDB() {
 		}
 	}
 
-	// Insert default user for history tracking
-	_, err = db.Exec(`INSERT OR IGNORE INTO users (id, username, password) VALUES (1, 'default_user', 'password')`)
+	// Create performance indexes
+	indexes := []string{
+		`CREATE INDEX IF NOT EXISTS idx_user_videos_user_timestamp ON user_videos(user_id, timestamp DESC)`,
+		`CREATE UNIQUE INDEX IF NOT EXISTS idx_user_videos_user_video ON user_videos(user_id, video_id)`,
+		`CREATE INDEX IF NOT EXISTS idx_subscriptions_user ON subscriptions(user_id)`,
+		`CREATE INDEX IF NOT EXISTS idx_video_cache_expires ON video_cache(expires_at)`,
+	}
+	for _, idx := range indexes {
+		if _, err := db.Exec(idx); err != nil {
+			log.Printf("Warning: Failed to create index: %v - Statement: %s", err, idx)
+		}
+	}
+
+	// Insert default user for history tracking (password is not used for authentication)
+	_, err = db.Exec(`INSERT OR IGNORE INTO users (id, username, password) VALUES (1, 'default_user', '')`)
 	if err != nil {
 		log.Printf("Failed to insert default user: %v", err)
 	}

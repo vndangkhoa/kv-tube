@@ -7,8 +7,43 @@ import (
 	"log"
 	"os"
 	"os/exec"
+	"sort"
 	"strings"
+
+	"kvtube-go/models"
 )
+
+var ytDlpBinPath string
+
+func init() {
+	ytDlpBinPath = resolveYtDlpBinPath()
+}
+
+func resolveYtDlpBinPath() string {
+	// Check if yt-dlp is in PATH
+	if _, err := exec.LookPath("yt-dlp"); err == nil {
+		return "yt-dlp"
+	}
+
+	fallbacks := []string{
+		os.ExpandEnv("$HOME/Library/Python/3.14/bin/yt-dlp"),
+		os.ExpandEnv("$HOME/Library/Python/3.13/bin/yt-dlp"),
+		os.ExpandEnv("$HOME/Library/Python/3.12/bin/yt-dlp"),
+		os.ExpandEnv("$HOME/Library/Python/3.11/bin/yt-dlp"),
+		os.ExpandEnv("$HOME/.local/bin/yt-dlp"),
+		"/usr/local/bin/yt-dlp",
+		"/opt/homebrew/bin/yt-dlp",
+	}
+
+	for _, fb := range fallbacks {
+		if _, err := os.Stat(fb); err == nil {
+			return fb
+		}
+	}
+
+	// Default fallback
+	return "yt-dlp"
+}
 
 type VideoData struct {
 	ID          string `json:"id"`
@@ -89,6 +124,66 @@ func sanitizeVideoData(entry YtDlpEntry) VideoData {
 	}
 }
 
+// extractVideoID tries to extract a YouTube video ID from yt-dlp arguments
+func extractVideoID(args []string) string {
+	for _, arg := range args {
+		// Look for 11-character video IDs (YouTube standard)
+		if len(arg) == 11 {
+			// Simple check: alphanumeric with underscore and dash
+			isValid := true
+			for _, c := range arg {
+				if !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_' || c == '-') {
+					isValid = false
+					break
+				}
+			}
+			if isValid {
+				return arg
+			}
+		}
+
+		// Extract from YouTube URL patterns
+		if strings.Contains(arg, "youtube.com") || strings.Contains(arg, "youtu.be") {
+			// Simple regex for video ID in URL
+			if idx := strings.Index(arg, "v="); idx != -1 {
+				id := arg[idx+2:]
+				if len(id) >= 11 {
+					return id[:11]
+				}
+			}
+			// youtu.be/ID
+			if idx := strings.LastIndex(arg, "/"); idx != -1 {
+				id := arg[idx+1:]
+				if len(id) >= 11 {
+					return id[:11]
+				}
+			}
+		}
+	}
+	return ""
+}
+
+// RunYtDlpCached executes yt-dlp with caching
+func RunYtDlpCached(cacheKey string, ttlSeconds int, args ...string) ([]byte, error) {
+	// Try to get from cache first
+	if cachedData, err := models.GetCachedVideo(cacheKey); err == nil && cachedData != nil {
+		return cachedData, nil
+	}
+
+	// Execute yt-dlp
+	data, err := RunYtDlp(args...)
+	if err != nil {
+		return nil, err
+	}
+
+	// Store in cache (ignore cache errors)
+	if cacheKey != "" {
+		_ = models.SetCachedVideo(cacheKey, string(data), ttlSeconds)
+	}
+
+	return data, nil
+}
+
 // RunYtDlp securely executes yt-dlp with the given arguments and returns JSON output
 func RunYtDlp(args ...string) ([]byte, error) {
 	cmdArgs := append([]string{
@@ -100,27 +195,7 @@ func RunYtDlp(args ...string) ([]byte, error) {
 		"--user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
 	}, args...)
 
-	binPath := "yt-dlp"
-	// Check common install paths if yt-dlp is not in PATH
-	if _, err := exec.LookPath("yt-dlp"); err != nil {
-		fallbacks := []string{
-			os.ExpandEnv("$HOME/Library/Python/3.14/bin/yt-dlp"),
-			os.ExpandEnv("$HOME/Library/Python/3.13/bin/yt-dlp"),
-			os.ExpandEnv("$HOME/Library/Python/3.12/bin/yt-dlp"),
-			os.ExpandEnv("$HOME/Library/Python/3.11/bin/yt-dlp"),
-			os.ExpandEnv("$HOME/.local/bin/yt-dlp"),
-			"/usr/local/bin/yt-dlp",
-			"/opt/homebrew/bin/yt-dlp",
-		}
-		for _, fb := range fallbacks {
-			if _, err := os.Stat(fb); err == nil {
-				binPath = fb
-				break
-			}
-		}
-	}
-
-	cmd := exec.Command(binPath, cmdArgs...)
+	cmd := exec.Command(ytDlpBinPath, cmdArgs...)
 
 	var out bytes.Buffer
 	var stderr bytes.Buffer
@@ -176,7 +251,8 @@ func GetVideoInfo(videoID string) (*VideoData, error) {
 		url,
 	}
 
-	out, err := RunYtDlp(args...)
+	cacheKey := "video_info:" + videoID
+	out, err := RunYtDlpCached(cacheKey, 3600, args...) // Cache for 1 hour
 	if err != nil {
 		return nil, err
 	}
@@ -209,44 +285,19 @@ type QualityFormat struct {
 func GetVideoQualities(videoID string) ([]QualityFormat, error) {
 	url := fmt.Sprintf("https://www.youtube.com/watch?v=%s", videoID)
 
-	cmdArgs := append([]string{
+	cmdArgs := []string{
 		"--dump-json",
 		"--no-warnings",
 		"--quiet",
 		"--force-ipv4",
 		"--no-playlist",
 		"--user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-	}, url)
-
-	binPath := "yt-dlp"
-	if _, err := exec.LookPath("yt-dlp"); err != nil {
-		fallbacks := []string{
-			os.ExpandEnv("$HOME/Library/Python/3.14/bin/yt-dlp"),
-			os.ExpandEnv("$HOME/Library/Python/3.13/bin/yt-dlp"),
-			os.ExpandEnv("$HOME/Library/Python/3.12/bin/yt-dlp"),
-			os.ExpandEnv("$HOME/.local/bin/yt-dlp"),
-			"/usr/local/bin/yt-dlp",
-			"/opt/homebrew/bin/yt-dlp",
-			"/config/.local/bin/yt-dlp",
-		}
-		for _, fb := range fallbacks {
-			if _, err := os.Stat(fb); err == nil {
-				binPath = fb
-				break
-			}
-		}
+		url,
 	}
 
-	cmd := exec.Command(binPath, cmdArgs...)
-
-	var out bytes.Buffer
-	var stderr bytes.Buffer
-	cmd.Stdout = &out
-	cmd.Stderr = &stderr
-
-	err := cmd.Run()
+	cacheKey := "video_qualities:" + videoID
+	out, err := RunYtDlpCached(cacheKey, 3600, cmdArgs...) // Cache for 1 hour
 	if err != nil {
-		log.Printf("yt-dlp error: %v, stderr: %s", err, stderr.String())
 		return nil, err
 	}
 
@@ -266,7 +317,7 @@ func GetVideoQualities(videoID string) ([]QualityFormat, error) {
 		} `json:"formats"`
 	}
 
-	if err := json.Unmarshal(out.Bytes(), &raw); err != nil {
+	if err := json.Unmarshal(out, &raw); err != nil {
 		return nil, err
 	}
 
@@ -353,13 +404,9 @@ func GetVideoQualities(videoID string) ([]QualityFormat, error) {
 	}
 
 	// Sort by height descending
-	for i := range qualities {
-		for j := i + 1; j < len(qualities); j++ {
-			if qualities[j].Height > qualities[i].Height {
-				qualities[i], qualities[j] = qualities[j], qualities[i]
-			}
-		}
-	}
+	sort.Slice(qualities, func(i, j int) bool {
+		return qualities[i].Height > qualities[j].Height
+	})
 
 	return qualities, nil
 }
@@ -708,7 +755,6 @@ func GetDownloadURL(videoID string, formatID string) (*DownloadInfo, error) {
 
 	args := []string{
 		"--format", formatArgs,
-		"--dump-json",
 		"--no-playlist",
 		url,
 	}
@@ -854,7 +900,7 @@ func GetChannelInfo(channelID string) (*ChannelInfo, error) {
 		return nil, fmt.Errorf("no output from yt-dlp")
 	}
 
-	if err := json.Unmarshal([]byte(lines[0]), &raw); err != nil {
+	if err := json.Unmarshal(out, &raw); err != nil {
 		return nil, err
 	}
 
@@ -937,40 +983,18 @@ func GetComments(videoID string, limit int) ([]Comment, error) {
 	url := fmt.Sprintf("https://www.youtube.com/watch?v=%s", videoID)
 
 	cmdArgs := []string{
+		"--no-warnings",
+		"--quiet",
+		"--user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
 		"--dump-json",
 		"--no-download",
 		"--no-playlist",
 		"--write-comments",
-		fmt.Sprintf("--comment-limit=%d", limit),
+		"--extractor-args", fmt.Sprintf("youtube:comment_sort=top;max_comments=%d", limit),
 		url,
 	}
 
-	cmdArgs = append([]string{
-		"--no-warnings",
-		"--quiet",
-		"--user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-	}, cmdArgs...)
-
-	binPath := "yt-dlp"
-	if _, err := exec.LookPath("yt-dlp"); err != nil {
-		fallbacks := []string{
-			os.ExpandEnv("$HOME/Library/Python/3.14/bin/yt-dlp"),
-			os.ExpandEnv("$HOME/Library/Python/3.13/bin/yt-dlp"),
-			os.ExpandEnv("$HOME/Library/Python/3.12/bin/yt-dlp"),
-			os.ExpandEnv("$HOME/.local/bin/yt-dlp"),
-			"/usr/local/bin/yt-dlp",
-			"/opt/homebrew/bin/yt-dlp",
-			"/config/.local/bin/yt-dlp",
-		}
-		for _, fb := range fallbacks {
-			if _, err := os.Stat(fb); err == nil {
-				binPath = fb
-				break
-			}
-		}
-	}
-
-	cmd := exec.Command(binPath, cmdArgs...)
+	cmd := exec.Command(ytDlpBinPath, cmdArgs...)
 
 	var out bytes.Buffer
 	var stderr bytes.Buffer

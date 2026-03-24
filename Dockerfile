@@ -19,7 +19,8 @@ WORKDIR /app
 COPY --from=frontend-deps /app/node_modules ./node_modules
 COPY frontend/ ./
 ENV NEXT_TELEMETRY_DISABLED 1
-RUN npm run build
+ENV NEXT_PUBLIC_API_URL=http://localhost:8080
+RUN echo "NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL" && npm run build
 
 # ---- Final Unified Image ----
 FROM alpine:latest

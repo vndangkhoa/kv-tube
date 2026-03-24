@@ -9,9 +9,10 @@ interface Props {
     initialVideos: VideoData[];
     currentCategory: string;
     regionLabel: string;
+    contextVideoId?: string;
 }
 
-export default function InfiniteVideoGrid({ initialVideos, currentCategory, regionLabel }: Props) {
+export default function InfiniteVideoGrid({ initialVideos, currentCategory, regionLabel, contextVideoId }: Props) {
     const [videos, setVideos] = useState<VideoData[]>(initialVideos);
     const [page, setPage] = useState(2);
     const [isLoading, setIsLoading] = useState(false);
@@ -30,7 +31,7 @@ export default function InfiniteVideoGrid({ initialVideos, currentCategory, regi
         setIsLoading(true);
 
         try {
-            const newVideos = await fetchMoreVideos(currentCategory, regionLabel, page);
+            const newVideos = await fetchMoreVideos(currentCategory, regionLabel, page, contextVideoId);
             if (newVideos.length === 0) {
                 setHasMore(false);
             } else {
@@ -55,7 +56,7 @@ export default function InfiniteVideoGrid({ initialVideos, currentCategory, regi
         } finally {
             setIsLoading(false);
         }
-    }, [currentCategory, regionLabel, page, isLoading, hasMore]);
+    }, [currentCategory, regionLabel, page, isLoading, hasMore, contextVideoId]);
 
     useEffect(() => {
         const observer = new IntersectionObserver(

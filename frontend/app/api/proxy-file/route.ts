@@ -11,6 +11,8 @@ export async function GET(request: NextRequest) {
         const res = await fetch(fileUrl, {
             headers: {
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+                'Referer': 'https://www.youtube.com/',
+                'Origin': 'https://www.youtube.com',
             },
         });
         

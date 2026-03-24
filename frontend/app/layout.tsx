@@ -5,6 +5,8 @@ import './globals.css';
 import Header from './components/Header';
 import Sidebar from './components/Sidebar';
 import MobileNav from './components/MobileNav';
+import HamburgerMenu from './components/HamburgerMenu';
+import MainContent from './components/MainContent';
 
 const roboto = Roboto({
   weight: ['400', '500', '700'],
@@ -14,12 +16,24 @@ const roboto = Roboto({
 
 export const metadata: Metadata = {
   title: 'KV-Tube',
-  description: 'A pixel perfect YouTube clone',
+  description: 'A modern YouTube-like video streaming platform with background playback',
   manifest: '/manifest.json',
   appleWebApp: {
     capable: true,
-    statusBarStyle: 'default',
+    statusBarStyle: 'black-translucent',
     title: 'KV-Tube',
+    startupImage: [
+      {
+        url: '/icons/icon-512x512.png',
+        media: '(device-width: 1024px)',
+      },
+    ],
+  },
+  other: {
+    'mobile-web-app-capable': 'yes',
+    'apple-mobile-web-app-capable': 'yes',
+    'apple-mobile-web-app-status-bar-style': 'black-translucent',
+    'theme-color': '#ff0000',
   },
 };
 
@@ -28,6 +42,7 @@ export const viewport = {
 };
 
 import { ThemeProvider } from './context/ThemeContext';
+import { SidebarProvider } from './context/SidebarContext';
 
 export default function RootLayout({
   children,
@@ -63,12 +78,15 @@ export default function RootLayout({
       </head>
       <body>
         <ThemeProvider>
-          <Header />
-          <Sidebar />
-          <main className="yt-main-content">
-            {children}
-          </main>
-          <MobileNav />
+          <SidebarProvider>
+            <Header />
+            <Sidebar />
+            <HamburgerMenu />
+            <MainContent>
+              {children}
+            </MainContent>
+            <MobileNav />
+          </SidebarProvider>
         </ThemeProvider>
       </body>
     </html>
