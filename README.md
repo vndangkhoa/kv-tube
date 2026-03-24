@@ -41,7 +41,7 @@ version: '3.8'
 
 services:
   kv-tube-app:
-    image: git.khoavo.myds.me/vndangkhoa/kv-tube-app:v4.0.7
+    image: git.khoavo.myds.me/vndangkhoa/kv-tube:v4.0.7
     container_name: kv-tube-app
     platform: linux/amd64
     restart: unless-stopped
