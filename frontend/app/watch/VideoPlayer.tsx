@@ -569,8 +569,10 @@ export default function VideoPlayer({ videoId, title }: VideoPlayerProps) {
                     preload="auto"
                     poster={`https://i.ytimg.com/vi/${videoId}/maxresdefault.jpg`}
                     onError={(e) => {
-                        e.target.onError = null; // Prevent infinite loop
-                        e.target.poster = 'https://i.ytimg.com/vi/default/hqdefault.jpg'; // Fallback to YouTube's default thumbnail
+                        const video = e.target as HTMLVideoElement;
+                        if (video.poster !== 'https://i.ytimg.com/vi/default/hqdefault.jpg') {
+                            video.poster = 'https://i.ytimg.com/vi/default/hqdefault.jpg';
+                        }
                     }}
                 />
 

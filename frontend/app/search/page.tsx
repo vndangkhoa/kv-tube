@@ -88,8 +88,10 @@ async function SearchResults({ query }: { query: string }) {
                                  style={{ width: '100%', height: '100%', objectFit: 'cover', backgroundColor: '#272727' }}
                                  className="search-result-thumb"
                                  onError={(e) => {
-                                     e.target.onError = null; // Prevent infinite loop
-                                     e.target.src = 'https://i.ytimg.com/vi/default/hqdefault.jpg'; // Fallback to YouTube's default thumbnail
+                                     const img = e.target as HTMLImageElement;
+                                     if (img.src !== 'https://i.ytimg.com/vi/default/hqdefault.jpg') {
+                                         img.src = 'https://i.ytimg.com/vi/default/hqdefault.jpg';
+                                     }
                                  }}
                              />
                             {v.duration && (
@@ -119,8 +121,9 @@ async function SearchResults({ query }: { query: string }) {
                                                  alt="" 
                                                  style={{ width: '100%', height: '100%', objectFit: 'cover' }}
                                                  onError={(e) => {
-                                                     e.target.onError = null; // Prevent infinite loop
-                                                     e.target.src = 'https://i.ytimg.com/img/channels/c_ip_m_default.jpg'; // Fallback to YouTube's default channel avatar
+                                                     const img = e.target as HTMLImageElement;
+                                                     img.onerror = null;
+                                                     img.src = 'https://i.ytimg.com/img/channels/c_ip_m_default.jpg'; // Fallback to YouTube's default channel avatar
                                                  }}
                                              />
                                          ) : firstLetter}

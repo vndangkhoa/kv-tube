@@ -124,8 +124,10 @@ export default async function SubscriptionsPage() {
                                              alt={video.title}
                                              style={{ width: '100%', height: '100%', objectFit: 'cover' }}
                                              onError={(e) => {
-                                                 e.target.onError = null; // Prevent infinite loop
-                                                 e.target.src = 'https://i.ytimg.com/vi/default/hqdefault.jpg'; // Fallback to YouTube's default thumbnail
+                                                 const img = e.target as HTMLImageElement;
+                                                 if (img.src !== 'https://i.ytimg.com/vi/default/hqdefault.jpg') {
+                                                     img.src = 'https://i.ytimg.com/vi/default/hqdefault.jpg';
+                                                 }
                                              }}
                                          />
                                         {video.duration && (

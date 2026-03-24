@@ -122,8 +122,9 @@ export default function Comments({ videoId }: CommentsProps) {
                                  sizes="40px"
                                  style={{ objectFit: 'cover' }}
                                  onError={(e) => {
-                                     e.target.onError = null; // Prevent infinite loop
-                                     e.target.src = 'https://i.ytimg.com/img/channels/c_ip_m_default.jpg'; // Fallback to YouTube's default channel avatar
+                                     const img = e.target as HTMLImageElement;
+                                     img.onerror = null;
+                                     img.src = 'https://i.ytimg.com/img/channels/c_ip_m_default.jpg'; // Fallback to YouTube's default channel avatar
                                  }}
                              />
                         </div>
