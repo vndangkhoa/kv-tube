@@ -107,7 +107,7 @@ func sanitizeVideoData(entry YtDlpEntry) VideoData {
 
 	thumbnail := ""
 	if entry.ID != "" {
-		thumbnail = fmt.Sprintf("https://i.ytimg.com/vi/%s/hqdefault.jpg", entry.ID)
+		thumbnail = fmt.Sprintf("https://i.ytimg.com/vi/%s/maxresdefault.jpg", entry.ID)
 	}
 
 	return VideoData{

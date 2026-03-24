@@ -295,7 +295,7 @@ export default function VideoPlayer({ videoId, title }: VideoPlayerProps) {
             body: JSON.stringify({
                 video_id: videoId,
                 title: title,
-                thumbnail: `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`,
+                thumbnail: `https://i.ytimg.com/vi/${videoId}/maxresdefault.jpg`,
             }),
         }).catch(err => console.error('Failed to record history', err));
 
@@ -355,7 +355,7 @@ export default function VideoPlayer({ videoId, title }: VideoPlayerProps) {
                 title: title || 'KV-Tube Video',
                 artist: 'KV-Tube',
                 artwork: [
-                    { src: `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`, sizes: '480x360', type: 'image/jpeg' }
+                    { src: `https://i.ytimg.com/vi/${videoId}/maxresdefault.jpg`, sizes: '480x360', type: 'image/jpeg' }
                 ]
             });
             navigator.mediaSession.setActionHandler('play', () => {

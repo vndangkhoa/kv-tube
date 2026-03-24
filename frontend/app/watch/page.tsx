@@ -42,7 +42,7 @@ async function getVideoInfo(id: string): Promise<VideoInfo | null> {
             uploader: data.uploader || 'Unknown',
             channel_id: data.channel_id || '',
             view_count: data.view_count || 0,
-            thumbnail: data.thumbnail || `https://i.ytimg.com/vi/${id}/hqdefault.jpg`,
+            thumbnail: data.thumbnail || `https://i.ytimg.com/vi/${id}/maxresdefault.jpg`,
         };
     } catch (e) {
         console.error(e);
@@ -115,7 +115,7 @@ export default async function WatchPage({
             id: v,
             title: `Mix - ${info.uploader || 'Auto-generated'}`,
             uploader: info.uploader || 'KV-Tube',
-            thumbnail: info.thumbnail || `https://i.ytimg.com/vi/${v}/hqdefault.jpg`,
+            thumbnail: info.thumbnail || `https://i.ytimg.com/vi/${v}/maxresdefault.jpg`,
             view_count: 0,
             duration: '50+',
             list_id: `RD${v}`,
@@ -137,7 +137,7 @@ export default async function WatchPage({
                 id: mixBaseId,
                 title: baseInfo.title,
                 uploader: baseInfo.uploader,
-                thumbnail: baseInfo.thumbnail || `https://i.ytimg.com/vi/${mixBaseId}/hqdefault.jpg`,
+                thumbnail: baseInfo.thumbnail || `https://i.ytimg.com/vi/${mixBaseId}/maxresdefault.jpg`,
                 view_count: baseInfo.view_count,
                 duration: ''
             });

@@ -1,5 +1,5 @@
 # ---- Backend Builder ----
-FROM golang:1.24-alpine AS backend-builder
+FROM golang:1.25-alpine AS backend-builder
 ENV GOTOOLCHAIN=local
 WORKDIR /app
 RUN apk add --no-cache git gcc musl-dev

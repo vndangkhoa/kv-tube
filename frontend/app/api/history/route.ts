@@ -17,7 +17,7 @@ export async function POST(request: NextRequest) {
             body: JSON.stringify({
                 video_id,
                 title: title || `Video ${video_id}`,
-                thumbnail: thumbnail || `https://i.ytimg.com/vi/${video_id}/hqdefault.jpg`,
+                thumbnail: thumbnail || `https://i.ytimg.com/vi/${video_id}/maxresdefault.jpg`,
             }),
             cache: 'no-store',
         });
