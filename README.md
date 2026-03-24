@@ -21,25 +21,29 @@ A modern, fast, and fully-featured YouTube-like video streaming platform. Built 
 - **Process Management**: `supervisord` manages the concurrent execution of the backend API and Next.js frontend within the same network namespace.
 - **Data storage**: SQLite is used for watch history, optimized for `linux/amd64`.
 
-## Deployment on Synology NAS
+## Deployment on Synology NAS (v4.0.7)
 
-We recommend using Docker Compose for simple and robust deployment.
+We recommend using **Container Manager** (DSM 7.2+) or **Docker** (DSM 6/7.1) for a robust and easily manageable deployment.
 
 ### 1. Prerequisites
-- Docker and Container Manager installed on your Synology NAS.
-- Make sure ports `5011` are free, or adjust `docker-compose.yml` to fit your needs.
+- **Container Manager** or **Docker** package installed from Package Center.
+- Ensure port `5011` is available on your NAS.
+- Create a folder named `kv-tube` in your `docker` shared folder (e.g., `/volume1/docker/kv-tube`).
 
-### 2. Setup
-
-Create a `docker-compose.yml` file matching the one provided in the repository:
+### 2. Using Container Manager (Recommended)
+1. Open **Container Manager** > **Project** > **Create**.
+2. Set a Project Name (e.g., `kv-tube`).
+3. Set Path to `/volume1/docker/kv-tube`.
+4. Source: Select **Create docker-compose.yml** and paste the following:
 
 ```yaml
 version: '3.8'
 
 services:
   kv-tube-app:
-    image: git.khoavo.myds.me/vndangkhoa/kv-tube-app:v4.0.6
+    image: git.khoavo.myds.me/vndangkhoa/kv-tube-app:v4.0.7
     container_name: kv-tube-app
+    platform: linux/amd64
     restart: unless-stopped
     ports:
       - "5011:3000"
@@ -51,14 +55,12 @@ services:
       - NODE_ENV=production
 ```
 
-### 3. Run
-In the directory containing your `docker-compose.yml`, run:
+5. Click **Next** until the end and **Done**. The container will build and start automatically.
 
-```bash
-docker-compose up -d
-```
-
-The application will be accessible at `http://<your-nas-ip>:5011`.
+### 3. Accessing the App
+The application will be accessible at:
+- `http://<your-nas-ip>:5011`
+- **Mobile Users**: Add to Home Screen via Safari for the full PWA experience with background playback.
 
 ## Development
 
