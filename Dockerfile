@@ -3,7 +3,7 @@ FROM golang:1.24-alpine AS backend-builder
 WORKDIR /app
 RUN apk add --no-cache git gcc musl-dev
 COPY backend/go.mod backend/go.sum ./
-RUN sed -i 's/go 1.25.0/go 1.24.0/' go.mod
+RUN sed -i 's/^go .*/go 1.24.0/' go.mod && cat go.mod
 RUN go mod download
 COPY backend/ ./
 RUN CGO_ENABLED=1 GOOS=linux GOARCH=amd64 go build -o kv-tube .
