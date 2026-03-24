@@ -119,11 +119,15 @@ export default async function SubscriptionsPage() {
                                     className="card-hover-lift"
                                 >
                                     <div style={{ position: 'relative', aspectRatio: '16/9', borderRadius: '12px', overflow: 'hidden' }}>
-                                        <img
-                                            src={video.thumbnail}
-                                            alt={video.title}
-                                            style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-                                        />
+                                     <img
+                                             src={video.thumbnail}
+                                             alt={video.title}
+                                             style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                                             onError={(e) => {
+                                                 e.target.onError = null; // Prevent infinite loop
+                                                 e.target.src = 'https://i.ytimg.com/vi/default/hqdefault.jpg'; // Fallback to YouTube's default thumbnail
+                                             }}
+                                         />
                                         {video.duration && (
                                             <div className="duration-badge">{video.duration}</div>
                                         )}

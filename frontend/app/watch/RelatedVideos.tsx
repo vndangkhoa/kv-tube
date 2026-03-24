@@ -49,7 +49,15 @@ export default async function RelatedVideos({ videoId, title, uploader }: { vide
                 return (
                     <Link key={video.id} href={`/watch?v=${video.id}`} className={`related-video-item fade-in-up ${staggerClass}`} style={{ opacity: 0 }}>
                         <div className="related-thumb-container">
-                            <img src={video.thumbnail} alt={video.title} className="related-thumb-img" />
+                             <img 
+                                 src={video.thumbnail} 
+                                 alt={video.title} 
+                                 className="related-thumb-img"
+                                 onError={(e) => {
+                                     e.target.onError = null; // Prevent infinite loop
+                                     e.target.src = 'https://i.ytimg.com/vi/default/hqdefault.jpg'; // Fallback to YouTube's default thumbnail
+                                 }}
+                             />
                             {video.duration && (
                                 <div className="duration-badge">
                                     {video.duration}

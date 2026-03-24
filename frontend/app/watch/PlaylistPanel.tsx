@@ -93,13 +93,17 @@ export default function PlaylistPanel({ videos, currentVideoId, listId, title }:
                                 borderRadius: '8px',
                                 overflow: 'hidden'
                             }}>
-                                <Image
-                                    src={video.thumbnail}
-                                    alt={video.title}
-                                    fill
-                                    sizes="100px"
-                                    style={{ objectFit: 'cover' }}
-                                />
+                                 <Image
+                                     src={video.thumbnail}
+                                     alt={video.title}
+                                     fill
+                                     sizes="100px"
+                                     style={{ objectFit: 'cover' }}
+                                     onError={(e) => {
+                                         e.target.onError = null; // Prevent infinite loop
+                                         e.target.src = 'https://i.ytimg.com/vi/default/hqdefault.jpg'; // Fallback to YouTube's default thumbnail
+                                     }}
+                                 />
                                 {video.duration && (
                                     <div style={{
                                         position: 'absolute',

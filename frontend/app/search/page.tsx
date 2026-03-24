@@ -82,12 +82,16 @@ async function SearchResults({ query }: { query: string }) {
                         {/* Thumbnail */}
                         <div style={{ position: 'relative', width: '360px', minWidth: '360px', aspectRatio: '16/9', flexShrink: 0, overflow: 'hidden', borderRadius: '8px' }} className="search-result-thumb-container">
                             {/* eslint-disable-next-line @next/next/no-img-element */}
-                            <img
-                                src={v.thumbnail}
-                                alt={v.title}
-                                style={{ width: '100%', height: '100%', objectFit: 'cover', backgroundColor: '#272727' }}
-                                className="search-result-thumb"
-                            />
+                             <img
+                                 src={v.thumbnail}
+                                 alt={v.title}
+                                 style={{ width: '100%', height: '100%', objectFit: 'cover', backgroundColor: '#272727' }}
+                                 className="search-result-thumb"
+                                 onError={(e) => {
+                                     e.target.onError = null; // Prevent infinite loop
+                                     e.target.src = 'https://i.ytimg.com/vi/default/hqdefault.jpg'; // Fallback to YouTube's default thumbnail
+                                 }}
+                             />
                             {v.duration && (
                                 <span className="duration-badge" style={{ position: 'absolute', bottom: '8px', right: '8px' }}>
                                     {v.duration}
@@ -108,10 +112,18 @@ async function SearchResults({ query }: { query: string }) {
                             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '12px' }}>
                                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                                     <div style={{ width: '24px', height: '24px', borderRadius: '50%', background: 'var(--yt-avatar-bg)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '11px', color: '#fff', overflow: 'hidden', fontWeight: 600 }}>
-                                        {v.avatar_url ? (
-                                            // eslint-disable-next-line @next/next/no-img-element
-                                            <img src={v.avatar_url} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                                        ) : firstLetter}
+                                         {v.avatar_url ? (
+                                             // eslint-disable-next-line @next/next/no-img-element
+                                             <img 
+                                                 src={v.avatar_url} 
+                                                 alt="" 
+                                                 style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                                                 onError={(e) => {
+                                                     e.target.onError = null; // Prevent infinite loop
+                                                     e.target.src = 'https://i.ytimg.com/img/channels/c_ip_m_default.jpg'; // Fallback to YouTube's default channel avatar
+                                                 }}
+                                             />
+                                         ) : firstLetter}
                                     </div>
                                     <span style={{ fontSize: '12px', color: 'var(--yt-text-secondary)' }}>{v.uploader}</span>
                                 </div>

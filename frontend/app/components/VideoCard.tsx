@@ -51,6 +51,10 @@ function VideoCard({ video, hideChannelAvatar }: { video: VideoData; hideChannel
                     style={{ objectFit: 'cover', backgroundColor: 'var(--yt-hover)' }}
                     className="videocard-thumb"
                     priority={false}
+                    onError={(e) => {
+                        e.target.onError = null; // Prevent infinite loop
+                        e.target.src = 'https://i.ytimg.com/vi/default/hqdefault.jpg'; // Fallback to YouTube's default thumbnail
+                    }}
                 />
                 {video.duration && !video.is_mix && (
                     <div className="duration-badge" style={{ position: 'absolute', bottom: '8px', right: '8px' }}>

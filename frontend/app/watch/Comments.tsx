@@ -115,13 +115,17 @@ export default function Comments({ videoId }: CommentsProps) {
                 {comments.map((c) => (
                     <div key={c.id} style={{ display: 'flex', gap: '16px', marginBottom: '20px' }}>
                         <div style={{ position: 'relative', width: '40px', height: '40px', borderRadius: '50%', overflow: 'hidden', flexShrink: 0, backgroundColor: 'var(--yt-hover)' }}>
-                            <Image
-                                src={c.author_thumbnail || 'https://i.ytimg.com/img/channels/c_ip_m_default.jpg'}
-                                alt={c.author}
-                                fill
-                                sizes="40px"
-                                style={{ objectFit: 'cover' }}
-                            />
+                             <Image
+                                 src={c.author_thumbnail || 'https://i.ytimg.com/img/channels/c_ip_m_default.jpg'}
+                                 alt={c.author}
+                                 fill
+                                 sizes="40px"
+                                 style={{ objectFit: 'cover' }}
+                                 onError={(e) => {
+                                     e.target.onError = null; // Prevent infinite loop
+                                     e.target.src = 'https://i.ytimg.com/img/channels/c_ip_m_default.jpg'; // Fallback to YouTube's default channel avatar
+                                 }}
+                             />
                         </div>
                         <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0, gap: '4px' }}>
                             <div style={{ display: 'flex', alignItems: 'baseline', gap: '8px' }}>

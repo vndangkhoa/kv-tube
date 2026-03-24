@@ -557,18 +557,22 @@ export default function VideoPlayer({ videoId, title }: VideoPlayerProps) {
                 </div>
             )}
 
-            <video
-                ref={videoRef}
-                style={{ ...videoStyle, visibility: isLoading ? 'hidden' : 'visible' }}
-                controls
-                playsInline
-                webkit-playsinline="true"
-                x5-playsinline="true"
-                x5-video-player-type="h5"
-                x5-video-player-fullscreen="true"
-                preload="auto"
-                poster={`https://i.ytimg.com/vi/${videoId}/maxresdefault.jpg`}
-            />
+                <video
+                    ref={videoRef}
+                    style={{ ...videoStyle, visibility: isLoading ? 'hidden' : 'visible' }}
+                    controls
+                    playsInline
+                    webkit-playsinline="true"
+                    x5-playsinline="true"
+                    x5-video-player-type="h5"
+                    x5-video-player-fullscreen="true"
+                    preload="auto"
+                    poster={`https://i.ytimg.com/vi/${videoId}/maxresdefault.jpg`}
+                    onError={(e) => {
+                        e.target.onError = null; // Prevent infinite loop
+                        e.target.poster = 'https://i.ytimg.com/vi/default/hqdefault.jpg'; // Fallback to YouTube's default thumbnail
+                    }}
+                />
 
             <audio ref={audioRef} style={{ display: 'none' }} />
 

@@ -4,9 +4,9 @@
 version: '3.8'
 
 services:
-  kv-tube-app:
+  kv-tube:
     image: git.khoavo.myds.me/vndangkhoa/kv-tube:v4.0.8
-    container_name: kv-tube-app
+    container_name: kv-tube
     platform: linux/amd64
     restart: unless-stopped
     ports:
