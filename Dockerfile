@@ -43,10 +43,16 @@ WORKDIR /app
 # Copy Backend Binary
 COPY --from=backend-builder /app/kv-tube /app/kv-tube
 
-# Copy Frontend Standalone App
-COPY --from=frontend-builder /app/public /app/frontend/public
+# Copy Frontend Standalone App - include server.js for standalone mode
 COPY --from=frontend-builder /app/.next/standalone /app/frontend/
 COPY --from=frontend-builder /app/.next/static /app/frontend/.next/static
+COPY --from=frontend-builder /app/public /app/frontend/public
+COPY --from=frontend-builder /app/package.json /app/frontend/package.json
+COPY --from=frontend-builder /app/next.config.mjs /app/frontend/next.config.mjs
+COPY --from=frontend-builder /app/next-env.d.ts /app/frontend/next-env.d.ts
+
+# Create required directories for Next.js
+RUN mkdir -p /app/frontend/.next/cache
 
 # Copy Supervisord Config
 COPY supervisord.conf /etc/supervisord.conf
