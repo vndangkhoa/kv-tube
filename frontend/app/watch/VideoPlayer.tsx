@@ -396,9 +396,11 @@ export default function VideoPlayer({ videoId, title }: VideoPlayerProps) {
 
             // Enhance buffer to mitigate Safari slow loading and choppiness
             const hls = new window.Hls({
-                maxBufferLength: 60,
-                maxMaxBufferLength: 120,
+                maxBufferLength: 120,
+                maxMaxBufferLength: 240,
                 enableWorker: true,
+                liveSyncDurationCount: 3,
+                liveMaxLatencyDurationCount: 5,
                 xhrSetup: (xhr: XMLHttpRequest) => {
                     xhr.setRequestHeader('Referer', 'https://www.youtube.com/');
                 },
@@ -444,9 +446,11 @@ export default function VideoPlayer({ videoId, title }: VideoPlayerProps) {
                     if (audioHlsRef.current) audioHlsRef.current.destroy();
 
                     const audioHls = new window.Hls({
-                        maxBufferLength: 60,
-                        maxMaxBufferLength: 120,
+                        maxBufferLength: 120,
+                        maxMaxBufferLength: 240,
                         enableWorker: true,
+                        liveSyncDurationCount: 3,
+                        liveMaxLatencyDurationCount: 5,
                         xhrSetup: (xhr: XMLHttpRequest) => {
                             xhr.setRequestHeader('Referer', 'https://www.youtube.com/');
                         },
@@ -485,11 +489,23 @@ export default function VideoPlayer({ videoId, title }: VideoPlayerProps) {
         
         video.addEventListener('pause', handlePauseForBackground);
         
+        // Keep playing when page visibility changes
+        const handleVisibilityChange = () => {
+            if (document.visibilityState === 'visible' && !video.paused) {
+                video.play().catch(() => {});
+                if (audioRef.current && audioRef.current.paused) {
+                    audioRef.current.play().catch(() => {});
+                }
+            }
+        };
+        document.addEventListener('visibilitychange', handleVisibilityChange);
+        
         return () => {
             video.removeEventListener('pause', handlePauseForBackground);
             video.removeEventListener('play', handlePlay);
             video.removeEventListener('pause', handlePause);
             video.removeEventListener('ended', handleEnded);
+            document.removeEventListener('visibilitychange', handleVisibilityChange);
             releaseWakeLock();
         };
     };

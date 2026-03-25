@@ -132,12 +132,13 @@ export default async function WatchPage({
         const baseInfo = isMix ? await getVideoInfo(mixBaseId) : info;
         
         // Seed the playlist with the base video
+        const DEFAULT_THUMBNAIL = 'https://i.ytimg.com/vi/default/hqdefault.jpg';
         if (baseInfo) {
             playlistVideos.push({
                 id: mixBaseId,
                 title: baseInfo.title,
                 uploader: baseInfo.uploader,
-                thumbnail: baseInfo.thumbnail || `https://i.ytimg.com/vi/${mixBaseId}/maxresdefault.jpg`,
+                thumbnail: baseInfo.thumbnail || `https://i.ytimg.com/vi/${mixBaseId}/hqdefault.jpg` || DEFAULT_THUMBNAIL,
                 view_count: baseInfo.view_count,
                 duration: ''
             });
@@ -149,9 +150,9 @@ export default async function WatchPage({
         const titleKeywords = videoTitle.split(/[\s\-|]+/).filter((w: string) => w.length > 2).slice(0, 4).join(' ');
 
         const mixPromises = [
-            uploaderName ? getSearchVideos(uploaderName, 10) : Promise.resolve([]),
-            titleKeywords ? getSearchVideos(titleKeywords, 10) : Promise.resolve([]),
-            getRelatedVideos(mixBaseId, 10),
+            uploaderName ? getSearchVideos(uploaderName, 20) : Promise.resolve([]),
+            titleKeywords ? getSearchVideos(titleKeywords, 20) : Promise.resolve([]),
+            getRelatedVideos(mixBaseId, 20),
         ];
 
         const [byUploader, byTitle, byRelated] = await Promise.all(mixPromises);
@@ -159,7 +160,7 @@ export default async function WatchPage({
 
         const sources = [byUploader, byTitle, byRelated];
         let added = 0;
-        const maxPlaylist = 25;
+        const maxPlaylist = 50;
 
         let idx = [0, 0, 0];
         while (added < maxPlaylist) {
@@ -169,7 +170,10 @@ export default async function WatchPage({
                     const vid = sources[s][idx[s]++];
                     if (!seenMixIds.has(vid.id)) {
                         seenMixIds.add(vid.id);
-                        playlistVideos.push(vid);
+                        playlistVideos.push({
+                            ...vid,
+                            thumbnail: vid.thumbnail || `https://i.ytimg.com/vi/${vid.id}/hqdefault.jpg` || DEFAULT_THUMBNAIL
+                        });
                         added++;
                         anyAdded = true;
                         break;

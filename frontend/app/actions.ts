@@ -191,7 +191,20 @@ export interface CommentData {
 }
 
 export async function getVideoComments(videoId: string, limit: number = 30): Promise<CommentData[]> {
-    const res = await fetch(`${API_BASE}/api/comments?v=${videoId}&limit=${limit}`, { cache: 'no-store' });
-    if (!res.ok) return [];
-    return res.json();
+    try {
+        const res = await fetch(`${API_BASE}/api/comments?v=${videoId}&limit=${limit}`, { cache: 'no-store' });
+        if (!res.ok) {
+            console.error('Comments API error:', res.status, res.statusText);
+            return [];
+        }
+        const data = await res.json();
+        if (!Array.isArray(data)) {
+            console.error('Comments API returned non-array:', data);
+            return [];
+        }
+        return data;
+    } catch (err) {
+        console.error('Failed to fetch comments:', err);
+        return [];
+    }
 }

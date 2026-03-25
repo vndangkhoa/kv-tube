@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import Image from 'next/image';
-import { useState } from 'react';
+import { useState, useCallback } from 'react';
 
 interface VideoData {
     id: string;
@@ -31,10 +31,20 @@ function getRelativeTime(id: string): string {
 
 import { memo } from 'react';
 
+const DEFAULT_THUMBNAIL = 'https://i.ytimg.com/vi/default/hqdefault.jpg';
+
 function VideoCard({ video, hideChannelAvatar }: { video: VideoData; hideChannelAvatar?: boolean }) {
     const relativeTime = video.uploaded_date || getRelativeTime(video.id);
     const [isNavigating, setIsNavigating] = useState(false);
     const destination = video.list_id ? `/watch?v=${video.id}&list=${video.list_id}` : `/watch?v=${video.id}`;
+    const thumbnailSrc = video.thumbnail || DEFAULT_THUMBNAIL;
+
+    const handleImageError = useCallback((e: React.SyntheticEvent<HTMLImageElement>) => {
+        const img = e.target as HTMLImageElement;
+        if (img.src !== DEFAULT_THUMBNAIL) {
+            img.src = DEFAULT_THUMBNAIL;
+        }
+    }, []);
 
     return (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', width: '100%', marginBottom: '12px' }} className="videocard-container">
@@ -44,19 +54,14 @@ function VideoCard({ video, hideChannelAvatar }: { video: VideoData; hideChannel
                 style={{ position: 'relative', display: 'block', width: '100%', aspectRatio: '16/9', overflow: 'hidden', borderRadius: '12px' }}
             >
                 <Image
-                    src={video.thumbnail}
+                    src={thumbnailSrc}
                     alt={video.title}
                     fill
                     sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
                     style={{ objectFit: 'cover', backgroundColor: 'var(--yt-hover)' }}
                     className="videocard-thumb"
                     priority={false}
-                    onError={(e) => {
-                        const img = e.target as HTMLImageElement;
-                        if (img.src !== 'https://i.ytimg.com/vi/default/hqdefault.jpg') {
-                            img.src = 'https://i.ytimg.com/vi/default/hqdefault.jpg';
-                        }
-                    }}
+                    onError={handleImageError}
                 />
                 {video.duration && !video.is_mix && (
                     <div className="duration-badge" style={{ position: 'absolute', bottom: '8px', right: '8px' }}>

@@ -5,6 +5,8 @@ import Image from 'next/image';
 import { VideoData } from '../constants';
 import { useEffect, useRef } from 'react';
 
+const DEFAULT_THUMBNAIL = 'https://i.ytimg.com/vi/default/hqdefault.jpg';
+
 interface PlaylistPanelProps {
     videos: VideoData[];
     currentVideoId: string;
@@ -12,11 +14,17 @@ interface PlaylistPanelProps {
     title: string;
 }
 
+function handleImageError(e: React.SyntheticEvent<HTMLImageElement>) {
+    const img = e.target as HTMLImageElement;
+    if (img.src !== DEFAULT_THUMBNAIL) {
+        img.src = DEFAULT_THUMBNAIL;
+    }
+}
+
 export default function PlaylistPanel({ videos, currentVideoId, listId, title }: PlaylistPanelProps) {
     const currentIndex = videos.findIndex(v => v.id === currentVideoId);
     const activeItemRef = useRef<HTMLAnchorElement>(null);
 
-    // Auto-scroll to active item on mount
     useEffect(() => {
         if (activeItemRef.current) {
             activeItemRef.current.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
@@ -35,7 +43,6 @@ export default function PlaylistPanel({ videos, currentVideoId, listId, title }:
             marginBottom: '24px',
             border: '1px solid var(--yt-border)'
         }}>
-            {/* Header */}
             <div style={{
                 padding: '16px', 
                 borderBottom: '1px solid var(--yt-border)',
@@ -49,7 +56,6 @@ export default function PlaylistPanel({ videos, currentVideoId, listId, title }:
                 </div>
             </div>
 
-            {/* List */}
             <div style={{
                 overflowY: 'auto', 
                 flex: 1, 
@@ -57,6 +63,8 @@ export default function PlaylistPanel({ videos, currentVideoId, listId, title }:
             }}>
                 {videos.map((video, index) => {
                     const isActive = video.id === currentVideoId;
+                    const thumbnailSrc = video.thumbnail || DEFAULT_THUMBNAIL;
+                    
                     return (
                         <Link 
                             key={video.id} 
@@ -73,7 +81,6 @@ export default function PlaylistPanel({ videos, currentVideoId, listId, title }:
                             }}
                             className="playlist-item-hover"
                         >
-                            {/* Number or Playing Icon */}
                             <div style={{
                                 width: '24px',
                                 fontSize: '12px',
@@ -84,7 +91,6 @@ export default function PlaylistPanel({ videos, currentVideoId, listId, title }:
                                 {isActive ? '▶' : index + 1}
                             </div>
 
-                            {/* Thumbnail */}
                             <div style={{
                                 position: 'relative',
                                 width: '100px',
@@ -93,19 +99,14 @@ export default function PlaylistPanel({ videos, currentVideoId, listId, title }:
                                 borderRadius: '8px',
                                 overflow: 'hidden'
                             }}>
-                                 <Image
-                                     src={video.thumbnail}
-                                     alt={video.title}
-                                     fill
-                                     sizes="100px"
-                                     style={{ objectFit: 'cover' }}
-                                     onError={(e) => {
-                                         const img = e.target as HTMLImageElement;
-                                         if (img.src !== 'https://i.ytimg.com/vi/default/hqdefault.jpg') {
-                                             img.src = 'https://i.ytimg.com/vi/default/hqdefault.jpg';
-                                         }
-                                     }}
-                                 />
+                                <Image
+                                    src={thumbnailSrc}
+                                    alt={video.title}
+                                    fill
+                                    sizes="100px"
+                                    style={{ objectFit: 'cover' }}
+                                    onError={handleImageError}
+                                />
                                 {video.duration && (
                                     <div style={{
                                         position: 'absolute',
@@ -123,7 +124,6 @@ export default function PlaylistPanel({ videos, currentVideoId, listId, title }:
                                 )}
                             </div>
 
-                            {/* Info */}
                             <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0, justifyContent: 'center' }}>
                                 <h4 style={{
                                     margin: 0,

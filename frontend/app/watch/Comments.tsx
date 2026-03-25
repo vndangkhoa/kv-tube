@@ -23,8 +23,12 @@ export default function Comments({ videoId }: CommentsProps) {
         getVideoComments(videoId, 40)
             .then(data => {
                 if (isMounted) {
-                    const topLevel = data.filter(c => !c.is_reply);
-                    setComments(topLevel);
+                    if (data.length === 0) {
+                        setError(true);
+                    } else {
+                        const topLevel = data.filter(c => !c.is_reply);
+                        setComments(topLevel);
+                    }
                     setIsLoading(false);
                 }
             })
