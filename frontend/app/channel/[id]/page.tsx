@@ -27,9 +27,11 @@ function formatSubscribers(count: number): string {
 
 // We no longer need getAvatarColor as we now use the global --yt-avatar-bg
 
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8080/api';
+
 async function getChannelInfo(id: string) {
     try {
-        const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8080'}/api/channel/info?id=${id}`, { cache: 'no-store' });
+        const res = await fetch(`${API_BASE}/channel/info?id=${id}`, { cache: 'no-store' });
         if (!res.ok) return null;
         return res.json() as Promise<ChannelInfo>;
     } catch (e) {
@@ -40,7 +42,7 @@ async function getChannelInfo(id: string) {
 
 async function getChannelVideos(id: string) {
     try {
-        const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8080'}/api/channel/videos?id=${id}&limit=30`, { cache: 'no-store' });
+        const res = await fetch(`${API_BASE}/channel/videos?id=${id}&limit=30`, { cache: 'no-store' });
         if (!res.ok) return [];
         return res.json() as Promise<VideoData[]>;
     } catch (e) {

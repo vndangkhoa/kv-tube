@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { IoHeart, IoHeartOutline, IoChatbubbleOutline, IoShareOutline, IoEllipsisHorizontal, IoMusicalNote, IoRefresh, IoPlay, IoVolumeMute, IoVolumeHigh } from 'react-icons/io5';
+import LoadingSpinner from '../components/LoadingSpinner';
 
 declare global {
     interface Window {
@@ -225,7 +226,7 @@ function ShortCard({ video, isActive }: { video: ShortVideo; isActive: boolean }
                         />
                         {loading && (
                             <div style={loadingOverlayStyle}>
-                                <div style={spinnerStyle}></div>
+                                <LoadingSpinner color="white" />
                             </div>
                         )}
                         {error && !useFallback && (
@@ -413,15 +414,6 @@ const openBtnStyle: React.CSSProperties = {
     zIndex: 10,
 };
 
-const spinnerStyle: React.CSSProperties = {
-    width: '40px',
-    height: '40px',
-    border: '3px solid #333',
-    borderTopColor: '#ff0050',
-    borderRadius: '50%',
-    animation: 'spin 1s linear infinite',
-};
-
 export default function ShortsPage() {
     const [shorts, setShorts] = useState<ShortVideo[]>([]);
     const [activeIndex, setActiveIndex] = useState(0);
@@ -473,7 +465,7 @@ export default function ShortsPage() {
     if (loading) return (
         <div style={pageStyle}>
             <div style={{ ...spinnerContainerStyle, width: '300px', height: '500px' }}>
-                <div style={spinnerStyle}></div>
+                <LoadingSpinner color="white" />
             </div>
         </div>
     );
@@ -492,11 +484,10 @@ export default function ShortsPage() {
     return (
         <div ref={containerRef} style={scrollContainerStyle}>
             <style>{hideScrollbarCss}</style>
-            <style>{spinCss}</style>
             {shorts.map((v, i) => <ShortCard key={v.id} video={v} isActive={i === activeIndex} />)}
             {loadingMore && (
                 <div style={{ ...pageStyle, height: '100vh' }}>
-                    <div style={spinnerStyle}></div>
+                    <LoadingSpinner color="white" />
                 </div>
             )}
         </div>
@@ -506,5 +497,4 @@ export default function ShortsPage() {
 const pageStyle: React.CSSProperties = { height: 'calc(100vh - 56px)', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#0f0f0f' };
 const scrollContainerStyle: React.CSSProperties = { height: 'calc(100vh - 56px)', overflowY: 'scroll', scrollSnapType: 'y mandatory', background: '#0f0f0f', scrollbarWidth: 'none' };
 const spinnerContainerStyle: React.CSSProperties = { borderRadius: '12px', background: 'linear-gradient(180deg, #1a1a1a 0%, #0f0f0f 100%)', display: 'flex', alignItems: 'center', justifyContent: 'center' };
-const spinCss = '@keyframes spin { to { transform: rotate(360deg); } }';
 const hideScrollbarCss = 'div::-webkit-scrollbar { display: none; }';

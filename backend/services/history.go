@@ -2,7 +2,6 @@ package services
 
 import (
 	"log"
-	"strings"
 
 	"kvtube-go/models"
 )
@@ -67,30 +66,10 @@ func GetHistory(limit int) ([]HistoryVideo, error) {
 }
 
 // GetSuggestions retrieves suggestions based on the user's recent history
+// NOTE: This function now returns empty results since we're using client-side YouTube API
+// The frontend should use the YouTube API directly for suggestions
 func GetSuggestions(limit int) ([]VideoData, error) {
-	// 1. Get the 3 most recently watched videos to extract keywords
-	history, err := GetHistory(3)
-	if err != nil || len(history) == 0 {
-		// Fallback to trending if no history
-		return SearchVideos("trending videos", limit)
-	}
-
-	// 2. Build a combined query string from titles
-	var words []string
-	for _, h := range history {
-		// take first few words from title
-		parts := strings.Fields(h.Title)
-		for i := 0; i < len(parts) && i < 3; i++ {
-			// clean up some common punctuation if needed, or just let yt-dlp handle it
-			words = append(words, parts[i])
-		}
-	}
-
-	query := strings.Join(words, " ")
-	if query == "" {
-		query = "popular videos"
-	}
-
-	// 3. Search using yt-dlp
-	return SearchVideos(query, limit)
+	// Return empty results - suggestions are now handled client-side
+	// Frontend should use YouTube API for suggestions
+	return []VideoData{}, nil
 }

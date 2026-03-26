@@ -3,19 +3,8 @@
 import Link from 'next/link';
 import Image from 'next/image';
 import { useState, useCallback } from 'react';
-
-interface VideoData {
-    id: string;
-    title: string;
-    uploader: string;
-    channel_id?: string;
-    thumbnail: string;
-    view_count: number;
-    duration: string;
-    uploaded_date?: string;
-    list_id?: string;
-    is_mix?: boolean;
-}
+import { VideoData } from '@/app/constants';
+import LoadingSpinner from './LoadingSpinner';
 
 function formatViews(views: number): string {
     if (views >= 1000000) return (views / 1000000).toFixed(1) + 'M';
@@ -23,10 +12,10 @@ function formatViews(views: number): string {
     return views.toString();
 }
 
-function getRelativeTime(id: string): string {
+function getStableRelativeTime(id: string): string {
     const times = ['2 hours ago', '5 hours ago', '1 day ago', '3 days ago', '1 week ago', '2 weeks ago', '1 month ago'];
-    const index = (id.charCodeAt(0) || 0) % times.length;
-    return times[index];
+    const hash = id.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
+    return times[hash % times.length];
 }
 
 import { memo } from 'react';
@@ -34,7 +23,7 @@ import { memo } from 'react';
 const DEFAULT_THUMBNAIL = 'https://i.ytimg.com/vi/default/hqdefault.jpg';
 
 function VideoCard({ video, hideChannelAvatar }: { video: VideoData; hideChannelAvatar?: boolean }) {
-    const relativeTime = video.uploaded_date || getRelativeTime(video.id);
+    const relativeTime = video.upload_date || video.publishedAt || getStableRelativeTime(video.id);
     const [isNavigating, setIsNavigating] = useState(false);
     const destination = video.list_id ? `/watch?v=${video.id}&list=${video.list_id}` : `/watch?v=${video.id}`;
     const thumbnailSrc = video.thumbnail || DEFAULT_THUMBNAIL;
@@ -89,13 +78,7 @@ function VideoCard({ video, hideChannelAvatar }: { video: VideoData; hideChannel
                         display: 'flex', alignItems: 'center', justifyContent: 'center',
                         zIndex: 10
                     }}>
-                        <div style={{
-                            width: '40px', height: '40px',
-                            border: '3px solid rgba(255,255,255,0.3)',
-                            borderTopColor: '#fff',
-                            borderRadius: '50%',
-                            animation: 'spin 1s linear infinite'
-                        }} />
+                        <LoadingSpinner color="white" />
                     </div>
                 )}
             </Link>
@@ -111,15 +94,15 @@ function VideoCard({ video, hideChannelAvatar }: { video: VideoData; hideChannel
                     <div style={{ marginTop: '4px' }}>
                         {video.channel_id ? (
                             <Link href={`/channel/${video.channel_id}`} style={{ fontSize: '14px', color: 'var(--yt-text-secondary)', display: 'block', textDecoration: 'none', transition: 'color 0.2s' }} className="channel-link-hover">
-                                {video.uploader}
+                                {video.uploader || video.channelTitle || 'Unknown'}
                             </Link>
                         ) : (
                             <div style={{ fontSize: '14px', color: 'var(--yt-text-secondary)', display: 'block' }}>
-                                {video.uploader}
+                                {video.uploader || video.channelTitle || 'Unknown'}
                             </div>
                         )}
                         <div style={{ fontSize: '14px', color: 'var(--yt-text-secondary)', marginTop: '2px' }}>
-                            {formatViews(video.view_count)} views • {relativeTime}
+                            {formatViews(video.view_count ?? 0)} views • {relativeTime}
                         </div>
                     </div>
                 </div>

@@ -11,7 +11,7 @@ export default function MobileNav() {
     const navItems = [
         { icon: <MdHomeFilled size={24} />, label: 'Home', path: '/' },
         // { icon: <SiYoutubeshorts size={24} />, label: 'Shorts', path: '/shorts' },
-        { icon: <MdOutlineSubscriptions size={24} />, label: 'Subscriptions', path: '/feed/subscriptions' },
+        { icon: <MdOutlineSubscriptions size={24} />, label: 'Sub', path: '/feed/subscriptions' },
         { icon: <MdOutlineVideoLibrary size={24} />, label: 'You', path: '/feed/library' },
     ];
 

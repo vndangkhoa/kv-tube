@@ -12,7 +12,7 @@ export default function HamburgerMenu() {
 
     const navItems = [
         { icon: <MdHomeFilled size={24} />, label: 'Home', path: '/' },
-        { icon: <MdOutlineSubscriptions size={24} />, label: 'Subscriptions', path: '/feed/subscriptions' },
+        { icon: <MdOutlineSubscriptions size={24} />, label: 'Sub', path: '/feed/subscriptions' },
         { icon: <MdOutlineVideoLibrary size={24} />, label: 'You', path: '/feed/library' },
     ];
 

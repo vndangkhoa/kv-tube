@@ -107,7 +107,8 @@ func sanitizeVideoData(entry YtDlpEntry) VideoData {
 
 	thumbnail := ""
 	if entry.ID != "" {
-		thumbnail = fmt.Sprintf("https://i.ytimg.com/vi/%s/maxresdefault.jpg", entry.ID)
+		// Use hqdefault.jpg which is more reliably available than maxresdefault.jpg
+		thumbnail = fmt.Sprintf("https://i.ytimg.com/vi/%s/hqdefault.jpg", entry.ID)
 	}
 
 	return VideoData{
@@ -251,21 +252,36 @@ func GetVideoInfo(videoID string) (*VideoData, error) {
 		url,
 	}
 
-	cacheKey := "video_info:" + videoID
-	out, err := RunYtDlpCached(cacheKey, 3600, args...) // Cache for 1 hour
+	// Skip cache for now to avoid corrupted data issues
+	out, err := RunYtDlp(args...)
 	if err != nil {
+		log.Printf("yt-dlp failed for %s: %v", videoID, err)
 		return nil, err
+	}
+
+	// Log first 500 chars for debugging
+	if len(out) > 0 {
+		log.Printf("yt-dlp response for %s (first 200 chars): %s", videoID, string(out[:min(200, len(out))]))
 	}
 
 	var entry YtDlpEntry
 	if err := json.Unmarshal(out, &entry); err != nil {
-		return nil, err
+		log.Printf("JSON unmarshal error for %s: %v", videoID, err)
+		log.Printf("Raw response: %s", string(out[:min(500, len(out))]))
+		return nil, fmt.Errorf("failed to parse video info: %w", err)
 	}
 
 	data := sanitizeVideoData(entry)
 	data.StreamURL = entry.URL
 
 	return &data, nil
+}
+
+func min(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }
 
 type QualityFormat struct {

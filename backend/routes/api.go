@@ -1,17 +1,11 @@
 package routes
 
 import (
-	"bufio"
-	"fmt"
-	"io"
 	"log"
 	"net/http"
-	"net/url"
 	"os"
-	"regexp"
 	"strconv"
 	"strings"
-	"time"
 
 	"kvtube-go/services"
 
@@ -47,57 +41,6 @@ func isAllowedOrigin(origin string, allowedOrigins []string) bool {
 	return false
 }
 
-// isAllowedDomain checks if the URL belongs to allowed domains (YouTube/Google)
-func isAllowedDomain(targetURL string) error {
-	parsedURL, err := url.Parse(targetURL)
-	if err != nil {
-		return err
-	}
-
-	// Allowed domains for video proxy
-	allowedDomains := []string{
-		".youtube.com",
-		".googlevideo.com",
-		".ytimg.com",
-		".google.com",
-		".gstatic.com",
-	}
-
-	host := strings.ToLower(parsedURL.Hostname())
-
-	// Check if host matches any allowed domain
-	for _, domain := range allowedDomains {
-		if strings.HasSuffix(host, domain) || host == strings.TrimPrefix(domain, ".") {
-			return nil
-		}
-	}
-
-	return fmt.Errorf("domain %s not allowed", host)
-}
-
-// validateSearchQuery ensures search query contains only safe characters
-func validateSearchQuery(query string) error {
-	// Allow alphanumeric, spaces, hyphens, underscores, dots, commas, exclamation marks
-	safePattern := regexp.MustCompile(`^[a-zA-Z0-9\s\-_.,!]+$`)
-	if !safePattern.MatchString(query) {
-		return fmt.Errorf("search query contains invalid characters")
-	}
-	if len(query) > 200 {
-		return fmt.Errorf("search query too long")
-	}
-	return nil
-}
-
-// Global HTTP client with connection pooling and timeouts
-var httpClient = &http.Client{
-	Timeout: 30 * time.Second,
-	Transport: &http.Transport{
-		MaxIdleConns:        100,
-		MaxIdleConnsPerHost: 10,
-		IdleConnTimeout:     90 * time.Second,
-	},
-}
-
 func SetupRouter() *gin.Engine {
 	r := gin.Default()
 
@@ -117,26 +60,26 @@ func SetupRouter() *gin.Engine {
 		c.Next()
 	})
 
-	r.GET("/api/health", func(c *gin.Context) {
-		c.JSON(http.StatusOK, gin.H{"status": "ok"})
-	})
-
-	// API Routes
+	// API Routes - Using yt-dlp for video operations
 	api := r.Group("/api")
 	{
+		// Health check
+		api.GET("/health", func(c *gin.Context) {
+			c.JSON(http.StatusOK, gin.H{"status": "ok"})
+		})
+
+		// Video endpoints
 		api.GET("/search", handleSearch)
 		api.GET("/trending", handleTrending)
-		api.GET("/get_stream_info", handleGetStreamInfo)
-		api.GET("/download", handleDownload)
-		api.GET("/download-file", handleDownloadFile)
-		api.GET("/transcript", handleTranscript)
-		api.GET("/comments", handleComments)
-		api.GET("/channel/videos", handleChannelVideos)
+		api.GET("/video/:id", handleGetVideoInfo)
+		api.GET("/video/:id/qualities", handleGetQualities)
+		api.GET("/video/:id/related", handleRelatedVideos)
+		api.GET("/video/:id/comments", handleComments)
+		api.GET("/video/:id/download", handleDownload)
+
+		// Channel endpoints
 		api.GET("/channel/info", handleChannelInfo)
-		api.GET("/related", handleRelatedVideos)
-		api.GET("/formats", handleGetFormats)
-		api.GET("/qualities", handleGetQualities)
-		api.GET("/stream", handleGetStreamByQuality)
+		api.GET("/channel/videos", handleChannelVideos)
 
 		// History routes
 		api.POST("/history", handlePostHistory)
@@ -150,11 +93,10 @@ func SetupRouter() *gin.Engine {
 		api.GET("/subscriptions", handleGetSubscriptions)
 	}
 
-	r.GET("/video_proxy", handleVideoProxy)
-
 	return r
 }
 
+// Video search endpoint
 func handleSearch(c *gin.Context) {
 	query := c.Query("q")
 	if query == "" {
@@ -162,21 +104,15 @@ func handleSearch(c *gin.Context) {
 		return
 	}
 
-	// Validate search query for security
-	if err := validateSearchQuery(query); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
-
+	limitStr := c.Query("limit")
 	limit := 20
-	if l := c.Query("limit"); l != "" {
-		if parsed, err := strconv.Atoi(l); err == nil {
-			limit = parsed
-		}
+	if l, err := strconv.Atoi(limitStr); err == nil && l > 0 && l <= 50 {
+		limit = l
 	}
 
 	results, err := services.SearchVideos(query, limit)
 	if err != nil {
+		log.Printf("Search error: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to search videos"})
 		return
 	}
@@ -184,489 +120,189 @@ func handleSearch(c *gin.Context) {
 	c.JSON(http.StatusOK, results)
 }
 
+// Trending videos endpoint
 func handleTrending(c *gin.Context) {
-	// Basic mock implementation for now
-	c.JSON(http.StatusOK, gin.H{
-		"data": []gin.H{
-			{
-				"id":     "trending",
-				"title":  "Currently Trending",
-				"icon":   "fire",
-				"videos": []gin.H{},
-			},
-		},
-	})
-}
+	limitStr := c.Query("limit")
+	limit := 20
+	if l, err := strconv.Atoi(limitStr); err == nil && l > 0 && l <= 50 {
+		limit = l
+	}
 
-func handleGetStreamInfo(c *gin.Context) {
-	videoID := c.Query("v")
-	if videoID == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Video ID 'v' is required"})
+	// Use popular music search as trending
+	results, err := services.SearchVideos("popular music trending", limit)
+	if err != nil {
+		log.Printf("Trending error: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get trending videos"})
 		return
 	}
 
-	info, qualities, audioURL, err := services.GetFullStreamData(videoID)
+	c.JSON(http.StatusOK, results)
+}
+
+// Get video info
+func handleGetVideoInfo(c *gin.Context) {
+	videoID := c.Param("id")
+	if videoID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Video ID is required"})
+		return
+	}
+
+	video, err := services.GetVideoInfo(videoID)
 	if err != nil {
-		log.Printf("GetFullStreamData Error: %v", err)
+		log.Printf("GetVideoInfo error: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get video info"})
 		return
 	}
 
-	// Build quality options for frontend
-	var qualityOptions []gin.H
-	bestURL := info.StreamURL
-	bestHeight := 0
-
-	for _, q := range qualities {
-		proxyURL := "/video_proxy?url=" + url.QueryEscape(q.URL)
-		audioProxyURL := ""
-		if q.AudioURL != "" {
-			audioProxyURL = "/video_proxy?url=" + url.QueryEscape(q.AudioURL)
-		}
-		qualityOptions = append(qualityOptions, gin.H{
-			"label":     q.Label,
-			"height":    q.Height,
-			"url":       proxyURL,
-			"audio_url": audioProxyURL,
-			"is_hls":    q.IsHLS,
-			"has_audio": q.HasAudio,
-		})
-		if q.Height > bestHeight {
-			bestHeight = q.Height
-			bestURL = q.URL
-		}
-	}
-
-	// If we found qualities, use the best one
-	streamURL := info.StreamURL
-	if bestURL != "" {
-		streamURL = bestURL
-	}
-
-	proxyURL := "/video_proxy?url=" + url.QueryEscape(streamURL)
-
-	// Get audio URL for the response
-	audioProxyURL := ""
-	if audioURL != "" {
-		audioProxyURL = "/video_proxy?url=" + url.QueryEscape(audioURL)
-	}
-
-	c.JSON(http.StatusOK, gin.H{
-		"original_url": info.StreamURL,
-		"stream_url":   proxyURL,
-		"audio_url":    audioProxyURL,
-		"title":        info.Title,
-		"description":  info.Description,
-		"uploader":     info.Uploader,
-		"channel_id":   info.ChannelID,
-		"uploader_id":  info.UploaderID,
-		"view_count":   info.ViewCount,
-		"thumbnail":    info.Thumbnail,
-		"related":      []interface{}{},
-		"subtitle_url": nil,
-		"qualities":    qualityOptions,
-		"best_quality": bestHeight,
-	})
+	c.JSON(http.StatusOK, video)
 }
 
-func handleDownload(c *gin.Context) {
-	videoID := c.Query("v")
-	if videoID == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Video ID 'v' is required"})
-		return
-	}
-
-	formatID := c.Query("f")
-
-	info, err := services.GetDownloadURL(videoID, formatID)
-	if err != nil {
-		log.Printf("GetDownloadURL Error: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get download URL"})
-		return
-	}
-
-	c.JSON(http.StatusOK, info)
-}
-
-func handleDownloadFile(c *gin.Context) {
-	videoID := c.Query("v")
-	if videoID == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Video ID 'v' is required"})
-		return
-	}
-
-	formatID := c.Query("f")
-
-	// Get the download URL from yt-dlp
-	info, err := services.GetDownloadURL(videoID, formatID)
-	if err != nil {
-		log.Printf("GetDownloadURL Error: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get download URL"})
-		return
-	}
-
-	if info.URL == "" {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "No download URL available"})
-		return
-	}
-
-	// Create request to the video URL
-	req, err := http.NewRequest("GET", info.URL, nil)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create request"})
-		return
-	}
-
-	// Copy range header if present (for partial content/resumable downloads)
-	if rangeHeader := c.GetHeader("Range"); rangeHeader != "" {
-		req.Header.Set("Range", rangeHeader)
-	}
-
-	// Set appropriate headers for YouTube
-	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36")
-	req.Header.Set("Referer", "https://www.youtube.com/")
-	req.Header.Set("Origin", "https://www.youtube.com")
-
-	// Make the request
-	resp, err := httpClient.Do(req)
-	if err != nil {
-		log.Printf("Failed to fetch video: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch video"})
-		return
-	}
-	defer resp.Body.Close()
-
-	// Copy relevant headers from YouTube response to our response
-	for key, values := range resp.Header {
-		if key == "Content-Type" || key == "Content-Length" || key == "Content-Range" ||
-			key == "Accept-Ranges" || key == "Content-Disposition" {
-			for _, value := range values {
-				c.Header(key, value)
-			}
-		}
-	}
-
-	// Set content type based on extension
-	contentType := resp.Header.Get("Content-Type")
-	if contentType == "" {
-		if info.Ext == "mp4" {
-			contentType = "video/mp4"
-		} else if info.Ext == "webm" {
-			contentType = "video/webm"
-		} else {
-			contentType = "application/octet-stream"
-		}
-	}
-	c.Header("Content-Type", contentType)
-
-	// Set content disposition for download
-	filename := fmt.Sprintf("%s.%s", info.Title, info.Ext)
-	c.Header("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", filename))
-
-	// Copy status code
-	c.Status(resp.StatusCode)
-
-	// Stream the video
-	io.Copy(c.Writer, resp.Body)
-}
-
-func handleGetFormats(c *gin.Context) {
-	videoID := c.Query("v")
-	if videoID == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Video ID 'v' is required"})
-		return
-	}
-
-	formats, err := services.GetVideoFormats(videoID)
-	if err != nil {
-		log.Printf("GetVideoFormats Error: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get video formats"})
-		return
-	}
-
-	c.JSON(http.StatusOK, formats)
-}
-
+// Get video qualities
 func handleGetQualities(c *gin.Context) {
-	videoID := c.Query("v")
+	videoID := c.Param("id")
 	if videoID == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Video ID 'v' is required"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Video ID is required"})
 		return
 	}
 
 	qualities, audioURL, err := services.GetVideoQualitiesWithAudio(videoID)
 	if err != nil {
-		log.Printf("GetVideoQualities Error: %v", err)
+		log.Printf("GetQualities error: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get video qualities"})
 		return
 	}
 
-	var result []gin.H
-	for _, q := range qualities {
-		proxyURL := "/video_proxy?url=" + url.QueryEscape(q.URL)
-		audioProxyURL := ""
-		if q.AudioURL != "" {
-			audioProxyURL = "/video_proxy?url=" + url.QueryEscape(q.AudioURL)
-		}
-		result = append(result, gin.H{
-			"format_id":  q.FormatID,
-			"label":      q.Label,
-			"resolution": q.Resolution,
-			"height":     q.Height,
-			"url":        proxyURL,
-			"audio_url":  audioProxyURL,
-			"is_hls":     q.IsHLS,
-			"vcodec":     q.VCodec,
-			"acodec":     q.ACodec,
-			"filesize":   q.Filesize,
-			"has_audio":  q.HasAudio,
-		})
-	}
-
-	// Also return the best audio URL separately
-	audioProxyURL := ""
-	if audioURL != "" {
-		audioProxyURL = "/video_proxy?url=" + url.QueryEscape(audioURL)
-	}
-
 	c.JSON(http.StatusOK, gin.H{
-		"success":   true,
-		"qualities": result,
-		"audio_url": audioProxyURL,
+		"qualities": qualities,
+		"audio_url": audioURL,
 	})
 }
 
-func handleGetStreamByQuality(c *gin.Context) {
-	videoID := c.Query("v")
-	if videoID == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Video ID 'v' is required"})
-		return
-	}
-
-	heightStr := c.Query("q")
-	height := 0
-	if heightStr != "" {
-		if parsed, err := strconv.Atoi(heightStr); err == nil {
-			height = parsed
-		}
-	}
-
-	qualities, audioURL, err := services.GetVideoQualitiesWithAudio(videoID)
-	if err != nil {
-		log.Printf("GetVideoQualities Error: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get video qualities"})
-		return
-	}
-
-	if len(qualities) == 0 {
-		c.JSON(http.StatusNotFound, gin.H{"error": "No qualities available"})
-		return
-	}
-
-	var selected *services.QualityFormat
-	for i := range qualities {
-		if qualities[i].Height == height {
-			selected = &qualities[i]
-			break
-		}
-	}
-
-	if selected == nil {
-		selected = &qualities[0]
-	}
-
-	proxyURL := "/video_proxy?url=" + url.QueryEscape(selected.URL)
-
-	audioProxyURL := ""
-	if selected.AudioURL != "" {
-		audioProxyURL = "/video_proxy?url=" + url.QueryEscape(selected.AudioURL)
-	} else if audioURL != "" {
-		audioProxyURL = "/video_proxy?url=" + url.QueryEscape(audioURL)
-	}
-
-	c.JSON(http.StatusOK, gin.H{
-		"success":    true,
-		"stream_url": proxyURL,
-		"audio_url":  audioProxyURL,
-		"has_audio":  selected.HasAudio,
-		"quality": gin.H{
-			"label":  selected.Label,
-			"height": selected.Height,
-			"is_hls": selected.IsHLS,
-		},
-	})
-}
-
+// Get related videos
 func handleRelatedVideos(c *gin.Context) {
-	videoID := c.Query("v")
-	title := c.Query("title")
-	uploader := c.Query("uploader")
-
-	if title == "" && videoID == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Video ID or Title required"})
+	videoID := c.Param("id")
+	if videoID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Video ID is required"})
 		return
 	}
 
 	limitStr := c.Query("limit")
-	limit := 10
-	if l, err := strconv.Atoi(limitStr); err == nil && l > 0 {
+	limit := 15
+	if l, err := strconv.Atoi(limitStr); err == nil && l > 0 && l <= 50 {
 		limit = l
 	}
 
-	videos, err := services.GetRelatedVideos(title, uploader, limit)
+	// First get video info to get title and uploader
+	video, err := services.GetVideoInfo(videoID)
 	if err != nil {
-		log.Printf("GetRelatedVideos Error: %v", err)
+		log.Printf("GetVideoInfo for related error: %v", err)
+		// Fallback: search for similar content
+		results, err := services.SearchVideos("music", limit)
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get related videos"})
+			return
+		}
+		c.JSON(http.StatusOK, results)
+		return
+	}
+
+	related, err := services.GetRelatedVideos(video.Title, video.Uploader, limit)
+	if err != nil {
+		log.Printf("GetRelatedVideos error: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get related videos"})
 		return
 	}
 
-	c.JSON(http.StatusOK, videos)
+	c.JSON(http.StatusOK, related)
 }
 
-func handleTranscript(c *gin.Context) {
-	c.JSON(http.StatusNotImplemented, gin.H{"error": "Not Implemented"})
-}
-
+// Get video comments
 func handleComments(c *gin.Context) {
-	videoID := c.Query("v")
+	videoID := c.Param("id")
 	if videoID == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Video ID 'v' is required"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Video ID is required"})
 		return
 	}
 
+	limitStr := c.Query("limit")
 	limit := 20
-	if l := c.Query("limit"); l != "" {
-		if parsed, err := strconv.Atoi(l); err == nil && parsed > 0 {
-			limit = parsed
-		}
+	if l, err := strconv.Atoi(limitStr); err == nil && l > 0 && l <= 100 {
+		limit = l
 	}
 
 	comments, err := services.GetComments(videoID, limit)
 	if err != nil {
-		log.Printf("GetComments Error: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get comments"})
+		log.Printf("GetComments error: %v", err)
+		c.JSON(http.StatusOK, []interface{}{}) // Return empty array instead of error
 		return
 	}
 
 	c.JSON(http.StatusOK, comments)
 }
 
-func handleChannelInfo(c *gin.Context) {
-	channelID := c.Query("id")
-	if channelID == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Channel ID 'id' is required"})
+// Get download URL
+func handleDownload(c *gin.Context) {
+	videoID := c.Param("id")
+	if videoID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Video ID is required"})
 		return
 	}
 
-	info, err := services.GetChannelInfo(channelID)
+	formatID := c.Query("format")
+
+	downloadInfo, err := services.GetDownloadURL(videoID, formatID)
 	if err != nil {
-		log.Printf("GetChannelInfo Error: %v", err)
+		log.Printf("GetDownloadURL error: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get download URL"})
+		return
+	}
+
+	c.JSON(http.StatusOK, downloadInfo)
+}
+
+// Get channel info
+func handleChannelInfo(c *gin.Context) {
+	channelID := c.Query("id")
+	if channelID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Channel ID is required"})
+		return
+	}
+
+	channelInfo, err := services.GetChannelInfo(channelID)
+	if err != nil {
+		log.Printf("GetChannelInfo error: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get channel info"})
 		return
 	}
 
-	c.JSON(http.StatusOK, info)
+	c.JSON(http.StatusOK, channelInfo)
 }
 
+// Get channel videos
 func handleChannelVideos(c *gin.Context) {
 	channelID := c.Query("id")
 	if channelID == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Channel ID 'id' is required"})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Channel ID is required"})
 		return
 	}
 
 	limitStr := c.Query("limit")
 	limit := 30
-	if l, err := strconv.Atoi(limitStr); err == nil && l > 0 {
+	if l, err := strconv.Atoi(limitStr); err == nil && l > 0 && l <= 100 {
 		limit = l
 	}
 
 	videos, err := services.GetChannelVideos(channelID, limit)
 	if err != nil {
-		log.Printf("GetChannelVideos Error: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get channel videos", "details": err.Error()})
+		log.Printf("GetChannelVideos error: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get channel videos"})
 		return
 	}
 
 	c.JSON(http.StatusOK, videos)
 }
 
-func handleVideoProxy(c *gin.Context) {
-	targetURL := c.Query("url")
-	if targetURL == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "No URL provided"})
-		return
-	}
-
-	// SSRF Protection: Validate target domain
-	if err := isAllowedDomain(targetURL); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "URL domain not allowed"})
-		return
-	}
-
-	req, err := http.NewRequest("GET", targetURL, nil)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create request"})
-		return
-	}
-
-	// Forward standard headers
-	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
-	req.Header.Set("Referer", "https://www.youtube.com/")
-	req.Header.Set("Origin", "https://www.youtube.com")
-
-	if rangeHeader := c.GetHeader("Range"); rangeHeader != "" {
-		req.Header.Set("Range", rangeHeader)
-	}
-
-	resp, err := httpClient.Do(req)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch video stream"})
-		return
-	}
-	defer resp.Body.Close()
-
-	contentType := resp.Header.Get("Content-Type")
-	baseURL := targetURL[:strings.LastIndex(targetURL, "/")]
-
-	isManifest := strings.Contains(strings.ToLower(contentType), "mpegurl") ||
-		strings.HasSuffix(targetURL, ".m3u8") ||
-		strings.Contains(targetURL, ".m3u8")
-
-	if isManifest && (resp.StatusCode == 200 || resp.StatusCode == 206) {
-		// Rewrite M3U8 Manifest
-		scanner := bufio.NewScanner(resp.Body)
-		var newLines []string
-		for scanner.Scan() {
-			line := strings.TrimSpace(scanner.Text())
-			if line != "" && !strings.HasPrefix(line, "#") {
-				fullURL := line
-				if !strings.HasPrefix(line, "http") {
-					fullURL = baseURL + "/" + line
-				}
-				encodedURL := url.QueryEscape(fullURL)
-				newLines = append(newLines, "/video_proxy?url="+encodedURL)
-			} else {
-				newLines = append(newLines, line)
-			}
-		}
-
-		rewrittenContent := strings.Join(newLines, "\n")
-		c.Data(resp.StatusCode, "application/vnd.apple.mpegurl", []byte(rewrittenContent))
-		return
-	}
-
-	// Stream binary video data
-	for k, v := range resp.Header {
-		logKey := strings.ToLower(k)
-		if logKey != "content-encoding" && logKey != "transfer-encoding" && logKey != "connection" && !strings.HasPrefix(logKey, "access-control-") {
-			c.Writer.Header()[k] = v
-		}
-	}
-	c.Writer.WriteHeader(resp.StatusCode)
-	io.Copy(c.Writer, resp.Body)
-}
-
+// History handlers
 func handlePostHistory(c *gin.Context) {
 	var body struct {
 		VideoID   string `json:"video_id"`
@@ -707,14 +343,13 @@ func handleGetHistory(c *gin.Context) {
 	}
 
 	// Make the API response shape match the VideoData shape the frontend expects
-	// We'll reconstruct a basic VideoData-like array for the frontend
 	var results []services.VideoData
 	for _, h := range history {
 		results = append(results, services.VideoData{
 			ID:        h.ID,
 			Title:     h.Title,
 			Thumbnail: h.Thumbnail,
-			Uploader:  "History", // Just a placeholder
+			Uploader:  "History",
 		})
 	}
 
@@ -737,6 +372,7 @@ func handleGetSuggestions(c *gin.Context) {
 	c.JSON(http.StatusOK, suggestions)
 }
 
+// Subscription handlers
 func handleSubscribe(c *gin.Context) {
 	var body struct {
 		ChannelID     string `json:"channel_id"`
@@ -803,4 +439,8 @@ func handleGetSubscriptions(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, subs)
+}
+
+func logPrintf(format string, v ...interface{}) {
+	log.Printf(format, v...)
 }

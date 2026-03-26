@@ -2,30 +2,37 @@
 
 import Link from 'next/link';
 import { useState, useEffect, useCallback } from 'react';
+import { getChannelVideosClient, getChannelInfoClient } from '../../clientActions';
+import { VideoData } from '../../constants';
+import LoadingSpinner from '../../components/LoadingSpinner';
 
-const DEFAULT_THUMBNAIL = 'https://i.ytimg.com/vi/default/hqdefault.jpg';
-
-interface VideoData {
-    id: string;
-    title: string;
-    uploader: string;
-    channel_id: string;
-    thumbnail: string;
-    view_count: number;
-    duration: string;
-    uploaded_date?: string;
-}
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8080/api';
 
 interface Subscription {
-    id: number;
     channel_id: string;
     channel_name: string;
     channel_avatar: string;
 }
 
+const DEFAULT_THUMBNAIL = 'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" width="320" height="180" viewBox="0 0 320 180"><rect fill="%23333" width="320" height="180"/><text x="160" y="90" text-anchor="middle" fill="%23666" font-family="Arial" font-size="14">No thumbnail</text></svg>';
+
 interface ChannelVideos {
     subscription: Subscription;
     videos: VideoData[];
+    channelInfo: any;
+}
+
+// Fetch subscriptions from backend API
+async function fetchSubscriptions(): Promise<Subscription[]> {
+    try {
+        const res = await fetch(`${API_BASE}/subscriptions`, { cache: 'no-store' });
+        if (!res.ok) return [];
+        const data = await res.json();
+        return Array.isArray(data) ? data : [];
+    } catch (e) {
+        console.error('Failed to fetch subscriptions:', e);
+        return [];
+    }
 }
 
 const INITIAL_ROWS = 2;
@@ -36,12 +43,6 @@ function formatViews(views: number): string {
     if (views >= 1000000) return (views / 1000000).toFixed(1) + 'M';
     if (views >= 1000) return (views / 1000).toFixed(1) + 'K';
     return views.toString();
-}
-
-function getRelativeTime(id: string): string {
-    const times = ['2 hours ago', '5 hours ago', '1 day ago', '3 days ago', '1 week ago', '2 weeks ago', '1 month ago'];
-    const index = (id.charCodeAt(0) || 0) % times.length;
-    return times[index];
 }
 
 function ChannelSection({ channelVideos, defaultExpanded = false }: { channelVideos: ChannelVideos; defaultExpanded?: boolean }) {
@@ -85,12 +86,17 @@ function ChannelSection({ channelVideos, defaultExpanded = false }: { channelVid
                     fontSize: '18px',
                     color: '#fff',
                     fontWeight: '600',
+                    overflow: 'hidden',
                 }}>
-                    {subscription.channel_name ? subscription.channel_name[0].toUpperCase() : '?'}
-                </div>
-                <h2 style={{ fontSize: '18px', fontWeight: '500', color: 'var(--yt-text-primary)' }}>
-                    {subscription.channel_name || subscription.channel_id}
-                </h2>
+                    {subscription.channel_avatar ? (
+                        <img src={subscription.channel_avatar} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                    ) : (
+                        subscription.channel_name ? subscription.channel_name[0].toUpperCase() : '?'
+                    )}
+                    </div>
+                    <span style={{ fontSize: '13px', fontWeight: '500', color: 'var(--yt-text-primary)', textAlign: 'center' }}>
+                        {subscription.channel_name || subscription.channel_id}
+                    </span>
             </Link>
 
             <div style={{
@@ -100,7 +106,7 @@ function ChannelSection({ channelVideos, defaultExpanded = false }: { channelVid
                 padding: '0 12px',
             }}>
                 {displayedVideos.map((video) => {
-                    const relativeTime = video.uploaded_date || getRelativeTime(video.id);
+                    const relativeTime = video.publishedAt || video.upload_date || 'recently';
                     const destination = `/watch?v=${video.id}`;
                     const thumbnailSrc = video.thumbnail || DEFAULT_THUMBNAIL;
 
@@ -142,7 +148,7 @@ function ChannelSection({ channelVideos, defaultExpanded = false }: { channelVid
                                 {video.title}
                             </h3>
                             <p style={{ fontSize: '12px', color: 'var(--yt-text-secondary)', margin: 0 }}>
-                                {formatViews(video.view_count)} views • {relativeTime}
+                                {video.viewCount || formatViews(video.view_count || 0)} views • {relativeTime}
                             </p>
                         </Link>
                     );
@@ -189,27 +195,35 @@ export default function SubscriptionsPage() {
     useEffect(() => {
         async function fetchData() {
             try {
-                const subsRes = await fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8080'}/api/subscriptions`, { cache: 'no-store' });
-                const subsData = await subsRes.json();
-                const subs = Array.isArray(subsData) ? subsData : [];
+                const subs = await fetchSubscriptions();
 
                 const channelVideos: ChannelVideos[] = [];
-                for (const sub of subs) {
-                    const videosRes = await fetch(
-                        `${process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8080'}/api/channel/videos?id=${sub.channel_id}&limit=${MAX_ROWS * VIDEOS_PER_ROW}`, 
-                        { cache: 'no-store' }
-                    );
-                    const videosData = await videosRes.json();
-                    const videos = Array.isArray(videosData) ? videosData : [];
-                    if (videos.length > 0) {
-                        channelVideos.push({
-                            subscription: sub,
-                            videos: videos.map((v: VideoData) => ({ ...v, uploader: sub.channel_name }))
-                        });
+                
+                // Fetch videos for each subscription in parallel
+                const promises = subs.map(async (sub) => {
+                    try {
+                        const channelId = sub.channel_id;
+                        const videos = await getChannelVideosClient(channelId, MAX_ROWS * VIDEOS_PER_ROW);
+                        const channelInfo = await getChannelInfoClient(channelId);
+                        
+                        if (videos.length > 0) {
+                            return {
+                                subscription: sub,
+                                videos: videos,
+                                channelInfo: channelInfo || null,
+                            };
+                        }
+                        return null;
+                    } catch (err) {
+                        console.error(`Failed to fetch videos for ${sub.channel_id}:`, err);
+                        return null;
                     }
-                }
+                });
 
-                setChannelsVideos(channelVideos);
+                const results = await Promise.all(promises);
+                const validResults = results.filter((r): r is ChannelVideos => r !== null);
+                
+                setChannelsVideos(validResults);
             } catch (err) {
                 console.error('Failed to fetch subscriptions:', err);
             } finally {
@@ -221,15 +235,8 @@ export default function SubscriptionsPage() {
 
     if (loading) {
         return (
-            <div style={{ padding: '48px', textAlign: 'center' }}>
-                <div style={{ 
-                    width: '40px', height: '40px', 
-                    border: '3px solid var(--yt-border)', 
-                    borderTopColor: 'var(--yt-brand-red)', 
-                    borderRadius: '50%', 
-                    animation: 'spin 1s linear infinite',
-                    margin: '0 auto'
-                }}></div>
+            <div style={{ padding: '48px', display: 'flex', justifyContent: 'center' }}>
+                <LoadingSpinner />
             </div>
         );
     }
@@ -239,13 +246,28 @@ export default function SubscriptionsPage() {
             <div style={{ padding: '48px', textAlign: 'center', color: 'var(--yt-text-secondary)' }}>
                 <h2 style={{ marginBottom: '16px', color: 'var(--yt-text-primary)' }}>No subscriptions yet</h2>
                 <p>Subscribe to channels to see their latest videos here</p>
+                <Link 
+                    href="/"
+                    style={{
+                        display: 'inline-block',
+                        marginTop: '16px',
+                        padding: '10px 20px',
+                        backgroundColor: 'var(--yt-brand-red)',
+                        color: 'white',
+                        borderRadius: '20px',
+                        textDecoration: 'none',
+                        fontWeight: '500',
+                    }}
+                >
+                    Discover videos
+                </Link>
             </div>
         );
     }
 
     return (
         <div style={{ padding: '12px', maxWidth: '1400px', margin: '0 auto' }}>
-            <h1 style={{ fontSize: '24px', fontWeight: '600', marginBottom: '24px', padding: '0 12px' }}>Subscriptions</h1>
+            <h1 style={{ fontSize: '24px', fontWeight: '600', marginBottom: '24px', padding: '0 12px' }}>Sub</h1>
 
             {channelsVideos.map((channelData) => (
                 <ChannelSection key={channelData.subscription.channel_id} channelVideos={channelData} />

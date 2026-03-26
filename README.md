@@ -54,7 +54,7 @@ We recommend using **Container Manager** (DSM 7.2+) or **Docker** (DSM 6/7.1) fo
 
 ### 1. Prerequisites
 - **Container Manager** or **Docker** package installed from Package Center.
-- Ensure ports `5011` (frontend) and `8080` (backend API) are available on your NAS.
+- Ensure ports `5011` (frontend) and `8981` (backend API) are available on your NAS.
 - Create a folder named `kv-tube` in your `docker` shared folder (e.g., `/volume1/docker/kv-tube`).
 
 ### 2. Using Container Manager (Recommended)
@@ -75,7 +75,7 @@ services:
     restart: unless-stopped
     ports:
       - "5011:3000"
-      - "8080:8080"
+      - "8981:8080"
     volumes:
       - ./data:/app/data
     environment:
@@ -90,7 +90,7 @@ services:
 ### 3. Accessing the App
 The application will be accessible at:
 - **Frontend**: `http://<your-nas-ip>:5011`
-- **Backend API**: `http://<your-nas-ip>:8080`
+- **Backend API**: `http://<your-nas-ip>:8981`
 - **Mobile Users**: Add to Home Screen via Safari for the full PWA experience with background playback.
 
 ### 4. Volume Permissions (If Needed)

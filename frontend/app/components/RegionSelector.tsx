@@ -48,6 +48,8 @@ export default function RegionSelector() {
         setSelected(code);
         setRegionCookie(code);
         setIsOpen(false);
+        // Dispatch custom event for immediate notification
+        window.dispatchEvent(new CustomEvent('regionchange', { detail: { region: code } }));
         router.refresh();
     };
 

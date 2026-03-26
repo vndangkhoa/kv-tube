@@ -4,6 +4,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import VideoCard from './VideoCard';
 import { fetchMoreVideos } from '../actions';
 import { VideoData } from '../constants';
+import LoadingSpinner from './LoadingSpinner';
 
 interface Props {
     initialVideos: VideoData[];
@@ -100,16 +101,7 @@ export default function InfiniteVideoGrid({ initialVideos, currentCategory, regi
 
             {hasMore && (
                 <div ref={observerTarget} style={{ padding: '24px 0', display: 'flex', justifyContent: 'center' }}>
-                    {isLoading && (
-                        <div style={{
-                            width: '40px',
-                            height: '40px',
-                            border: '3px solid var(--yt-border)',
-                            borderTopColor: 'var(--yt-brand-red)',
-                            borderRadius: '50%',
-                            animation: 'spin 1s linear infinite'
-                        }}></div>
-                    )}
+                    {isLoading && <LoadingSpinner />}
                 </div>
             )}
 

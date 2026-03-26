@@ -2,6 +2,8 @@
 
 import Link from 'next/link';
 import { useState, useEffect, useCallback } from 'react';
+import { getSavedVideos, type SavedVideo } from '../../storage';
+import LoadingSpinner from '../../components/LoadingSpinner';
 
 const DEFAULT_THUMBNAIL = 'https://i.ytimg.com/vi/default/hqdefault.jpg';
 
@@ -145,24 +147,94 @@ function SubscriptionCard({ subscription }: { subscription: Subscription }) {
     );
 }
 
+function SavedVideoCard({ video }: { video: SavedVideo }) {
+    const destination = `/watch?v=${video.videoId}`;
+    const thumbnailSrc = video.thumbnail || DEFAULT_THUMBNAIL;
+
+    const handleImageError = useCallback((e: React.SyntheticEvent<HTMLImageElement>) => {
+        const img = e.target as HTMLImageElement;
+        if (img.src !== DEFAULT_THUMBNAIL) {
+            img.src = DEFAULT_THUMBNAIL;
+        }
+    }, []);
+
+    return (
+        <Link
+            href={destination}
+            className="videocard-container card-hover-lift"
+            style={{
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '12px',
+                borderRadius: '12px',
+                overflow: 'hidden',
+            }}
+        >
+            <div style={{ position: 'relative', aspectRatio: '16/9', borderRadius: '12px', overflow: 'hidden' }}>
+                <img
+                    src={thumbnailSrc}
+                    alt={video.title}
+                    className="videocard-thumb"
+                    style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                    onError={handleImageError}
+                />
+                <div style={{
+                    position: 'absolute',
+                    top: '8px',
+                    right: '8px',
+                    background: 'rgba(0,0,0,0.8)',
+                    color: '#fff',
+                    padding: '4px 8px',
+                    borderRadius: '4px',
+                    fontSize: '12px',
+                }}>
+                    Saved
+                </div>
+            </div>
+            <div className="videocard-info" style={{ padding: '0 4px' }}>
+                <h3 style={{
+                    fontSize: '14px',
+                    fontWeight: '500',
+                    lineHeight: '20px',
+                    color: 'var(--yt-text-primary)',
+                    display: '-webkit-box',
+                    WebkitLineClamp: 2,
+                    WebkitBoxOrient: 'vertical',
+                    overflow: 'hidden',
+                    marginBottom: '4px',
+                }}>
+                    {video.title}
+                </h3>
+                <p style={{ fontSize: '12px', color: 'var(--yt-text-secondary)' }}>
+                    {video.channelTitle}
+                </p>
+            </div>
+        </Link>
+    );
+}
+
 export default function LibraryPage() {
     const [history, setHistory] = useState<VideoData[]>([]);
     const [subscriptions, setSubscriptions] = useState<Subscription[]>([]);
+    const [savedVideos, setSavedVideos] = useState<SavedVideo[]>([]);
     const [loading, setLoading] = useState(true);
 
     useEffect(() => {
         async function fetchData() {
             try {
+                const apiBase = process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8080/api';
                 const [historyRes, subsRes] = await Promise.all([
-                    fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8080'}/api/history?limit=20`, { cache: 'no-store' }),
-                    fetch(`${process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8080'}/api/subscriptions`, { cache: 'no-store' })
+                    fetch(`${apiBase}/history?limit=20`, { cache: 'no-store' }),
+                    fetch(`${apiBase}/subscriptions`, { cache: 'no-store' })
                 ]);
 
                 const historyData = await historyRes.json();
                 const subsData = await subsRes.json();
+                const savedData = getSavedVideos(20);
 
                 setHistory(Array.isArray(historyData) ? historyData : []);
                 setSubscriptions(Array.isArray(subsData) ? subsData : []);
+                setSavedVideos(savedData);
             } catch (err) {
                 console.error('Failed to fetch library data:', err);
             } finally {
@@ -174,15 +246,8 @@ export default function LibraryPage() {
 
     if (loading) {
         return (
-            <div style={{ padding: '48px', textAlign: 'center' }}>
-                <div style={{ 
-                    width: '40px', height: '40px', 
-                    border: '3px solid var(--yt-border)', 
-                    borderTopColor: 'var(--yt-brand-red)', 
-                    borderRadius: '50%', 
-                    animation: 'spin 1s linear infinite',
-                    margin: '0 auto'
-                }}></div>
+            <div style={{ padding: '48px', display: 'flex', justifyContent: 'center' }}>
+                <LoadingSpinner />
             </div>
         );
     }
@@ -192,11 +257,28 @@ export default function LibraryPage() {
             {subscriptions.length > 0 && (
                 <section style={{ marginBottom: '40px' }}>
                     <h2 style={{ marginBottom: '20px', fontSize: '20px', fontWeight: '600' }}>
-                        Subscriptions
+                        Sub
                     </h2>
                     <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap' }}>
                         {subscriptions.map((sub) => (
                             <SubscriptionCard key={sub.channel_id} subscription={sub} />
+                        ))}
+                    </div>
+                </section>
+            )}
+
+            {savedVideos.length > 0 && (
+                <section style={{ marginBottom: '40px' }}>
+                    <h2 style={{ marginBottom: '20px', fontSize: '20px', fontWeight: '600' }}>
+                        Saved Videos
+                    </h2>
+                    <div style={{
+                        display: 'grid',
+                        gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))',
+                        gap: '16px',
+                    }}>
+                        {savedVideos.map((video) => (
+                            <SavedVideoCard key={video.videoId} video={video} />
                         ))}
                     </div>
                 </section>

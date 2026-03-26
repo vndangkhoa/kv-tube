@@ -1,12 +1,21 @@
-export const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8080';
+export const API_BASE = ''; // No backend needed - using public APIs
 
 export interface VideoData {
     id: string;
     title: string;
-    uploader: string;
     thumbnail: string;
-    view_count: number;
+    channelTitle?: string;
+    channelId?: string;
+    viewCount?: string;
+    publishedAt?: string;
     duration: string;
+    description?: string;
+    // Legacy fields for compatibility
+    uploader?: string;
+    uploader_id?: string;
+    channel_id?: string;
+    view_count?: number;
+    upload_date?: string;
     avatar_url?: string;
     list_id?: string;
     is_mix?: boolean;
