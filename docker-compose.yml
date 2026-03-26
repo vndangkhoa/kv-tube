@@ -18,6 +18,6 @@ services:
       - KVTUBE_DATA_DIR=/app/data
       - GIN_MODE=release
       - NODE_ENV=production
-      - NEXT_PUBLIC_API_URL=http://127.0.0.1:8080
+      - NEXT_PUBLIC_API_URL=http://127.0.0.1:8981/api
     labels:
       - "com.centurylinklabs.watchtower.enable=true"
