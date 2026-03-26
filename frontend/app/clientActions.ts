@@ -2,8 +2,8 @@
 
 import { VideoData } from './constants';
 
-// Backend API base URL
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080/api';
+// Use relative URLs - Next.js rewrites will proxy to backend
+const API_BASE = '/api';
 
 // Transform backend response to our VideoData format
 function transformVideo(item: any): VideoData {
