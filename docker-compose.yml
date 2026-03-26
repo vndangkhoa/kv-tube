@@ -5,6 +5,10 @@ version: '3.8'
 
 services:
   kv-tube:
+    build:
+      context: .
+      args:
+        - NEXT_PUBLIC_API_URL=http://ut.khoavo.myds.me:8981/api
     image: git.khoavo.myds.me/vndangkhoa/kv-tube:v7
     container_name: kv-tube
     platform: linux/amd64
