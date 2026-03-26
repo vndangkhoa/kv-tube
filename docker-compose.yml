@@ -18,6 +18,7 @@ services:
       - KVTUBE_DATA_DIR=/app/data
       - GIN_MODE=release
       - NODE_ENV=production
-      - NEXT_PUBLIC_API_URL=http://127.0.0.1:8981/api
+      - NEXT_PUBLIC_API_URL=http://ut.khoavo.myds.me:8981/api
+      - CORS_ALLOWED_ORIGINS=https://ut.khoavo.myds.me,http://ut.khoavo.myds.me:5011,http://localhost:3000,http://127.0.0.1:3000
     labels:
       - "com.centurylinklabs.watchtower.enable=true"
