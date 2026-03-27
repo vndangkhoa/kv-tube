@@ -4,6 +4,13 @@ on:
   push:
     tags:
       - 'v*'
+  workflow_dispatch:
+    inputs:
+      api_url:
+        description: 'API URL'
+        required: false
+        default: 'http://ut.khoavo.myds.me:8981/api'
+        type: string
 
 jobs:
   build:
@@ -45,3 +52,5 @@ jobs:
           platforms: linux/amd64
           cache-from: type=gha
           cache-to: type=gha,mode=max
+          build-args: |
+            NEXT_PUBLIC_API_URL=${{ github.event.inputs.api_url || 'http://ut.khoavo.myds.me:8981/api' }}
