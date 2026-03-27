@@ -1,0 +1,23 @@
+# KV-Tube Docker Compose for Synology NAS
+# Usage: docker-compose up -d
+
+version: '3.8'
+
+services:
+  kv-tube:
+    image: git.khoavo.myds.me/vndangkhoa/kv-tube:v9
+    container_name: kv-tube
+    platform: linux/amd64
+    restart: unless-stopped
+    ports:
+      - "5011:3000"
+      - "8981:8080"
+    volumes:
+      - ./data:/app/data
+    environment:
+      - KVTUBE_DATA_DIR=/app/data
+      - GIN_MODE=release
+      - NODE_ENV=production
+      - CORS_ALLOWED_ORIGINS=https://ut.khoavo.myds.me,http://ut.khoavo.myds.me:5011,http://localhost:3000,http://127.0.0.1:3000
+    labels:
+      - "com.centurylinklabs.watchtower.enable=true"
