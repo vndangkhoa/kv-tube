@@ -18,11 +18,12 @@ COPY frontend/package.json frontend/package-lock.json ./
 RUN npm ci
 
 FROM node:20-alpine AS frontend-builder
+ARG NEXT_PUBLIC_API_URL=http://127.0.0.1:8080
 WORKDIR /app
 COPY --from=frontend-deps /app/node_modules ./node_modules
 COPY frontend/ ./
 ENV NEXT_TELEMETRY_DISABLED 1
-ENV NEXT_PUBLIC_API_URL=http://localhost:8080
+ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
 RUN echo "NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL" && npm run build
 
 # ---- Final Unified Image ----
