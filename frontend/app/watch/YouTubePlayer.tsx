@@ -252,44 +252,50 @@ export default function YouTubePlayer({
                     left: 0,
                 }}
             />
-            {/* Fullscreen button */}
-            <button
-                onClick={() => {
-                    if (document.fullscreenElement) {
-                        document.exitFullscreen();
-                    } else {
-                        playerContainerRef.current?.requestFullscreen();
-                    }
-                }}
-                style={{
-                    position: 'absolute',
-                    bottom: '8px',
-                    right: '8px',
-                    backgroundColor: 'rgba(0,0,0,0.6)',
-                    border: 'none',
-                    borderRadius: '4px',
-                    padding: '6px',
-                    cursor: 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    transition: 'background-color 0.2s',
-                    zIndex: 10,
-                }}
-                onMouseEnter={(e) => e.currentTarget.style.backgroundColor = 'rgba(0,0,0,0.8)'}
-                onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'rgba(0,0,0,0.6)'}
-                title={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}
-            >
-                {isFullscreen ? (
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="white">
-                        <path d="M5 16h3v3h2v-5H5v2zm3-8H5v2h5V5H8v3zm6 11h2v-3h3v-2h-5v5zm2-11V5h-2v5h5V8h-3z"/>
-                    </svg>
-                ) : (
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="white">
-                        <path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/>
-                    </svg>
-                )}
-            </button>
+            {/* Controls */}
+            <div style={{
+                position: 'absolute',
+                bottom: '80px',
+                right: '8px',
+                display: 'flex',
+                gap: '8px',
+                zIndex: 10,
+            }}>
+                {/* Fullscreen button */}
+                <button
+                    onClick={() => {
+                        if (document.fullscreenElement) {
+                            document.exitFullscreen();
+                        } else {
+                            playerContainerRef.current?.requestFullscreen();
+                        }
+                    }}
+                    style={{
+                        backgroundColor: 'rgba(0,0,0,0.6)',
+                        border: 'none',
+                        borderRadius: '4px',
+                        padding: '6px',
+                        cursor: 'pointer',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        transition: 'background-color 0.2s',
+                    }}
+                    onMouseEnter={(e) => e.currentTarget.style.backgroundColor = 'rgba(0,0,0,0.8)'}
+                    onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'rgba(0,0,0,0.6)'}
+                    title={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}
+                >
+                    {isFullscreen ? (
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="white">
+                            <path d="M5 16h3v3h2v-5H5v2zm3-8H5v2h5V5H8v3zm6 11h2v-3h3v-2h-5v5zm2-11V5h-2v5h5V8h-3z"/>
+                        </svg>
+                    ) : (
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="white">
+                            <path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/>
+                        </svg>
+                    )}
+                </button>
+            </div>
         </div>
     );
 }

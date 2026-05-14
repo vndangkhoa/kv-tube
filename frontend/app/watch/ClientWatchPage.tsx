@@ -970,8 +970,8 @@ export default function ClientWatchPage() {
                                 {relatedVideos.length} videos
                             </span>
                         </div>
-                        <div style={{ maxHeight: '300px', overflowY: 'auto' }}>
-                            {relatedVideos.slice(0, 8).map((video, index) => (
+                        <div style={{ overflowY: 'auto' }}>
+                            {relatedVideos.slice(0, 30).map((video, index) => (
                                 <div 
                                     key={video.id}
                                     onClick={() => handleVideoSelect(index)}

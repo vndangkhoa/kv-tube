@@ -254,36 +254,6 @@ export default function LibraryPage() {
 
     return (
         <div style={{ padding: '24px', maxWidth: '1400px', margin: '0 auto' }}>
-            {subscriptions.length > 0 && (
-                <section style={{ marginBottom: '40px' }}>
-                    <h2 style={{ marginBottom: '20px', fontSize: '20px', fontWeight: '600' }}>
-                        Sub
-                    </h2>
-                    <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap' }}>
-                        {subscriptions.map((sub) => (
-                            <SubscriptionCard key={sub.channel_id} subscription={sub} />
-                        ))}
-                    </div>
-                </section>
-            )}
-
-            {savedVideos.length > 0 && (
-                <section style={{ marginBottom: '40px' }}>
-                    <h2 style={{ marginBottom: '20px', fontSize: '20px', fontWeight: '600' }}>
-                        Saved Videos
-                    </h2>
-                    <div style={{
-                        display: 'grid',
-                        gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))',
-                        gap: '16px',
-                    }}>
-                        {savedVideos.map((video) => (
-                            <SavedVideoCard key={video.videoId} video={video} />
-                        ))}
-                    </div>
-                </section>
-            )}
-
             <section>
                 <h2 style={{ marginBottom: '20px', fontSize: '20px', fontWeight: '600' }}>
                     Watch History
@@ -311,6 +281,36 @@ export default function LibraryPage() {
                     </div>
                 )}
             </section>
+
+            {savedVideos.length > 0 && (
+                <section style={{ marginBottom: '40px' }}>
+                    <h2 style={{ marginBottom: '20px', fontSize: '20px', fontWeight: '600' }}>
+                        Saved Videos
+                    </h2>
+                    <div style={{
+                        display: 'grid',
+                        gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))',
+                        gap: '16px',
+                    }}>
+                        {savedVideos.map((video) => (
+                            <SavedVideoCard key={video.videoId} video={video} />
+                        ))}
+                    </div>
+                </section>
+            )}
+
+            {subscriptions.length > 0 && (
+                <section style={{ marginBottom: '40px' }}>
+                    <h2 style={{ marginBottom: '20px', fontSize: '20px', fontWeight: '600' }}>
+                        Sub
+                    </h2>
+                    <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap' }}>
+                        {subscriptions.map((sub) => (
+                            <SubscriptionCard key={sub.channel_id} subscription={sub} />
+                        ))}
+                    </div>
+                </section>
+            )}
         </div>
     );
 }
