@@ -1,28 +1,58 @@
-# KV-Tube Docker Compose for Synology NAS
+# KV-Tube - Self-hosted YouTube-like Video Streaming Platform
+# Supports: linux/amd64 (Synology NAS, Linux servers)
+# 
 # Usage: docker-compose up -d
+#
+# Access:
+#   - Frontend: http://localhost:5011
+#   - Backend API: http://localhost:8981
 
 version: '3.8'
 
 services:
   kv-tube:
+    # Build from local Dockerfile (for first-time setup or development)
+    # To use pre-built image, comment out 'build' and use 'image' instead
     build:
       context: .
       dockerfile: Dockerfile
       args:
-        - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-http://localhost:8080/api}
-    image: kv-tube:latest
+        # API URL for frontend to communicate with backend
+        # Change to your NAS IP or domain if accessing remotely
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8080/api}
+    
+    # Uncomment below to use pre-built image instead of building:
+    # image: git.khoavo.myds.me/vndangkhoa/kv-tube:latest
+    
     container_name: kv-tube
-    platform: linux/amd64
+    platform: linux/amd64  # Required for Synology NAS
     restart: unless-stopped
+    
     ports:
-      - "5011:3000"
-      - "8981:8080"
+      - "5011:3000"   # Frontend (Next.js)
+      - "8981:8080"   # Backend API (Go)
+    
     volumes:
-      - ./data:/app/data
+      - ./data:/app/data  # Persistent data (SQLite DB, cache)
+    
     environment:
       - KVTUBE_DATA_DIR=/app/data
       - GIN_MODE=release
       - NODE_ENV=production
+      # Allow all origins for development - tighten in production
       - CORS_ALLOWED_ORIGINS=*
+    
+    # Enable Watchtower for auto-updates (optional)
     labels:
       - "com.centurylinklabs.watchtower.enable=true"
+
+# To enable auto-updates with Watchtower, add this service:
+# 
+# services:
+#   watchtower:
+#     image: containrrr/watchtower
+#     container_name: watchtower
+#     restart: unless-stopped
+#     volumes:
+#       - /var/run/docker.sock:/var/run/docker.sock
+#     command: --interval 86400 kv-tube  # Check once daily
