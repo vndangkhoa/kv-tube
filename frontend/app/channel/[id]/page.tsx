@@ -28,7 +28,7 @@ function formatSubscribers(count: number): string {
 
 // We no longer need getAvatarColor as we now use the global --yt-avatar-bg
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8080/api';
+const API_BASE = 'http://localhost:8080/api';
 
 async function getChannelInfo(id: string) {
     try {

@@ -222,7 +222,7 @@ export default function LibraryPage() {
     useEffect(() => {
         async function fetchData() {
             try {
-                const apiBase = process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8080/api';
+                const apiBase = '/api';
                 const [historyRes, subsRes] = await Promise.all([
                     fetch(`${apiBase}/history?limit=20`, { cache: 'no-store' }),
                     fetch(`${apiBase}/subscriptions`, { cache: 'no-store' })

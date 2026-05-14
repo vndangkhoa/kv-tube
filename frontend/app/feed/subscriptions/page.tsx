@@ -6,7 +6,7 @@ import { getChannelVideosClient, getChannelInfoClient } from '../../clientAction
 import { VideoData } from '../../constants';
 import LoadingSpinner from '../../components/LoadingSpinner';
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://127.0.0.1:8080/api';
+const API_BASE = '/api';
 
 interface Subscription {
     channel_id: string;
