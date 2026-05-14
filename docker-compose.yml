@@ -1,9 +1,9 @@
 services:
   kv-tube:
-    # Option 1: Use pre-built image (replace with your registry URL)
-    image: kv-tube:latest
+    # Pull from Docker Hub (recommended)
+    image: vndangkhoa/kv-tube:latest
 
-    # Option 2: Build locally (uncomment to use)
+    # Or build locally (uncomment to use instead)
     # build:
     #   context: .
     #   dockerfile: Dockerfile
