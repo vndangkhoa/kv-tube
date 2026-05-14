@@ -282,10 +282,8 @@
 }
 
 @media (max-width: 768px) {
-  .yt-main-content {
-    margin-left: 0;
-    padding-bottom: 56px;
-  }
+  .yt-main-content,
+  .yt-main-content.sidebar-open { margin-left: 0 !important; padding-bottom: 56px; }
 }
 
 /* ===== VISIBILITY UTILITIES ===== */
