@@ -18,7 +18,7 @@ COPY frontend/package.json frontend/package-lock.json ./
 RUN npm ci
 
 FROM node:20-alpine AS frontend-builder
-ARG NEXT_PUBLIC_API_URL=http://127.0.0.1:8080
+ARG NEXT_PUBLIC_API_URL=http://127.0.0.1:8080/api
 WORKDIR /app
 COPY --from=frontend-deps /app/node_modules ./node_modules
 COPY frontend/ ./
@@ -57,7 +57,7 @@ ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV KVTUBE_DATA_DIR=/app/data
 ENV GIN_MODE=release
-ARG NEXT_PUBLIC_API_URL=http://127.0.0.1:8080
+ARG NEXT_PUBLIC_API_URL=http://127.0.0.1:8080/api
 ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
 
 RUN addgroup -S kvtube && adduser -S kvtube -G kvtube && chown -R kvtube:kvtube /app
