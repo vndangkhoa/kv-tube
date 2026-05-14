@@ -2,19 +2,17 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { MdHomeFilled, MdOutlineSubscriptions, MdOutlineVideoLibrary } from 'react-icons/md';
-import { SiYoutubeshorts } from 'react-icons/si';
 import { useSidebar } from '../context/SidebarContext';
+import { HomeIcon, SubscriptionsIcon, LibraryIcon } from '../icons';
 
 export default function Sidebar() {
     const pathname = usePathname();
     const { isSidebarOpen } = useSidebar();
 
     const navItems = [
-        { icon: <MdHomeFilled size={24} />, label: 'Home', path: '/' },
-        // { icon: <SiYoutubeshorts size={24} />, label: 'Shorts', path: '/shorts' },
-        { icon: <MdOutlineSubscriptions size={24} />, label: 'Sub', path: '/feed/subscriptions' },
-        { icon: <MdOutlineVideoLibrary size={24} />, label: 'You', path: '/feed/library' },
+        { icon: <HomeIcon size={24} />, label: 'Home', path: '/' },
+        { icon: <SubscriptionsIcon size={24} />, label: 'Sub', path: '/feed/subscriptions' },
+        { icon: <LibraryIcon size={24} />, label: 'You', path: '/feed/library' },
     ];
 
     return (

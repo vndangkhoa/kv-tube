@@ -612,6 +612,8 @@ export default function ClientWatchPage() {
     const [currentIndex, setCurrentIndex] = useState(-1);
     const [activeTab, setActiveTab] = useState<'upnext' | 'mix'>('upnext');
     const [apiError, setApiError] = useState<string | null>(null);
+    const [wideMode, setWideMode] = useState(false);
+    const [loopMode, setLoopMode] = useState(false);
 
     // Scroll to top when video changes or page loads
     useEffect(() => {
@@ -763,11 +765,11 @@ export default function ClientWatchPage() {
             minHeight: '100vh',
         }}>
             <div className="watch-page-container" style={{ 
-                maxWidth: '1800px', 
+                maxWidth: wideMode ? '100%' : '1800px', 
                 margin: '0 auto',
                 padding: '24px',
                 display: 'grid',
-                gridTemplateColumns: '1fr 400px',
+                gridTemplateColumns: wideMode ? '1fr' : '1fr 400px',
                 gap: '24px',
             }}>
                 {/* Main Content */}
@@ -779,6 +781,7 @@ export default function ClientWatchPage() {
                             title={videoInfo?.title}
                             autoplay={true}
                             onVideoEnd={handleVideoEnd}
+                            loop={loopMode}
                         />
                     </div>
 
@@ -790,52 +793,106 @@ export default function ClientWatchPage() {
                         padding: '8px 0',
                         gap: '8px',
                     }}>
-                        <button
-                            onClick={handlePrevious}
-                            disabled={currentIndex <= 0}
-                            style={{
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: '6px',
-                                padding: '8px 16px',
-                                backgroundColor: currentIndex > 0 ? 'var(--yt-hover)' : 'transparent',
-                                color: currentIndex > 0 ? 'var(--yt-text-primary)' : 'var(--yt-text-secondary)',
-                                border: '1px solid var(--yt-border)',
-                                borderRadius: '18px',
-                                cursor: currentIndex > 0 ? 'pointer' : 'not-allowed',
-                                fontSize: '13px',
-                                fontWeight: '500',
-                                opacity: currentIndex > 0 ? 1 : 0.5,
-                            }}
-                        >
-                            <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
-                                <path d="M6 6h2v12H6zm3.5 6l8.5 6V6z"/>
-                            </svg>
-                            Previous
-                        </button>
+                        <div style={{ display: 'flex', gap: '8px' }}>
+                            <button
+                                onClick={handlePrevious}
+                                disabled={currentIndex <= 0}
+                                style={{
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '6px',
+                                    padding: '8px 16px',
+                                    backgroundColor: currentIndex > 0 ? 'var(--yt-hover)' : 'transparent',
+                                    color: currentIndex > 0 ? 'var(--yt-text-primary)' : 'var(--yt-text-secondary)',
+                                    border: '1px solid var(--yt-border)',
+                                    borderRadius: '18px',
+                                    cursor: currentIndex > 0 ? 'pointer' : 'not-allowed',
+                                    fontSize: '13px',
+                                    fontWeight: '500',
+                                    opacity: currentIndex > 0 ? 1 : 0.5,
+                                }}
+                            >
+                                <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+                                    <path d="M6 6h2v12H6zm3.5 6l8.5 6V6z"/>
+                                </svg>
+                                Previous
+                            </button>
+                            
+                            <button
+                                onClick={handleNext}
+                                disabled={currentIndex >= currentPlaylist.length - 1}
+                                style={{
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '6px',
+                                    padding: '8px 16px',
+                                    backgroundColor: currentIndex < currentPlaylist.length - 1 ? 'var(--yt-blue)' : 'var(--yt-hover)',
+                                    color: '#fff',
+                                    border: 'none',
+                                    borderRadius: '18px',
+                                    cursor: currentIndex < currentPlaylist.length - 1 ? 'pointer' : 'not-allowed',
+                                    fontSize: '13px',
+                                    fontWeight: '500',
+                                }}
+                            >
+                                Next
+                                <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+                                    <path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/>
+                                </svg>
+                            </button>
+                        </div>
                         
-                        <button
-                            onClick={handleNext}
-                            disabled={currentIndex >= currentPlaylist.length - 1}
-                            style={{
-                                display: 'flex',
-                                alignItems: 'center',
-                                gap: '6px',
-                                padding: '8px 16px',
-                                backgroundColor: currentIndex < currentPlaylist.length - 1 ? 'var(--yt-blue)' : 'var(--yt-hover)',
-                                color: '#fff',
-                                border: 'none',
-                                borderRadius: '18px',
-                                cursor: currentIndex < currentPlaylist.length - 1 ? 'pointer' : 'not-allowed',
-                                fontSize: '13px',
-                                fontWeight: '500',
-                            }}
-                        >
-                            Next
-                            <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
-                                <path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/>
-                            </svg>
-                        </button>
+                        <div style={{ display: 'flex', gap: '8px' }}>
+                            {/* Loop Toggle */}
+                            <button
+                                onClick={() => setLoopMode(!loopMode)}
+                                title={loopMode ? 'Disable loop' : 'Enable loop'}
+                                style={{
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '6px',
+                                    padding: '8px 16px',
+                                    backgroundColor: loopMode ? 'var(--yt-blue)' : 'var(--yt-hover)',
+                                    color: loopMode ? '#fff' : 'var(--yt-text-primary)',
+                                    border: 'none',
+                                    borderRadius: '18px',
+                                    cursor: 'pointer',
+                                    fontSize: '13px',
+                                    fontWeight: '500',
+                                    transition: 'all 0.2s',
+                                }}
+                            >
+                                <svg width="18" height="18" viewBox="0 0 24 24" fill={loopMode ? '#fff' : 'currentColor'}>
+                                    <path d="M12 4V1L8 5l4 4V6c3.31 0 6 2.69 6 6 0 1.01-.25 1.97-.7 2.8l1.46 1.46C19.54 15.03 20 13.57 20 12c0-4.42-3.58-8-8-8zm0 14c-3.31 0-6-2.69-6-6 0-1.01.25-1.97.7-2.8L5.24 7.74C4.46 8.97 4 10.43 4 12c0 4.42 3.58 8 8 8v3l4-4-4-4v3z"/>
+                                </svg>
+                                Loop
+                            </button>
+                            
+                            {/* Wide Mode Toggle */}
+                            <button
+                                onClick={() => setWideMode(!wideMode)}
+                                title={wideMode ? 'Exit wide mode' : 'Enter wide mode'}
+                                style={{
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '6px',
+                                    padding: '8px 16px',
+                                    backgroundColor: wideMode ? 'var(--yt-blue)' : 'var(--yt-hover)',
+                                    color: wideMode ? '#fff' : 'var(--yt-text-primary)',
+                                    border: 'none',
+                                    borderRadius: '18px',
+                                    cursor: 'pointer',
+                                    fontSize: '13px',
+                                    fontWeight: '500',
+                                    transition: 'all 0.2s',
+                                }}
+                            >
+                                <svg width="18" height="18" viewBox="0 0 24 24" fill={wideMode ? '#fff' : 'currentColor'}>
+                                    <path d="M19 4H5c-1.11 0-2 .9-2 2v12c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 14H5V8h14v10z"/>
+                                </svg>
+                                Wide
+                            </button>
+                        </div>
                     </div>
 
                     {/* Video Info */}
@@ -852,7 +909,7 @@ export default function ClientWatchPage() {
                     height: 'fit-content',
                     maxHeight: 'calc(100vh - 80px)',
                     overflowY: 'auto',
-                    display: 'flex',
+                    display: wideMode ? 'none' : 'flex',
                     flexDirection: 'column',
                     gap: '12px',
                 }}>

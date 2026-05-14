@@ -17,6 +17,7 @@ interface YouTubePlayerProps {
     autoplay?: boolean;
     onVideoEnd?: () => void;
     onVideoReady?: () => void;
+    loop?: boolean;
 }
 
 function PlayerSkeleton() {
@@ -40,14 +41,30 @@ export default function YouTubePlayer({
     title, 
     autoplay = true,
     onVideoEnd,
-    onVideoReady 
+    onVideoReady,
+    loop = false 
 }: YouTubePlayerProps) {
     const playerRef = useRef<HTMLDivElement>(null);
+    const playerContainerRef = useRef<HTMLDivElement>(null);
     const playerInstanceRef = useRef<any>(null);
+    const loopRef = useRef(loop);
     const [isApiReady, setIsApiReady] = useState(false);
     const [isPlayerReady, setIsPlayerReady] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    const [isFullscreen, setIsFullscreen] = useState(false);
     const router = useRouter();
+
+    // Keep loop ref in sync
+    loopRef.current = loop;
+
+    // Fullscreen change listener
+    useEffect(() => {
+        const handleFullscreenChange = () => {
+            setIsFullscreen(!!document.fullscreenElement);
+        };
+        document.addEventListener('fullscreenchange', handleFullscreenChange);
+        return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
+    }, []);
 
     // Load YouTube IFrame API
     useEffect(() => {
@@ -134,7 +151,11 @@ export default function YouTubePlayer({
                     onStateChange: (event: any) => {
                         // Video ended
                         if (event.data === window.YT.PlayerState.ENDED) {
-                            if (onVideoEnd) {
+                            if (loopRef.current) {
+                                // Loop mode: restart video
+                                event.target.seekTo(0);
+                                event.target.playVideo();
+                            } else if (onVideoEnd) {
                                 onVideoEnd();
                             }
                         }
@@ -208,7 +229,17 @@ export default function YouTubePlayer({
     }
 
     return (
-        <div style={{ position: 'relative', width: '100%', aspectRatio: '16/9', backgroundColor: '#000', borderRadius: '12px', overflow: 'hidden' }}>
+        <div 
+            ref={playerContainerRef}
+            style={{ 
+                position: 'relative', 
+                width: '100%', 
+                aspectRatio: '16/9', 
+                backgroundColor: '#000', 
+                borderRadius: isFullscreen ? '0' : '12px', 
+                overflow: 'hidden' 
+            }}
+        >
             {!isPlayerReady && !error && <PlayerSkeleton />}
             <div 
                 ref={playerRef} 
@@ -221,6 +252,44 @@ export default function YouTubePlayer({
                     left: 0,
                 }}
             />
+            {/* Fullscreen button */}
+            <button
+                onClick={() => {
+                    if (document.fullscreenElement) {
+                        document.exitFullscreen();
+                    } else {
+                        playerContainerRef.current?.requestFullscreen();
+                    }
+                }}
+                style={{
+                    position: 'absolute',
+                    bottom: '8px',
+                    right: '8px',
+                    backgroundColor: 'rgba(0,0,0,0.6)',
+                    border: 'none',
+                    borderRadius: '4px',
+                    padding: '6px',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    transition: 'background-color 0.2s',
+                    zIndex: 10,
+                }}
+                onMouseEnter={(e) => e.currentTarget.style.backgroundColor = 'rgba(0,0,0,0.8)'}
+                onMouseLeave={(e) => e.currentTarget.style.backgroundColor = 'rgba(0,0,0,0.6)'}
+                title={isFullscreen ? 'Exit fullscreen' : 'Fullscreen'}
+            >
+                {isFullscreen ? (
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="white">
+                        <path d="M5 16h3v3h2v-5H5v2zm3-8H5v2h5V5H8v3zm6 11h2v-3h3v-2h-5v5zm2-11V5h-2v5h5V8h-3z"/>
+                    </svg>
+                ) : (
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="white">
+                        <path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/>
+                    </svg>
+                )}
+            </button>
         </div>
     );
 }

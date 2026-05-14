@@ -3,10 +3,11 @@
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useState, useRef, useEffect } from 'react';
-import { IoSearchOutline, IoMoonOutline, IoSunnyOutline, IoArrowBack, IoMenuOutline } from 'react-icons/io5';
+import { IoMoonOutline, IoSunnyOutline, IoArrowBack, IoMenuOutline } from 'react-icons/io5';
 import RegionSelector from './RegionSelector';
 import { useTheme } from '../context/ThemeContext';
 import { useSidebar } from '../context/SidebarContext';
+import { Logo, SearchIcon } from '../icons';
 
 export default function Header() {
     const [searchQuery, setSearchQuery] = useState('');
@@ -45,8 +46,8 @@ export default function Header() {
                         }} title="Menu">
                             <IoMenuOutline size={22} />
                         </button>
-                        <Link href="/" style={{ display: 'flex', alignItems: 'center', gap: '4px', marginLeft: '12px' }}>
-                            <span style={{ fontSize: '18px', fontWeight: '700', letterSpacing: '-0.5px', fontFamily: 'YouTube Sans, Roboto, Arial, sans-serif' }} className="hidden-mobile">KV-Tube</span>
+                        <Link href="/" style={{ display: 'flex', alignItems: 'center', marginLeft: '12px' }}>
+                            <Logo size={24} showText className="hidden-mobile" />
                         </Link>
                     </div>
 
@@ -54,7 +55,7 @@ export default function Header() {
                     <div className="yt-header-center hidden-mobile">
                         <form className="search-container" onSubmit={handleSearch}>
                             <div className="search-input-wrapper">
-                                <IoSearchOutline size={18} className="search-input-icon" />
+                                <SearchIcon size={18} className="search-input-icon" />
                                 <input
                                     ref={inputRef}
                                     type="text"
@@ -78,7 +79,7 @@ export default function Header() {
                                     </button>
                                 )}
                                 <button type="submit" className="search-btn" title="Search">
-                                    <IoSearchOutline size={18} />
+                                    <SearchIcon size={18} />
                                 </button>
                             </div>
                         </form>
@@ -87,7 +88,7 @@ export default function Header() {
                     {/* Right - Region and Theme */}
                     <div className="yt-header-right">
                         <button className="yt-icon-btn visible-mobile" onClick={() => setIsMobileSearchActive(true)} title="Search">
-                            <IoSearchOutline size={22} />
+                            <SearchIcon size={22} />
                         </button>
                         <button className="yt-icon-btn" onClick={toggleTheme} title="Toggle Theme">
                             {theme === 'dark' ? <IoSunnyOutline size={22} /> : <IoMoonOutline size={22} />}
@@ -103,7 +104,7 @@ export default function Header() {
                     </button>
                     <form className="search-container" onSubmit={handleSearch} style={{ flex: 1 }}>
                         <div className="search-input-wrapper">
-                            <IoSearchOutline size={16} className="search-input-icon" />
+                            <SearchIcon size={16} className="search-input-icon" />
                             <input
                                 ref={mobileInputRef}
                                 type="text"
