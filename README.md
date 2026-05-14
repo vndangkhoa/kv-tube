@@ -98,3 +98,7 @@ docker compose up -d
 ```
 
 Or enable auto-updates with [Watchtower](https://github.com/containrrr/watchtower).
+
+## License
+
+MIT License — see [LICENSE](LICENSE) for details.
