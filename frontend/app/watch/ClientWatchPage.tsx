@@ -780,11 +780,13 @@ export default function ClientWatchPage() {
         }}>
             <div className="watch-page-container" style={{ 
                 maxWidth: wideMode ? '100%' : '1800px', 
+                width: '100%',
                 margin: '0 auto',
                 padding: '24px',
                 display: 'grid',
                 gridTemplateColumns: wideMode ? '1fr' : '1fr 400px',
                 gap: '24px',
+                boxSizing: 'border-box',
             }}>
                 {/* Main Content */}
                 <div className="watch-main">
@@ -1058,7 +1060,7 @@ export default function ClientWatchPage() {
                 
                 @media (max-width: 768px) {
                     .watch-page-container {
-                        padding: 12px !important;
+                        padding: 8px !important;
                     }
                 }
             `}</style>

@@ -270,9 +270,8 @@
 }
 
 @media (max-width: 768px) {
-  .yt-sidebar-mini {
-    display: none;
-  }
+  .yt-sidebar-mini,
+  .yt-sidebar-mini.sidebar-open { display: none !important; }
 }
 
 .yt-main-content {
