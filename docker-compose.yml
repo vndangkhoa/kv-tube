@@ -1,53 +1,52 @@
-# KV-Tube - Self-hosted YouTube-like Video Streaming Platform
-# Supports: linux/amd64 (Synology NAS, Linux servers)
-# 
+# KV-Tube - Unified Docker Compose
 # Usage: docker-compose up -d
 #
+# For Synology NAS: Uses pre-built image from Forgejo registry
+# For local dev: Uncomment 'build' section to build locally
+#
 # Access:
-#   - Frontend: http://localhost:5011
+#   - Frontend: http://localhost:5011 (or your NAS IP)
 #   - Backend API: http://localhost:8981
 
 version: '3.8'
 
 services:
   kv-tube:
-    # Build from local Dockerfile (for first-time setup or development)
-    # To use pre-built image, comment out 'build' and use 'image' instead
-    build:
-      context: .
-      dockerfile: Dockerfile
-      args:
-        # API URL for frontend to communicate with backend
-        # Change to your NAS IP or domain if accessing remotely
-        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:8080/api}
-    
-    # Uncomment below to use pre-built image instead of building:
-    # image: git.khoavo.myds.me/vndangkhoa/kv-tube:latest
-    
+    # Option 1: Use pre-built image (recommended for Synology NAS)
+    image: git.khoavo.myds.me/vndangkhoa/kv-tube:latest
+
+    # Option 2: Build locally (uncomment to use)
+    # build:
+    #   context: .
+    #   dockerfile: Dockerfile
+
     container_name: kv-tube
-    platform: linux/amd64  # Required for Synology NAS
+    platform: linux/amd64
     restart: unless-stopped
-    
+
     ports:
       - "5011:3000"   # Frontend (Next.js)
       - "8981:8080"   # Backend API (Go)
-    
+
     volumes:
-      - ./data:/app/data  # Persistent data (SQLite DB, cache)
-    
+      - ./data:/app/data
+
     environment:
       - KVTUBE_DATA_DIR=/app/data
       - GIN_MODE=release
       - NODE_ENV=production
-      # Allow all origins for development - tighten in production
-      - CORS_ALLOWED_ORIGINS=*
-    
-    # Enable Watchtower for auto-updates (optional)
+      # Update these for your domain
+      - FORGEJO__server__ROOT_URL=https://git.khoavo.myds.me/
+      - FORGEJO__server__DOMAIN=git.khoavo.myds.me
+      # CORS - update to your actual domain
+      - CORS_ALLOWED_ORIGINS=https://ut.khoavo.myds.me,http://ut.khoavo.myds.me:5011,http://localhost:3000,http://127.0.0.1:3000,http://localhost:5011
+
     labels:
       - "com.centurylinklabs.watchtower.enable=true"
 
-# To enable auto-updates with Watchtower, add this service:
-# 
+# Optional: Auto-update with Watchtower
+# Uncomment to enable automatic updates
+#
 # services:
 #   watchtower:
 #     image: containrrr/watchtower
@@ -55,4 +54,4 @@ services:
 #     restart: unless-stopped
 #     volumes:
 #       - /var/run/docker.sock:/var/run/docker.sock
-#     command: --interval 86400 kv-tube  # Check once daily
+#     command: --interval 86400 kv-tube
