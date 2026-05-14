@@ -2,6 +2,51 @@
 
 A modern, fast, and fully-featured YouTube-like video streaming platform. Built with a robust Go backend and a highly responsive Next.js frontend, KV-Tube is designed for seamless deployment on systems like Synology NAS via Docker.
 
+---
+
+## Quick Setup (Latest v9)
+
+### For Synology NAS (Recommended)
+
+1. **Create folder** on your NAS:
+   - Path: `/volume1/docker/kv-tube/`
+   - Inside, create a `data` subfolder
+
+2. **Upload these files** to `/volume1/docker/kv-tube/`:
+   - `docker-compose.yml`
+   - `Dockerfile`
+   - `supervisord.conf`
+
+3. **Open Container Manager** > **Project** > **Create**
+   - Project Name: `kv-tube`
+   - Path: `/volume1/docker/kv-tube`
+   - Click **Done**
+
+4. **Access** at `http://<your-nas-ip>:5011`
+
+---
+
+### For Docker/Docker Compose
+
+```bash
+# Clone the repo
+git clone https://github.com/vndangkhoa/kv-tube.git
+cd kv-tube
+
+# Create data folder
+mkdir -p data
+
+# Build and run
+docker build -t kv-tube:latest .
+docker-compose up -d
+```
+
+**Access:**
+- Frontend: http://localhost:5011
+- Backend API: http://localhost:8981
+
+---
+
 ## Features
 
 - **Modern Video Player**: High-resolution video playback with HLS support and quality selection.
