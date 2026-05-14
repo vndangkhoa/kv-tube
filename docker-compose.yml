@@ -1,19 +1,7 @@
-# KV-Tube - Unified Docker Compose
-# Usage: docker-compose up -d
-#
-# For Synology NAS: Uses pre-built image from Forgejo registry
-# For local dev: Uncomment 'build' section to build locally
-#
-# Access:
-#   - Frontend: http://localhost:5011 (or your NAS IP)
-#   - Backend API: http://localhost:8981
-
-version: '3.8'
-
 services:
   kv-tube:
-    # Option 1: Use pre-built image (recommended for Synology NAS)
-    image: git.khoavo.myds.me/vndangkhoa/kv-tube:latest
+    # Option 1: Use pre-built image (replace with your registry URL)
+    image: kv-tube:latest
 
     # Option 2: Build locally (uncomment to use)
     # build:
@@ -35,23 +23,9 @@ services:
       - KVTUBE_DATA_DIR=/app/data
       - GIN_MODE=release
       - NODE_ENV=production
-      # Update these for your domain
-      - FORGEJO__server__ROOT_URL=https://git.khoavo.myds.me/
-      - FORGEJO__server__DOMAIN=git.khoavo.myds.me
-      # CORS - update to your actual domain
-      - CORS_ALLOWED_ORIGINS=https://ut.khoavo.myds.me,http://ut.khoavo.myds.me:5011,http://localhost:3000,http://127.0.0.1:3000,http://localhost:5011
+      # CORS - replace with your actual domain(s)
+      # Example: https://kv-tube.example.com,http://localhost:5011
+      - CORS_ALLOWED_ORIGINS=http://localhost:3000,http://127.0.0.1:3000,http://localhost:5011
 
     labels:
       - "com.centurylinklabs.watchtower.enable=true"
-
-# Optional: Auto-update with Watchtower
-# Uncomment to enable automatic updates
-#
-# services:
-#   watchtower:
-#     image: containrrr/watchtower
-#     container_name: watchtower
-#     restart: unless-stopped
-#     volumes:
-#       - /var/run/docker.sock:/var/run/docker.sock
-#     command: --interval 86400 kv-tube
