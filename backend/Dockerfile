@@ -20,6 +20,10 @@ WORKDIR /app
 
 COPY --from=builder /app/kv-tube .
 
+RUN addgroup -S kvtube && adduser -S kvtube -G kvtube && chown -R kvtube:kvtube /app
+
+USER kvtube
+
 EXPOSE 8080
 
 ENV KVTUBE_DATA_DIR=/app/data

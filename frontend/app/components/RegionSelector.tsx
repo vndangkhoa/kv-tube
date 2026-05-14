@@ -21,7 +21,7 @@ function getRegionCookie(): string {
 }
 
 function setRegionCookie(code: string) {
-    document.cookie = `region=${encodeURIComponent(code)}; path=/; max-age=${60 * 60 * 24 * 365}; SameSite=Lax`;
+    document.cookie = `region=${encodeURIComponent(code)}; path=/; max-age=${60 * 60 * 24 * 365}; SameSite=Lax; Secure`;
 }
 
 export default function RegionSelector() {

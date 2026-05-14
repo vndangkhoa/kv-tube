@@ -30,9 +30,15 @@ credentials.json
 .vscode/
 *.swp
 
+# Logs
+*.log
+
 # Debug files
 *_debug.txt
 
 # Temporary
 tmp_*/
+
+# Windows reserved names
+nul
 .gemini/

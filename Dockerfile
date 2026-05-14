@@ -60,6 +60,10 @@ ENV GIN_MODE=release
 ARG NEXT_PUBLIC_API_URL=http://127.0.0.1:8080
 ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
 
+RUN addgroup -S kvtube && adduser -S kvtube -G kvtube && chown -R kvtube:kvtube /app
+
+USER kvtube
+
 EXPOSE 3000 8080
 
 CMD ["/usr/bin/supervisord", "-c", "/etc/supervisord.conf"]
