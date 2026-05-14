@@ -1,29 +1,83 @@
-<p align="center">
-  <img src="https://img.shields.io/badge/Go-00ADD8?style=for-the-badge&logo=go&logoColor=white" alt="Go" />
-  <img src="https://img.shields.io/badge/Next.js-000000?style=for-the-badge&logo=nextdotjs&logoColor=white" alt="Next.js" />
-  <img src="https://img.shields.io/badge/Docker-2496ED?style=for-the-badge&logo=docker&logoColor=white" alt="Docker" />
-  <img src="https://img.shields.io/badge/SQLite-003B57?style=for-the-badge&logo=sqlite&logoColor=white" alt="SQLite" />
-  <img src="https://img.shields.io/badge/MIT License-yellow?style=for-the-badge&logo=opensourceinitiative&logoColor=white" alt="License" />
-</p>
-
 <h1 align="center">🎬 KV-Tube</h1>
 
 <p align="center">
-  <strong>Self-hosted video streaming platform</strong><br />
-  Go backend + Next.js frontend — single Docker container
+  <strong>Your personal YouTube · Self-hosted, private, lightweight</strong>
 </p>
 
 <p align="center">
-  <a href="#quick-start">Quick Start</a> •
-  <a href="#features">Features</a> •
-  <a href="#architecture">Architecture</a> •
-  <a href="#deployment">Deployment</a> •
-  <a href="#development">Development</a>
+  <a href="https://github.com/vndangkhoa/kv-tube/blob/main/LICENSE">
+    <img src="https://img.shields.io/github/license/vndangkhoa/kv-tube?style=flat-square" alt="License" />
+  </a>
+  <img src="https://img.shields.io/badge/Go-1.25-00ADD8?style=flat-square&logo=go" alt="Go" />
+  <img src="https://img.shields.io/badge/Next.js-16-000000?style=flat-square&logo=nextdotjs" alt="Next.js" />
+  <img src="https://img.shields.io/badge/Docker-Ready-2496ED?style=flat-square&logo=docker" alt="Docker" />
+  <img src="https://img.shields.io/badge/SQLite-003B57?style=flat-square&logo=sqlite" alt="SQLite" />
+  <img src="https://img.shields.io/badge/PWA-Yes-5A0FC8?style=flat-square&logo=pwa" alt="PWA" />
+</p>
+
+<p align="center">
+  <a href="#-features">Features</a> •
+  <a href="#-quick-start">Quick Start</a> •
+  <a href="#-why-kv-tube">Why KV-Tube?</a> •
+  <a href="#-deployment">Deployment</a> •
+  <a href="#-development">Development</a> •
+  <a href="#-contributing">Contributing</a>
 </p>
 
 ---
 
-<h2>🚀 Quick Start</h2>
+<p align="center">
+  <i>Watch, search, and subscribe — just like YouTube, but fully under your control.</i>
+</p>
+
+<!-- TODO: Add a demo screenshot/GIF here -->
+
+## ✨ Features
+
+<table>
+<tr>
+  <td width="50%">
+    <h3>🎞️ Video Playback</h3>
+    HLS streaming with adaptive quality — from 144p to 4K.
+  </td>
+  <td width="50%">
+    <h3>📜 Watch History</h3>
+    Automatically tracked. Always in sync. Never lose your place.
+  </td>
+</tr>
+<tr>
+  <td width="50%">
+    <h3>🔔 Subscriptions</h3>
+    Follow any YouTube channel. Get updates instantly.
+  </td>
+  <td width="50%">
+    <h3>🔍 Search</h3>
+    Full-text search across videos, channels, and history.
+  </td>
+</tr>
+<tr>
+  <td width="50%">
+    <h3>🎵 Background Audio</h3>
+    Keep listening with the screen locked — perfect for music.
+  </td>
+  <td width="50%">
+    <h3>📱 PWA</h3>
+    Install as a native app. Works offline. Full-screen experience.
+  </td>
+</tr>
+<tr>
+  <td width="50%">
+    <h3>🌍 Region Tuning</h3>
+    Tailor content and recommendations to any region.
+  </td>
+  <td width="50%">
+    <h3>🌓 Themes</h3>
+    Light, dark, and system-following themes out of the box.
+  </td>
+</tr>
+</table>
+
+## 🚀 Quick Start
 
 ```bash
 git clone https://github.com/vndangkhoa/kv-tube.git
@@ -34,69 +88,57 @@ docker compose up -d
 ```
 
 <p align="center">
-  <b>Frontend:</b> <code>http://localhost:5011</code> &nbsp;•&nbsp;
-  <b>API:</b> <code>http://localhost:8981</code>
+  <b>Frontend:</b> <a href="http://localhost:5011">http://localhost:5011</a> &nbsp;•&nbsp;
+  <b>API:</b> <a href="http://localhost:8981">http://localhost:8981</a>
 </p>
 
 ---
 
-<h2>✨ Features</h2>
+## 🤔 Why KV-Tube?
 
-<table>
-<tr>
-<td>🎞️</td>
-<td><b>Video Playback</b><br/>HLS streaming with quality selection</td>
-<td>📜</td>
-<td><b>Watch History</b><br/>Track what you've watched</td>
-</tr>
-<tr>
-<td>🔔</td>
-<td><b>Subscriptions</b><br/>Follow YouTube channels</td>
-<td>🔍</td>
-<td><b>Search</b><br/>Find videos instantly</td>
-</tr>
-<tr>
-<td>🎵</td>
-<td><b>Background Audio</b><br/>Play with screen locked</td>
-<td>📱</td>
-<td><b>PWA</b><br/>Install as native app</td>
-</tr>
-<tr>
-<td>🌍</td>
-<td><b>Region Selection</b><br/>Tailor content by region</td>
-<td>🌓</td>
-<td><b>Themes</b><br/>Light & dark mode</td>
-</tr>
-</table>
+YouTube is incredible — but it's also ad-ridden, tracks everything, and sometimes removes the videos you love.
+
+KV-Tube gives you:
+
+- **Privacy** — No tracking, no algorithms manipulating you. Your watch history stays on your machine.
+- **Permanence** — Videos you subscribe to stay available. No takedowns, no region blocks.
+- **Ownership** — Run it on your NAS, your VPS, or a Raspberry Pi. It's yours.
+- **Simplicity** — One container. One command. Zero configuration.
+
+## 📖 Backstory
+
+I built KV-Tube because I wanted a way to watch YouTube content without the YouTube baggage — ads, recommendation rabbit holes, and the feeling that the product was me, not the video player.
+
+What started as a simple Go API to proxy video streams evolved into a full-featured frontend with subscriptions, search, PWA support, and a clean, YouTube-like interface. It runs on my Synology NAS at home, and I use it daily.
+
+If that resonates, give it a star ⭐ — it helps others find the project.
 
 ---
 
-<h2>🏗️ Architecture</h2>
+## 🏗️ Architecture
+
+KV-Tube ships as a single Docker image. Everything runs in one container, managed by supervisord.
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Go-00ADD8?style=flat&logo=go&logoColor=white" />
-  <img src="https://img.shields.io/badge/Gin-008ECF?style=flat&logo=gin&logoColor=white" />
-  <img src="https://img.shields.io/badge/Next.js-000000?style=flat&logo=nextdotjs&logoColor=white" />
-  <img src="https://img.shields.io/badge/Supervisord-FF9900?style=flat&logo=superuser&logoColor=white" />
-  <img src="https://img.shields.io/badge/SQLite-003B57?style=flat&logo=sqlite&logoColor=white" />
-  <img src="https://img.shields.io/badge/yt--dlp-FF0000?style=flat&logo=youtube&logoColor=white" />
-  <img src="https://img.shields.io/badge/FFmpeg-007808?style=flat&logo=ffmpeg&logoColor=white" />
+  <img src="https://img.shields.io/badge/Go-1.25-00ADD8?style=flat&logo=go" />
+  <img src="https://img.shields.io/badge/Gin-008ECF?style=flat&logo=go" />
+  <img src="https://img.shields.io/badge/Next.js-16-000000?style=flat&logo=nextdotjs" />
+  <img src="https://img.shields.io/badge/Supervisord-FF9900?style=flat&logo=superuser" />
+  <img src="https://img.shields.io/badge/SQLite-003B57?style=flat&logo=sqlite" />
+  <img src="https://img.shields.io/badge/yt--dlp-FF0000?style=flat&logo=youtube" />
+  <img src="https://img.shields.io/badge/FFmpeg-007808?style=flat&logo=ffmpeg" />
 </p>
 
-Single unified Docker container running:
+| Layer | Tech | Port | Role |
+|-------|------|------|------|
+| **Backend** | Go + Gin | `8080` | REST API, video fetching, yt-dlp orchestration |
+| **Frontend** | Next.js 16 | `3000` | SSR, PWA, responsive UI |
+| **Process Manager** | supervisord | — | Keeps backend + frontend alive |
+| **Storage** | SQLite | — | Watch history, subscriptions, metadata |
 
-| Component | Tech | Port | Role |
-|-----------|------|------|------|
-| **Backend** | Go + Gin | `8080` | REST API, video processing, yt-dlp |
-| **Frontend** | Next.js 16 | `3000` | SSR, PWA, UI |
-| **Process Manager** | supervisord | — | Manages both processes |
-| **Storage** | SQLite | — | Watch history & metadata |
+## 📦 Deployment
 
----
-
-<h2>📦 Deployment</h2>
-
-<h3>🐳 Docker Compose</h3>
+### 🐳 Docker Compose (Recommended)
 
 ```yaml
 services:
@@ -116,16 +158,14 @@ services:
     restart: unless-stopped
 ```
 
-<h3>🖥️ Synology NAS (DSM 7.2+)</h3>
+### 🖥️ Synology NAS (DSM 7.2+)
 
-<ol>
-  <li>Create <code>/volume1/docker/kv-tube/data</code></li>
-  <li>Upload <code>docker-compose.yml</code>, <code>Dockerfile</code>, <code>supervisord.conf</code></li>
-  <li>Open <b>Container Manager</b> > <b>Project</b> > <b>Create</b></li>
-  <li>Select path <code>/volume1/docker/kv-tube</code>, click <b>Done</b></li>
-</ol>
+1. Create folder `/volume1/docker/kv-tube/data`
+2. Upload `docker-compose.yml`, `Dockerfile`, `supervisord.conf`
+3. In **Container Manager** → **Project** → **Create**, select the folder
+4. Done. The container builds and starts automatically.
 
-<h3>🛠️ Multi-arch Build</h3>
+### 🛠️ Multi-arch Build
 
 ```bash
 docker buildx build --platform linux/amd64 -t kv-tube:latest --push .
@@ -133,19 +173,19 @@ docker buildx build --platform linux/amd64 -t kv-tube:latest --push .
 
 ---
 
-<h2>⚙️ Environment Variables</h2>
+## ⚙️ Configuration
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `KVTUBE_DATA_DIR` | `/app/data` | Data storage path |
-| `GIN_MODE` | `release` | Gin framework mode |
-| `NODE_ENV` | `production` | Node environment |
-| `CORS_ALLOWED_ORIGINS` | — | Comma-separated allowed CORS origins |
-| `PORT` | `8080` | Backend API port |
+| `KVTUBE_DATA_DIR` | `/app/data` | Path for SQLite DB and data |
+| `GIN_MODE` | `release` | Gin framework log mode |
+| `NODE_ENV` | `production` | Node.js environment |
+| `CORS_ALLOWED_ORIGINS` | `""` | Comma-separated allowed origins |
+| `PORT` | `8080` | Backend API listen port |
 
 ---
 
-<h2>💻 Development</h2>
+## 💻 Development
 
 ```bash
 # Frontend
@@ -160,21 +200,27 @@ go run main.go
 
 ---
 
-<h2>🔄 Updating</h2>
+## 🤝 Contributing
 
-```bash
-docker compose pull
-docker compose up -d
-```
+Contributions are welcome! Here's how to help:
 
-Or enable auto-updates with <a href="https://github.com/containrrr/watchtower">Watchtower</a>.
+1. Fork the repo
+2. Create a feature branch (`git checkout -b feature/amazing`)
+3. Commit your changes (`git commit -m 'Add amazing feature'`)
+4. Push (`git push origin feature/amazing`)
+5. Open a Pull Request
+
+Please make sure to follow existing code style and add tests when possible.
 
 ---
 
-<h2>📄 License</h2>
+## 📄 License
 
-<p>
-  <img src="https://img.shields.io/github/license/vndangkhoa/kv-tube?style=flat" alt="License" />
+Distributed under the **MIT License**. See [`LICENSE`](LICENSE) for more information.
+
+<p align="center">
+  <br />
+  <sub>If you find this project useful, please <a href="https://github.com/vndangkhoa/kv-tube">⭐ star it on GitHub</a>.</sub>
+  <br />
+  <sub>Built with ❤️ by <a href="https://github.com/vndangkhoa">Khoa Vo</a></sub>
 </p>
-
-MIT License — see <a href="LICENSE">LICENSE</a> for details.
