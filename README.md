@@ -1,8 +1,29 @@
-# KV-Tube
+<p align="center">
+  <img src="https://img.shields.io/badge/Go-00ADD8?style=for-the-badge&logo=go&logoColor=white" alt="Go" />
+  <img src="https://img.shields.io/badge/Next.js-000000?style=for-the-badge&logo=nextdotjs&logoColor=white" alt="Next.js" />
+  <img src="https://img.shields.io/badge/Docker-2496ED?style=for-the-badge&logo=docker&logoColor=white" alt="Docker" />
+  <img src="https://img.shields.io/badge/SQLite-003B57?style=for-the-badge&logo=sqlite&logoColor=white" alt="SQLite" />
+  <img src="https://img.shields.io/badge/MIT License-yellow?style=for-the-badge&logo=opensourceinitiative&logoColor=white" alt="License" />
+</p>
 
-A modern, self-hosted video streaming platform. Go backend + Next.js frontend in a single Docker container.
+<h1 align="center">🎬 KV-Tube</h1>
 
-## Quick Start
+<p align="center">
+  <strong>Self-hosted video streaming platform</strong><br />
+  Go backend + Next.js frontend — single Docker container
+</p>
+
+<p align="center">
+  <a href="#quick-start">Quick Start</a> •
+  <a href="#features">Features</a> •
+  <a href="#architecture">Architecture</a> •
+  <a href="#deployment">Deployment</a> •
+  <a href="#development">Development</a>
+</p>
+
+---
+
+<h2>🚀 Quick Start</h2>
 
 ```bash
 git clone https://github.com/vndangkhoa/kv-tube.git
@@ -12,30 +33,70 @@ docker build -t kv-tube:latest .
 docker compose up -d
 ```
 
-- **Frontend:** http://localhost:5011
-- **API:** http://localhost:8981
+<p align="center">
+  <b>Frontend:</b> <code>http://localhost:5011</code> &nbsp;•&nbsp;
+  <b>API:</b> <code>http://localhost:8981</code>
+</p>
 
-## Features
+---
 
-- High-resolution video playback with HLS and quality selection
-- Watch history, subscriptions, and search
-- Background audio playback (mobile-friendly)
-- Progressive Web App (installable)
-- Region selection
-- Light/dark theme, responsive design
-- Infinite scrolling, skeleton loaders
+<h2>✨ Features</h2>
 
-## Architecture
+<table>
+<tr>
+<td>🎞️</td>
+<td><b>Video Playback</b><br/>HLS streaming with quality selection</td>
+<td>📜</td>
+<td><b>Watch History</b><br/>Track what you've watched</td>
+</tr>
+<tr>
+<td>🔔</td>
+<td><b>Subscriptions</b><br/>Follow YouTube channels</td>
+<td>🔍</td>
+<td><b>Search</b><br/>Find videos instantly</td>
+</tr>
+<tr>
+<td>🎵</td>
+<td><b>Background Audio</b><br/>Play with screen locked</td>
+<td>📱</td>
+<td><b>PWA</b><br/>Install as native app</td>
+</tr>
+<tr>
+<td>🌍</td>
+<td><b>Region Selection</b><br/>Tailor content by region</td>
+<td>🌓</td>
+<td><b>Themes</b><br/>Light & dark mode</td>
+</tr>
+</table>
+
+---
+
+<h2>🏗️ Architecture</h2>
+
+<p align="center">
+  <img src="https://img.shields.io/badge/Go-00ADD8?style=flat&logo=go&logoColor=white" />
+  <img src="https://img.shields.io/badge/Gin-008ECF?style=flat&logo=gin&logoColor=white" />
+  <img src="https://img.shields.io/badge/Next.js-000000?style=flat&logo=nextdotjs&logoColor=white" />
+  <img src="https://img.shields.io/badge/Supervisord-FF9900?style=flat&logo=superuser&logoColor=white" />
+  <img src="https://img.shields.io/badge/SQLite-003B57?style=flat&logo=sqlite&logoColor=white" />
+  <img src="https://img.shields.io/badge/yt--dlp-FF0000?style=flat&logo=youtube&logoColor=white" />
+  <img src="https://img.shields.io/badge/FFmpeg-007808?style=flat&logo=ffmpeg&logoColor=white" />
+</p>
 
 Single unified Docker container running:
-- **Backend:** Go (Gin framework) — API server on port 8080
-- **Frontend:** Next.js 16 (standalone) — SSR on port 3000
-- **Process Manager:** supervisord manages both processes
-- **Storage:** SQLite for watch history and metadata
 
-## Deployment
+| Component | Tech | Port | Role |
+|-----------|------|------|------|
+| **Backend** | Go + Gin | `8080` | REST API, video processing, yt-dlp |
+| **Frontend** | Next.js 16 | `3000` | SSR, PWA, UI |
+| **Process Manager** | supervisord | — | Manages both processes |
+| **Storage** | SQLite | — | Watch history & metadata |
 
-### Docker Compose
+---
+
+<h2>📦 Deployment</h2>
+
+<h3>🐳 Docker Compose</h3>
 
 ```yaml
 services:
@@ -51,23 +112,28 @@ services:
       - KVTUBE_DATA_DIR=/app/data
       - GIN_MODE=release
       - NODE_ENV=production
+      - CORS_ALLOWED_ORIGINS=http://localhost:3000,http://localhost:5011
     restart: unless-stopped
 ```
 
-### Synology NAS (DSM 7.2+)
+<h3>🖥️ Synology NAS (DSM 7.2+)</h3>
 
-1. Create `/volume1/docker/kv-tube/data`
-2. Upload `docker-compose.yml`, `Dockerfile`, `supervisord.conf`
-3. Open **Container Manager** > **Project** > **Create**
-4. Select path `/volume1/docker/kv-tube`, click **Done**
+<ol>
+  <li>Create <code>/volume1/docker/kv-tube/data</code></li>
+  <li>Upload <code>docker-compose.yml</code>, <code>Dockerfile</code>, <code>supervisord.conf</code></li>
+  <li>Open <b>Container Manager</b> > <b>Project</b> > <b>Create</b></li>
+  <li>Select path <code>/volume1/docker/kv-tube</code>, click <b>Done</b></li>
+</ol>
 
-### Multi-arch Build
+<h3>🛠️ Multi-arch Build</h3>
 
 ```bash
 docker buildx build --platform linux/amd64 -t kv-tube:latest --push .
 ```
 
-## Environment Variables
+---
+
+<h2>⚙️ Environment Variables</h2>
 
 | Variable | Default | Description |
 |----------|---------|-------------|
@@ -77,7 +143,9 @@ docker buildx build --platform linux/amd64 -t kv-tube:latest --push .
 | `CORS_ALLOWED_ORIGINS` | — | Comma-separated allowed CORS origins |
 | `PORT` | `8080` | Backend API port |
 
-## Development
+---
+
+<h2>💻 Development</h2>
 
 ```bash
 # Frontend
@@ -90,15 +158,23 @@ cd backend
 go run main.go
 ```
 
-## Updating
+---
+
+<h2>🔄 Updating</h2>
 
 ```bash
 docker compose pull
 docker compose up -d
 ```
 
-Or enable auto-updates with [Watchtower](https://github.com/containrrr/watchtower).
+Or enable auto-updates with <a href="https://github.com/containrrr/watchtower">Watchtower</a>.
 
-## License
+---
 
-MIT License — see [LICENSE](LICENSE) for details.
+<h2>📄 License</h2>
+
+<p>
+  <img src="https://img.shields.io/github/license/vndangkhoa/kv-tube?style=flat" alt="License" />
+</p>
+
+MIT License — see <a href="LICENSE">LICENSE</a> for details.
