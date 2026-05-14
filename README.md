@@ -5,6 +5,8 @@ A modern, fast, and fully-featured YouTube-like video streaming platform. Built 
 ## Features
 
 - **Modern Video Player**: High-resolution video playback with HLS support and quality selection.
+- **Watch Page Controls**: Fullscreen mode, loop playback, and wide mode for enhanced viewing experience.
+- **Custom Branding**: Consistent KV-Tube iconography throughout the app.
 - **Fast Navigation**: Instant click feedback with skeleton loaders for related videos.
 - **Infinite Scrolling**: Scroll seamlessly through a dynamic video grid on the homepage.
 - **Watch History & Suggestions**: Keep track of what you've watched seamlessly! Fully integrated library history tracking.
@@ -21,7 +23,7 @@ A modern, fast, and fully-featured YouTube-like video streaming platform. Built 
 - **Process Management**: `supervisord` manages the concurrent execution of the backend API and Next.js frontend within the same network namespace.
 - **Data storage**: SQLite is used for watch history, optimized for `linux/amd64`.
 
-## Docker Deployment (v5)
+## Docker Deployment (v9)
 
 ### Quick Start
 
@@ -38,13 +40,13 @@ docker-compose up -d
 To build the image locally:
 
 ```bash
-docker build -t git.khoavo.myds.me/vndangkhoa/kv-tube:v5 .
+docker build -t git.khoavo.myds.me/vndangkhoa/kv-tube:v9 .
 ```
 
 To build and push to your registry:
 
 ```bash
-docker build -t git.khoavo.myds.me/vndangkhoa/kv-tube:v5 .
+docker build -t git.khoavo.myds.me/vndangkhoa/kv-tube:v9 .
 docker push git.khoavo.myds.me/vndangkhoa/kv-tube:v5
 ```
 
@@ -69,7 +71,7 @@ version: '3.8'
 
 services:
   kv-tube:
-    image: git.khoavo.myds.me/vndangkhoa/kv-tube:v5
+    image: git.khoavo.myds.me/vndangkhoa/kv-tube:v9
     container_name: kv-tube
     platform: linux/amd64
     restart: unless-stopped
