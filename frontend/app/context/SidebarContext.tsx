@@ -16,22 +16,9 @@ interface SidebarContextType {
 const SidebarContext = createContext<SidebarContextType | undefined>(undefined);
 
 export function SidebarProvider({ children }: { children: ReactNode }) {
-    // Sidebar is collapsed by default on desktop
-    const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+    // Sidebar is open by default on desktop (hidden on mobile via CSS)
+    const [isSidebarOpen, setIsSidebarOpen] = useState(true);
     const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
-
-    // Load saved preference from localStorage
-    useEffect(() => {
-        const saved = localStorage.getItem('sidebarOpen');
-        if (saved !== null) {
-            setIsSidebarOpen(saved === 'true');
-        }
-    }, []);
-
-    // Save preference to localStorage
-    useEffect(() => {
-        localStorage.setItem('sidebarOpen', isSidebarOpen.toString());
-    }, [isSidebarOpen]);
 
     const toggleSidebar = () => setIsSidebarOpen(prev => !prev);
     const openSidebar = () => setIsSidebarOpen(true);

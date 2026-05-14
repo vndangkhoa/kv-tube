@@ -1,4 +1,5 @@
 import VideoCard from '../../components/VideoCard';
+import ChannelSubscribeButton from '../../components/ChannelSubscribeButton';
 import { notFound } from 'next/navigation';
 export const dynamic = 'force-dynamic';
 
@@ -93,9 +94,7 @@ export default async function ChannelPage({
                         <span style={{ opacity: 0.5 }}>•</span>
                         <span>{videos.length} videos</span>
                     </div>
-                    <button className="channel-subscribe-btn">
-                        Subscribe
-                    </button>
+                    <ChannelSubscribeButton channelId={info.id} channelName={info.title} />
                 </div>
             </div>
 

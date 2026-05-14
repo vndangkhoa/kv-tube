@@ -41,7 +41,6 @@ export default function Header() {
                     {/* Left */}
                     <div className="yt-header-left">
                         <button className="yt-icon-btn hamburger-btn" onClick={() => {
-                            toggleSidebar();
                             toggleMobileMenu();
                         }} title="Menu">
                             <IoMenuOutline size={22} />

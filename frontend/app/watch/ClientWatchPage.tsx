@@ -5,7 +5,7 @@ import { useSearchParams, useRouter } from 'next/navigation';
 import YouTubePlayer from './YouTubePlayer';
 import { getVideoDetailsClient, getRelatedVideosClient, getCommentsClient, searchVideosClient } from '../clientActions';
 import { VideoData } from '../constants';
-import { isSubscribed, toggleSubscription, addToHistory, isVideoSaved, toggleSaveVideo } from '../storage';
+import { isVideoSaved, toggleSaveVideo } from '../storage';
 import LoadingSpinner from '../components/LoadingSpinner';
 import Link from 'next/link';
 
@@ -39,33 +39,44 @@ function VideoInfo({ video }: { video: any }) {
     const [isSaved, setIsSaved] = useState(false);
     const [subscribing, setSubscribing] = useState(false);
 
-    // Check subscription and save status on mount
+    // Check subscription status via API and save status on mount
     useEffect(() => {
         if (video?.channelId) {
-            setSubscribed(isSubscribed(video.channelId));
+            fetch(`/api/subscribe?channel_id=${encodeURIComponent(video.channelId)}`)
+                .then(r => r.json())
+                .then(data => setSubscribed(data.subscribed))
+                .catch(() => setSubscribed(false));
         }
         if (video?.id) {
             setIsSaved(isVideoSaved(video.id));
         }
     }, [video?.channelId, video?.id]);
 
-    const handleSubscribe = useCallback(() => {
+    const handleSubscribe = useCallback(async () => {
         if (!video?.channelId || subscribing) return;
-        
         setSubscribing(true);
         try {
-            const nowSubscribed = toggleSubscription({
-                channelId: video.channelId,
-                channelName: video.channelTitle,
-                channelAvatar: '',
-            });
-            setSubscribed(nowSubscribed);
+            if (subscribed) {
+                const res = await fetch(`/api/subscribe?channel_id=${encodeURIComponent(video.channelId)}`, { method: 'DELETE' });
+                if (res.ok) setSubscribed(false);
+            } else {
+                const res = await fetch('/api/subscribe', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        channel_id: video.channelId,
+                        channel_name: video.channelTitle || video.channelId,
+                        channel_avatar: '',
+                    }),
+                });
+                if (res.ok) setSubscribed(true);
+            }
         } catch (error) {
             console.error('Subscribe error:', error);
         } finally {
             setSubscribing(false);
         }
-    }, [video?.channelId, video?.channelTitle, subscribing]);
+    }, [video?.channelId, video?.channelTitle, subscribed, subscribing]);
 
     const handleSave = useCallback(() => {
         if (!video?.id) return;
@@ -636,14 +647,17 @@ export default function ClientWatchPage() {
                 }
                 setVideoInfo(video);
                 
-                // Add to watch history (localStorage)
+                // Add to watch history via API
                 if (video) {
-                    addToHistory({
-                        videoId: videoId,
-                        title: video.title,
-                        thumbnail: video.thumbnail,
-                        channelTitle: video.channelTitle,
-                    });
+                    fetch('/api/history', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            video_id: videoId,
+                            title: video.title,
+                            thumbnail: video.thumbnail,
+                        }),
+                    }).catch(() => {});
                 }
                 
                 // Get related videos - use channel name and video title for better results
