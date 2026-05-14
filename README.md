@@ -25,106 +25,175 @@ A modern, fast, and fully-featured YouTube-like video streaming platform. Built 
 
 ## Docker Deployment (v9)
 
-### Quick Start
+### Quick Start (Local Build)
 
 1. Clone or download this repository
 2. Create a `data` folder in the project directory
-3. Run the container:
+3. Build and run the container:
 
 ```bash
+# Build the image
+docker build -t kv-tube:latest .
+
+# Run the container
 docker-compose up -d
 ```
 
-### Building the Image
+### Building & Tagging for Registry
 
-To build the image locally:
+To build and push to your custom registry:
 
 ```bash
-docker build -t git.khoavo.myds.me/vndangkhoa/kv-tube:v9 .
+# Build with your registry and tag
+docker build -t your-registry.com/kv-tube:latest .
+
+# Push to registry
+docker push your-registry.com/kv-tube:latest
 ```
 
-To build and push to your registry:
+### Pre-built Image
+
+If using the pre-built image from Forgejo registry:
 
 ```bash
-docker build -t git.khoavo.myds.me/vndangkhoa/kv-tube:v9 .
-docker push git.khoavo.myds.me/vndangkhoa/kv-tube:v5
+# Pull from Forgejo
+docker pull git.khoavo.myds.me/vndangkhoa/kv-tube:v9
+
+# Or tag as latest for local use
+docker tag git.khoavo.myds.me/vndangkhoa/kv-tube:v9 kv-tube:latest
 ```
 
 ## Deployment on Synology NAS
 
-We recommend using **Container Manager** (DSM 7.2+) or **Docker** (DSM 6/7.1) for a robust and easily manageable deployment.
+We recommend using **Container Manager** (DSM 7.2+) for the best experience. You can also use **Docker** package (DSM 6/7.1).
 
-### 1. Prerequisites
-- **Container Manager** or **Docker** package installed from Package Center.
-- Ensure ports `5011` (frontend) and `8981` (backend API) are available on your NAS.
-- Create a folder named `kv-tube` in your `docker` shared folder (e.g., `/volume1/docker/kv-tube`).
+### Option 1: Using Container Manager (DSM 7.2+) - Recommended
 
-### 2. Using Container Manager (Recommended)
+#### Step 1: Prepare the folder
+1. Open **File Station** and navigate to your docker folder (e.g., `/volume1/docker/`)
+2. Create a new folder named `kv-tube`
+3. Inside `kv-tube`, create a `data` subfolder
 
-1. Open **Container Manager** > **Project** > **Create**.
-2. Set a Project Name (e.g., `kv-tube`).
-3. Set Path to `/volume1/docker/kv-tube`.
-4. Source: Select **Create docker-compose.yml** and paste the following:
+#### Step 2: Upload files
+Upload the following files to `/volume1/docker/kv-tube/`:
+- `docker-compose.yml`
+- `Dockerfile`
+- `supervisord.conf`
 
-```yaml
-version: '3.8'
+#### Step 3: Create Project
+1. Open **Container Manager** > **Project** > **Create**
+2. Project Name: `kv-tube`
+3. Path: `/volume1/docker/kv-tube`
+4. Source: Select **docker-compose.yml** (it will auto-detect from the folder)
+5. Click **Next** > **Done**
 
-services:
-  kv-tube:
-    image: git.khoavo.myds.me/vndangkhoa/kv-tube:v9
-    container_name: kv-tube
-    platform: linux/amd64
-    restart: unless-stopped
-    ports:
-      - "5011:3000"
-      - "8981:8080"
-    volumes:
-      - ./data:/app/data
-    environment:
-      - KVTUBE_DATA_DIR=/app/data
-      - GIN_MODE=release
-      - NODE_ENV=production
-      - NEXT_PUBLIC_API_URL=http://127.0.0.1:8080
-```
+The container will build and start automatically.
 
-5. Click **Next** until the end and **Done**. The container will build and start automatically.
-
-### 3. Accessing the App
-The application will be accessible at:
+#### Step 4: Access the App
 - **Frontend**: `http://<your-nas-ip>:5011`
 - **Backend API**: `http://<your-nas-ip>:8981`
-- **Mobile Users**: Add to Home Screen via Safari for the full PWA experience with background playback.
 
-### 4. Volume Permissions (If Needed)
+---
 
-If you encounter permission issues with the data folder, SSH into your NAS and run:
+### Option 2: Using Docker Package (DSM 6/7.1)
 
-```bash
-# Create the data folder with proper permissions
-sudo mkdir -p /volume1/docker/kv-tube/data
-sudo chmod 755 /volume1/docker/kv-tube/data
-```
-
-### 5. Updating the Container
-
-To update to a new version:
+#### Step 1: Pull the image
+Open **Docker** > **Registry** and search for `kv-tube`, or use SSH to pull:
 
 ```bash
-# Pull the latest image
-docker pull git.khoavo.myds.me/vndangkhoa/kv-tube:v5
-
-# Restart the container
-docker-compose down && docker-compose up -d
+docker pull kv-tube:latest
 ```
 
-Or use Container Manager's built-in image update feature.
+#### Step 2: Create Container
+1. Open **Docker** > **Container** > **Create**
+2. Image: `kv-tube:latest` (or your custom registry URL)
+3. Container Name: `kv-tube`
+4. Network: `Bridge`
+5. Port Forwarding:
+   - Local Port: `5011` → Container Port: `3000`
+   - Local Port: `8981` → Container Port: `8080`
+6. Volume: Map `/volume1/docker/kv-tube/data` → `/app/data`
+7. Environment:
+   - `KVTUBE_DATA_DIR=/app/data`
+   - `GIN_MODE=release`
+   - `NODE_ENV=production`
+8. Restart Policy: `unless-stopped`
 
-### 6. Troubleshooting
+#### Step 3: Start Container
+Click **Create** and then start the container.
 
-- **Container won't start**: Check logs via Container Manager or `docker logs kv-tube`
-- **Port conflicts**: Ensure ports 5011 and 8080 are not used by other services
-- **Permission denied**: Check the data folder permissions on your NAS
-- **Slow playback**: Try lowering video quality or ensure sufficient network bandwidth
+---
+
+### Option 3: Using Docker Compose (SSH)
+
+Connect to your NAS via SSH and run:
+
+```bash
+# Navigate to your kv-tube folder
+cd /volume1/docker/kv-tube
+
+# Build and start
+docker-compose up -d
+
+# View logs
+docker-compose logs -f
+
+# Stop
+docker-compose down
+```
+
+---
+
+### Mobile PWA Installation
+
+For the best mobile experience:
+1. Open `http://<your-nas-ip>:5011` in Safari (iOS) or Chrome (Android)
+2. Tap **Share** > **Add to Home Screen** (iOS)
+3. Or tap **Install** (Android)
+
+This gives you a native app-like experience with background audio playback.
+
+---
+
+### Updating the Container
+
+**Using Container Manager:**
+1. Stop the container
+2. Remove the image
+3. Pull new image or rebuild
+4. Start the container
+
+**Using Docker Compose:**
+```bash
+cd /volume1/docker/kv-tube
+docker-compose pull
+docker-compose up -d
+```
+
+**Using Watchtower (auto-update):**
+The container label enables Watchtower for automatic updates:
+```bash
+docker run --detach \
+    --name watchtower \
+    --volume /var/run/docker.sock:/var/run/docker.sock \
+    --volume /your/path/config:/config \
+    containrrr/watchtower \
+    --include-stopped \
+    --schedule "0 2 * * *" \
+    kv-tube
+```
+
+---
+
+### Troubleshooting
+
+| Issue | Solution |
+|-------|----------|
+| Container won't start | Check logs: `docker logs kv-tube` or via Container Manager |
+| Port conflicts | Ensure ports 5011 and 8981 are not used by other services |
+| Permission denied | SSH to NAS: `sudo chmod -R 755 /volume1/docker/kv-tube/data` |
+| Slow playback | Lower video quality or ensure sufficient network bandwidth |
+| Cannot access frontend | Check firewall settings on Synology |
 
 ## Development
 

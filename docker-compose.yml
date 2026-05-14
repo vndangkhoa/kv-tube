@@ -9,8 +9,8 @@ services:
       context: .
       dockerfile: Dockerfile
       args:
-        - NEXT_PUBLIC_API_URL=http://ut.khoavo.myds.me:8981/api
-    image: git.khoavo.myds.me/vndangkhoa/kv-tube:v9
+        - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-http://localhost:8080/api}
+    image: kv-tube:latest
     container_name: kv-tube
     platform: linux/amd64
     restart: unless-stopped
@@ -23,6 +23,6 @@ services:
       - KVTUBE_DATA_DIR=/app/data
       - GIN_MODE=release
       - NODE_ENV=production
-      - CORS_ALLOWED_ORIGINS=https://ut.khoavo.myds.me,http://ut.khoavo.myds.me:5011,http://localhost:3000,http://127.0.0.1:3000
+      - CORS_ALLOWED_ORIGINS=*
     labels:
       - "com.centurylinklabs.watchtower.enable=true"
