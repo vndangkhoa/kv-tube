@@ -18,13 +18,18 @@ export const metadata: Metadata = {
   title: 'KV-Tube',
   description: 'A modern YouTube-like video streaming platform with background playback',
   manifest: '/manifest.json',
+  icons: {
+    icon: [{ url: '/icon.svg', type: 'image/svg+xml' }],
+    shortcut: ['/icon.svg'],
+    apple: [{ url: '/apple-touch-icon.png' }],
+  },
   appleWebApp: {
     capable: true,
     statusBarStyle: 'black-translucent',
     title: 'KV-Tube',
     startupImage: [
       {
-        url: '/icons/icon-512x512.png',
+        url: '/apple-touch-icon.png',
         media: '(device-width: 1024px)',
       },
     ],

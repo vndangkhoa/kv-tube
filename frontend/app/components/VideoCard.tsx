@@ -20,7 +20,7 @@ function getStableRelativeTime(id: string): string {
 
 import { memo } from 'react';
 
-const DEFAULT_THUMBNAIL = 'https://i.ytimg.com/vi/default/hqdefault.jpg';
+const DEFAULT_THUMBNAIL = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="320" height="180" viewBox="0 0 320 180"%3E%3Crect fill="%23222" width="320" height="180"/%3E%3Cpath fill="%23555" d="M140 65v50l40-25z"/%3E%3C/svg%3E';
 
 function VideoCard({ video, hideChannelAvatar }: { video: VideoData; hideChannelAvatar?: boolean }) {
     const relativeTime = video.upload_date || video.publishedAt || getStableRelativeTime(video.id);

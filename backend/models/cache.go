@@ -43,16 +43,27 @@ func SetCachedVideo(videoID string, data interface{}, ttlSeconds int) error {
 		return nil
 	}
 
-	jsonData, err := json.Marshal(data)
-	if err != nil {
-		return err
+	// Store raw bytes/strings verbatim so the exact payload is returned on read.
+	// Only fall back to JSON marshaling for structured values.
+	var stored string
+	switch v := data.(type) {
+	case string:
+		stored = v
+	case []byte:
+		stored = string(v)
+	default:
+		jsonData, err := json.Marshal(data)
+		if err != nil {
+			return err
+		}
+		stored = string(jsonData)
 	}
 
 	expiresAt := time.Now().Add(time.Duration(ttlSeconds) * time.Second)
 
-	_, err = DB.Exec(
+	_, err := DB.Exec(
 		`INSERT OR REPLACE INTO video_cache (video_id, data, expires_at) VALUES (?, ?, ?)`,
-		videoID, string(jsonData), expiresAt,
+		videoID, stored, expiresAt,
 	)
 
 	if err != nil {

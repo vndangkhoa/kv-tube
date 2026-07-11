@@ -13,6 +13,7 @@ logs/
 
 # Go
 backend/kvtube-go
+backend/kv-tube
 backend/bin/
 *.exe
 

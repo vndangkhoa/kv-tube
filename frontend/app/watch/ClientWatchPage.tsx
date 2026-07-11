@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, lazy, Suspense, useRef } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import YouTubePlayer from './YouTubePlayer';
 import { getVideoDetailsClient, getRelatedVideosClient, getCommentsClient, searchVideosClient } from '../clientActions';
@@ -9,27 +9,84 @@ import { isVideoSaved, toggleSaveVideo } from '../storage';
 import LoadingSpinner from '../components/LoadingSpinner';
 import Link from 'next/link';
 
-// Simple cache for API responses to reduce quota usage
+// Stale-while-revalidate cache (like React Query staleTime + gcTime)
 const apiCache = new Map<string, { data: any; timestamp: number }>();
-const CACHE_DURATION = 5 * 60 * 1000; // 5 minutes
+const STALE_TIME = 3 * 60 * 1000;  // 3 min - data shown from cache without refetch
+const GC_TIME = 30 * 60 * 1000;    // 30 min - data kept in memory for back-nav
 
-function getCachedData(key: string) {
+function getCachedData(key: string): { data: any; isStale: boolean } {
     const cached = apiCache.get(key);
-    if (cached && Date.now() - cached.timestamp < CACHE_DURATION) {
-        return cached.data;
-    }
-    return null;
+    if (!cached) return { data: null, isStale: false };
+    const isStale = Date.now() - cached.timestamp > STALE_TIME;
+    return { data: cached.data, isStale };
 }
 
 function setCachedData(key: string, data: any) {
     apiCache.set(key, { data, timestamp: Date.now() });
-    // Clean up old cache entries
     if (apiCache.size > 100) {
         const oldestKey = apiCache.keys().next().value;
-        if (oldestKey) {
-            apiCache.delete(oldestKey);
-        }
+        if (oldestKey) apiCache.delete(oldestKey);
     }
+}
+
+// Refetch if stale (background refresh, no loading flash)
+async function getOrFetchData<T>(key: string, fetcher: () => Promise<T>): Promise<T> {
+    const { data, isStale } = getCachedData(key);
+    if (data && !isStale) return data;
+    // If stale, revalidate in background but return stale data immediately
+    if (data) {
+        fetcher().then(newData => setCachedData(key, newData)).catch(() => {});
+        return data;
+    }
+    const newData = await fetcher();
+    setCachedData(key, newData);
+    return newData;
+}
+
+// Strip brackets/punctuation so search terms actually match related content.
+function cleanTitle(title: string): string {
+    return (title || '')
+        .replace(/\[[^\]]*\]/g, ' ')
+        .replace(/\([^)]*\)/g, ' ')
+        .replace(/[|•\-–—_#"'!?.,:;/\\]/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+}
+
+// Build a compact keyword string from a video title.
+function titleKeywords(title: string, maxWords = 6): string {
+    const cleaned = cleanTitle(title);
+    if (!cleaned) return '';
+    return cleaned.split(' ').filter(w => w.length > 1).slice(0, maxWords).join(' ');
+}
+
+// Run a list of candidate queries, accumulating unique videos until we reach
+// `min` results. Guarantees content by falling back to broader queries.
+async function searchWithFallback(
+    queries: string[],
+    min: number,
+    limit: number,
+    excludeIds: Set<string>,
+): Promise<VideoData[]> {
+    const acc: VideoData[] = [];
+    const seen = new Set<string>(excludeIds);
+    for (const q of queries) {
+        if (!q || !q.trim()) continue;
+        let res: VideoData[] = [];
+        try {
+            res = await searchVideosClient(q, limit);
+        } catch {
+            res = [];
+        }
+        for (const v of Array.isArray(res) ? res : []) {
+            if (v.id && !seen.has(v.id)) {
+                seen.add(v.id);
+                acc.push(v);
+            }
+        }
+        if (acc.length >= min) break;
+    }
+    return acc;
 }
 
 // Video Info Section
@@ -149,14 +206,31 @@ function VideoInfo({ video }: { video: any }) {
                 paddingBottom: '12px',
                 borderBottom: '1px solid var(--yt-border)',
             }}>
-                {/* Channel - only show name, no avatar */}
-                <div style={{ 
-                    color: 'var(--yt-text-primary)', 
-                    fontWeight: '500', 
-                    fontSize: '14px',
-                }}>
-                    {video.channelTitle || 'Unknown Channel'}
-                </div>
+                {/* Channel - clickable, leads to channel page */}
+                {video.channelId ? (
+                    <Link
+                        href={`/channel/${video.channelId}`}
+                        style={{
+                            color: 'var(--yt-text-primary)',
+                            fontWeight: '500',
+                            fontSize: '14px',
+                            textDecoration: 'none',
+                            cursor: 'pointer',
+                        }}
+                        onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.textDecoration = 'underline'; }}
+                        onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.textDecoration = 'none'; }}
+                    >
+                        {video.channelTitle || 'Unknown Channel'}
+                    </Link>
+                ) : (
+                    <div style={{
+                        color: 'var(--yt-text-primary)',
+                        fontWeight: '500',
+                        fontSize: '14px',
+                    }}>
+                        {video.channelTitle || 'Unknown Channel'}
+                    </div>
+                )}
                 
                 {/* Action Buttons - Subscribe, Share, Save */}
                 <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
@@ -292,10 +366,10 @@ function VideoInfo({ video }: { video: any }) {
                     color: 'var(--yt-text-primary)' 
                 }}>
                     <span>{formatViews(video.viewCount)}</span>
-                    {video.publishedAt && formatDate(video.publishedAt) && (
+                    {video.publishedAt && (
                         <>
                             <span>•</span>
-                            <span>{formatDate(video.publishedAt)}</span>
+                            <span>{video.publishedAt}</span>
                         </>
                     )}
                 </div>
@@ -412,6 +486,8 @@ function MixPlaylist({ videos, currentIndex, onVideoSelect, title }: {
                             <img 
                                 src={video.thumbnail || `https://i.ytimg.com/vi/${video.id}/mqdefault.jpg`}
                                 alt={video.title}
+                                loading="lazy"
+                                decoding="async"
                                 style={{ 
                                     width: '100px', 
                                     height: '56px', 
@@ -481,11 +557,11 @@ function MixPlaylist({ videos, currentIndex, onVideoSelect, title }: {
     );
 }
 
-// Comment Section
-function CommentSection({ videoId }: { videoId: string }) {
+// Comment Section - lazy loaded (TypeType pattern: heavy components behind React.lazy)
+function CommentSectionInner({ videoId }: { videoId: string }) {
     const [comments, setComments] = useState<any[]>([]);
     const [loading, setLoading] = useState(true);
-    const [showAll, setShowAll] = useState(false);
+    const [visibleCount, setVisibleCount] = useState(4);
 
     useEffect(() => {
         const loadComments = async () => {
@@ -509,7 +585,8 @@ function CommentSection({ videoId }: { videoId: string }) {
         );
     }
 
-    const displayedComments = showAll ? comments : comments.slice(0, 5);
+    const displayedComments = comments.slice(0, visibleCount);
+    const hasMore = visibleCount < comments.length;
 
     return (
         <div style={{ padding: '24px 0', borderTop: '1px solid var(--yt-border)' }}>
@@ -525,7 +602,7 @@ function CommentSection({ videoId }: { videoId: string }) {
                 <span style={{ fontSize: '14px', color: 'var(--yt-text-secondary)' }}>Sort by</span>
             </div>
 
-            {/* Comments List */}
+            {/* Comments List - progressive rendering (TypeType pattern) */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
                 {displayedComments.map((comment) => (
                     <div key={comment.id} style={{ display: 'flex', gap: '12px' }}>
@@ -533,6 +610,8 @@ function CommentSection({ videoId }: { videoId: string }) {
                             <img 
                                 src={comment.author_thumbnail}
                                 alt={comment.author}
+                                loading="lazy"
+                                decoding="async"
                                 style={{ width: '40px', height: '40px', borderRadius: '50%', backgroundColor: 'var(--yt-hover)', flexShrink: 0 }}
                             />
                         ) : null}
@@ -591,9 +670,9 @@ function CommentSection({ videoId }: { videoId: string }) {
                 ))}
             </div>
             
-            {comments.length > 5 && (
+            {hasMore && (
                 <button
-                    onClick={() => setShowAll(!showAll)}
+                    onClick={() => setVisibleCount(prev => prev + 4)}
                     style={{
                         marginTop: '16px',
                         background: 'none',
@@ -605,10 +684,22 @@ function CommentSection({ videoId }: { videoId: string }) {
                         padding: '8px 0',
                     }}
                 >
-                    {showAll ? 'Show less' : `Show all ${comments.length} comments`}
+                    Show more comments ({comments.length - visibleCount} remaining)
                 </button>
             )}
         </div>
+    );
+}
+
+function CommentSection({ videoId }: { videoId: string }) {
+    return (
+        <Suspense fallback={
+            <div style={{ padding: '24px 0', color: 'var(--yt-text-secondary)' }}>
+                Loading comments...
+            </div>
+        }>
+            <CommentSectionInner videoId={videoId} />
+        </Suspense>
     );
 }
 
@@ -626,112 +717,140 @@ export default function ClientWatchPage() {
     const [wideMode, setWideMode] = useState(false);
     const [loopMode, setLoopMode] = useState(false);
 
+    // Hover prefetch: debounce 220ms, prefetch Next.js route for instant navigation
+    const prefetchTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
+    const prefetched = useRef<Set<string>>(new Set());
+
+    const handlePrefetchEnter = useCallback((videoId: string) => {
+        const timer = setTimeout(() => {
+            if (!prefetched.current.has(videoId)) {
+                prefetched.current.add(videoId);
+                router.prefetch(`/watch?v=${videoId}`);
+            }
+        }, 220);
+        prefetchTimers.current.set(videoId, timer);
+    }, [router]);
+
+    const handlePrefetchLeave = useCallback((videoId: string) => {
+        const timer = prefetchTimers.current.get(videoId);
+        if (timer) {
+            clearTimeout(timer);
+            prefetchTimers.current.delete(videoId);
+        }
+    }, []);
+
     // Scroll to top when video changes or page loads
     useEffect(() => {
         window.scrollTo({ top: 0, behavior: 'instant' });
     }, [videoId]);
 
-    useEffect(() => {
-        if (!videoId) return;
+	useEffect(() => {
+		if (!videoId) return;
 
-        const loadVideoData = async () => {
-            try {
-                setLoading(true);
-                setApiError(null);
-                
-                // Check cache for video details
-                let video = getCachedData(`video_${videoId}`);
-                if (!video) {
-                    video = await getVideoDetailsClient(videoId);
-                    if (video) setCachedData(`video_${videoId}`, video);
-                }
-                setVideoInfo(video);
-                
-                // Add to watch history via API
-                if (video) {
-                    fetch('/api/history', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                            video_id: videoId,
-                            title: video.title,
-                            thumbnail: video.thumbnail,
-                        }),
-                    }).catch(() => {});
-                }
-                
-                // Get related videos - use channel name and video title for better results
-                // Even if video is null, we can still try to get related videos
-                const searchTerms = video?.title?.split(' ').filter((w: string) => w.length > 3).slice(0, 5).join(' ') || 'music';
-                const channelName = video?.channelTitle || '';
-                
-                // Check cache for related videos
-                const cacheKey = `related_${videoId}_${searchTerms}`;
-                let relatedResults = getCachedData(cacheKey);
-                let mixResults = getCachedData(`mix_${videoId}_${searchTerms}`);
-                
-                if (!relatedResults || !mixResults) {
-                    // Optimized: Use just 2 search requests instead of 5 to save API quota
-                    [relatedResults, mixResults] = await Promise.all([
-                        searchVideosClient(`${channelName} ${searchTerms}`, 20),
-                        searchVideosClient(`${searchTerms} mix compilation`, 20),
-                    ]);
-                    
-                    if (relatedResults && relatedResults.length > 0) setCachedData(cacheKey, relatedResults);
-                    if (mixResults && mixResults.length > 0) setCachedData(`mix_${videoId}_${searchTerms}`, mixResults);
-                }
-                
-                // Deduplicate and filter related videos - ensure arrays
-                const uniqueRelated = Array.isArray(relatedResults) ? relatedResults.filter((v, index, self) =>
-                    index === self.findIndex(item => item.id === v.id) && v.id !== videoId
-                ) : [];
-                
-                setCurrentIndex(0);
-                setRelatedVideos(uniqueRelated);
+		const loadVideoData = async () => {
+			try {
+				setLoading(true);
+				setApiError(null);
 
-                // Use remaining videos for mix playlist - ensure array
-                const uniqueMix = Array.isArray(mixResults) ? mixResults.filter((v, index, self) =>
-                    index === self.findIndex(item => item.id === v.id) && 
-                    v.id !== videoId &&
-                    !uniqueRelated.some(r => r.id === v.id)
-                ) : [];
-                
-                setMixPlaylist(uniqueMix.slice(0, 20));
-                
-                // Set error message if video details failed but we have related videos
-                if (!video) {
-                    setApiError('Video info unavailable, but you can still browse related videos.');
-                }
-            } catch (error) {
-                console.error('Failed to load video data:', error);
-                // Fallback with fewer requests
-                try {
-                    const fallbackResults = await searchVideosClient('music popular', 20);
-                    setRelatedVideos(Array.isArray(fallbackResults) ? fallbackResults.slice(0, 10) : []);
-                    setMixPlaylist(Array.isArray(fallbackResults) ? fallbackResults.slice(10, 20) : []);
-                    setApiError('Unable to load video details. Showing suggested videos instead.');
-                } catch (e: any) {
-                    console.error('Fallback also failed:', e);
-                    // Set empty arrays to show user-friendly message
-                    setRelatedVideos([]);
-                    setMixPlaylist([]);
-                    
-                    // Set user-friendly error message
-                    if (e?.message?.includes('quota exceeded')) {
-                        setApiError('YouTube API quota exceeded. Please try again later.');
-                    } else if (e?.message?.includes('API key')) {
-                        setApiError('API key issue. Please check configuration.');
-                    } else {
-                        setApiError('Unable to load related videos. Please try again.');
-                    }
-                }
-            } finally {
-                setLoading(false);
-            }
-        };
+				// Fetch video details first so we can build good search terms.
+				const video = await getOrFetchData(`video_${videoId}`, () => getVideoDetailsClient(videoId));
+				setVideoInfo(video);
 
-        loadVideoData();
-    }, [videoId]);
+				// Add to watch history (fire-and-forget)
+				if (video) {
+					fetch('/api/history', {
+						method: 'POST',
+						headers: { 'Content-Type': 'application/json' },
+						body: JSON.stringify({
+							video_id: videoId,
+							title: video.title,
+							thumbnail: video.thumbnail,
+							uploader: video.uploader || video.channelTitle || '',
+						}),
+					}).catch(() => {});
+				}
+
+				const keywords = titleKeywords(video?.title || '');
+				const channel = video?.channelTitle || video?.uploader || '';
+				const firstWords = keywords.split(' ').slice(0, 3).join(' ');
+				const exclude = new Set<string>([videoId]);
+
+				// Up Next: related content, from specific to broad. The last query
+				// is a generic one so the list is never empty.
+				const relatedQueries = [
+					[channel, keywords].filter(Boolean).join(' '),
+					keywords,
+					channel,
+					firstWords,
+					'trending videos 2026',
+				];
+
+				// Mix: playlist/compilation style, also with broad fallbacks.
+				const mixQueries = [
+					keywords ? `${keywords} mix` : '',
+					channel ? `${channel} playlist` : '',
+					firstWords ? `${firstWords} playlist` : '',
+					keywords,
+					'popular music mix',
+				];
+
+				const [relatedResults, mixResults] = await Promise.all([
+					getOrFetchData(`related_${videoId}`, () => searchWithFallback(relatedQueries, 10, 20, exclude)),
+					getOrFetchData(`mix_${videoId}`, () => searchWithFallback(mixQueries, 10, 20, exclude)),
+				]);
+
+				// Deduplicate and filter
+				const relArr = Array.isArray(relatedResults) ? relatedResults : [];
+				const mixArr = Array.isArray(mixResults) ? mixResults : [];
+
+				let uniqueRelated = relArr.filter((v, i, self) =>
+					i === self.findIndex(item => item.id === v.id) && v.id !== videoId
+				);
+				let uniqueMix = mixArr.filter((v, i, self) =>
+					i === self.findIndex(item => item.id === v.id) &&
+					v.id !== videoId &&
+					!uniqueRelated.some(r => r.id === v.id)
+				);
+
+				// Guarantee both sections have content: if one came back empty,
+				// borrow from the other so the UI always shows Mix + Up Next.
+				if (uniqueRelated.length === 0 && uniqueMix.length > 0) {
+					const half = Math.ceil(uniqueMix.length / 2);
+					uniqueRelated = uniqueMix.slice(0, half);
+					uniqueMix = uniqueMix.slice(half);
+				} else if (uniqueMix.length === 0 && uniqueRelated.length > 0) {
+					const half = Math.ceil(uniqueRelated.length / 2);
+					uniqueMix = uniqueRelated.slice(half);
+					uniqueRelated = uniqueRelated.slice(0, half);
+				}
+
+				setCurrentIndex(0);
+				setRelatedVideos(uniqueRelated);
+				setMixPlaylist(uniqueMix.slice(0, 20));
+
+				if (!video) {
+					setApiError('Video info unavailable, but you can still browse related videos.');
+				}
+			} catch (error) {
+				console.error('Failed to load video data:', error);
+				try {
+					const fallbackResults = await searchVideosClient('music popular', 20);
+					const arr = Array.isArray(fallbackResults) ? fallbackResults : [];
+					setRelatedVideos(arr.slice(0, 10));
+					setMixPlaylist(arr.slice(10, 20));
+					setApiError('Unable to load video details. Showing suggested videos instead.');
+				} catch {
+					setRelatedVideos([]);
+					setMixPlaylist([]);
+					setApiError('Unable to load content. Please try again.');
+				}
+			} finally {
+				setLoading(false);
+			}
+		};
+
+		loadVideoData();
+	}, [videoId]);
 
     const handleVideoSelect = (index: number) => {
         const video = activeTab === 'upnext' ? relatedVideos[index] : mixPlaylist[index];
@@ -791,15 +910,15 @@ export default function ClientWatchPage() {
                 {/* Main Content */}
                 <div className="watch-main">
                     {/* Video Player */}
-                    <div style={{ position: 'relative', width: '100%' }}>
-                        <YouTubePlayer 
-                            videoId={videoId}
-                            title={videoInfo?.title}
-                            autoplay={true}
-                            onVideoEnd={handleVideoEnd}
-                            loop={loopMode}
-                        />
-                    </div>
+					<div style={{ position: 'relative', width: '100%' }}>
+					<YouTubePlayer 
+						videoId={videoId}
+						title={videoInfo?.title}
+						autoplay={true}
+						onVideoEnd={handleVideoEnd}
+						loop={loopMode}
+					/>
+					</div>
 
                     {/* Player Controls */}
                     <div style={{ 
@@ -922,9 +1041,9 @@ export default function ClientWatchPage() {
                 <div className="watch-sidebar" style={{
                     position: 'sticky',
                     top: '70px',
-                    height: 'fit-content',
-                    maxHeight: 'calc(100vh - 80px)',
-                    overflowY: 'auto',
+                    height: 'calc(100vh - 90px)',
+                    maxHeight: 'calc(100vh - 90px)',
+                    overflow: 'hidden',
                     display: wideMode ? 'none' : 'flex',
                     flexDirection: 'column',
                     gap: '12px',
@@ -953,10 +1072,14 @@ export default function ClientWatchPage() {
                     )}
 
                     {/* Up Next Section */}
-                    <div style={{
+                    <div className="upnext-section" style={{
                         backgroundColor: 'var(--yt-hover)',
                         borderRadius: '12px',
                         overflow: 'hidden',
+                        flex: 1,
+                        minHeight: 0,
+                        display: 'flex',
+                        flexDirection: 'column',
                     }}>
                         <div style={{ 
                             display: 'flex', 
@@ -964,6 +1087,7 @@ export default function ClientWatchPage() {
                             alignItems: 'center',
                             padding: '12px 16px',
                             borderBottom: '1px solid var(--yt-border)',
+                            flexShrink: 0,
                         }}>
                             <h3 style={{ fontSize: '14px', fontWeight: '600', margin: 0, color: 'var(--yt-text-primary)' }}>
                                 Up Next
@@ -972,11 +1096,13 @@ export default function ClientWatchPage() {
                                 {relatedVideos.length} videos
                             </span>
                         </div>
-                        <div style={{ overflowY: 'auto' }}>
+                        <div className="upnext-list" style={{ flex: 1, minHeight: 0, overflowY: 'auto' }}>
                             {relatedVideos.slice(0, 30).map((video, index) => (
                                 <div 
                                     key={video.id}
                                     onClick={() => handleVideoSelect(index)}
+                                    onMouseEnter={() => handlePrefetchEnter(video.id)}
+                                    onMouseLeave={() => handlePrefetchLeave(video.id)}
                                     style={{
                                         display: 'flex',
                                         gap: '10px',
@@ -986,12 +1112,12 @@ export default function ClientWatchPage() {
                                         borderLeft: index === currentIndex ? '3px solid var(--yt-blue)' : '3px solid transparent',
                                         transition: 'background-color 0.2s',
                                     }}
-                                    onMouseEnter={(e) => {
+                                    onMouseOver={(e) => {
                                         if (index !== currentIndex) {
                                             (e.currentTarget as HTMLElement).style.backgroundColor = 'rgba(255,255,255,0.05)';
                                         }
                                     }}
-                                    onMouseLeave={(e) => {
+                                    onMouseOut={(e) => {
                                         if (index !== currentIndex) {
                                             (e.currentTarget as HTMLElement).style.backgroundColor = 'transparent';
                                         }
@@ -1001,6 +1127,8 @@ export default function ClientWatchPage() {
                                         <img 
                                             src={video.thumbnail || `https://i.ytimg.com/vi/${video.id}/mqdefault.jpg`}
                                             alt={video.title}
+                                            loading="lazy"
+                                            decoding="async"
                                             style={{ width: '120px', height: '68px', objectFit: 'cover', borderRadius: '6px' }}
                                             onError={(e) => {
                                                 (e.target as HTMLImageElement).src = `https://i.ytimg.com/vi/${video.id}/mqdefault.jpg`;
@@ -1054,7 +1182,18 @@ export default function ClientWatchPage() {
                     .watch-sidebar {
                         position: relative !important;
                         top: 0 !important;
+                        height: auto !important;
                         max-height: none !important;
+                        overflow: visible !important;
+                    }
+                    .upnext-section {
+                        flex: none !important;
+                        min-height: auto !important;
+                    }
+                    .upnext-list {
+                        flex: none !important;
+                        min-height: auto !important;
+                        overflow-y: visible !important;
                     }
                 }
                 

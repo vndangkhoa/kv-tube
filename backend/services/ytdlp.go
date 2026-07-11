@@ -8,10 +8,15 @@ import (
 	"os"
 	"os/exec"
 	"sort"
+	"strconv"
 	"strings"
+	"sync"
+	"time"
 
 	"kvtube-go/models"
 )
+
+const channelVideosCacheTTL = 30 * time.Minute
 
 var ytDlpBinPath string
 
@@ -56,6 +61,7 @@ type VideoData struct {
 	UploadDate  string `json:"upload_date"`
 	Duration    string `json:"duration"`
 	Description string `json:"description"`
+	WatchedAt   string `json:"watched_at,omitempty"`
 	StreamURL   string `json:"stream_url,omitempty"`
 }
 
@@ -177,25 +183,27 @@ func RunYtDlpCached(cacheKey string, ttlSeconds int, args ...string) ([]byte, er
 		return nil, err
 	}
 
-	// Store in cache (ignore cache errors)
-	if cacheKey != "" {
+	// Store in cache (ignore cache errors). Never cache empty output so a
+	// transient bot-check/failure doesn't poison the cache with "null".
+	if cacheKey != "" && len(bytes.TrimSpace(data)) > 0 {
 		_ = models.SetCachedVideo(cacheKey, string(data), ttlSeconds)
 	}
 
 	return data, nil
 }
 
-// RunYtDlp securely executes yt-dlp with the given arguments and returns JSON output
-func RunYtDlp(args ...string) ([]byte, error) {
-	cmdArgs := append([]string{
-		"--dump-json",
-		"--no-warnings",
-		"--quiet",
-		"--force-ipv4",
-		"--ignore-errors",
-		"--user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-	}, args...)
+// isBotCheckError reports whether yt-dlp's stderr indicates YouTube's
+// "confirm you're not a bot" gate, which can usually be bypassed by
+// switching to an alternate player client.
+func isBotCheckError(stderr string) bool {
+	s := strings.ToLower(stderr)
+	return strings.Contains(s, "not a bot") ||
+		strings.Contains(s, "sign in to confirm") ||
+		strings.Contains(s, "confirm you")
+}
 
+// runYtDlpArgs runs yt-dlp with the exact given argument list.
+func runYtDlpArgs(cmdArgs []string) ([]byte, string, error) {
 	cmd := exec.Command(ytDlpBinPath, cmdArgs...)
 
 	var out bytes.Buffer
@@ -204,23 +212,94 @@ func RunYtDlp(args ...string) ([]byte, error) {
 	cmd.Stderr = &stderr
 
 	err := cmd.Run()
-	if err != nil {
-		log.Printf("yt-dlp error: %v, stderr: %s", err, stderr.String())
-		return nil, err
+	return out.Bytes(), stderr.String(), err
+}
+
+// RunYtDlp securely executes yt-dlp with the given arguments and returns JSON output.
+// If YouTube's bot-check is hit, it retries once with the android player client,
+// which is not subject to the same gate.
+func RunYtDlp(args ...string) ([]byte, error) {
+	base := []string{
+		"--dump-json",
+		"--no-warnings",
+		"--quiet",
+		"--force-ipv4",
+		"--ignore-errors",
+		"--user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+	}
+	return runYtDlpWithBase(base, args...)
+}
+
+// RunYtDlpSingleJSON runs yt-dlp expecting a single JSON document (for use with
+// -J / --dump-single-json). It omits --dump-json, which would otherwise emit
+// one object per entry and corrupt single-JSON output.
+func RunYtDlpSingleJSON(args ...string) ([]byte, error) {
+	base := []string{
+		"--no-warnings",
+		"--quiet",
+		"--force-ipv4",
+		"--ignore-errors",
+		"--user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+	}
+	return runYtDlpWithBase(base, args...)
+}
+
+// runYtDlpWithBase runs yt-dlp with the given base flags, retrying across
+// player clients when YouTube's bot-check gate returns empty output.
+func runYtDlpWithBase(base []string, args ...string) ([]byte, error) {
+	// Player clients to try in order. Empty means yt-dlp's default. YouTube's
+	// bot-check gates certain clients intermittently, and with --ignore-errors
+	// yt-dlp exits 0 but returns empty output, so we treat empty output or a
+	// bot-check message as a signal to fall back to the next client.
+	clients := []string{"", "android", "tv", "ios", "web_safari"}
+
+	var lastStderr string
+	var lastErr error
+	for _, client := range clients {
+		cmdArgs := append([]string{}, base...)
+		if client != "" {
+			cmdArgs = append(cmdArgs, "--extractor-args", "youtube:player_client="+client)
+		}
+		cmdArgs = append(cmdArgs, args...)
+
+		out, stderr, err := runYtDlpArgs(cmdArgs)
+
+		// Success: usable output and no bot-check gate.
+		if len(bytes.TrimSpace(out)) > 0 && !isBotCheckError(stderr) {
+			return out, nil
+		}
+
+		// Genuine empty result (no error, no bot-check): nothing to retry for.
+		if err == nil && !isBotCheckError(stderr) {
+			return out, nil
+		}
+
+		if client == "" {
+			log.Printf("yt-dlp default client failed (bot-check=%v, err=%v), falling back", isBotCheckError(stderr), err)
+		} else {
+			log.Printf("yt-dlp client %q failed (bot-check=%v, err=%v), falling back", client, isBotCheckError(stderr), err)
+		}
+		lastStderr = stderr
+		lastErr = err
 	}
 
-	return out.Bytes(), nil
+	log.Printf("yt-dlp failed after all client fallbacks: %v, stderr: %s", lastErr, lastStderr)
+	if lastErr != nil {
+		return nil, lastErr
+	}
+	return nil, fmt.Errorf("yt-dlp returned no usable output (possible bot-check): %s", lastStderr)
 }
 
 func SearchVideos(query string, limit int) ([]VideoData, error) {
 	searchQuery := fmt.Sprintf("ytsearch%d:%s", limit, query)
 
-	args := []string{
+	// Cache flat search results for 30 minutes so repeat/category loads are instant.
+	cacheKey := fmt.Sprintf("search:%d:%s", limit, query)
+	out, err := RunYtDlpCached(cacheKey, 1800,
 		"--flat-playlist",
+		"--no-warnings",
 		searchQuery,
-	}
-
-	out, err := RunYtDlp(args...)
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -887,6 +966,10 @@ type ChannelInfo struct {
 	Title           string `json:"title"`
 	SubscriberCount int64  `json:"subscriber_count"`
 	Avatar          string `json:"avatar"`
+	AvatarURL       string `json:"avatar_url"`
+	BannerURL       string `json:"banner_url"`
+	Description     string `json:"description"`
+	VideoCount      int    `json:"video_count"`
 }
 
 func GetChannelInfo(channelID string) (*ChannelInfo, error) {
@@ -950,15 +1033,31 @@ func GetChannelInfo(channelID string) (*ChannelInfo, error) {
 }
 
 func GetChannelVideos(channelID string, limit int) ([]VideoData, error) {
+	// Check SQLite cache first
+	var cachedJSON string
+	err := models.DB.QueryRow(
+		"SELECT videos_json FROM channel_videos_cache WHERE channel_id = ? AND fetched_at > datetime('now', ?)",
+		channelID, fmt.Sprintf("-%d seconds", int(channelVideosCacheTTL.Seconds())),
+	).Scan(&cachedJSON)
+	if err == nil && cachedJSON != "" {
+		var videos []VideoData
+		if json.Unmarshal([]byte(cachedJSON), &videos) == nil {
+			return videos, nil
+		}
+	}
+
 	url := fmt.Sprintf("https://www.youtube.com/channel/%s", channelID)
 	if strings.HasPrefix(channelID, "@") {
 		url = fmt.Sprintf("https://www.youtube.com/%s", channelID)
 	}
 
+	// Use --flat-playlist: fast, reliable, and far less likely to trip YouTube's
+	// bot check than a full per-video extraction. The channel /videos tab is
+	// already ordered newest-first, so this always yields the latest uploads.
 	args := []string{
 		url + "/videos",
 		"--flat-playlist",
-		fmt.Sprintf("--playlist-end=%d", limit),
+		"--playlist-end=" + fmt.Sprintf("%d", limit),
 	}
 
 	out, err := RunYtDlp(args...)
@@ -980,7 +1079,473 @@ func GetChannelVideos(channelID string, limit int) ([]VideoData, error) {
 		}
 	}
 
+	// Store in SQLite cache (upsert)
+	if jsonBytes, err := json.Marshal(results); err == nil {
+		_, err := models.DB.Exec(
+			"INSERT OR REPLACE INTO channel_videos_cache (channel_id, videos_json, fetched_at) VALUES (?, ?, CURRENT_TIMESTAMP)",
+			channelID, string(jsonBytes),
+		)
+		if err != nil {
+			log.Printf("[Cache] Failed to store channel videos for %s: %v", channelID, err)
+		}
+	}
+
 	return results, nil
+}
+
+// ChannelPage bundles a channel's metadata and its latest videos so the whole
+// page can be rendered from a single fast yt-dlp call.
+type ChannelPage struct {
+	Info   *ChannelInfo `json:"info"`
+	Videos []VideoData  `json:"videos"`
+}
+
+// GetChannelPage fetches channel metadata (avatar, banner, description,
+// subscriber count) and the latest videos in ONE flat-playlist call, which is
+// far faster than resolving info and videos separately. Results are cached.
+// GetChannelAvatar fetches only a channel's avatar URL (and name) using a
+// metadata-only yt-dlp call (no playlist entries), which is much faster than a
+// full channel page. Results are cached long-term since avatars rarely change.
+func GetChannelAvatar(channelID string) (string, string, error) {
+	cacheKey := fmt.Sprintf("channelavatar:%s", channelID)
+	if cached, err := models.GetCachedVideo(cacheKey); err == nil && len(bytes.TrimSpace(cached)) > 0 {
+		var res struct {
+			AvatarURL string `json:"avatar_url"`
+			Name      string `json:"name"`
+		}
+		if json.Unmarshal(cached, &res) == nil && res.AvatarURL != "" {
+			return res.AvatarURL, res.Name, nil
+		}
+	}
+
+	url := fmt.Sprintf("https://www.youtube.com/channel/%s", channelID)
+	if strings.HasPrefix(channelID, "@") {
+		url = fmt.Sprintf("https://www.youtube.com/%s", channelID)
+	}
+
+	out, err := RunYtDlpSingleJSON(
+		url+"/videos",
+		"--flat-playlist",
+		"-J",
+		"--playlist-items", "0",
+	)
+	if err != nil {
+		return "", "", err
+	}
+
+	var raw struct {
+		Channel    string `json:"channel"`
+		Uploader   string `json:"uploader"`
+		Title      string `json:"title"`
+		Thumbnails []struct {
+			ID     string `json:"id"`
+			URL    string `json:"url"`
+			Width  int    `json:"width"`
+			Height int    `json:"height"`
+		} `json:"thumbnails"`
+	}
+	if err := json.Unmarshal(out, &raw); err != nil {
+		return "", "", err
+	}
+
+	name := raw.Channel
+	if name == "" {
+		name = raw.Uploader
+	}
+	if name == "" {
+		name = strings.TrimSuffix(raw.Title, " - Videos")
+	}
+
+	var avatarURL string
+	var avatarBest int
+	for _, t := range raw.Thumbnails {
+		id := strings.ToLower(t.ID)
+		if strings.Contains(id, "avatar") && avatarURL == "" {
+			avatarURL = t.URL
+		}
+		if t.Width > 0 && t.Width == t.Height && t.Width > avatarBest {
+			avatarBest = t.Width
+			if avatarURL == "" || !strings.Contains(strings.ToLower(avatarURL), "avatar") {
+				avatarURL = t.URL
+			}
+		}
+	}
+
+	if avatarURL != "" {
+		res := struct {
+			AvatarURL string `json:"avatar_url"`
+			Name      string `json:"name"`
+		}{avatarURL, name}
+		if b, err := json.Marshal(res); err == nil {
+			_ = models.SetCachedVideo(cacheKey, string(b), int((7 * 24 * time.Hour).Seconds()))
+		}
+	}
+	return avatarURL, name, nil
+}
+
+func GetChannelPage(channelID string, limit int) (*ChannelPage, error) {
+	cacheKey := fmt.Sprintf("channelpage:%s:%d", channelID, limit)
+	if cached, err := models.GetCachedVideo(cacheKey); err == nil && len(bytes.TrimSpace(cached)) > 0 {
+		var page ChannelPage
+		if json.Unmarshal(cached, &page) == nil && page.Info != nil {
+			return &page, nil
+		}
+	}
+
+	url := fmt.Sprintf("https://www.youtube.com/channel/%s", channelID)
+	if strings.HasPrefix(channelID, "@") {
+		url = fmt.Sprintf("https://www.youtube.com/%s", channelID)
+	}
+
+	out, err := RunYtDlpSingleJSON(
+		url+"/videos",
+		"--flat-playlist",
+		"-J",
+		"--playlist-end="+fmt.Sprintf("%d", limit),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	var raw struct {
+		ChannelID            string  `json:"channel_id"`
+		Channel              string  `json:"channel"`
+		Title                string  `json:"title"`
+		Uploader             string  `json:"uploader"`
+		ChannelFollowerCount float64 `json:"channel_follower_count"`
+		Description          string  `json:"description"`
+		PlaylistCount        int     `json:"playlist_count"`
+		Thumbnails           []struct {
+			ID     string `json:"id"`
+			URL    string `json:"url"`
+			Width  int    `json:"width"`
+			Height int    `json:"height"`
+		} `json:"thumbnails"`
+		Entries []YtDlpEntry `json:"entries"`
+	}
+	if err := json.Unmarshal(out, &raw); err != nil {
+		return nil, err
+	}
+
+	title := raw.Channel
+	if title == "" {
+		title = raw.Uploader
+	}
+	if title == "" {
+		title = strings.TrimSuffix(raw.Title, " - Videos")
+	}
+	if title == "" {
+		title = channelID
+	}
+
+	// Pick avatar (square) and banner (wide) thumbnails.
+	var avatarURL, bannerURL string
+	var avatarBest, bannerBest int
+	for _, t := range raw.Thumbnails {
+		id := strings.ToLower(t.ID)
+		if strings.Contains(id, "avatar") && avatarURL == "" {
+			avatarURL = t.URL
+		}
+		if strings.Contains(id, "banner") && bannerURL == "" {
+			bannerURL = t.URL
+		}
+		if t.Width > 0 && t.Height > 0 {
+			if t.Width == t.Height && t.Width > avatarBest {
+				avatarBest = t.Width
+				if avatarURL == "" || !strings.Contains(strings.ToLower(avatarURL), "avatar") {
+					avatarURL = t.URL
+				}
+			}
+			if t.Width >= t.Height*2 && t.Width > bannerBest {
+				bannerBest = t.Width
+				if bannerURL == "" || !strings.Contains(strings.ToLower(bannerURL), "banner") {
+					bannerURL = t.URL
+				}
+			}
+		}
+	}
+
+	cID := raw.ChannelID
+	if cID == "" {
+		cID = channelID
+	}
+
+	avatarStr := "?"
+	if r := []rune(title); len(r) > 0 {
+		avatarStr = strings.ToUpper(string(r[0]))
+	}
+
+	info := &ChannelInfo{
+		ID:              cID,
+		Title:           title,
+		SubscriberCount: int64(raw.ChannelFollowerCount),
+		Avatar:          avatarStr,
+		AvatarURL:       avatarURL,
+		BannerURL:       bannerURL,
+		Description:     raw.Description,
+		VideoCount:      raw.PlaylistCount,
+	}
+
+	var videos []VideoData
+	for _, e := range raw.Entries {
+		if e.ID != "" {
+			v := sanitizeVideoData(e)
+			if v.Uploader == "" || v.Uploader == "Unknown" {
+				v.Uploader = title
+			}
+			videos = append(videos, v)
+		}
+	}
+
+	page := &ChannelPage{Info: info, Videos: videos}
+	if b, err := json.Marshal(page); err == nil {
+		_ = models.SetCachedVideo(cacheKey, string(b), int(channelVideosCacheTTL.Seconds()))
+	}
+	return page, nil
+}
+
+// GetVideoUploadDates resolves the real upload_date (YYYYMMDD) for a list of
+// video IDs, using a persistent SQLite cache and a bounded worker pool.
+func GetVideoUploadDates(videoIDs []string) map[string]string {
+	results := make(map[string]string)
+	var mu sync.Mutex
+
+	// Serve cached dates first; only resolve the misses.
+	var toFetch []string
+	for _, id := range videoIDs {
+		if id == "" {
+			continue
+		}
+		var date string
+		err := models.DB.QueryRow("SELECT upload_date FROM video_dates_cache WHERE video_id = ?", id).Scan(&date)
+		if err == nil && date != "" {
+			results[id] = date
+			continue
+		}
+		toFetch = append(toFetch, id)
+	}
+
+	if len(toFetch) == 0 {
+		return results
+	}
+
+	// Keep concurrency low: heavy parallel extraction trips YouTube's bot check,
+	// which then breaks unrelated requests (e.g. video playback).
+	sem := make(chan struct{}, 3)
+	var wg sync.WaitGroup
+
+	for _, id := range toFetch {
+		wg.Add(1)
+		go func(videoID string) {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+
+			date := fetchUploadDate(videoID)
+			if date == "" {
+				return
+			}
+			mu.Lock()
+			results[videoID] = date
+			mu.Unlock()
+			_, _ = models.DB.Exec(
+				"INSERT OR REPLACE INTO video_dates_cache (video_id, upload_date, fetched_at) VALUES (?, ?, CURRENT_TIMESTAMP)",
+				videoID, date,
+			)
+		}(id)
+	}
+
+	wg.Wait()
+	return results
+}
+
+// fetchUploadDate resolves just the YYYYMMDD upload date for a single video using
+// a lightweight metadata-only extraction (no formats), which is far gentler on
+// YouTube than a full --dump-json. Falls back to the android player client on a
+// bot check.
+func fetchUploadDate(videoID string) string {
+	url := fmt.Sprintf("https://www.youtube.com/watch?v=%s", videoID)
+	base := []string{
+		"--skip-download",
+		"--no-warnings",
+		"--quiet",
+		"--force-ipv4",
+		"--no-playlist",
+		"--print", "%(upload_date)s",
+	}
+
+	out, stderr, err := runYtDlpArgs(append(append([]string{}, base...), url))
+	if err != nil && isBotCheckError(stderr) {
+		retry := append(append([]string{}, base...), "--extractor-args", "youtube:player_client=android", url)
+		out, _, err = runYtDlpArgs(retry)
+	}
+	if err != nil {
+		return ""
+	}
+
+	date := strings.TrimSpace(string(out))
+	if idx := strings.IndexByte(date, '\n'); idx >= 0 {
+		date = strings.TrimSpace(date[:idx])
+	}
+	if date == "" || date == "NA" {
+		return ""
+	}
+	return date
+}
+
+// VideoStats holds lightweight per-video metadata resolved on demand.
+type VideoStats struct {
+	ViewCount  int64  `json:"view_count"`
+	UploadDate string `json:"upload_date"`
+}
+
+// GetVideoStats resolves view counts (and upload dates) for a set of video IDs.
+// Flat-playlist listings (used by the channel page) don't include view counts,
+// so we fetch them lazily via a metadata-only extraction and cache long-term.
+func GetVideoStats(videoIDs []string) map[string]VideoStats {
+	results := make(map[string]VideoStats)
+	var mu sync.Mutex
+
+	var toFetch []string
+	for _, id := range videoIDs {
+		if id == "" {
+			continue
+		}
+		cacheKey := fmt.Sprintf("videostats:%s", id)
+		if cached, err := models.GetCachedVideo(cacheKey); err == nil && len(bytes.TrimSpace(cached)) > 0 {
+			var s VideoStats
+			if json.Unmarshal(cached, &s) == nil {
+				results[id] = s
+				continue
+			}
+		}
+		toFetch = append(toFetch, id)
+	}
+
+	if len(toFetch) == 0 {
+		return results
+	}
+
+	sem := make(chan struct{}, 3)
+	var wg sync.WaitGroup
+
+	for _, id := range toFetch {
+		wg.Add(1)
+		go func(videoID string) {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+
+			s, ok := fetchVideoStats(videoID)
+			if !ok {
+				return
+			}
+			mu.Lock()
+			results[videoID] = s
+			mu.Unlock()
+			if b, err := json.Marshal(s); err == nil {
+				_ = models.SetCachedVideo(fmt.Sprintf("videostats:%s", videoID), string(b), int((6 * time.Hour).Seconds()))
+			}
+		}(id)
+	}
+
+	wg.Wait()
+	return results
+}
+
+// fetchVideoStats grabs view count + upload date for a single video using a
+// metadata-only extraction (no formats), retrying with the android client on a
+// bot check.
+func fetchVideoStats(videoID string) (VideoStats, bool) {
+	url := fmt.Sprintf("https://www.youtube.com/watch?v=%s", videoID)
+	base := []string{
+		"--skip-download",
+		"--no-warnings",
+		"--quiet",
+		"--force-ipv4",
+		"--no-playlist",
+		"--print", "%(view_count)s|%(upload_date)s",
+	}
+
+	out, stderr, err := runYtDlpArgs(append(append([]string{}, base...), url))
+	if err != nil && isBotCheckError(stderr) {
+		retry := append(append([]string{}, base...), "--extractor-args", "youtube:player_client=android", url)
+		out, _, err = runYtDlpArgs(retry)
+	}
+	if err != nil {
+		return VideoStats{}, false
+	}
+
+	line := strings.TrimSpace(string(out))
+	if idx := strings.IndexByte(line, '\n'); idx >= 0 {
+		line = strings.TrimSpace(line[:idx])
+	}
+	parts := strings.SplitN(line, "|", 2)
+	var s VideoStats
+	if len(parts) > 0 {
+		if n, err := strconv.ParseInt(strings.TrimSpace(parts[0]), 10, 64); err == nil {
+			s.ViewCount = n
+		}
+	}
+	if len(parts) > 1 {
+		d := strings.TrimSpace(parts[1])
+		if d != "" && d != "NA" {
+			s.UploadDate = d
+		}
+	}
+	return s, true
+}
+
+// GetChannelVideosBatch fetches videos for multiple channels in parallel.
+// Returns a map of channelID -> videos.
+func GetChannelVideosBatch(channelIDs []string, limit int) map[string][]VideoData {
+	results := make(map[string][]VideoData)
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+
+	// Check cache first, only fetch missing channels
+	var toFetch []string
+	for _, cid := range channelIDs {
+		var cachedJSON string
+		err := models.DB.QueryRow(
+			"SELECT videos_json FROM channel_videos_cache WHERE channel_id = ? AND fetched_at > datetime('now', ?)",
+			cid, fmt.Sprintf("-%d seconds", int(channelVideosCacheTTL.Seconds())),
+		).Scan(&cachedJSON)
+		if err == nil && cachedJSON != "" {
+			var videos []VideoData
+			if json.Unmarshal([]byte(cachedJSON), &videos) == nil {
+				mu.Lock()
+				results[cid] = videos
+				mu.Unlock()
+				continue
+			}
+		}
+		toFetch = append(toFetch, cid)
+	}
+
+	// Worker pool: max 5 concurrent yt-dlp processes
+	sem := make(chan struct{}, 5)
+
+	for _, cid := range toFetch {
+		wg.Add(1)
+		go func(channelID string) {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+
+			videos, err := GetChannelVideos(channelID, limit)
+			if err != nil {
+				log.Printf("[Batch] Failed to fetch videos for %s: %v", channelID, err)
+				return
+			}
+			mu.Lock()
+			results[channelID] = videos
+			mu.Unlock()
+		}(cid)
+	}
+
+	wg.Wait()
+	return results
 }
 
 type Comment struct {

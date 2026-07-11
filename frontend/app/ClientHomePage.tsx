@@ -1,10 +1,11 @@
 'use client';
 
-import { useEffect, useState, useRef, useCallback } from 'react';
+import { useEffect, useState, useRef, useCallback, memo } from 'react';
 import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
-import { searchVideosClient, getTrendingVideosClient } from './clientActions';
+import { searchVideosClient, getVideoDatesClient, formatRelativeTime } from './clientActions';
 import { VideoData } from './constants';
+import { getRegionContent, categoryQuery } from './regionContent';
 import LoadingSpinner from './components/LoadingSpinner';
 
 // Format view count
@@ -14,38 +15,20 @@ function formatViews(views: number): string {
     return views === 0 ? '' : `${views} views`;
 }
 
-// Get stable time ago based on video ID (deterministic, not random)
-function getStableTimeAgo(videoId: string): string {
-    const times = ['2 hours ago', '5 hours ago', '1 day ago', '2 days ago', '3 days ago', '1 week ago', '2 weeks ago', '1 month ago'];
-    const hash = videoId.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
-    return times[hash % times.length];
-}
-
 // Get fallback thumbnail URL (always works)
 function getFallbackThumbnail(videoId: string): string {
     return `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`;
 }
 
-// Video Card Component
-function VideoCard({ video }: { video: VideoData }) {
-    const [imgError, setImgError] = useState(false);
+// Video Card Component (React.memo - prevents re-renders from scroll/resize, TypeType pattern)
+const VideoCard = memo(function VideoCard({ video }: { video: VideoData }) {
+    const [imgSrc, setImgSrc] = useState(`https://i.ytimg.com/vi/${video.id}/hqdefault.jpg`);
     const [imgLoaded, setImgLoaded] = useState(false);
-    
-    // Use multiple thumbnail sources for fallback
-    const thumbnailSources = [
-        `https://i.ytimg.com/vi/${video.id}/hqdefault.jpg`,
-        `https://i.ytimg.com/vi/${video.id}/mqdefault.jpg`,
-        `https://i.ytimg.com/vi/${video.id}/sddefault.jpg`,
-        `https://i.ytimg.com/vi/${video.id}/default.jpg`,
-    ];
-    
-    const [currentSrcIndex, setCurrentSrcIndex] = useState(0);
-    const currentSrc = thumbnailSources[currentSrcIndex];
+    const [imgError, setImgError] = useState(false);
     
     const handleError = () => {
-        if (currentSrcIndex < thumbnailSources.length - 1) {
-            setCurrentSrcIndex(prev => prev + 1);
-        } else {
+        if (!imgError) {
+            setImgSrc(`https://i.ytimg.com/vi/${video.id}/mqdefault.jpg`);
             setImgError(true);
         }
     };
@@ -62,6 +45,20 @@ function VideoCard({ video }: { video: VideoData }) {
                     borderRadius: '12px', 
                     overflow: 'hidden',
                 }}>
+                    <img 
+                        src={imgSrc}
+                        alt={video.title}
+                        loading="eager"
+                        decoding="async"
+                        onError={handleError}
+                        onLoad={() => setImgLoaded(true)}
+                        style={{ 
+                            width: '100%', 
+                            height: '100%', 
+                            objectFit: 'cover',
+                        }}
+                    />
+                    
                     {!imgLoaded && !imgError && (
                         <div style={{
                             position: 'absolute',
@@ -72,36 +69,6 @@ function VideoCard({ video }: { video: VideoData }) {
                             justifyContent: 'center',
                         }}>
                             <LoadingSpinner size="small" color="white" />
-                        </div>
-                    )}
-                    
-                    {!imgError ? (
-                        <img 
-                            src={currentSrc}
-                            alt={video.title}
-                            onError={handleError}
-                            onLoad={() => setImgLoaded(true)}
-                            style={{ 
-                                width: '100%', 
-                                height: '100%', 
-                                objectFit: 'cover',
-                                display: imgLoaded ? 'block' : 'none',
-                                transition: 'opacity 0.2s',
-                            }}
-                        />
-                    ) : (
-                        <div style={{
-                            width: '100%',
-                            height: '100%',
-                            backgroundColor: '#333',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            color: '#666',
-                        }}>
-                            <svg width="48" height="48" viewBox="0 0 24 24" fill="currentColor">
-                                <path d="M21 19V5c0-1.1-.9-2-2-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2zM8.5 13.5l2.5 3.01L14.5 12l4.5 6H5l3.5-4.5z"/>
-                            </svg>
                         </div>
                     )}
                     
@@ -166,14 +133,14 @@ function VideoCard({ video }: { video: VideoData }) {
                         gap: '4px',
                     }}>
                         {(video.view_count ?? 0) > 0 && <span>{formatViews(video.view_count ?? 0)}</span>}
-                        {(video.view_count ?? 0) > 0 && <span>•</span>}
-                        <span>{video.upload_date || video.publishedAt || getStableTimeAgo(video.id)}</span>
+                        {(video.view_count ?? 0) > 0 && video.publishedAt && <span>•</span>}
+                        {video.publishedAt && <span>{video.publishedAt}</span>}
                     </div>
                 </div>
             </div>
         </Link>
     );
-}
+});
 
 // Category Pills Component
 function CategoryPills({ 
@@ -187,12 +154,16 @@ function CategoryPills({
 }) {
     return (
         <div style={{ 
+            position: 'sticky',
+            top: 'var(--yt-header-height)',
+            zIndex: 400,
             display: 'flex', 
             gap: '12px', 
             overflowX: 'auto',
-            padding: '16px 0',
+            padding: '16px 24px',
+            margin: '0 -24px 24px',
+            backgroundColor: 'var(--yt-background)',
             borderBottom: '1px solid var(--yt-border)',
-            marginBottom: '24px',
             msOverflowStyle: 'none',
             scrollbarWidth: 'none',
         }}>
@@ -305,24 +276,14 @@ export default function ClientHomePage() {
     const loadingRef = useRef(true);
     const hasMoreRef = useRef(true);
     const pageRef = useRef(1);
+    const emptyStreakRef = useRef(0);
     
     useEffect(() => { loadingMoreRef.current = loadingMore; }, [loadingMore]);
     useEffect(() => { loadingRef.current = loading; }, [loading]);
     useEffect(() => { hasMoreRef.current = hasMore; }, [hasMore]);
     useEffect(() => { pageRef.current = page; }, [page]);
 
-    const categories = ['All', 'Trending', 'Music', 'Gaming', 'News', 'Sports', 'Live', 'New'];
-
-    // Region mapping for YouTube API
-    const REGION_MAP: Record<string, string> = {
-        'VN': 'Vietnam',
-        'US': 'United States',
-        'JP': 'Japan',
-        'KR': 'South Korea',
-        'IN': 'India',
-        'GB': 'United Kingdom',
-        'GLOBAL': '',
-    };
+    const categories = ['All', 'Trending', 'Music', 'Gaming', 'News', 'Sports', 'Live', 'Education', 'Comedy', 'Tech', 'Food', 'Travel', 'Fashion', 'Science'];
 
     // Initialize region from cookie
     useEffect(() => {
@@ -381,23 +342,65 @@ export default function ClientHomePage() {
         };
     }, []); // Run once on mount
 
+    // Resolve real publish dates in the background and merge them into the feed.
+    const enrichDates = useCallback(async (list: VideoData[]) => {
+        const ids = list.filter(v => v.id && !v.upload_date).map(v => v.id);
+        if (ids.length === 0) return;
+        const dates = await getVideoDatesClient(ids.slice(0, 60));
+        if (!dates || Object.keys(dates).length === 0) return;
+        setVideos(prev => prev.map(v => {
+            const d = dates[v.id];
+            if (d && !v.upload_date) {
+                return { ...v, upload_date: d, publishedAt: formatRelativeTime(d) };
+            }
+            return v;
+        }));
+    }, []);
+
     const loadVideos = async (category: string, pageNum: number) => {
         try {
             setLoading(true);
             let results: VideoData[] = [];
-            const regionLabel = REGION_MAP[regionCode] || '';
-            const regionSuffix = regionLabel ? ` ${regionLabel}` : '';
+            const rc = getRegionContent(regionCode);
 
-            // All categories use region-specific search
-            if (category === 'Trending') {
-                results = await getTrendingVideosClient(regionCode, 30);
-            } else if (category === 'All') {
-                // Use region-specific trending for "All"
-                results = await getTrendingVideosClient(regionCode, 30);
+            if (category === 'All') {
+                // Region-localized diverse feed + trending as base.
+                const trendingPromise = searchVideosClient(rc.trending, 15);
+
+                // Fetch history for light personalization (channel names only, so it
+                // stays consistent with what the user actually watches).
+                const historyRes = await fetch('/api/history?limit=10', { cache: 'no-store' });
+                const history = historyRes.ok ? await historyRes.json() : [];
+
+                const historyQueries: string[] = [];
+                if (Array.isArray(history) && history.length > 0) {
+                    const channels = [...new Set(history.map((h: any) => h.uploader || h.channelTitle || '').filter(Boolean))]
+                        .filter(c => c !== 'History')
+                        .slice(0, 1);
+                    historyQueries.push(...channels);
+                }
+
+                // Shuffle localized topics so each refresh varies.
+                const shuffled = [...rc.topics].sort(() => Math.random() - 0.5);
+
+                // Build query list: a little personalization + localized topics.
+                const queries = [...historyQueries];
+                for (const topic of shuffled) {
+                    if (queries.length >= 6) break;
+                    queries.push(topic);
+                }
+
+                const searchResults = await Promise.all(
+                    queries.map(q => searchVideosClient(q, 10))
+                );
+                const trending = await trendingPromise;
+                results = [...trending, ...searchResults.flat()];
+                // Shuffle results so each refresh shows different order
+                results = results.sort(() => Math.random() - 0.5);
+            } else if (category === 'Trending') {
+                results = await searchVideosClient(rc.trending, 30);
             } else {
-                // Category-specific search with region
-                const query = `${category}${regionSuffix}`;
-                results = await searchVideosClient(query, 30);
+                results = await searchVideosClient(categoryQuery(regionCode, category), 30);
             }
 
             // Remove duplicates and filter out videos without thumbnails
@@ -411,6 +414,8 @@ export default function ClientHomePage() {
             setPage(pageNum);
             setHasMore(true);
             hasMoreRef.current = true;
+            emptyStreakRef.current = 0;
+            enrichDates(uniqueResults);
         } catch (error) {
             console.error('Failed to load videos:', error);
         } finally {
@@ -432,53 +437,63 @@ export default function ClientHomePage() {
         const nextPage = pageRef.current + 1;
         
         try {
-            const regionLabel = REGION_MAP[regionCode] || '';
-            const regionSuffix = regionLabel ? ` ${regionLabel}` : '';
-            
-            // Generate varied search queries - ALL include region
-            const searchVariations = [
-                `trending${regionSuffix}`,
-                `popular videos${regionSuffix}`,
-                `viral 2026${regionSuffix}`,
-                `music${regionSuffix}`,
-                `entertainment${regionSuffix}`,
-                `gaming${regionSuffix}`,
-                `funny${regionSuffix}`,
-                `news${regionSuffix}`,
-                `sports${regionSuffix}`,
-                `new videos${regionSuffix}`,
-            ];
-            
-            const queryIndex = (nextPage - 1) % searchVariations.length;
-            const searchQuery = searchVariations[queryIndex];
-            
-            // Always use search for variety - trending API returns same results
-            const moreVideos = await searchVideosClient(searchQuery, 30);
+            let moreVideos: VideoData[] = [];
+            const rc = getRegionContent(regionCode);
+
+            if (currentCategory === 'All') {
+                // Rotate through localized topics; go deeper (larger limit) on each
+                // full cycle so results keep coming instead of repeating.
+                const topics = rc.topics;
+                const cycle = Math.floor(((nextPage - 1) * 3) / topics.length);
+                const perTopicLimit = 12 + cycle * 10;
+                const startIdx = ((nextPage - 1) * 3) % topics.length;
+                const batch = [0, 1, 2].map(i => topics[(startIdx + i) % topics.length]);
+
+                const results = await Promise.all(batch.map(q => searchVideosClient(q, perTopicLimit)));
+                moreVideos = results.flat().sort(() => Math.random() - 0.5);
+            } else if (currentCategory === 'Trending') {
+                const limit = 30 + (nextPage - 1) * 20;
+                moreVideos = await searchVideosClient(rc.trending, limit);
+            } else {
+                // Cycle through localized topics; increase depth each full cycle.
+                const pool = [categoryQuery(regionCode, currentCategory), ...rc.topics];
+                const queryIndex = (nextPage - 1) % pool.length;
+                const cycle = Math.floor((nextPage - 1) / pool.length);
+                const limit = 30 + cycle * 20;
+                moreVideos = await searchVideosClient(pool[queryIndex], limit);
+            }
 
             // Remove duplicates and filter out videos without thumbnails
             setVideos(prev => {
                 const existingIds = new Set(prev.map(v => v.id));
-                const uniqueNewVideos = moreVideos.filter(v => 
+                const uniqueNewVideos = moreVideos.filter(v =>
                     !existingIds.has(v.id) && isValidThumbnail(v.thumbnail)
                 );
-                
-                // If no new videos after filtering, stop infinite scroll
-                if (uniqueNewVideos.length < 3) {
-                    setHasMore(false);
-                    hasMoreRef.current = false;
+
+                // Only give up after several consecutive pages yield nothing new,
+                // so a single repeated query doesn't kill infinite scroll.
+                if (uniqueNewVideos.length === 0) {
+                    emptyStreakRef.current += 1;
+                    if (emptyStreakRef.current >= 5) {
+                        setHasMore(false);
+                        hasMoreRef.current = false;
+                    }
+                } else {
+                    emptyStreakRef.current = 0;
                 }
-                
+
                 return [...prev, ...uniqueNewVideos];
             });
             
             setPage(nextPage);
+            enrichDates(moreVideos);
         } catch (error) {
             console.error('Failed to load more videos:', error);
             // Don't stop infinite scroll on error - allow retry on next scroll
         } finally {
             setLoadingMore(false);
         }
-    }, [currentCategory, regionCode]);
+    }, [currentCategory, regionCode, enrichDates]);
 
     // Ref for the loadMore function to avoid stale closures
     const loadMoreCallbackRef = useRef(loadMore);

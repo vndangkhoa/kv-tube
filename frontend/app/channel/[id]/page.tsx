@@ -1,5 +1,7 @@
-import VideoCard from '../../components/VideoCard';
 import ChannelSubscribeButton from '../../components/ChannelSubscribeButton';
+import ChannelVideosLoader from './ChannelVideosLoader';
+import ChannelAvatar from './ChannelAvatar';
+import ChannelDescription from './ChannelDescription';
 import { notFound } from 'next/navigation';
 export const dynamic = 'force-dynamic';
 
@@ -8,6 +10,10 @@ interface ChannelInfo {
     title: string;
     subscriber_count: number;
     avatar: string;
+    avatar_url?: string;
+    banner_url?: string;
+    description?: string;
+    video_count?: number;
 }
 
 interface VideoData {
@@ -17,110 +23,101 @@ interface VideoData {
     thumbnail: string;
     view_count: number;
     duration: string;
+    channel_id?: string;
 }
 
-// Helper to format subscribers
+interface ChannelPageData {
+    info: ChannelInfo | null;
+    videos: VideoData[];
+}
+
 function formatSubscribers(count: number): string {
     if (count >= 1000000) return (count / 1000000).toFixed(2) + 'M';
     if (count >= 1000) return (count / 1000).toFixed(0) + 'K';
     return count.toString();
 }
 
-// We no longer need getAvatarColor as we now use the global --yt-avatar-bg
-
 const API_BASE = 'http://localhost:8080/api';
+const INITIAL_LIMIT = 48;
 
-async function getChannelInfo(id: string) {
+async function getChannelPage(id: string): Promise<ChannelPageData | null> {
     try {
-        const res = await fetch(`${API_BASE}/channel/info?id=${id}`, { cache: 'no-store' });
+        const res = await fetch(`${API_BASE}/channel/page?id=${encodeURIComponent(id)}&limit=${INITIAL_LIMIT}`, {
+            cache: 'no-store',
+        });
         if (!res.ok) return null;
-        return res.json() as Promise<ChannelInfo>;
+        return (await res.json()) as ChannelPageData;
     } catch (e) {
         console.error(e);
         return null;
     }
 }
 
-async function getChannelVideos(id: string) {
-    try {
-        const res = await fetch(`${API_BASE}/channel/videos?id=${id}&limit=30`, { cache: 'no-store' });
-        if (!res.ok) return [];
-        return res.json() as Promise<VideoData[]>;
-    } catch (e) {
-        console.error(e);
-        return [];
-    }
-}
-
 export default async function ChannelPage({
     params,
 }: {
-    params: Promise<{ id: string }>
+    params: Promise<{ id: string }>;
 }) {
     const awaitParams = await params;
-    let channelId = awaitParams.id;
+    const channelId = decodeURIComponent(awaitParams.id);
 
-    // Clean up URL encoding issues if any
-    channelId = decodeURIComponent(channelId);
-
-    const [info, videos] = await Promise.all([
-        getChannelInfo(channelId),
-        getChannelVideos(channelId)
-    ]);
-
-    if (!info) {
+    const data = await getChannelPage(channelId);
+    if (!data || !data.info) {
         return notFound();
     }
 
+    const { info, videos } = data;
+    const videoCountLabel = info.video_count && info.video_count > 0
+        ? `${info.video_count} videos`
+        : `${videos.length}+ videos`;
+
     return (
         <div style={{ paddingBottom: '48px' }}>
+            {/* Banner */}
+            {info.banner_url && (
+                <div className="channel-banner">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={info.banner_url} alt={`${info.title} banner`} />
+                </div>
+            )}
+
             {/* Channel Header */}
             <div className="channel-header">
-                <div
-                    className="channel-avatar"
-                    style={{ backgroundColor: 'var(--yt-avatar-bg)' }}
-                >
-                    {info.avatar}
-                </div>
+                <ChannelAvatar
+                    avatarUrl={info.avatar_url}
+                    letter={info.avatar}
+                    title={info.title}
+                />
 
                 <div className="channel-meta">
-                    <h1 className="channel-name">
-                        {info.title}
-                    </h1>
+                    <h1 className="channel-name">{info.title}</h1>
                     <div className="channel-stats">
-                        <span style={{ opacity: 0.7 }}>{info.id}</span>
-                        <span style={{ opacity: 0.5 }}>•</span>
                         <span>{formatSubscribers(info.subscriber_count)} subscribers</span>
                         <span style={{ opacity: 0.5 }}>•</span>
-                        <span>{videos.length} videos</span>
+                        <span>{videoCountLabel}</span>
                     </div>
-                    <ChannelSubscribeButton channelId={info.id} channelName={info.title} />
+
+                    {info.description && <ChannelDescription text={info.description} />}
+
+                    <div style={{ marginTop: '16px' }}>
+                        <ChannelSubscribeButton channelId={info.id} channelName={info.title} />
+                    </div>
                 </div>
             </div>
 
             {/* Navigation Tabs */}
             <div className="channel-tabs">
                 <div className="channel-tabs-inner">
-                    <div className="channel-tab active">
-                        Videos
-                        <span className="channel-video-count">{videos.length}</span>
-                    </div>
+                    <div className="channel-tab active">Videos</div>
                 </div>
             </div>
 
-            {/* Video Grid */}
-            <div className="channel-video-grid">
-                {videos.map((v, i) => {
-                    // Enforce correct channel name
-                    v.uploader = info.title;
-                    const stagger = `stagger-${Math.min(i + 1, 6)}`;
-                    return (
-                        <div key={v.id} className={`fade-in-up ${stagger}`} style={{ opacity: 0 }}>
-                            <VideoCard video={v} hideChannelAvatar={true} />
-                        </div>
-                    );
-                })}
-            </div>
+            {/* Video Grid + infinite scroll (view counts hydrated client-side) */}
+            <ChannelVideosLoader
+                channelId={info.id}
+                channelTitle={info.title}
+                initialVideos={videos.map((v) => ({ ...v, uploader: info.title }))}
+            />
         </div>
     );
 }

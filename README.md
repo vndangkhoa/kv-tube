@@ -75,6 +75,16 @@
     Light, dark, and system-following themes out of the box.
   </td>
 </tr>
+<tr>
+  <td width="50%">
+    <h3>📺 Rich Channel Pages</h3>
+    Banner, avatar, description, subscriber & view counts, and infinite-scrolling videos.
+  </td>
+  <td width="50%">
+    <h3>⚡ Fast & Resilient</h3>
+    Aggressive caching, multi-client yt-dlp fallback, and lazy metadata hydration.
+  </td>
+</tr>
 </table>
 
 ## 🚀 Quick Start

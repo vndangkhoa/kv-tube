@@ -19,11 +19,8 @@ export default function LoadingSpinner({
     text,
     color = 'primary' 
 }: LoadingSpinnerProps) {
-    const { spinner, border } = sizeMap[size];
-    
-    const spinnerColor = color === 'white' ? '#fff' : 'var(--yt-text-primary)';
-    const borderColor = color === 'white' ? 'rgba(255,255,255,0.2)' : 'var(--yt-border)';
-    
+    const { spinner } = sizeMap[size];
+
     const content = (
         <div style={{
             display: 'flex',
@@ -32,14 +29,18 @@ export default function LoadingSpinner({
             justifyContent: 'center',
             gap: '12px',
         }}>
-            <div style={{
-                width: `${spinner}px`,
-                height: `${spinner}px`,
-                border: `${border}px solid ${borderColor}`,
-                borderTop: `${border}px solid ${spinnerColor}`,
-                borderRadius: '50%',
-                animation: 'spin 1s linear infinite',
-            }} />
+            <img
+                src="/loading.gif"
+                alt="Loading"
+                width={spinner}
+                height={spinner}
+                className={color === 'white' ? 'kv-loading-gif kv-loading-gif--white' : 'kv-loading-gif'}
+                style={{
+                    width: `${spinner}px`,
+                    height: `${spinner}px`,
+                    objectFit: 'contain',
+                }}
+            />
             {text && (
                 <span style={{
                     fontSize: '14px',
@@ -49,8 +50,12 @@ export default function LoadingSpinner({
                 </span>
             )}
             <style jsx>{`
-                @keyframes spin {
-                    to { transform: rotate(360deg); }
+                /* GIF art is white: shown as-is on the dark theme.
+                   On the light theme, invert primary spinners to black so
+                   they stay visible. "white" spinners sit over dark surfaces
+                   regardless of theme, so they are never inverted. */
+                :global([data-theme='light']) .kv-loading-gif:not(.kv-loading-gif--white) {
+                    filter: invert(1);
                 }
             `}</style>
         </div>

@@ -87,19 +87,20 @@ function ShortCard({ video, isActive }: { video: ShortVideo; isActive: boolean }
             setLoading(true);
             setError(false);
 
-            try {
-                const res = await fetch(`/api/get_stream_info?v=${video.id}`);
-                const data: StreamInfo = await res.json();
+			try {
+				const res = await fetch(`/api/get_stream_info?v=${video.id}`);
+				const data: StreamInfo = await res.json();
 
-                if (data.error || !data.stream_url) {
-                    throw new Error(data.error || 'No stream URL');
-                }
+				if (data.error || !data.stream_url) {
+					throw new Error(data.error || 'No stream URL');
+				}
 
-                const videoEl = videoRef.current;
-                if (!videoEl) return;
+				const videoEl = videoRef.current;
+				if (!videoEl) return;
 
-                const streamUrl = data.stream_url;
-                const isHLS = streamUrl.includes('.m3u8') || streamUrl.includes('manifest');
+				// Proxy the stream URL through backend to avoid CORS issues
+				const streamUrl = `/api/proxy?url=${encodeURIComponent(data.stream_url)}`;
+				const isHLS = data.stream_url.includes('.m3u8') || data.stream_url.includes('manifest');
 
                 if (isHLS && window.Hls && window.Hls.isSupported()) {
                     if (hlsRef.current) {

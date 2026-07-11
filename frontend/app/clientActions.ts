@@ -33,23 +33,77 @@ function formatViews(views: number): string {
   return views.toString();
 }
 
-function formatRelativeTime(input: any): string {
-  if (!input) return 'recently';
+export function formatRelativeTime(input: any): string {
+  if (!input) return '';
   if (typeof input === 'string' && input.includes('ago')) return input;
   
-  const date = new Date(input);
-  if (isNaN(date.getTime())) return 'recently';
+  // Parse YYYYMMDD format (e.g., "20250405")
+  let date: Date;
+  if (typeof input === 'string' && /^\d{8}$/.test(input)) {
+    const year = parseInt(input.slice(0, 4));
+    const month = parseInt(input.slice(4, 6)) - 1;
+    const day = parseInt(input.slice(6, 8));
+    date = new Date(year, month, day);
+  } else {
+    date = new Date(input);
+  }
+  
+  if (isNaN(date.getTime())) return '';
   
   const now = new Date();
   const diff = now.getTime() - date.getTime();
   const days = Math.floor(diff / (1000 * 60 * 60 * 24));
   
+  if (days < 0) return 'today';
   if (days === 0) return 'today';
   if (days === 1) return 'yesterday';
   if (days < 7) return `${days} days ago`;
   if (days < 30) return `${Math.floor(days / 7)} weeks ago`;
   if (days < 365) return `${Math.floor(days / 30)} months ago`;
   return `${Math.floor(days / 365)} years ago`;
+}
+
+// Resolve real upload dates for a batch of video IDs (returns id -> "YYYYMMDD")
+export async function getVideoDatesClient(ids: string[]): Promise<Record<string, string>> {
+  if (ids.length === 0) return {};
+  try {
+    const response = await fetch(`${API_BASE}/videos/dates`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids }),
+      signal: AbortSignal.timeout(60000),
+    });
+    if (!response.ok) return {};
+    const data = await response.json();
+    return data && typeof data === 'object' ? data : {};
+  } catch (error: any) {
+    if (error?.name === 'AbortError') return {};
+    console.error('Get video dates failed:', error);
+    return {};
+  }
+}
+
+// Resolve view counts (and upload dates) for a batch of video IDs.
+// Returns id -> { view_count, upload_date }
+export async function getVideoStatsClient(
+  ids: string[]
+): Promise<Record<string, { view_count: number; upload_date: string }>> {
+  if (ids.length === 0) return {};
+  try {
+    const response = await fetch(`${API_BASE}/videos/stats`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids }),
+      signal: AbortSignal.timeout(60000),
+    });
+    if (!response.ok) return {};
+    const data = await response.json();
+    return data && typeof data === 'object' ? data : {};
+  } catch (error: any) {
+    if (error?.name === 'AbortError') return {};
+    console.error('Get video stats failed:', error);
+    return {};
+  }
 }
 
 // Search videos using backend API
@@ -206,7 +260,8 @@ export async function getChannelInfoClient(channelId: string): Promise<any | nul
       subscriberCount: data.subscriber_count || 0,
       description: data.description || '',
     };
-  } catch (error) {
+  } catch (error: any) {
+    if (error?.name === 'AbortError') return null;
     console.error('Get channel info failed:', error);
     return null;
   }
@@ -227,8 +282,66 @@ export async function getChannelVideosClient(channelId: string, limit: number = 
     if (!Array.isArray(data)) return [];
     
     return data.map(transformVideo).filter((v: VideoData) => v.id && v.title);
-  } catch (error) {
+  } catch (error: any) {
+    if (error?.name === 'AbortError') return [];
     console.error('Get channel videos failed:', error);
+    return [];
+  }
+}
+
+export async function getChannelVideosBatchClient(
+  channelIds: string[],
+  limit: number = 30
+): Promise<Record<string, VideoData[]>> {
+  try {
+    const response = await fetch(`${API_BASE}/channels/videos-batch`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ channel_ids: channelIds, limit }),
+      signal: AbortSignal.timeout(60000),
+    });
+
+    if (!response.ok) {
+      return {};
+    }
+
+    const data = await response.json();
+    if (!data || typeof data !== 'object') return {};
+
+    const result: Record<string, VideoData[]> = {};
+    for (const [channelId, videos] of Object.entries(data)) {
+      if (Array.isArray(videos)) {
+        result[channelId] = videos
+          .map(transformVideo)
+          .filter((v: VideoData) => v.id && v.title);
+      }
+    }
+    return result;
+  } catch (error: any) {
+    if (error?.name === 'AbortError') return {};
+    console.error('Get channel videos batch failed:', error);
+    return {};
+  }
+}
+
+// Fetch a mixed feed of the latest videos across recently subscribed channels.
+export async function getSubscriptionsFeedClient(
+  offset: number = 0,
+  channels: number = 20,
+  perChannel: number = 5
+): Promise<VideoData[]> {
+  try {
+    const response = await fetch(
+      `${API_BASE}/subscriptions/feed?offset=${offset}&channels=${channels}&per_channel=${perChannel}`,
+      { cache: 'no-store', signal: AbortSignal.timeout(180000) }
+    );
+    if (!response.ok) return [];
+    const data = await response.json();
+    if (!Array.isArray(data)) return [];
+    return data.map(transformVideo).filter((v: VideoData) => v.id && v.title);
+  } catch (error: any) {
+    if (error?.name === 'AbortError') return [];
+    console.error('Get subscriptions feed failed:', error);
     return [];
   }
 }

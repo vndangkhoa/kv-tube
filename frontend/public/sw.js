@@ -1,10 +1,10 @@
 // KV-Tube Service Worker for Background Playback
-const CACHE_NAME = 'kvtube-v1';
+const CACHE_NAME = 'kvtube-v2';
 const STATIC_ASSETS = [
     '/',
     '/manifest.json',
-    '/icon-192x192.png',
-    '/icon-512x512.png'
+    '/icon.svg',
+    '/icon-maskable.svg'
 ];
 
 // Install event - cache static assets
