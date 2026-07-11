@@ -89,6 +89,16 @@
 
 ## 🚀 Quick Start
 
+Pull the pre-built image and run it — no local build needed:
+
+```bash
+mkdir -p kv-tube/data && cd kv-tube
+curl -O https://raw.githubusercontent.com/vndangkhoa/kv-tube/main/docker-compose.yml
+docker compose up -d
+```
+
+Prefer building from source?
+
 ```bash
 git clone https://github.com/vndangkhoa/kv-tube.git
 cd kv-tube
@@ -101,6 +111,15 @@ docker compose up -d
   <b>Frontend:</b> <a href="http://localhost:5011">http://localhost:5011</a> &nbsp;•&nbsp;
   <b>API:</b> <a href="http://localhost:8981">http://localhost:8981</a>
 </p>
+
+### 📥 Container Images
+
+Pre-built images are published to both registries:
+
+| Registry | Image |
+|----------|-------|
+| **GitHub Container Registry** | `ghcr.io/vndangkhoa/kv-tube:latest` |
+| **Forgejo** | `git.khoavo.myds.me/vndangkhoa/kv-tube:latest` |
 
 ---
 
@@ -150,11 +169,14 @@ KV-Tube ships as a single Docker image. Everything runs in one container, manage
 
 ### 🐳 Docker Compose (Recommended)
 
+Using the pre-built image from **GitHub Container Registry**:
+
 ```yaml
 services:
   kv-tube:
-    build: .
+    image: ghcr.io/vndangkhoa/kv-tube:latest
     container_name: kv-tube
+    platform: linux/amd64
     ports:
       - "5011:3000"
       - "8981:8080"
@@ -167,6 +189,14 @@ services:
       - CORS_ALLOWED_ORIGINS=http://localhost:3000,http://localhost:5011
     restart: unless-stopped
 ```
+
+Or from the **Forgejo** registry — swap the image line:
+
+```yaml
+    image: git.khoavo.myds.me/vndangkhoa/kv-tube:latest
+```
+
+Prefer building locally? Replace `image:` with `build: .`.
 
 ### 🖥️ Synology NAS (DSM 7.2+)
 

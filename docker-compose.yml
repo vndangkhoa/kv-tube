@@ -1,7 +1,9 @@
 services:
   kv-tube:
-    # Pull from the Forgejo container registry (recommended)
-    image: git.khoavo.myds.me/vndangkhoa/kv-tube:latest
+    # Pull from GitHub Container Registry (recommended)
+    image: ghcr.io/vndangkhoa/kv-tube:latest
+    # Or from the Forgejo registry (uncomment to use instead)
+    # image: git.khoavo.myds.me/vndangkhoa/kv-tube:latest
 
     # Or build locally (uncomment to use instead)
     # build:
