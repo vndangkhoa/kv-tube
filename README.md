@@ -114,10 +114,11 @@ docker compose up -d
 
 ### 📥 Container Images
 
-Pre-built images are published to both registries:
+Pre-built images are published to three registries:
 
 | Registry | Image |
 |----------|-------|
+| **Docker Hub** | `vndangkhoa/kv-tube:latest` |
 | **GitHub Container Registry** | `ghcr.io/vndangkhoa/kv-tube:latest` |
 | **Forgejo** | `git.khoavo.myds.me/vndangkhoa/kv-tube:latest` |
 
@@ -169,12 +170,12 @@ KV-Tube ships as a single Docker image. Everything runs in one container, manage
 
 ### 🐳 Docker Compose (Recommended)
 
-Using the pre-built image from **GitHub Container Registry**:
+Using the pre-built image from **Docker Hub**:
 
 ```yaml
 services:
   kv-tube:
-    image: ghcr.io/vndangkhoa/kv-tube:latest
+    image: vndangkhoa/kv-tube:latest
     container_name: kv-tube
     platform: linux/amd64
     ports:
@@ -190,10 +191,11 @@ services:
     restart: unless-stopped
 ```
 
-Or from the **Forgejo** registry — swap the image line:
+Or pull from another registry — swap the image line:
 
 ```yaml
-    image: git.khoavo.myds.me/vndangkhoa/kv-tube:latest
+    image: ghcr.io/vndangkhoa/kv-tube:latest
+    # image: git.khoavo.myds.me/vndangkhoa/kv-tube:latest
 ```
 
 Prefer building locally? Replace `image:` with `build: .`.
