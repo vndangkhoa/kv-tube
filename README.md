@@ -16,6 +16,15 @@
 </p>
 
 <p align="center">
+  <a href="https://github.com/vndangkhoa/kv-tube">
+    <img src="https://img.shields.io/badge/Source-GitHub-181717?style=flat-square&logo=github" alt="GitHub" />
+  </a>
+  <a href="https://git.khoavo.myds.me/vndangkhoa/kv-tube">
+    <img src="https://img.shields.io/badge/Source-Forgejo-FF4F4F?style=flat-square&logo=forgejo" alt="Forgejo" />
+  </a>
+</p>
+
+<p align="center">
   <a href="#-features">Features</a> •
   <a href="#-quick-start">Quick Start</a> •
   <a href="#-why-kv-tube">Why KV-Tube?</a> •
@@ -121,6 +130,13 @@ Pre-built images are published to three registries:
 | **Docker Hub** | `vndangkhoa/kv-tube:latest` |
 | **GitHub Container Registry** | `ghcr.io/vndangkhoa/kv-tube:latest` |
 | **Forgejo** | `git.khoavo.myds.me/vndangkhoa/kv-tube:latest` |
+
+### 🌐 Source Repositories
+
+The project is mirrored on GitHub and Forgejo — both stay in sync:
+
+- **GitHub:** https://github.com/vndangkhoa/kv-tube
+- **Forgejo:** https://git.khoavo.myds.me/vndangkhoa/kv-tube
 
 ---
 
