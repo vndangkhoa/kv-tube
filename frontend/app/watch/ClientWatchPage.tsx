@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback, lazy, Suspense, useRef } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
-import YouTubePlayer from './YouTubePlayer';
+import SelfHostedPlayer from './SelfHostedPlayer';
 import { getVideoDetailsClient, getRelatedVideosClient, getCommentsClient, searchVideosClient } from '../clientActions';
 import { VideoData } from '../constants';
 import { isVideoSaved, toggleSaveVideo } from '../storage';
@@ -911,13 +911,17 @@ export default function ClientWatchPage() {
                 <div className="watch-main">
                     {/* Video Player */}
 					<div style={{ position: 'relative', width: '100%' }}>
-					<YouTubePlayer 
-						videoId={videoId}
-						title={videoInfo?.title}
-						autoplay={true}
-						onVideoEnd={handleVideoEnd}
-						loop={loopMode}
-					/>
+				<SelfHostedPlayer
+					videoId={videoId}
+					title={videoInfo?.title}
+					uploader={videoInfo?.channelTitle || videoInfo?.uploader}
+					thumbnail={videoInfo?.thumbnail}
+					autoplay={true}
+					loop={loopMode}
+					onVideoEnd={handleVideoEnd}
+					onNext={handleNext}
+					onPrev={handlePrevious}
+				/>
 					</div>
 
                     {/* Player Controls */}

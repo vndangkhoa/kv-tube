@@ -4,12 +4,6 @@ import { useState, useEffect, useRef } from 'react';
 import { IoHeart, IoHeartOutline, IoChatbubbleOutline, IoShareOutline, IoEllipsisHorizontal, IoMusicalNote, IoRefresh, IoPlay, IoVolumeMute, IoVolumeHigh } from 'react-icons/io5';
 import LoadingSpinner from '../components/LoadingSpinner';
 
-declare global {
-    interface Window {
-        Hls: any;
-    }
-}
-
 interface ShortVideo {
     id: string;
     title: string;
