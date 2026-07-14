@@ -47,6 +47,18 @@ function absoluteUrl(url?: string): string | undefined {
     }
 }
 
+// Returns true if the browser can play AV1/VP9 inside MP4 (i.e. true 1440p/4K via
+// fMP4 HLS). Safari/iOS cannot, so they fall back to H.264 (caps at 1080p there).
+function supportsHighEfficiencyCodec(): boolean {
+    if (typeof MediaSource === 'undefined' || typeof MediaSource.isTypeSupported !== 'function') {
+        return false;
+    }
+    return (
+        MediaSource.isTypeSupported('video/mp4; codecs="av01.0.08M.08"') ||
+        MediaSource.isTypeSupported('video/mp4; codecs="vp09.00.10.08"')
+    );
+}
+
 function PlayerSkeleton() {
     return (
         <div style={{
@@ -83,6 +95,9 @@ export default function SelfHostedPlayer({
     const [isReady, setIsReady] = useState(false);
     const [isFullscreen, setIsFullscreen] = useState(false);
     const [pipActive, setPipActive] = useState(false);
+    // Resolution cap for the high-res merged stream. 0 = max available.
+    const [qualityCap, setQualityCap] = useState(0);
+    const currentSessionRef = useRef<string | null>(null);
 
     // Keep latest callbacks without re-running the MediaSession effect.
     const cbRef = useRef({ onVideoEnd, onVideoReady, onNext, onPrev, loop });
@@ -106,11 +121,39 @@ export default function SelfHostedPlayer({
 
         (async () => {
             try {
-                const res = await fetch(`/api/get_stream_info?v=${videoId}`);
-                const data = await res.json();
-                if (cancelled) return;
-                if (data.error || !data.stream_url) {
-                    throw new Error(data.error || 'No stream');
+                let streamUrl: string | undefined;
+                let isHLS = false;
+
+                // Preferred path: server-side merge of bestvideo+bestaudio into a
+                // local HLS playlist so we get full resolution (1080p/4K) with audio.
+                try {
+                    // On browsers without AV1/VP9-in-MP4 support (Safari/iOS) ask the
+                    // backend to restrict to H.264 (still real 1080p). Others get true 4K.
+                    const vc = supportsHighEfficiencyCodec() ? '' : '&vc=avc1';
+                    const sres = await fetch(
+                        `/api/stream?v=${videoId}${qualityCap > 0 ? `&h=${qualityCap}` : ''}${vc}`
+                    );
+                    const sdata = await sres.json();
+                    if (cancelled) return;
+                    if (sdata.playlist) {
+                        streamUrl = sdata.playlist; // same-origin, served by /api/hls
+                        isHLS = true;
+                        currentSessionRef.current = sdata.session_id || null;
+                    }
+                } catch {
+                    streamUrl = undefined;
+                }
+
+                // Fallback: combined (muxed) progressive stream via proxy.
+                if (!streamUrl) {
+                    const res = await fetch(`/api/get_stream_info?v=${videoId}`);
+                    const data = await res.json();
+                    if (cancelled) return;
+                    if (data.error || !data.stream_url) {
+                        throw new Error(data.error || 'No stream');
+                    }
+                    streamUrl = `/api/proxy?url=${encodeURIComponent(data.stream_url)}`;
+                    isHLS = data.stream_url.includes('.m3u8') || data.stream_url.includes('manifest');
                 }
 
                 const videoEl = videoRef.current;
@@ -118,9 +161,6 @@ export default function SelfHostedPlayer({
 
                 await loadHlsScript();
                 if (cancelled) return;
-
-                const streamUrl = `/api/proxy?url=${encodeURIComponent(data.stream_url)}`;
-                const isHLS = data.stream_url.includes('.m3u8') || data.stream_url.includes('manifest');
 
                 if (hlsRef.current) {
                     hlsRef.current.destroy();
@@ -167,8 +207,13 @@ export default function SelfHostedPlayer({
                 hlsRef.current.destroy();
                 hlsRef.current = null;
             }
+            const sid = currentSessionRef.current;
+            currentSessionRef.current = null;
+            if (sid) {
+                fetch(`/api/stream/stop?session=${sid}`, { method: 'POST' }).catch(() => {});
+            }
         };
-    }, [videoId, autoplay]);
+    }, [videoId, autoplay, qualityCap]);
 
     // Playback event wiring: MediaSession state, position, ended
     useEffect(() => {
@@ -343,6 +388,30 @@ export default function SelfHostedPlayer({
                 gap: '8px',
                 zIndex: 10,
             }}>
+                {/* Quality selector (max resolution merge) */}
+                <select
+                    value={qualityCap}
+                    onChange={(e) => setQualityCap(Number(e.target.value))}
+                    title="Quality (max resolution)"
+                    style={{
+                        backgroundColor: 'rgba(0,0,0,0.6)',
+                        color: 'white',
+                        border: 'none',
+                        borderRadius: '4px',
+                        padding: '6px',
+                        cursor: 'pointer',
+                        fontSize: '12px',
+                        outline: 'none',
+                    }}
+                >
+                    <option value={0}>Max</option>
+                    <option value={2160}>4K</option>
+                    <option value={1440}>1440p</option>
+                    <option value={1080}>1080p</option>
+                    <option value={720}>720p</option>
+                    <option value={480}>480p</option>
+                </select>
+
                 {/* Picture-in-Picture (iOS background audio) */}
                 <button
                     onClick={togglePip}

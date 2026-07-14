@@ -6,9 +6,11 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"kvtube-go/services"
 
@@ -101,6 +103,11 @@ func SetupRouter() *gin.Engine {
 		api.GET("/video/:id/manifest", handleManifest)
 		api.GET("/get_stream_info", handleGetStreamInfo)
 		api.GET("/proxy", handleProxy)
+
+		// High-resolution streaming: merge bestvideo+bestaudio → local HLS
+		api.GET("/stream", handleStream)
+		api.POST("/stream/stop", handleStreamStop)
+		api.GET("/hls/:session/*filepath", handleHlsFile)
 
 		// Subscription routes
 		api.POST("/subscribe", handleSubscribe)
@@ -904,4 +911,110 @@ func handleProxy(c *gin.Context) {
 	if _, err := io.Copy(c.Writer, resp.Body); err != nil {
 		log.Printf("Proxy copy error: %v", err)
 	}
+}
+
+// handleStream kicks off a server-side merge of the highest-resolution
+// video-only format with the best audio-only format, producing a local HLS
+// playlist. This is how we reach 1080p/1440p/4K (YouTube only muxes audio into
+// <=720p progressive files). Returns the playlist path to play via hls.js.
+func handleStream(c *gin.Context) {
+	videoID := c.Query("v")
+	if videoID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Video ID parameter 'v' is required"})
+		return
+	}
+
+	cap := 0
+	if capStr := c.Query("h"); capStr != "" {
+		if n, err := strconv.Atoi(capStr); err == nil && n > 0 {
+			cap = n
+		}
+	}
+
+	// forceAvc1 restricts to H.264 (Safari/iOS can't play AV1/VP9 in fMP4 HLS).
+	forceAvc1 := c.Query("vc") == "avc1"
+
+	if services.DefaultStreamManager == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Stream manager not initialized"})
+		return
+	}
+
+	sess, err := services.DefaultStreamManager.Create(videoID, cap, forceAvc1)
+	if err != nil {
+		log.Printf("Stream create error: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to start stream"})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"session_id": sess.ID,
+		"playlist":   "/api/hls/" + sess.ID + "/index.m3u8",
+	})
+}
+
+// handleHlsFile serves generated HLS playlist/segment files. It polls briefly
+// for not-yet-written segments so the player doesn't 404 while ffmpeg is still
+// producing them.
+func handleHlsFile(c *gin.Context) {
+	sessionID := c.Param("session")
+	rel := c.Param("filepath") // e.g. "/index.m3u8" or "/index0.ts"
+
+	sess := services.DefaultStreamManager.Get(sessionID)
+	if sess == nil {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Stream session not found"})
+		return
+	}
+
+	full := filepath.Join(sess.Dir, filepath.Clean(rel))
+	// Prevent path traversal outside the session directory.
+	if !strings.HasPrefix(full, sess.Dir+string(os.PathSeparator)) && full != sess.Dir {
+		c.JSON(http.StatusForbidden, gin.H{"error": "Forbidden"})
+		return
+	}
+
+	// The playlist only exists after yt-dlp downloads+merges and ffmpeg starts
+	// segmenting; that can take a while for high resolutions. Wait longer for the
+	// playlist than for individual segments.
+	isPlaylist := strings.HasSuffix(rel, ".m3u8")
+	waitLimit := 30 * time.Second
+	if isPlaylist {
+		waitLimit = 5 * time.Minute
+	}
+	var found bool
+	deadline := time.Now().Add(waitLimit)
+	for time.Now().Before(deadline) {
+		if info, err := os.Stat(full); err == nil && !info.IsDir() && info.Size() > 0 {
+			found = true
+			break
+		}
+		// Stop early once the session errored and the file will never appear.
+		if done, errored := sess.IsDone(); done && errored {
+			break
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+
+	if !found {
+		c.JSON(http.StatusNotFound, gin.H{"error": "Segment not ready"})
+		return
+	}
+
+	c.Header("Cache-Control", "no-cache")
+	c.File(full)
+}
+
+// handleStreamStop kills a running stream session (e.g. when the user switches
+// quality or leaves the page) to avoid leaving yt-dlp/ffmpeg processes running.
+func handleStreamStop(c *gin.Context) {
+	sessionID := c.Query("session")
+	if sessionID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "session is required"})
+		return
+	}
+	if services.DefaultStreamManager == nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Stream manager not initialized"})
+		return
+	}
+	services.DefaultStreamManager.Stop(sessionID)
+	c.JSON(http.StatusOK, gin.H{"status": "stopped"})
 }

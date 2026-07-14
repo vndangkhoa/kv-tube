@@ -6,6 +6,7 @@ import (
 
 	"kvtube-go/models"
 	"kvtube-go/routes"
+	"kvtube-go/services"
 
 	"github.com/gin-gonic/gin"
 	"github.com/joho/godotenv"
@@ -17,6 +18,13 @@ func main() {
 
 	// Initialize Database
 	models.InitDB()
+
+	// Initialize stream (server-side merge → HLS) manager
+	dataDir := os.Getenv("KVTUBE_DATA_DIR")
+	if dataDir == "" {
+		dataDir = "./data"
+	}
+	services.InitStreamManager(dataDir)
 
 	// Setup Gin Engine
 	if os.Getenv("GIN_MODE") == "release" {

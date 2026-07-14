@@ -7,6 +7,7 @@ import Sidebar from './components/Sidebar';
 import MobileNav from './components/MobileNav';
 import HamburgerMenu from './components/HamburgerMenu';
 import MainContent from './components/MainContent';
+import OrientationGuard from './components/OrientationGuard';
 
 const roboto = Roboto({
   weight: ['400', '500', '700'],
@@ -91,6 +92,7 @@ export default function RootLayout({
               {children}
             </MainContent>
             <MobileNav />
+            <OrientationGuard />
           </SidebarProvider>
         </ThemeProvider>
       </body>
