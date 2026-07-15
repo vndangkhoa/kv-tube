@@ -1744,3 +1744,14 @@ a {
     background-position: -200% 0;
   }
 }
+/* Watch page controls: on narrow screens collapse the long text labels to
+   icon-only so the action bar fits the mobile viewport instead of overflowing. */
+@media (max-width: 640px) {
+  .watch-ctrl-btn {
+    padding: 8px !important;
+    gap: 0 !important;
+  }
+  .watch-ctrl-label {
+    display: none !important;
+  }
+}

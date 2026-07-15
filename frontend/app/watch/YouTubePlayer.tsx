@@ -47,11 +47,16 @@ export default function YouTubePlayer({
     const playerRef = useRef<HTMLDivElement>(null);
     const playerContainerRef = useRef<HTMLDivElement>(null);
     const playerInstanceRef = useRef<any>(null);
+    // YT.Player REPLACES the node it is given with an <iframe>. To avoid React's
+    // "removeChild" crash (React still owns the replaced node), we hand YT a div
+    // we create imperatively and that React never reconciles directly.
+    const targetRef = useRef<HTMLDivElement | null>(null);
     const loopRef = useRef(loop);
     const [isApiReady, setIsApiReady] = useState(false);
     const [isPlayerReady, setIsPlayerReady] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [isFullscreen, setIsFullscreen] = useState(false);
+    const [isLandscape, setIsLandscape] = useState(false);
     const router = useRouter();
 
     // Keep loop ref in sync
@@ -64,6 +69,33 @@ export default function YouTubePlayer({
         };
         document.addEventListener('fullscreenchange', handleFullscreenChange);
         return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
+    }, []);
+
+    // Announce this player is active so OrientationGuard allows landscape
+    // fullscreen (same signal SelfHostedPlayer emits). Without it the portrait
+    // overlay would block the iframe on rotated phones.
+    useEffect(() => {
+        const el = document.documentElement;
+        el.dataset.kvPlayerActive = 'true';
+        document.dispatchEvent(new CustomEvent('kv-player-active', { detail: true }));
+        return () => {
+            delete el.dataset.kvPlayerActive;
+            document.dispatchEvent(new CustomEvent('kv-player-active', { detail: false }));
+        };
+    }, []);
+
+    // Track mobile landscape so the iframe fills the screen on rotate.
+    useEffect(() => {
+        const mq = window.matchMedia('(orientation: landscape)');
+        const mobileMq = window.matchMedia('(max-width: 820px), (pointer: coarse)');
+        const update = () => setIsLandscape(mq.matches && mobileMq.matches);
+        update();
+        mq.addEventListener('change', update);
+        mobileMq.addEventListener('change', update);
+        return () => {
+            mq.removeEventListener('change', update);
+            mobileMq.removeEventListener('change', update);
+        };
     }, []);
 
     // Load YouTube IFrame API
@@ -104,7 +136,13 @@ export default function YouTubePlayer({
 
     // Initialize player when API is ready
     useEffect(() => {
-        if (!isApiReady || !playerRef.current || !videoId) return;
+        if (!isApiReady || !playerRef.current) return;
+        // Only attempt with a syntactically valid YouTube video id. Otherwise
+        // YT.Player throws "Invalid video id" and can crash React's tree.
+        if (!/^[A-Za-z0-9_-]{11}$/.test(videoId)) {
+            setError('Invalid video ID');
+            return;
+        }
 
         // Destroy previous player instance if exists
         if (playerInstanceRef.current) {
@@ -115,9 +153,22 @@ export default function YouTubePlayer({
             }
             playerInstanceRef.current = null;
         }
+        // Remove any previously created target div so we don't stack iframes.
+        if (targetRef.current && targetRef.current.parentNode) {
+            targetRef.current.parentNode.removeChild(targetRef.current);
+            targetRef.current = null;
+        }
+
+        // Create a fresh div for YT to replace with its iframe. React only ever
+        // manages playerRef (the outer node), which YT never touches.
+        const target = document.createElement('div');
+        target.style.width = '100%';
+        target.style.height = '100%';
+        playerRef.current.appendChild(target);
+        targetRef.current = target;
 
         try {
-            const player = new window.YT.Player(playerRef.current, {
+            const player = new window.YT.Player(target, {
                 videoId: videoId,
                 playerVars: {
                     autoplay: autoplay ? 1 : 0,
@@ -182,8 +233,30 @@ export default function YouTubePlayer({
                 }
                 playerInstanceRef.current = null;
             }
+            if (targetRef.current && targetRef.current.parentNode) {
+                targetRef.current.parentNode.removeChild(targetRef.current);
+                targetRef.current = null;
+            }
         };
     }, [isApiReady, videoId, autoplay]);
+
+    // Cleanup any leftover iframe target on unmount.
+    useEffect(() => {
+        return () => {
+            if (playerInstanceRef.current) {
+                try {
+                    playerInstanceRef.current.destroy();
+                } catch (e) {
+                    console.log('Error cleaning up player:', e);
+                }
+                playerInstanceRef.current = null;
+            }
+            if (targetRef.current && targetRef.current.parentNode) {
+                targetRef.current.parentNode.removeChild(targetRef.current);
+                targetRef.current = null;
+            }
+        };
+    }, []);
 
     // Handle video end
     useEffect(() => {
@@ -196,16 +269,34 @@ export default function YouTubePlayer({
         // The onStateChange event handler already handles this
     }, [isPlayerReady, onVideoEnd]);
 
+    const containerStyle: React.CSSProperties = isLandscape
+        ? {
+              position: 'fixed',
+              top: 0,
+              left: 0,
+              width: '100vw',
+              height: '100vh',
+              backgroundColor: '#000',
+              borderRadius: 0,
+              overflow: 'hidden',
+              zIndex: 9000,
+          }
+        : {
+              position: 'relative',
+              width: '100%',
+              aspectRatio: '16/9',
+              backgroundColor: '#000',
+              borderRadius: isFullscreen ? '0' : '12px',
+              overflow: 'hidden',
+          };
+
     if (error) {
         return (
             <div style={{
-                width: '100%',
-                aspectRatio: '16/9',
-                backgroundColor: '#000',
+                ...containerStyle,
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
-                borderRadius: '12px',
                 color: '#fff',
                 flexDirection: 'column',
                 gap: '16px',
@@ -231,14 +322,7 @@ export default function YouTubePlayer({
     return (
         <div 
             ref={playerContainerRef}
-            style={{ 
-                position: 'relative', 
-                width: '100%', 
-                aspectRatio: '16/9', 
-                backgroundColor: '#000', 
-                borderRadius: isFullscreen ? '0' : '12px', 
-                overflow: 'hidden' 
-            }}
+            style={containerStyle}
         >
             {!isPlayerReady && !error && <PlayerSkeleton />}
             <div 

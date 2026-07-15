@@ -1,8 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import Image from 'next/image';
-import { useState, useCallback } from 'react';
+import { useState, useCallback, memo } from 'react';
 import { VideoData } from '@/app/constants';
 import LoadingSpinner from './LoadingSpinner';
 
@@ -18,21 +17,44 @@ function getStableRelativeTime(id: string): string {
     return times[hash % times.length];
 }
 
-import { memo } from 'react';
-
 const DEFAULT_THUMBNAIL = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="320" height="180" viewBox="0 0 320 180"%3E%3Crect fill="%23222" width="320" height="180"/%3E%3Cpath fill="%23555" d="M140 65v50l40-25z"/%3E%3C/svg%3E';
+
+// YouTube thumbnail fallback chain: hqdefault → mqdefault → default
+function getThumbFallbacks(id: string): string[] {
+    return [
+        `https://i.ytimg.com/vi/${id}/hqdefault.jpg`,
+        `https://i.ytimg.com/vi/${id}/mqdefault.jpg`,
+        `https://i.ytimg.com/vi/${id}/default.jpg`,
+    ];
+}
+
+function isValidThumbUrl(url: string): boolean {
+    if (!url || url === DEFAULT_THUMBNAIL) return false;
+    return url.includes('i.ytimg.com/vi/') || url.includes('i.ytimg.com/vi_webp/');
+}
 
 function VideoCard({ video, hideChannelAvatar }: { video: VideoData; hideChannelAvatar?: boolean }) {
     const relativeTime = video.upload_date || video.publishedAt || getStableRelativeTime(video.id);
     const [isNavigating, setIsNavigating] = useState(false);
+    const [thumbError, setThumbError] = useState(0);
     const destination = video.list_id ? `/watch?v=${video.id}&list=${video.list_id}` : `/watch?v=${video.id}`;
-    const thumbnailSrc = video.thumbnail || DEFAULT_THUMBNAIL;
 
-    const handleImageError = useCallback((e: React.SyntheticEvent<HTMLImageElement>) => {
-        const img = e.target as HTMLImageElement;
-        if (img.src !== DEFAULT_THUMBNAIL) {
-            img.src = DEFAULT_THUMBNAIL;
-        }
+    // Build the thumbnail src with fallback chain
+    let thumbnailSrc = DEFAULT_THUMBNAIL;
+    if (thumbError === 0) {
+        // First attempt: use the provided thumbnail or construct from ID
+        thumbnailSrc = (video.thumbnail && isValidThumbUrl(video.thumbnail))
+            ? video.thumbnail
+            : `https://i.ytimg.com/vi/${video.id}/hqdefault.jpg`;
+    } else if (video.id) {
+        // Subsequent attempts: try fallback URLs
+        const fallbacks = getThumbFallbacks(video.id);
+        const idx = Math.min(thumbError - 1, fallbacks.length - 1);
+        thumbnailSrc = fallbacks[idx];
+    }
+
+    const handleImageError = useCallback(() => {
+        setThumbError((prev) => prev + 1);
     }, []);
 
     return (
@@ -42,15 +64,20 @@ function VideoCard({ video, hideChannelAvatar }: { video: VideoData; hideChannel
                 onClick={() => setIsNavigating(true)}
                 style={{ position: 'relative', display: 'block', width: '100%', aspectRatio: '16/9', overflow: 'hidden', borderRadius: '12px' }}
             >
-                <Image
+                <img
                     src={thumbnailSrc}
                     alt={video.title}
-                    fill
-                    sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
-                    style={{ objectFit: 'cover', backgroundColor: 'var(--yt-hover)' }}
-                    className="videocard-thumb"
-                    priority={false}
+                    loading="lazy"
+                    decoding="async"
                     onError={handleImageError}
+                    style={{
+                        position: 'absolute',
+                        inset: 0,
+                        width: '100%',
+                        height: '100%',
+                        objectFit: 'cover',
+                        backgroundColor: '#222',
+                    }}
                 />
                 {video.duration && !video.is_mix && (
                     <div className="duration-badge" style={{ position: 'absolute', bottom: '8px', right: '8px' }}>

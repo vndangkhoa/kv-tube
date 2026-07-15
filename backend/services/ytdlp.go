@@ -4,13 +4,16 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"kvtube-go/models"
@@ -192,19 +195,45 @@ func RunYtDlpCached(cacheKey string, ttlSeconds int, args ...string) ([]byte, er
 	return data, nil
 }
 
-// isBotCheckError reports whether yt-dlp's stderr indicates YouTube's
+// IsBotCheckError reports whether yt-dlp's stderr indicates YouTube's
 // "confirm you're not a bot" gate, which can usually be bypassed by
 // switching to an alternate player client.
-func isBotCheckError(stderr string) bool {
+func IsBotCheckError(stderr string) bool {
 	s := strings.ToLower(stderr)
 	return strings.Contains(s, "not a bot") ||
 		strings.Contains(s, "sign in to confirm") ||
 		strings.Contains(s, "confirm you")
 }
 
+// ytDlpCookieArgs returns cookie arguments for yt-dlp derived from the
+// environment. Set YTDLP_COOKIES to a Netscape/cookies.txt file path, or
+// YTDLP_COOKIES_FROM_BROWSER to a browser name (e.g. "chrome") to export
+// cookies from a local browser. This is required to bypass YouTube's
+// "confirm you're not a bot" gate when the server's IP is rate-limited.
+func ytDlpCookieArgs() []string {
+	if p := os.Getenv("YTDLP_COOKIES"); p != "" {
+		if _, err := os.Stat(p); err == nil {
+			return []string{"--cookies", p}
+		}
+		log.Printf("[ytdlp] YTDLP_COOKIES file not found: %s", p)
+	}
+	if b := os.Getenv("YTDLP_COOKIES_FROM_BROWSER"); b != "" {
+		return []string{"--cookies-from-browser", b}
+	}
+	return nil
+}
+
+// appendYtDlpCookies adds any configured cookie arguments to a yt-dlp arg list.
+func appendYtDlpCookies(args []string) []string {
+	if c := ytDlpCookieArgs(); c != nil {
+		return append(args, c...)
+	}
+	return args
+}
+
 // runYtDlpArgs runs yt-dlp with the exact given argument list.
 func runYtDlpArgs(cmdArgs []string) ([]byte, string, error) {
-	cmd := exec.Command(ytDlpBinPath, cmdArgs...)
+	cmd := exec.Command(ytDlpBinPath, appendYtDlpCookies(cmdArgs)...)
 
 	var out bytes.Buffer
 	var stderr bytes.Buffer
@@ -265,19 +294,19 @@ func runYtDlpWithBase(base []string, args ...string) ([]byte, error) {
 		out, stderr, err := runYtDlpArgs(cmdArgs)
 
 		// Success: usable output and no bot-check gate.
-		if len(bytes.TrimSpace(out)) > 0 && !isBotCheckError(stderr) {
+		if len(bytes.TrimSpace(out)) > 0 && !IsBotCheckError(stderr) {
 			return out, nil
 		}
 
 		// Genuine empty result (no error, no bot-check): nothing to retry for.
-		if err == nil && !isBotCheckError(stderr) {
+		if err == nil && !IsBotCheckError(stderr) {
 			return out, nil
 		}
 
 		if client == "" {
-			log.Printf("yt-dlp default client failed (bot-check=%v, err=%v), falling back", isBotCheckError(stderr), err)
+			log.Printf("yt-dlp default client failed (bot-check=%v, err=%v), falling back", IsBotCheckError(stderr), err)
 		} else {
-			log.Printf("yt-dlp client %q failed (bot-check=%v, err=%v), falling back", client, isBotCheckError(stderr), err)
+			log.Printf("yt-dlp client %q failed (bot-check=%v, err=%v), falling back", client, IsBotCheckError(stderr), err)
 		}
 		lastStderr = stderr
 		lastErr = err
@@ -840,12 +869,10 @@ func GetDownloadURL(videoID string, formatID string) (*DownloadInfo, error) {
 
 	formatArgs := "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best"
 	if formatID != "" {
+		// Use the exact requested format ID directly. yt-dlp --dump-json -f <id>
+		// returns the format JSON with a direct "url" for single itags (combined,
+		// video-only, or audio-only). No server-side merge — direct URLs only.
 		formatArgs = formatID
-		if !strings.Contains(formatID, "+") && !strings.Contains(formatID, "best") {
-			// If it's just a video format, we might want to try adding audio, but for simple direct download links,
-			// let's stick to what the user requested or what yt-dlp gives for that ID.
-			formatArgs = formatID + "+bestaudio/best"
-		}
 	}
 
 	args := []string{
@@ -959,6 +986,136 @@ func GetVideoFormats(videoID string) ([]VideoFormat, error) {
 	}
 
 	return formats, nil
+}
+
+// MergeDownloadResult holds the merged MP4 reader and metadata.
+type MergeDownloadResult struct {
+	Reader  io.ReadCloser
+	Title   string
+	Ext     string
+	Size    int64
+	Cleanup func()
+}
+
+// MergeDownload downloads the best video+audio for the given height cap and
+// merges them with ffmpeg -c copy (no re-encode). Returns a streaming reader
+// to the merged MP4 output. Caller must close the reader and call Cleanup.
+func MergeDownload(videoID string, heightCap int) (*MergeDownloadResult, error) {
+	baseDir := filepath.Join(os.TempDir(), "kvdln")
+	if err := os.MkdirAll(baseDir, 0o755); err != nil {
+		return nil, fmt.Errorf("mkdir: %w", err)
+	}
+	// Use a unique subdir per request
+	tmpDir, err := os.MkdirTemp(baseDir, "dl-*")
+	if err != nil {
+		return nil, fmt.Errorf("mktemp: %w", err)
+	}
+	cleanup := func() { os.RemoveAll(tmpDir) }
+
+	videoPipe := filepath.Join(tmpDir, "video.pipe")
+	audioPipe := filepath.Join(tmpDir, "audio.pipe")
+
+	if err := syscall.Mkfifo(videoPipe, 0o600); err != nil {
+		cleanup()
+		return nil, fmt.Errorf("mkfifo video: %w", err)
+	}
+	if err := syscall.Mkfifo(audioPipe, 0o600); err != nil {
+		cleanup()
+		return nil, fmt.Errorf("mkfifo audio: %w", err)
+	}
+
+	const ua = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+	urlStr := fmt.Sprintf("https://www.youtube.com/watch?v=%s", videoID)
+
+	videoSel := "bestvideo[ext=mp4][vcodec^=avc1]"
+	if heightCap > 0 {
+		videoSel = fmt.Sprintf("bestvideo[ext=mp4][height<=%d][vcodec^=avc1]", heightCap)
+	}
+	audioSel := "bestaudio[ext=m4a]/bestaudio[acodec^=mp4a]/bestaudio"
+
+	clientArg := []string{"--extractor-args", "youtube:player_client=web,android,tv,ios,web_safari"}
+
+	ytV := exec.Command(ytDlpBinPath,
+		"--no-warnings", "--quiet", "--force-ipv4", "--no-playlist",
+		"--user-agent", ua,
+		clientArg[0], clientArg[1],
+		"-f", videoSel,
+		"-o", videoPipe,
+		urlStr,
+	)
+	ytA := exec.Command(ytDlpBinPath,
+		"--no-warnings", "--quiet", "--force-ipv4", "--no-playlist",
+		"--user-agent", ua,
+		clientArg[0], clientArg[1],
+		"-f", audioSel,
+		"-o", audioPipe,
+		urlStr,
+	)
+	ytV.Args = appendYtDlpCookies(ytV.Args)
+	ytA.Args = appendYtDlpCookies(ytA.Args)
+
+	ff := exec.Command("ffmpeg",
+		"-y",
+		"-i", videoPipe,
+		"-i", audioPipe,
+		"-c", "copy",
+		"-movflags", "+frag_keyframe+empty_moov",
+		"-f", "mp4",
+		"-",
+	)
+
+	ffStdout, perr := ff.StdoutPipe()
+	if perr != nil {
+		cleanup()
+		return nil, fmt.Errorf("ffmpeg stdout pipe: %w", perr)
+	}
+
+	// Suppress logs but keep them for debugging
+	ytV.Stderr, _ = os.Create(filepath.Join(tmpDir, "yt-video.log"))
+	ytA.Stderr, _ = os.Create(filepath.Join(tmpDir, "yt-audio.log"))
+	ff.Stderr, _ = os.Create(filepath.Join(tmpDir, "ffmpeg.log"))
+
+	if err := ff.Start(); err != nil {
+		cleanup()
+		return nil, fmt.Errorf("ffmpeg start: %w", err)
+	}
+	if err := ytV.Start(); err != nil {
+		_ = ff.Process.Kill()
+		cleanup()
+		return nil, fmt.Errorf("yt-dlp video start: %w", err)
+	}
+	if err := ytA.Start(); err != nil {
+		_ = ytV.Process.Kill()
+		_ = ff.Process.Kill()
+		cleanup()
+		return nil, fmt.Errorf("yt-dlp audio start: %w", err)
+	}
+
+	// Wait for yt-dlp processes in background, then wait for ffmpeg
+	go func() {
+		_ = ytV.Wait()
+		_ = ytA.Wait()
+		_ = ff.Wait()
+		// Close pipes so ffmpeg gets EOF and finishes
+		if f, ok := ytV.Stderr.(*os.File); ok { f.Close() }
+		if f, ok := ytA.Stderr.(*os.File); ok { f.Close() }
+		if f, ok := ff.Stderr.(*os.File); ok { f.Close() }
+		cleanup()
+	}()
+
+	// Get video title for Content-Disposition
+	title := "video"
+	info, err := GetVideoInfo(videoID)
+	if err == nil && info.Title != "" {
+		title = info.Title
+	}
+
+	return &MergeDownloadResult{
+		Reader:  ffStdout,
+		Title:   title,
+		Ext:     "mp4",
+		Cleanup: cleanup,
+	}, nil
 }
 
 type ChannelInfo struct {
@@ -1375,7 +1532,7 @@ func fetchUploadDate(videoID string) string {
 	}
 
 	out, stderr, err := runYtDlpArgs(append(append([]string{}, base...), url))
-	if err != nil && isBotCheckError(stderr) {
+	if err != nil && IsBotCheckError(stderr) {
 		retry := append(append([]string{}, base...), "--extractor-args", "youtube:player_client=android", url)
 		out, _, err = runYtDlpArgs(retry)
 	}
@@ -1468,7 +1625,7 @@ func fetchVideoStats(videoID string) (VideoStats, bool) {
 	}
 
 	out, stderr, err := runYtDlpArgs(append(append([]string{}, base...), url))
-	if err != nil && isBotCheckError(stderr) {
+	if err != nil && IsBotCheckError(stderr) {
 		retry := append(append([]string{}, base...), "--extractor-args", "youtube:player_client=android", url)
 		out, _, err = runYtDlpArgs(retry)
 	}
@@ -1575,7 +1732,7 @@ func GetComments(videoID string, limit int) ([]Comment, error) {
 		url,
 	}
 
-	cmd := exec.Command(ytDlpBinPath, cmdArgs...)
+	cmd := exec.Command(ytDlpBinPath, appendYtDlpCookies(cmdArgs)...)
 
 	var out bytes.Buffer
 	var stderr bytes.Buffer
@@ -1640,11 +1797,66 @@ func formatCommentTime(timestamp int64) string {
 	} else if diff < 86400 {
 		return fmt.Sprintf("%dh ago", diff/3600)
 	} else if diff < 604800 {
-		return fmt.Sprintf("%dd ago", diff/86400)
-	} else if diff < 2592000 {
 		return fmt.Sprintf("%dw ago", diff/604800)
+	} else if diff < 2592000 {
+		return fmt.Sprintf("%dmo ago", diff/2592000)
 	} else if diff < 31536000 {
 		return fmt.Sprintf("%dmo ago", diff/2592000)
 	}
 	return fmt.Sprintf("%dy ago", diff/31536000)
+}
+
+// ResolveStreamURL returns a direct, browser-playable YouTube CDN URL for the
+// best combined (audio+video) progressive format at or below heightCap. The
+// browser then streams straight from YouTube's CDN (no server-side transcode),
+// which is far more reliable than the dual-FIFO remux pipeline and starts
+// almost instantly. Combined progressive formats cap out at ~1080p, so a
+// heightCap above that effectively yields the highest available progressive
+// format. Player clients are tried in order so a "confirm you're not a bot"
+// gate on the default client is bypassed automatically.
+func ResolveStreamURL(videoID string, heightCap int, forceAvc1 bool) (string, error) {
+	urlStr := fmt.Sprintf("https://www.youtube.com/watch?v=%s", videoID)
+
+	sel := "best"
+	if heightCap > 0 {
+		sel = fmt.Sprintf("best[height<=%d]", heightCap)
+	}
+	// Force combined formats (must include audio). Prefer the highest combined
+	// stream at the requested height (webm/vp9 often reaches 1080p where mp4
+	// tops out at 720p), then fall back to mp4/H.264 for broad compatibility.
+	fmtStr := sel + "[acodec!=none]/" + sel + "[acodec!=none][ext=mp4]/" + sel + "/best"
+	if forceAvc1 {
+		fmtStr = sel + "[acodec!=none][ext=mp4][vcodec^=avc1]/" + fmtStr
+	}
+
+	const ua = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+	clients := []string{"web", "android", "tv", "ios", "web_safari"}
+
+	for _, client := range clients {
+		args := []string{
+			"--no-warnings", "--quiet", "--force-ipv4", "--no-playlist",
+			"--user-agent", ua,
+			"--extractor-args", "youtube:player_client=" + client,
+			"-g", "-f", fmtStr,
+			urlStr,
+		}
+		args = appendYtDlpCookies(args)
+
+		out, _, err := runYtDlpArgs(args)
+		if err == nil {
+			s := strings.TrimSpace(string(out))
+			if s != "" {
+				// -g emits one URL per selected stream; for a combined format it
+				// is a single line. Take the first http(s) line.
+				for _, line := range strings.Split(s, "\n") {
+					line = strings.TrimSpace(line)
+					if strings.HasPrefix(line, "http") {
+						return line, nil
+					}
+				}
+			}
+		}
+	}
+
+	return "", fmt.Errorf("could not resolve a playable stream URL (YouTube bot-check or format unavailable)")
 }

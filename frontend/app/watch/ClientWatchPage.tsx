@@ -2,7 +2,9 @@
 
 import { useEffect, useState, useCallback, lazy, Suspense, useRef } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
-import SelfHostedPlayer from './SelfHostedPlayer';
+import VidstackPlayer from './VidstackPlayer';
+import YouTubePlayer from './YouTubePlayer';
+import DownloadSheet from './DownloadSheet';
 import { getVideoDetailsClient, getRelatedVideosClient, getCommentsClient, searchVideosClient } from '../clientActions';
 import { VideoData } from '../constants';
 import { isVideoSaved, toggleSaveVideo } from '../storage';
@@ -714,8 +716,42 @@ export default function ClientWatchPage() {
     const [currentIndex, setCurrentIndex] = useState(-1);
     const [activeTab, setActiveTab] = useState<'upnext' | 'mix'>('upnext');
     const [apiError, setApiError] = useState<string | null>(null);
-    const [wideMode, setWideMode] = useState(false);
-    const [loopMode, setLoopMode] = useState(false);
+	const [wideMode, setWideMode] = useState(false);
+	const [loopMode, setLoopMode] = useState(false);
+	const [showDownload, setShowDownload] = useState(false);
+    // Player source: 'iframe' (YouTube embed, instant + always works) is the
+    // fast desktop default; 'hd' swaps to the self-hosted player for 4K + mobile
+    // background audio. Mobile defaults to 'hd' (background listening is the main
+    // mobile use case) unless the user has explicitly chosen a mode before.
+    // The choice is persisted in localStorage so it sticks across visits.
+    // SSR-safe default. `window` is unavailable during server rendering, so we
+    // start at 'iframe' and resolve the real mode (saved choice, else device
+    // based) on the client after mount to avoid a hydration crash.
+    const [playerMode, setPlayerMode] = useState<'iframe' | 'hd'>('iframe');
+    useEffect(() => {
+        let mode: 'iframe' | 'hd' = 'iframe';
+        try {
+            const saved = window.localStorage.getItem('kv-player-mode');
+            if (saved === 'iframe' || saved === 'hd') {
+                mode = saved;
+            } else {
+                const mobile =
+                    window.matchMedia('(pointer: coarse)').matches ||
+                    window.matchMedia('(max-width: 820px)').matches;
+                mode = mobile ? 'hd' : 'iframe';
+            }
+        } catch {}
+        setPlayerMode(mode);
+    }, []);
+    const togglePlayerMode = useCallback(() => {
+        setPlayerMode((prev) => {
+            const next = prev === 'iframe' ? 'hd' : 'iframe';
+            try {
+                window.localStorage.setItem('kv-player-mode', next);
+            } catch {}
+            return next;
+        });
+    }, []);
 
     // Hover prefetch: debounce 220ms, prefetch Next.js route for instant navigation
     const prefetchTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
@@ -911,17 +947,28 @@ export default function ClientWatchPage() {
                 <div className="watch-main">
                     {/* Video Player */}
 					<div style={{ position: 'relative', width: '100%' }}>
-				<SelfHostedPlayer
-					videoId={videoId}
-					title={videoInfo?.title}
-					uploader={videoInfo?.channelTitle || videoInfo?.uploader}
-					thumbnail={videoInfo?.thumbnail}
-					autoplay={true}
-					loop={loopMode}
-					onVideoEnd={handleVideoEnd}
-					onNext={handleNext}
-					onPrev={handlePrevious}
-				/>
+				{playerMode === 'iframe' ? (
+					<YouTubePlayer
+						videoId={videoId}
+						title={videoInfo?.title}
+						autoplay={true}
+						loop={loopMode}
+						onVideoEnd={handleVideoEnd}
+					/>
+				) : (
+					<VidstackPlayer
+						videoId={videoId}
+						title={videoInfo?.title}
+						uploader={videoInfo?.channelTitle || videoInfo?.uploader}
+						thumbnail={videoInfo?.thumbnail}
+						autoplay={true}
+						loop={loopMode}
+						onVideoEnd={handleVideoEnd}
+						onNext={handleNext}
+						onPrev={handlePrevious}
+						onError={() => setPlayerMode('iframe')}
+					/>
+				)}
 					</div>
 
                     {/* Player Controls */}
@@ -931,11 +978,13 @@ export default function ClientWatchPage() {
                         alignItems: 'center',
                         padding: '8px 0',
                         gap: '8px',
+                        flexWrap: 'wrap',
                     }}>
                         <div style={{ display: 'flex', gap: '8px' }}>
                             <button
                                 onClick={handlePrevious}
                                 disabled={currentIndex <= 0}
+                                className="watch-ctrl-btn"
                                 style={{
                                     display: 'flex',
                                     alignItems: 'center',
@@ -954,12 +1003,13 @@ export default function ClientWatchPage() {
                                 <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
                                     <path d="M6 6h2v12H6zm3.5 6l8.5 6V6z"/>
                                 </svg>
-                                Previous
+                                <span className="watch-ctrl-label">Previous</span>
                             </button>
                             
                             <button
                                 onClick={handleNext}
                                 disabled={currentIndex >= currentPlaylist.length - 1}
+                                className="watch-ctrl-btn"
                                 style={{
                                     display: 'flex',
                                     alignItems: 'center',
@@ -974,7 +1024,7 @@ export default function ClientWatchPage() {
                                     fontWeight: '500',
                                 }}
                             >
-                                Next
+                                <span className="watch-ctrl-label">Next</span>
                                 <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
                                     <path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/>
                                 </svg>
@@ -986,6 +1036,7 @@ export default function ClientWatchPage() {
                             <button
                                 onClick={() => setLoopMode(!loopMode)}
                                 title={loopMode ? 'Disable loop' : 'Enable loop'}
+                                className="watch-ctrl-btn"
                                 style={{
                                     display: 'flex',
                                     alignItems: 'center',
@@ -1004,13 +1055,14 @@ export default function ClientWatchPage() {
                                 <svg width="18" height="18" viewBox="0 0 24 24" fill={loopMode ? '#fff' : 'currentColor'}>
                                     <path d="M12 4V1L8 5l4 4V6c3.31 0 6 2.69 6 6 0 1.01-.25 1.97-.7 2.8l1.46 1.46C19.54 15.03 20 13.57 20 12c0-4.42-3.58-8-8-8zm0 14c-3.31 0-6-2.69-6-6 0-1.01.25-1.97.7-2.8L5.24 7.74C4.46 8.97 4 10.43 4 12c0 4.42 3.58 8 8 8v3l4-4-4-4v3z"/>
                                 </svg>
-                                Loop
+                                <span className="watch-ctrl-label">Loop</span>
                             </button>
                             
                             {/* Wide Mode Toggle */}
                             <button
                                 onClick={() => setWideMode(!wideMode)}
                                 title={wideMode ? 'Exit wide mode' : 'Enter wide mode'}
+                                className="watch-ctrl-btn"
                                 style={{
                                     display: 'flex',
                                     alignItems: 'center',
@@ -1029,7 +1081,55 @@ export default function ClientWatchPage() {
                                 <svg width="18" height="18" viewBox="0 0 24 24" fill={wideMode ? '#fff' : 'currentColor'}>
                                     <path d="M19 4H5c-1.11 0-2 .9-2 2v12c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 14H5V8h14v10z"/>
                                 </svg>
-                                Wide
+                                <span className="watch-ctrl-label">Wide</span>
+                            </button>
+
+                            {/* Player source toggle: YouTube embed (fast) <-> self-hosted HD (4K + background) */}
+                            <button
+                                onClick={togglePlayerMode}
+                                title={playerMode === 'iframe' ? 'Switch to self-hosted HD (4K + background audio)' : 'Switch to YouTube embed (instant)'}
+                                className="watch-ctrl-btn"
+                                style={{
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '6px',
+                                    padding: '8px 16px',
+                                    backgroundColor: playerMode === 'hd' ? 'var(--yt-blue)' : 'var(--yt-hover)',
+                                    color: playerMode === 'hd' ? '#fff' : 'var(--yt-text-primary)',
+                                    border: 'none',
+                                    borderRadius: '18px',
+                                    cursor: 'pointer',
+                                    fontSize: '13px',
+                                    fontWeight: '500',
+                                    transition: 'all 0.2s',
+                                }}
+                            >
+                                {playerMode === 'iframe' ? 'HD' : 'YouTube'}
+                            </button>
+
+                            {/* Download (TypeType-style sheet) */}
+                            <button
+                                onClick={() => setShowDownload(true)}
+                                title="Download video or audio"
+                                className="watch-ctrl-btn"
+                                style={{
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '6px',
+                                    padding: '8px 16px',
+                                    backgroundColor: 'var(--yt-hover)',
+                                    color: 'var(--yt-text-primary)',
+                                    border: 'none',
+                                    borderRadius: '18px',
+                                    cursor: 'pointer',
+                                    fontSize: '13px',
+                                    fontWeight: '500',
+                                }}
+                            >
+                                <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
+                                    <path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z" />
+                                </svg>
+                                <span className="watch-ctrl-label">Download</span>
                             </button>
                         </div>
                     </div>
@@ -1176,6 +1276,15 @@ export default function ClientWatchPage() {
                     </div>
                 </div>
             </div>
+
+            {/* Download sheet — rendered at root level to escape any stacking context */}
+            {showDownload && (
+                <DownloadSheet
+                    videoId={videoId}
+                    title={videoInfo?.title}
+                    onClose={() => setShowDownload(false)}
+                />
+            )}
 
             {/* Responsive styles */}
             <style jsx>{`
