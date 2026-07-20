@@ -5,6 +5,28 @@ All notable changes to KV-Tube are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.3.0] - 2026-07-20
+
+### Added
+- **Android native app** — first release of the native Android client built with
+  Kotlin and Jetpack Compose.
+- **Material 3 design system** — YouTube-inspired dark/light themes with custom
+  color palettes matching the webapp.
+- **ExoPlayer video playback** — native video player with quality selection,
+  fullscreen, and system media controls.
+- **On-device downloads via NewPipeExtractor** — extract real YouTube stream URLs
+  directly on the device; three quality tiers (Low ≤360p, Recommended ≤1080p,
+  Best) with background download via WorkManager.
+- **Bottom navigation** — Home, Subscriptions, Library, and Downloads tabs.
+- **Search** — full-text video search with category pills.
+- **Channel pages** — channel info, subscriber count, and video grid.
+- **Subscriptions feed** — aggregated video list from subscribed channels.
+- **Watch history & liked videos** — local Room database tracking.
+- **Auto-update checker** — monitors GitHub/Forgejo releases for new versions.
+- **App icon & splash screen** — adaptive icon with splash animation.
+- New project structure under `android/` with MVVM architecture, Hilt DI, Ktor
+  client, Coil image loading, and DataStore preferences.
+
 ## [4.2.1] - 2026-07-20
 
 ### Added
@@ -81,6 +103,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Initial public release of KV-Tube.
 
+[4.3.0]: https://github.com/vndangkhoa/kv-tube/compare/v4.2.1...v4.3.0
 [4.2.1]: https://github.com/vndangkhoa/kv-tube/compare/v4.2.0...v4.2.1
 [4.2.0]: https://github.com/vndangkhoa/kv-tube/compare/v4.1.0...v4.2.0
 [4.1.0]: https://github.com/vndangkhoa/kv-tube/compare/v4.0.0...v4.1.0

@@ -13,6 +13,9 @@
   <img src="https://img.shields.io/badge/Docker-Ready-2496ED?style=flat-square&logo=docker" alt="Docker" />
   <img src="https://img.shields.io/badge/SQLite-003B57?style=flat-square&logo=sqlite" alt="SQLite" />
   <img src="https://img.shields.io/badge/PWA-Yes-5A0FC8?style=flat-square&logo=pwa" alt="PWA" />
+  <img src="https://img.shields.io/badge/Android-5.0+-3DDC84?style=flat-square&logo=android" alt="Android" />
+  <img src="https://img.shields.io/badge/Kotlin-2.0-7F52FF?style=flat-square&logo=kotlin" alt="Kotlin" />
+  <img src="https://img.shields.io/badge/Jetpack%20Compose-Yes-4285F4?style=flat-square" alt="Jetpack Compose" />
 </p>
 
 <p align="center">
@@ -105,6 +108,20 @@
     <h3>🧹 Self-cleaning Cache</h3>
     Downloaded files live in a temp server cache (30-minute TTL) and are purged
     automatically — nothing piles up on your disk.
+  </td>
+</tr>
+<tr>
+  <td width="50%">
+    <h3>📱 Android App</h3>
+    Native Android client built with Kotlin &amp; Jetpack Compose. Material 3 design,
+    ExoPlayer video playback, on-device NewPipeExtractor downloads, bottom navigation,
+    dark/light themes, and auto-updates via GitHub/Forgejo releases.
+  </td>
+  <td width="50%">
+    <h3>⬇️ On-device Downloads</h3>
+    Download videos directly on your Android device using NewPipeExtractor stream
+    extraction. Three quality tiers (Low 360p, Recommended 1080p, Best) with
+    background download via WorkManager.
   </td>
 </tr>
 </table>
@@ -267,6 +284,13 @@ npm run dev
 # Backend
 cd backend
 go run main.go
+
+# Android App
+cd android
+# Ensure JAVA_HOME points to JDK 17
+./gradlew assembleDebug
+# Install on emulator/device
+adb install app/build/outputs/apk/debug/app-debug.apk
 ```
 
 ---

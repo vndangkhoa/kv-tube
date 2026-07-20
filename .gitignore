@@ -43,3 +43,12 @@ tmp_*/
 # Windows reserved names
 nul
 .gemini/
+
+# Android
+android/.gradle/
+android/.kotlin/
+android/app/build/
+android/local.properties
+android/gradle.properties
+android/*.apk
+android/*.aab
