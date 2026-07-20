@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback, lazy, Suspense, useRef } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
-import VidstackPlayer from './VidstackPlayer';
+import MsePlayer from './MsePlayer';
 import YouTubePlayer from './YouTubePlayer';
 import DownloadSheet from './DownloadSheet';
 import { getVideoDetailsClient, getRelatedVideosClient, getCommentsClient, searchVideosClient } from '../clientActions';
@@ -956,7 +956,7 @@ export default function ClientWatchPage() {
 						onVideoEnd={handleVideoEnd}
 					/>
 				) : (
-					<VidstackPlayer
+					<MsePlayer
 						videoId={videoId}
 						title={videoInfo?.title}
 						uploader={videoInfo?.channelTitle || videoInfo?.uploader}

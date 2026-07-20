@@ -14,8 +14,9 @@ interface ShortVideo {
 }
 
 interface StreamInfo {
-    stream_url: string;
-    error?: string;
+    title?: string;
+    duration?: number;
+    video_formats?: { url: string; height: number; format_id: string; has_audio: boolean; fragment_count: number; vcodec: string; acodec: string }[];
 }
 
 const SHORTS_QUERIES = ['#shorts', 'youtube shorts viral', 'tiktok short', 'shorts funny', 'shorts music'];
@@ -60,82 +61,50 @@ function ShortCard({ video, isActive }: { video: ShortVideo; isActive: boolean }
     const [error, setError] = useState(false);
     const [useFallback, setUseFallback] = useState(false);
     const videoRef = useRef<HTMLVideoElement>(null);
-    const hlsRef = useRef<any>(null);
     const [showControls, setShowControls] = useState(false);
 
     useEffect(() => {
         if (!isActive) {
             if (videoRef.current) {
                 videoRef.current.pause();
-            }
-            if (hlsRef.current) {
-                hlsRef.current.destroy();
-                hlsRef.current = null;
+                videoRef.current.removeAttribute('src');
+                videoRef.current.load();
             }
             return;
         }
 
-        if (useFallback) return;
+		if (useFallback) return;
 
         const loadStream = async () => {
             setLoading(true);
             setError(false);
 
-			try {
-				const res = await fetch(`/api/get_stream_info?v=${video.id}`);
-				const data: StreamInfo = await res.json();
+            try {
+                const res = await fetch(`/api/video/${video.id}/playback-info`);
+                const data: StreamInfo = await res.json();
 
-				if (data.error || !data.stream_url) {
-					throw new Error(data.error || 'No stream URL');
-				}
-
-				const videoEl = videoRef.current;
-				if (!videoEl) return;
-
-				// Proxy the stream URL through backend to avoid CORS issues
-				const streamUrl = `/api/proxy?url=${encodeURIComponent(data.stream_url)}`;
-				const isHLS = data.stream_url.includes('.m3u8') || data.stream_url.includes('manifest');
-
-                if (isHLS && window.Hls && window.Hls.isSupported()) {
-                    if (hlsRef.current) {
-                        hlsRef.current.destroy();
-                    }
-
-                    const hls = new window.Hls({
-                        xhrSetup: (xhr: XMLHttpRequest) => {
-                            xhr.setRequestHeader('Referer', 'https://www.youtube.com/');
-                        },
-                    });
-                    hlsRef.current = hls;
-
-                    hls.loadSource(streamUrl);
-                    hls.attachMedia(videoEl);
-
-                    hls.on(window.Hls.Events.MANIFEST_PARSED, () => {
-                        setLoading(false);
-                        videoEl.muted = muted;
-                        videoEl.play().catch(() => {});
-                    });
-
-                    hls.on(window.Hls.Events.ERROR, () => {
-                        setError(true);
-                        setUseFallback(true);
-                    });
-                } else if (videoEl.canPlayType('application/vnd.apple.mpegurl')) {
-                    videoEl.src = streamUrl;
-                    videoEl.muted = muted;
-                    videoEl.addEventListener('loadedmetadata', () => {
-                        setLoading(false);
-                        videoEl.play().catch(() => {});
-                    }, { once: true });
-                } else {
-                    videoEl.src = streamUrl;
-                    videoEl.muted = muted;
-                    videoEl.addEventListener('loadeddata', () => {
-                        setLoading(false);
-                        videoEl.play().catch(() => {});
-                    }, { once: true });
+                if (!data.video_formats?.length) {
+                    throw new Error('No stream URL');
                 }
+
+                const videoEl = videoRef.current;
+                if (!videoEl) return;
+
+                // Pick a progressive (combined audio+video) format for native playback
+                const progressive = data.video_formats.find(f => f.has_audio && f.fragment_count === 0);
+                const format = progressive || data.video_formats[0];
+                const streamUrl = format.url;
+
+                videoEl.src = streamUrl;
+                videoEl.muted = muted;
+                videoEl.addEventListener('error', () => {
+                    setError(true);
+                    setUseFallback(true);
+                }, { once: true });
+                videoEl.addEventListener('loadeddata', () => {
+                    setLoading(false);
+                    videoEl.play().catch(() => {});
+                }, { once: true });
             } catch (err) {
                 console.error('Stream load error:', err);
                 setError(true);
@@ -143,28 +112,14 @@ function ShortCard({ video, isActive }: { video: ShortVideo; isActive: boolean }
             }
         };
 
-        const timeout = setTimeout(() => {
-            if (window.Hls) {
-                loadStream();
-            } else {
-                const checkHls = setInterval(() => {
-                    if (window.Hls) {
-                        clearInterval(checkHls);
-                        loadStream();
-                    }
-                }, 100);
-
-                setTimeout(() => {
-                    clearInterval(checkHls);
-                    if (!window.Hls) {
-                        setUseFallback(true);
-                    }
-                }, 3000);
-            }
-        }, 100);
+        loadStream();
 
         return () => {
-            clearTimeout(timeout);
+            if (videoRef.current) {
+                videoRef.current.pause();
+                videoRef.current.removeAttribute('src');
+                videoRef.current.load();
+            }
         };
     }, [isActive, video.id, useFallback, muted]);
 

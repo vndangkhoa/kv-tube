@@ -4,16 +4,12 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"io"
 	"log"
 	"os"
 	"os/exec"
-	"path/filepath"
-	"sort"
 	"strconv"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
 
 	"kvtube-go/models"
@@ -91,6 +87,34 @@ type YtDlpEntry struct {
 	Duration    interface{} `json:"duration"` // Can be float64 or int
 	Description string      `json:"description"`
 	URL         string      `json:"url"`
+}
+
+// PlaybackFormat describes a single quality level for MSE playback.
+type PlaybackFormat struct {
+	FormatID   string `json:"format_id"`
+	Height     int    `json:"height"`
+	Width      int    `json:"width"`
+	VCodec     string `json:"vcodec"`
+	ACodec     string `json:"acodec"`
+	Ext        string `json:"ext"`
+	Bandwidth  int    `json:"bandwidth"`
+	FPS        int    `json:"fps"`
+	Filesize   int64  `json:"filesize"`
+	URL        string `json:"url"`
+	HasAudio   bool   `json:"has_audio"`
+
+	// DASH fragment info (0 if not DASH)
+	FragmentCount   int    `json:"fragment_count"`
+	InitURL         string `json:"init_url,omitempty"`
+	MediaURL        string `json:"media_url,omitempty"` // first media segment URL (for template extraction)
+}
+
+// PlaybackInfo is returned by /api/video/:id/playback-info.
+type PlaybackInfo struct {
+	Title      string           `json:"title"`
+	Duration   float64          `json:"duration"`
+	VideoFormats []PlaybackFormat `json:"video_formats"`
+	AudioFormat *PlaybackFormat `json:"audio_format,omitempty"`
 }
 
 func sanitizeVideoData(entry YtDlpEntry) VideoData {
@@ -392,52 +416,39 @@ func min(a, b int) int {
 	return b
 }
 
-type QualityFormat struct {
-	FormatID   string `json:"format_id"`
-	Label      string `json:"label"`
-	Resolution string `json:"resolution"`
-	Height     int    `json:"height"`
-	URL        string `json:"url"`
-	AudioURL   string `json:"audio_url,omitempty"`
-	IsHLS      bool   `json:"is_hls"`
-	VCodec     string `json:"vcodec"`
-	ACodec     string `json:"acodec"`
-	Filesize   int64  `json:"filesize"`
-	HasAudio   bool   `json:"has_audio"`
-}
-
-func GetVideoQualities(videoID string) ([]QualityFormat, error) {
+// GetPlaybackInfo returns video + audio format information for client-side MSE playback.
+func GetPlaybackInfo(videoID string) (*PlaybackInfo, error) {
 	url := fmt.Sprintf("https://www.youtube.com/watch?v=%s", videoID)
 
-	cmdArgs := []string{
+	out, err := RunYtDlpSingleJSON(
 		"--dump-json",
-		"--no-warnings",
-		"--quiet",
-		"--force-ipv4",
 		"--no-playlist",
+		"--force-ipv4",
 		"--user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
 		url,
-	}
-
-	cacheKey := "video_qualities:" + videoID
-	out, err := RunYtDlpCached(cacheKey, 3600, cmdArgs...) // Cache for 1 hour
+	)
 	if err != nil {
 		return nil, err
 	}
 
 	var raw struct {
-		Formats []struct {
-			FormatID    string      `json:"format_id"`
-			FormatNote  string      `json:"format_note"`
-			Ext         string      `json:"ext"`
-			Resolution  string      `json:"resolution"`
-			Width       interface{} `json:"width"`
-			Height      interface{} `json:"height"`
-			URL         string      `json:"url"`
-			ManifestURL string      `json:"manifest_url"`
-			VCodec      string      `json:"vcodec"`
-			ACodec      string      `json:"acodec"`
-			Filesize    interface{} `json:"filesize"`
+		Title    string  `json:"title"`
+		Duration float64 `json:"duration"`
+		Formats  []struct {
+			FormatID      string  `json:"format_id"`
+			FormatNote    string  `json:"format_note"`
+			Ext           string  `json:"ext"`
+			Width         int     `json:"width"`
+			Height        int     `json:"height"`
+			VCodec        string  `json:"vcodec"`
+			ACodec        string  `json:"acodec"`
+			TBR           float64 `json:"tbr"`
+			FPS           float64 `json:"fps"`
+			Filesize      float64 `json:"filesize"`
+			URL           string  `json:"url"`
+			FragmentCount int     `json:"fragment_count"`
+			InitURL       string  `json:"init_url"`
+			ManifestURL   string  `json:"manifest_url"`
 		} `json:"formats"`
 	}
 
@@ -445,677 +456,91 @@ func GetVideoQualities(videoID string) ([]QualityFormat, error) {
 		return nil, err
 	}
 
-	var qualities []QualityFormat
-	seen := make(map[int]int) // height -> index in qualities
+	pi := &PlaybackInfo{
+		Title:    raw.Title,
+		Duration: raw.Duration,
+	}
+
+	// First pass: separate audio and video formats
+	var audioFormats []PlaybackFormat
+	var videoFormats []PlaybackFormat
 
 	for _, f := range raw.Formats {
-		if f.VCodec == "none" || f.URL == "" {
+		isVideo := f.VCodec != "" && f.VCodec != "none"
+		isAudio := f.ACodec != "" && f.ACodec != "none"
+
+		if !isVideo && !isAudio {
 			continue
 		}
 
-		var height int
-		switch v := f.Height.(type) {
-		case float64:
-			height = int(v)
-		case int:
-			height = v
+		// Build init & media URLs for DASH
+		initURL := f.InitURL
+		var mediaURL string
+
+		if f.FragmentCount > 0 && f.URL != "" {
+			if initURL != "" && f.ManifestURL == "" {
+				mediaURL = f.URL
+			} else if f.FragmentCount > 0 {
+				mediaURL = f.URL
+			}
 		}
 
-		if height == 0 {
+		pf := PlaybackFormat{
+			FormatID:      f.FormatID,
+			Height:        f.Height,
+			Width:         f.Width,
+			VCodec:        f.VCodec,
+			ACodec:        f.ACodec,
+			Ext:           f.Ext,
+			Bandwidth:     int(f.TBR),
+			FPS:           int(f.FPS),
+			Filesize:      int64(f.Filesize),
+			URL:           f.URL,
+			HasAudio:      isAudio,
+			FragmentCount: f.FragmentCount,
+			InitURL:       initURL,
+			MediaURL:      mediaURL,
+		}
+
+		if isVideo {
+			videoFormats = append(videoFormats, pf)
+		}
+		if isAudio && !isVideo {
+			audioFormats = append(audioFormats, pf)
+		}
+	}
+
+	// Pick the best audio format (highest bandwidth)
+	if len(audioFormats) > 0 {
+		best := audioFormats[0]
+		for _, a := range audioFormats[1:] {
+			if a.Bandwidth > best.Bandwidth {
+				best = a
+			}
+		}
+		pi.AudioFormat = &best
+	}
+
+	// Deduplicate video formats by height (prefer higher FPS)
+	seenHeights := make(map[int]bool)
+	for _, f := range videoFormats {
+		if seenHeights[f.Height] {
 			continue
 		}
-
-		hasAudio := f.ACodec != "none" && f.ACodec != ""
-
-		var filesize int64
-		switch v := f.Filesize.(type) {
-		case float64:
-			filesize = int64(v)
-		case int64:
-			filesize = v
-		}
-
-		isHLS := f.ManifestURL != "" || strings.Contains(f.URL, ".m3u8") || strings.Contains(f.URL, "manifest")
-
-		label := f.FormatNote
-		if label == "" {
-			switch height {
-			case 2160:
-				label = "4K"
-			case 1440:
-				label = "1440p"
-			case 1080:
-				label = "1080p"
-			case 720:
-				label = "720p"
-			case 480:
-				label = "480p"
-			case 360:
-				label = "360p"
-			default:
-				label = fmt.Sprintf("%dp", height)
-			}
-		}
-
-		streamURL := f.URL
-		if f.ManifestURL != "" {
-			streamURL = f.ManifestURL
-		}
-
-		qf := QualityFormat{
-			FormatID:   f.FormatID,
-			Label:      label,
-			Resolution: f.Resolution,
-			Height:     height,
-			URL:        streamURL,
-			IsHLS:      isHLS,
-			VCodec:     f.VCodec,
-			ACodec:     f.ACodec,
-			Filesize:   filesize,
-			HasAudio:   hasAudio,
-		}
-
-		// Prefer formats with audio, otherwise just add
-		if idx, exists := seen[height]; exists {
-			// Replace if this one has audio and the existing one doesn't
-			if hasAudio && !qualities[idx].HasAudio {
-				qualities[idx] = qf
-			}
-		} else {
-			seen[height] = len(qualities)
-			qualities = append(qualities, qf)
-		}
+		seenHeights[f.Height] = true
+		pi.VideoFormats = append(pi.VideoFormats, f)
 	}
 
 	// Sort by height descending
-	sort.Slice(qualities, func(i, j int) bool {
-		return qualities[i].Height > qualities[j].Height
-	})
-
-	return qualities, nil
-}
-
-func GetBestAudioURL(videoID string) (string, error) {
-	url := fmt.Sprintf("https://www.youtube.com/watch?v=%s", videoID)
-
-	cmdArgs := []string{
-		"--dump-json",
-		"--no-warnings",
-		"--quiet",
-		"--force-ipv4",
-		"--no-playlist",
-		"--user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-		url,
-	}
-
-	binPath := "yt-dlp"
-	if _, err := exec.LookPath("yt-dlp"); err != nil {
-		fallbacks := []string{
-			os.ExpandEnv("$HOME/.local/bin/yt-dlp"),
-			"/usr/local/bin/yt-dlp",
-			"/opt/homebrew/bin/yt-dlp",
-			"/config/.local/bin/yt-dlp",
-		}
-		for _, fb := range fallbacks {
-			if _, err := os.Stat(fb); err == nil {
-				binPath = fb
-				break
+	for i := range pi.VideoFormats {
+		for j := i + 1; j < len(pi.VideoFormats); j++ {
+			if pi.VideoFormats[j].Height > pi.VideoFormats[i].Height {
+				pi.VideoFormats[i], pi.VideoFormats[j] = pi.VideoFormats[j], pi.VideoFormats[i]
 			}
 		}
 	}
 
-	cmd := exec.Command(binPath, cmdArgs...)
-
-	var out bytes.Buffer
-	cmd.Stdout = &out
-
-	if err := cmd.Run(); err != nil {
-		return "", err
-	}
-
-	var raw struct {
-		Formats []struct {
-			FormatID   string      `json:"format_id"`
-			URL        string      `json:"url"`
-			VCodec     string      `json:"vcodec"`
-			ACodec     string      `json:"acodec"`
-			ABR        interface{} `json:"abr"`
-			FormatNote string      `json:"format_note"`
-		} `json:"formats"`
-	}
-
-	if err := json.Unmarshal(out.Bytes(), &raw); err != nil {
-		return "", err
-	}
-
-	// Find best audio-only stream (prefer highest ABR)
-	var bestAudio string
-	var bestABR float64
-	for _, f := range raw.Formats {
-		if f.VCodec == "none" && f.ACodec != "none" && f.URL != "" {
-			var abr float64
-			switch v := f.ABR.(type) {
-			case float64:
-				abr = v
-			case int:
-				abr = float64(v)
-			}
-			if abr > bestABR {
-				bestABR = abr
-				bestAudio = f.URL
-			}
-		}
-	}
-
-	return bestAudio, nil
-}
-
-func GetVideoQualitiesWithAudio(videoID string) ([]QualityFormat, string, error) {
-	qualities, err := GetVideoQualities(videoID)
-	if err != nil {
-		return nil, "", err
-	}
-
-	// Get best audio URL
-	audioURL, err := GetBestAudioURL(videoID)
-	if err != nil {
-		log.Printf("Warning: could not get audio URL: %v", err)
-	}
-
-	// Attach audio URL to qualities without audio
-	for i := range qualities {
-		if !qualities[i].HasAudio && audioURL != "" {
-			qualities[i].AudioURL = audioURL
-		}
-	}
-
-	return qualities, audioURL, nil
-}
-
-// GetFullStreamData runs a single yt-dlp command to fetch all essential information at once
-// This avoids doing 3 separate slow calls for video info, qualities, and best audio.
-func GetFullStreamData(videoID string) (*VideoData, []QualityFormat, string, error) {
-	urlStr := fmt.Sprintf("https://www.youtube.com/watch?v=%s", videoID)
-
-	cmdArgs := []string{
-		"--dump-json",
-		"--no-warnings",
-		"--quiet",
-		"--force-ipv4",
-		"--no-playlist",
-		"--user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-		urlStr,
-	}
-
-	binPath := "yt-dlp"
-	if _, err := exec.LookPath("yt-dlp"); err != nil {
-		fallbacks := []string{
-			os.ExpandEnv("$HOME/Library/Python/3.14/bin/yt-dlp"),
-			os.ExpandEnv("$HOME/Library/Python/3.13/bin/yt-dlp"),
-			os.ExpandEnv("$HOME/Library/Python/3.12/bin/yt-dlp"),
-			os.ExpandEnv("$HOME/.local/bin/yt-dlp"),
-			"/usr/local/bin/yt-dlp",
-			"/opt/homebrew/bin/yt-dlp",
-			"/config/.local/bin/yt-dlp",
-		}
-		for _, fb := range fallbacks {
-			if _, err := os.Stat(fb); err == nil {
-				binPath = fb
-				break
-			}
-		}
-	}
-
-	cmd := exec.Command(binPath, cmdArgs...)
-
-	var out bytes.Buffer
-	var stderr bytes.Buffer
-	cmd.Stdout = &out
-	cmd.Stderr = &stderr
-
-	if err := cmd.Run(); err != nil {
-		log.Printf("yt-dlp error in GetFullStreamData: %v, stderr: %s", err, stderr.String())
-		return nil, nil, "", err
-	}
-
-	// Unmarshal common metadata
-	var entry YtDlpEntry
-	if err := json.Unmarshal(out.Bytes(), &entry); err != nil {
-		return nil, nil, "", err
-	}
-
-	videoData := sanitizeVideoData(entry)
-	videoData.StreamURL = entry.URL
-
-	// Unmarshal formats specifically
-	var raw struct {
-		Formats []struct {
-			FormatID    string      `json:"format_id"`
-			FormatNote  string      `json:"format_note"`
-			Ext         string      `json:"ext"`
-			Resolution  string      `json:"resolution"`
-			Width       interface{} `json:"width"`
-			Height      interface{} `json:"height"`
-			URL         string      `json:"url"`
-			ManifestURL string      `json:"manifest_url"`
-			VCodec      string      `json:"vcodec"`
-			ACodec      string      `json:"acodec"`
-			Filesize    interface{} `json:"filesize"`
-			ABR         interface{} `json:"abr"`
-		} `json:"formats"`
-	}
-
-	if err := json.Unmarshal(out.Bytes(), &raw); err != nil {
-		return nil, nil, "", err
-	}
-
-	var qualities []QualityFormat
-	seen := make(map[int]int) // height -> index in qualities
-	var bestAudio string
-	var bestABR float64
-
-	for _, f := range raw.Formats {
-		// Determine if it's the best audio
-		if f.VCodec == "none" && f.ACodec != "none" && f.URL != "" {
-			var abr float64
-			switch v := f.ABR.(type) {
-			case float64:
-				abr = v
-			case int:
-				abr = float64(v)
-			}
-			if bestAudio == "" || abr > bestABR {
-				bestABR = abr
-				bestAudio = f.URL
-			}
-		}
-
-		if f.VCodec == "none" || f.URL == "" {
-			continue
-		}
-
-		var height int
-		switch v := f.Height.(type) {
-		case float64:
-			height = int(v)
-		case int:
-			height = v
-		}
-
-		if height == 0 {
-			continue
-		}
-
-		hasAudio := f.ACodec != "none" && f.ACodec != ""
-
-		var filesize int64
-		switch v := f.Filesize.(type) {
-		case float64:
-			filesize = int64(v)
-		case int64:
-			filesize = v
-		}
-
-		isHLS := f.ManifestURL != "" || strings.Contains(f.URL, ".m3u8") || strings.Contains(f.URL, "manifest")
-
-		label := f.FormatNote
-		if label == "" {
-			switch height {
-			case 2160:
-				label = "4K"
-			case 1440:
-				label = "1440p"
-			case 1080:
-				label = "1080p"
-			case 720:
-				label = "720p"
-			case 480:
-				label = "480p"
-			case 360:
-				label = "360p"
-			default:
-				label = fmt.Sprintf("%dp", height)
-			}
-		}
-
-		streamURL := f.URL
-		if f.ManifestURL != "" {
-			streamURL = f.ManifestURL
-		}
-
-		qf := QualityFormat{
-			FormatID:   f.FormatID,
-			Label:      label,
-			Resolution: f.Resolution,
-			Height:     height,
-			URL:        streamURL,
-			IsHLS:      isHLS,
-			VCodec:     f.VCodec,
-			ACodec:     f.ACodec,
-			Filesize:   filesize,
-			HasAudio:   hasAudio,
-		}
-
-		// Prefer formats with audio, otherwise just add
-		if idx, exists := seen[height]; exists {
-			// Replace if this one has audio and the existing one doesn't
-			if hasAudio && !qualities[idx].HasAudio {
-				qualities[idx] = qf
-			}
-		} else {
-			seen[height] = len(qualities)
-			qualities = append(qualities, qf)
-		}
-	}
-
-	// Sort by height descending
-	for i := range qualities {
-		for j := i + 1; j < len(qualities); j++ {
-			if qualities[j].Height > qualities[i].Height {
-				qualities[i], qualities[j] = qualities[j], qualities[i]
-			}
-		}
-	}
-
-	// Attach audio URL to qualities without audio
-	for i := range qualities {
-		if !qualities[i].HasAudio && bestAudio != "" {
-			qualities[i].AudioURL = bestAudio
-		}
-	}
-
-	return &videoData, qualities, bestAudio, nil
-}
-
-func GetStreamURLForQuality(videoID string, height int) (string, error) {
-	qualities, err := GetVideoQualities(videoID)
-	if err != nil {
-		return "", err
-	}
-
-	for _, q := range qualities {
-		if q.Height == height {
-			return q.URL, nil
-		}
-	}
-
-	if len(qualities) > 0 {
-		return qualities[0].URL, nil
-	}
-
-	return "", fmt.Errorf("no suitable quality found")
-}
-
-func GetRelatedVideos(title, uploader string, limit int) ([]VideoData, error) {
-	query := title
-	if uploader != "" {
-		query = uploader + " " + title
-	}
-	// Limit query length to avoid issues
-	if len(query) > 100 {
-		query = query[:100]
-	}
-	return SearchVideos(query, limit)
-}
-
-type DownloadInfo struct {
-	URL   string `json:"url"`
-	Title string `json:"title"`
-	Ext   string `json:"ext"`
-}
-
-func GetDownloadURL(videoID string, formatID string) (*DownloadInfo, error) {
-	url := fmt.Sprintf("https://www.youtube.com/watch?v=%s", videoID)
-
-	formatArgs := "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best"
-	if formatID != "" {
-		// Use the exact requested format ID directly. yt-dlp --dump-json -f <id>
-		// returns the format JSON with a direct "url" for single itags (combined,
-		// video-only, or audio-only). No server-side merge — direct URLs only.
-		formatArgs = formatID
-	}
-
-	args := []string{
-		"--format", formatArgs,
-		"--no-playlist",
-		url,
-	}
-
-	out, err := RunYtDlp(args...)
-	if err != nil {
-		return nil, err
-	}
-
-	var raw map[string]interface{}
-	if err := json.Unmarshal(out, &raw); err != nil {
-		return nil, err
-	}
-
-	downloadURL, _ := raw["url"].(string)
-	title, _ := raw["title"].(string)
-	ext, _ := raw["ext"].(string)
-
-	if downloadURL == "" {
-		formats, ok := raw["formats"].([]interface{})
-		if ok && len(formats) > 0 {
-			// Try to find the first mp4 format that is not m3u8
-			for i := len(formats) - 1; i >= 0; i-- {
-				fmtMap, ok := formats[i].(map[string]interface{})
-				if !ok {
-					continue
-				}
-				fUrl, _ := fmtMap["url"].(string)
-				fExt, _ := fmtMap["ext"].(string)
-				if fUrl != "" && !strings.Contains(fUrl, ".m3u8") && fExt == "mp4" {
-					downloadURL = fUrl
-					ext = fExt
-					break
-				}
-			}
-		}
-	}
-
-	if title == "" {
-		title = "video"
-	}
-	if ext == "" {
-		ext = "mp4"
-	}
-
-	return &DownloadInfo{
-		URL:   downloadURL,
-		Title: title,
-		Ext:   ext,
-	}, nil
-}
-
-func GetVideoFormats(videoID string) ([]VideoFormat, error) {
-	url := fmt.Sprintf("https://www.youtube.com/watch?v=%s", videoID)
-
-	args := []string{
-		"--dump-json",
-		"--no-playlist",
-		url,
-	}
-
-	out, err := RunYtDlp(args...)
-	if err != nil {
-		return nil, err
-	}
-
-	var raw struct {
-		Formats []struct {
-			FormatID   string  `json:"format_id"`
-			FormatNote string  `json:"format_note"`
-			Ext        string  `json:"ext"`
-			Resolution string  `json:"resolution"`
-			Filesize   float64 `json:"filesize"`
-			VCodec     string  `json:"vcodec"`
-			ACodec     string  `json:"acodec"`
-		} `json:"formats"`
-	}
-
-	if err := json.Unmarshal(out, &raw); err != nil {
-		return nil, err
-	}
-
-	var formats []VideoFormat
-	for _, f := range raw.Formats {
-		// Filter out storyboards and other non-media formats
-		if strings.Contains(f.FormatID, "sb") || f.VCodec == "none" && f.ACodec == "none" {
-			continue
-		}
-
-		fType := "both"
-		if f.VCodec == "none" {
-			fType = "audio"
-		} else if f.ACodec == "none" {
-			fType = "video"
-		}
-
-		formats = append(formats, VideoFormat{
-			FormatID:   f.FormatID,
-			FormatNote: f.FormatNote,
-			Ext:        f.Ext,
-			Resolution: f.Resolution,
-			Filesize:   int64(f.Filesize),
-			VCodec:     f.VCodec,
-			ACodec:     f.ACodec,
-			Type:       fType,
-		})
-	}
-
-	return formats, nil
-}
-
-// MergeDownloadResult holds the merged MP4 reader and metadata.
-type MergeDownloadResult struct {
-	Reader  io.ReadCloser
-	Title   string
-	Ext     string
-	Size    int64
-	Cleanup func()
-}
-
-// MergeDownload downloads the best video+audio for the given height cap and
-// merges them with ffmpeg -c copy (no re-encode). Returns a streaming reader
-// to the merged MP4 output. Caller must close the reader and call Cleanup.
-func MergeDownload(videoID string, heightCap int) (*MergeDownloadResult, error) {
-	baseDir := filepath.Join(os.TempDir(), "kvdln")
-	if err := os.MkdirAll(baseDir, 0o755); err != nil {
-		return nil, fmt.Errorf("mkdir: %w", err)
-	}
-	// Use a unique subdir per request
-	tmpDir, err := os.MkdirTemp(baseDir, "dl-*")
-	if err != nil {
-		return nil, fmt.Errorf("mktemp: %w", err)
-	}
-	cleanup := func() { os.RemoveAll(tmpDir) }
-
-	videoPipe := filepath.Join(tmpDir, "video.pipe")
-	audioPipe := filepath.Join(tmpDir, "audio.pipe")
-
-	if err := syscall.Mkfifo(videoPipe, 0o600); err != nil {
-		cleanup()
-		return nil, fmt.Errorf("mkfifo video: %w", err)
-	}
-	if err := syscall.Mkfifo(audioPipe, 0o600); err != nil {
-		cleanup()
-		return nil, fmt.Errorf("mkfifo audio: %w", err)
-	}
-
-	const ua = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-	urlStr := fmt.Sprintf("https://www.youtube.com/watch?v=%s", videoID)
-
-	videoSel := "bestvideo[ext=mp4][vcodec^=avc1]"
-	if heightCap > 0 {
-		videoSel = fmt.Sprintf("bestvideo[ext=mp4][height<=%d][vcodec^=avc1]", heightCap)
-	}
-	audioSel := "bestaudio[ext=m4a]/bestaudio[acodec^=mp4a]/bestaudio"
-
-	clientArg := []string{"--extractor-args", "youtube:player_client=web,android,tv,ios,web_safari"}
-
-	ytV := exec.Command(ytDlpBinPath,
-		"--no-warnings", "--quiet", "--force-ipv4", "--no-playlist",
-		"--user-agent", ua,
-		clientArg[0], clientArg[1],
-		"-f", videoSel,
-		"-o", videoPipe,
-		urlStr,
-	)
-	ytA := exec.Command(ytDlpBinPath,
-		"--no-warnings", "--quiet", "--force-ipv4", "--no-playlist",
-		"--user-agent", ua,
-		clientArg[0], clientArg[1],
-		"-f", audioSel,
-		"-o", audioPipe,
-		urlStr,
-	)
-	ytV.Args = appendYtDlpCookies(ytV.Args)
-	ytA.Args = appendYtDlpCookies(ytA.Args)
-
-	ff := exec.Command("ffmpeg",
-		"-y",
-		"-i", videoPipe,
-		"-i", audioPipe,
-		"-c", "copy",
-		"-movflags", "+frag_keyframe+empty_moov",
-		"-f", "mp4",
-		"-",
-	)
-
-	ffStdout, perr := ff.StdoutPipe()
-	if perr != nil {
-		cleanup()
-		return nil, fmt.Errorf("ffmpeg stdout pipe: %w", perr)
-	}
-
-	// Suppress logs but keep them for debugging
-	ytV.Stderr, _ = os.Create(filepath.Join(tmpDir, "yt-video.log"))
-	ytA.Stderr, _ = os.Create(filepath.Join(tmpDir, "yt-audio.log"))
-	ff.Stderr, _ = os.Create(filepath.Join(tmpDir, "ffmpeg.log"))
-
-	if err := ff.Start(); err != nil {
-		cleanup()
-		return nil, fmt.Errorf("ffmpeg start: %w", err)
-	}
-	if err := ytV.Start(); err != nil {
-		_ = ff.Process.Kill()
-		cleanup()
-		return nil, fmt.Errorf("yt-dlp video start: %w", err)
-	}
-	if err := ytA.Start(); err != nil {
-		_ = ytV.Process.Kill()
-		_ = ff.Process.Kill()
-		cleanup()
-		return nil, fmt.Errorf("yt-dlp audio start: %w", err)
-	}
-
-	// Wait for yt-dlp processes in background, then wait for ffmpeg
-	go func() {
-		_ = ytV.Wait()
-		_ = ytA.Wait()
-		_ = ff.Wait()
-		// Close pipes so ffmpeg gets EOF and finishes
-		if f, ok := ytV.Stderr.(*os.File); ok { f.Close() }
-		if f, ok := ytA.Stderr.(*os.File); ok { f.Close() }
-		if f, ok := ff.Stderr.(*os.File); ok { f.Close() }
-		cleanup()
-	}()
-
-	// Get video title for Content-Disposition
-	title := "video"
-	info, err := GetVideoInfo(videoID)
-	if err == nil && info.Title != "" {
-		title = info.Title
-	}
-
-	return &MergeDownloadResult{
-		Reader:  ffStdout,
-		Title:   title,
-		Ext:     "mp4",
-		Cleanup: cleanup,
-	}, nil
+	return pi, nil
 }
 
 type ChannelInfo struct {

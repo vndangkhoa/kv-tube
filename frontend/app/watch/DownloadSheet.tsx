@@ -1,47 +1,28 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useState, useRef, useEffect } from 'react';
 
-interface VideoFormat {
-    format_id: string;
-    format_note: string;
-    ext: string;
-    resolution: string;
-    filesize: number;
-    vcodec: string;
-    acodec: string;
-    type: string;
+interface DownloadProgress {
+    type: 'progress' | 'merging' | 'complete' | 'error';
+    percent?: number;
+    speed?: string;
+    eta?: string;
+    message?: string;
+    filename?: string;
+    size?: number;
 }
 
-type DlMode = 'video' | 'audio';
+const qualities = [
+    { key: 'low', label: 'Low', desc: '~360p', note: 'Small file, fast download' },
+    { key: 'recommended', label: 'Recommended', desc: '~1080p', note: 'Best quality-size balance' },
+    { key: 'best', label: 'Best', desc: 'Highest', note: 'Large file, best quality' },
+];
 
-type QualityOption = {
-    height: number; // 0 = best
-    label: string;
-    mode: DlMode;
-};
-
-function extractHeights(formats: VideoFormat[]): number[] {
-    const heights = new Set<number>();
-    for (const f of formats) {
-        if (f.vcodec === 'none') continue;
-        const match = f.resolution.match(/(\d+)x(\d+)/);
-        if (match) {
-            heights.add(parseInt(match[2], 10));
-        }
-        const noteMatch = f.format_note.match(/(\d+)p/);
-        if (noteMatch) {
-            heights.add(parseInt(noteMatch[1], 10));
-        }
-    }
-    return [...heights].sort((a, b) => b - a);
-}
-
-function bestAudioFormat(formats: VideoFormat[]): VideoFormat | null {
-    const audioFormats = formats
-        .filter((f) => f.vcodec === 'none' && f.acodec !== 'none')
-        .sort((a, b) => b.filesize - a.filesize);
-    return audioFormats[0] ?? null;
+function formatSize(bytes: number): string {
+    const mb = bytes / (1024 * 1024);
+    if (mb < 1) return `${(bytes / 1024).toFixed(0)} KB`;
+    if (mb < 1000) return `${mb.toFixed(1)} MB`;
+    return `${(mb / 1024).toFixed(1)} GB`;
 }
 
 export default function DownloadSheet({
@@ -53,110 +34,62 @@ export default function DownloadSheet({
     title?: string;
     onClose: () => void;
 }) {
-    const [formats, setFormats] = useState<VideoFormat[]>([]);
-    const [loading, setLoading] = useState(true);
-    const [mode, setMode] = useState<DlMode>('video');
-    const [selectedHeight, setSelectedHeight] = useState<number>(0);
-    const [busy, setBusy] = useState(false);
-    const [error, setError] = useState<string | null>(null);
-    const [progress, setProgress] = useState<string>('');
+    const [activeQuality, setActiveQuality] = useState<string | null>(null);
+    const [progress, setProgress] = useState<DownloadProgress | null>(null);
+    const [status, setStatus] = useState<'idle' | 'downloading' | 'done' | 'error'>('idle');
+    const esRef = useRef<EventSource | null>(null);
 
     useEffect(() => {
-        let cancelled = false;
-        fetch(`/api/video/${videoId}/download/formats`)
-            .then((r) => r.json())
-            .then((data: VideoFormat[]) => {
-                if (cancelled) return;
-                setFormats(Array.isArray(data) ? data : []);
-            })
-            .catch(() => setError('Could not load formats'))
-            .finally(() => !cancelled && setLoading(false));
-        return () => { cancelled = true; };
-    }, [videoId]);
+        return () => {
+            esRef.current?.close();
+        };
+    }, []);
 
-    const heights = extractHeights(formats);
-    const audioFmt = bestAudioFormat(formats);
+    function startDownload(quality: string) {
+        if (esRef.current) {
+            esRef.current.close();
+        }
 
-    const videoOptions: QualityOption[] = [
-        { height: 0, label: 'Best quality', mode: 'video' },
-        ...heights
-            .filter((h) => h <= 1080)
-            .map((h) => ({
-                height: h,
-                label: h >= 1080 ? '1080p' : `${h}p`,
-                mode: 'video' as DlMode,
-            })),
-    ];
+        setActiveQuality(quality);
+        setStatus('downloading');
+        setProgress({ type: 'progress', percent: 0, message: 'Starting download...' });
 
-    const audioOptions: QualityOption[] = audioFmt
-        ? [
-              { height: -1, label: 'Best sound (m4a)', mode: 'audio' },
-          ]
-        : [];
+        const es = new EventSource(`/api/video/${videoId}/download/status?quality=${quality}`);
+        esRef.current = es;
 
-    const options = mode === 'video' ? videoOptions : audioOptions;
-    const selected = options.find((o) =>
-        mode === 'video' ? o.height === selectedHeight : o.height === selectedHeight
-    ) ?? options[0];
+        es.onmessage = (e) => {
+            try {
+                const data: DownloadProgress = JSON.parse(e.data);
+                setProgress(data);
 
-    function selectMode(next: DlMode) {
-        setMode(next);
-        setSelectedHeight(next === 'video' ? 0 : -1);
+                if (data.type === 'complete') {
+                    es.close();
+                    setStatus('done');
+                    setProgress(prev => prev ? { ...prev, message: 'Download complete' } : { type: 'complete' });
+                } else if (data.type === 'error') {
+                    es.close();
+                    setStatus('error');
+                }
+            } catch {}
+        };
+
+        es.onerror = () => {
+            es.close();
+            if (status === 'downloading') {
+                setStatus('error');
+                setProgress({ type: 'error', message: 'Connection lost' });
+            }
+        };
     }
 
-    async function start() {
-        if (!selected) return;
-        setBusy(true);
-        setError(null);
-        setProgress('Starting download…');
-
-        try {
-            if (selected.mode === 'audio' && audioFmt) {
-                // Audio: direct URL download
-                const res = await fetch(`/api/video/${videoId}/download?format=${encodeURIComponent(audioFmt.format_id)}`);
-                const data = await res.json();
-                if (data?.url) {
-                    window.open(data.url, '_blank', 'noopener');
-                    onClose();
-                } else {
-                    setError('No download URL returned');
-                }
-            } else {
-                // Video: server-side merge (streams the merged MP4)
-                const heightParam = selected.height > 0 ? `?height=${selected.height}` : '';
-                const res = await fetch(`/api/video/${videoId}/download/merge${heightParam}`);
-                if (!res.ok) {
-                    const errData = await res.json().catch(() => ({}));
-                    setError(errData.error || 'Download failed');
-                    return;
-                }
-
-                // Get filename from Content-Disposition header
-                const disposition = res.headers.get('Content-Disposition') || '';
-                const filenameMatch = disposition.match(/filename="(.+)"/);
-                const filename = filenameMatch ? filenameMatch[1] : `${title || 'video'}.mp4`;
-
-                setProgress('Merging video + audio…');
-                const blob = await res.blob();
-                const url = URL.createObjectURL(blob);
-
-                // Trigger download
-                const a = document.createElement('a');
-                a.href = url;
-                a.download = filename;
-                document.body.appendChild(a);
-                a.click();
-                document.body.removeChild(a);
-                URL.revokeObjectURL(url);
-
-                onClose();
-            }
-        } catch {
-            setError('Download failed');
-        } finally {
-            setBusy(false);
-            setProgress('');
-        }
+    function triggerDownload() {
+        if (!activeQuality) return;
+        const a = document.createElement('a');
+        a.href = `/api/video/${videoId}/download?quality=${activeQuality}`;
+        a.download = '';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
     }
 
     return (
@@ -188,12 +121,10 @@ export default function DownloadSheet({
                     flexDirection: 'column',
                 }}
             >
-                {/* Drag handle */}
                 <div style={{ display: 'flex', justifyContent: 'center', padding: '10px 0 4px' }}>
                     <div style={{ width: '36px', height: '4px', borderRadius: '2px', background: 'rgba(255,255,255,0.2)' }} />
                 </div>
 
-                {/* Header */}
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0 20px 12px', borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
                     <div style={{ minWidth: 0, flex: 1 }}>
                         <p style={{ fontSize: '16px', fontWeight: 600, color: '#fff', margin: 0 }}>Download</p>
@@ -219,118 +150,177 @@ export default function DownloadSheet({
                     </button>
                 </div>
 
-                {/* Content */}
                 <div style={{ flex: 1, overflowY: 'auto', padding: '16px 20px' }}>
-                    {loading ? (
-                        <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: '13px', padding: '12px 0', textAlign: 'center' }}>Loading formats…</p>
-                    ) : error ? (
-                        <p style={{ color: '#ff6b6b', fontSize: '13px', padding: '12px 0' }}>{error}</p>
-                    ) : (
-                        <>
-                            {/* Mode tabs */}
-                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px', marginBottom: '16px' }}>
-                                {(['video', 'audio'] as DlMode[]).map((m) => (
-                                    <button
-                                        key={m}
-                                        onClick={() => selectMode(m)}
-                                        style={{
-                                            padding: '10px',
-                                            borderRadius: '10px',
-                                            border: 'none',
-                                            background: mode === m ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.04)',
-                                            color: mode === m ? '#fff' : 'rgba(255,255,255,0.5)',
-                                            cursor: 'pointer',
-                                            fontWeight: mode === m ? 600 : 400,
-                                            fontSize: '13px',
-                                            transition: 'all 0.15s',
-                                        }}
-                                    >
-                                        {m === 'video' ? 'Video + Audio' : 'Audio Only'}
-                                    </button>
-                                ))}
-                            </div>
-
-                            {/* Quality options */}
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                                {options.map((opt) => {
-                                    const isSel = opt.height === selectedHeight;
-                                    const desc = mode === 'video'
-                                        ? opt.height === 0
-                                            ? 'Merged video + audio (server-side)'
-                                            : `${opt.height}p merged with best audio`
-                                        : 'Direct audio stream (no video)';
-                                    return (
-                                        <button
-                                            key={opt.height}
-                                            onClick={() => setSelectedHeight(opt.height)}
-                                            style={{
-                                                display: 'flex',
-                                                alignItems: 'center',
-                                                justifyContent: 'space-between',
-                                                textAlign: 'left',
-                                                padding: '12px 14px',
-                                                borderRadius: '10px',
-                                                border: isSel ? '1px solid rgba(56,189,248,0.4)' : '1px solid rgba(255,255,255,0.06)',
-                                                background: isSel ? 'rgba(56,189,248,0.08)' : 'rgba(255,255,255,0.03)',
-                                                color: '#fff',
-                                                cursor: 'pointer',
-                                                transition: 'all 0.15s',
-                                            }}
-                                        >
-                                            <div style={{ minWidth: 0 }}>
-                                                <p style={{ margin: 0, fontSize: '14px', fontWeight: 500 }}>{opt.label}</p>
-                                                <p style={{ margin: '2px 0 0 0', fontSize: '12px', color: 'rgba(255,255,255,0.4)' }}>
-                                                    {desc}
-                                                </p>
-                                            </div>
-                                            {isSel && (
-                                                <svg width="18" height="18" viewBox="0 0 24 24" fill="#38bdf8" style={{ flexShrink: 0, marginLeft: '8px' }}>
-                                                    <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41L9 16.17z"/>
-                                                </svg>
-                                            )}
-                                        </button>
-                                    );
-                                })}
-                            </div>
-
-                            {mode === 'video' && (
-                                <p style={{ marginTop: '12px', fontSize: '11px', color: 'rgba(255,255,255,0.3)', textAlign: 'center' }}>
-                                    Server merges video + audio with ffmpeg (no re-encode)
-                                </p>
-                            )}
-                        </>
+                    {status === 'idle' && (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                            {qualities.map((q) => (
+                                <button
+                                    key={q.key}
+                                    onClick={() => startDownload(q.key)}
+                                    style={{
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        justifyContent: 'space-between',
+                                        padding: '14px 16px',
+                                        borderRadius: '10px',
+                                        border: '1px solid rgba(255,255,255,0.06)',
+                                        background: 'rgba(255,255,255,0.03)',
+                                        cursor: 'pointer',
+                                        color: '#fff',
+                                        textAlign: 'left',
+                                        width: '100%',
+                                        fontSize: '14px',
+                                        transition: 'all 0.15s',
+                                    }}
+                                    onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.08)'}
+                                    onMouseLeave={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.03)'}
+                                >
+                                    <div>
+                                        <div style={{ fontWeight: 600, marginBottom: '2px' }}>{q.label}</div>
+                                        <div style={{ fontSize: '12px', color: 'rgba(255,255,255,0.4)' }}>{q.desc} · {q.note}</div>
+                                    </div>
+                                    <div style={{ fontSize: '20px', color: 'rgba(255,255,255,0.3)' }}>›</div>
+                                </button>
+                            ))}
+                        </div>
                     )}
-                </div>
 
-                {/* Sticky download button */}
-                {!loading && !error && (
-                    <div style={{ padding: '12px 20px 20px', borderTop: '1px solid rgba(255,255,255,0.06)' }}>
-                        {progress && (
-                            <p style={{ fontSize: '12px', color: 'rgba(255,255,255,0.5)', textAlign: 'center', margin: '0 0 8px' }}>
-                                {progress}
-                            </p>
-                        )}
+                    {status === 'downloading' && progress && (
+                        <div style={{ padding: '12px 0', textAlign: 'center' }}>
+                            <div style={{ marginBottom: '12px', fontSize: '14px', color: '#fff' }}>
+                                {progress.type === 'merging' ? 'Merging video & audio...' : progress.message || 'Downloading...'}
+                            </div>
+
+                            {progress.type === 'progress' && progress.percent !== undefined && (
+                                <>
+                                    <div style={{
+                                        width: '100%',
+                                        height: '8px',
+                                        borderRadius: '4px',
+                                        background: 'rgba(255,255,255,0.1)',
+                                        overflow: 'hidden',
+                                        marginBottom: '8px',
+                                    }}>
+                                        <div style={{
+                                            width: `${Math.min(progress.percent, 100)}%`,
+                                            height: '100%',
+                                            borderRadius: '4px',
+                                            background: 'linear-gradient(90deg, #3b82f6, #8b5cf6)',
+                                            transition: 'width 0.3s ease',
+                                        }} />
+                                    </div>
+                                    <div style={{ fontSize: '12px', color: 'rgba(255,255,255,0.5)' }}>
+                                        {progress.percent.toFixed(1)}%
+                                        {progress.speed && ` · ${progress.speed}`}
+                                        {progress.eta && ` · ETA ${progress.eta}`}
+                                    </div>
+                                </>
+                            )}
+
+                            {progress.type === 'merging' && (
+                                <div style={{
+                                    width: '100%',
+                                    height: '8px',
+                                    borderRadius: '4px',
+                                    background: 'rgba(255,255,255,0.1)',
+                                    overflow: 'hidden',
+                                    marginBottom: '8px',
+                                }}>
+                                    <div style={{
+                                        width: '100%',
+                                        height: '100%',
+                                        borderRadius: '4px',
+                                        background: 'linear-gradient(90deg, #3b82f6, #8b5cf6)',
+                                        animation: 'pulse 1.5s infinite',
+                                    }} />
+                                </div>
+                            )}
+                        </div>
+                    )}
+
+                    {status === 'done' && (
+                        <div style={{ textAlign: 'center', padding: '12px 0' }}>
+                            <div style={{ fontSize: '40px', marginBottom: '8px', color: '#22c55e' }}>✓</div>
+                            <div style={{ fontSize: '14px', color: '#fff', marginBottom: '4px' }}>Download complete</div>
+                            {progress?.size && progress.size > 0 && (
+                                <div style={{ fontSize: '12px', color: 'rgba(255,255,255,0.5)', marginBottom: '16px' }}>
+                                    {formatSize(progress.size)} · {progress.filename}
+                                </div>
+                            )}
+                            <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.3)', marginBottom: '16px' }}>
+                                File cached for 30 min. Click below to download.
+                            </div>
+                            <button
+                                onClick={triggerDownload}
+                                style={{
+                                    padding: '10px 24px',
+                                    borderRadius: '8px',
+                                    border: 'none',
+                                    background: '#3b82f6',
+                                    color: '#fff',
+                                    cursor: 'pointer',
+                                    fontSize: '14px',
+                                    fontWeight: 600,
+                                }}
+                                onMouseEnter={(e) => e.currentTarget.style.opacity = '0.8'}
+                                onMouseLeave={(e) => e.currentTarget.style.opacity = '1'}
+                            >
+                                Download to device
+                            </button>
+                        </div>
+                    )}
+
+                    {status === 'error' && (
+                        <div style={{ textAlign: 'center', padding: '12px 0' }}>
+                            <div style={{ fontSize: '40px', marginBottom: '8px', color: '#ef4444' }}>✕</div>
+                            <div style={{ fontSize: '14px', color: '#fff', marginBottom: '4px' }}>
+                                {progress?.message || 'Download failed'}
+                            </div>
+                            <button
+                                onClick={() => { setStatus('idle'); setActiveQuality(null); setProgress(null); }}
+                                style={{
+                                    padding: '8px 16px',
+                                    borderRadius: '8px',
+                                    border: '1px solid rgba(255,255,255,0.2)',
+                                    background: 'transparent',
+                                    color: '#fff',
+                                    cursor: 'pointer',
+                                    fontSize: '13px',
+                                    marginTop: '12px',
+                                }}
+                            >
+                                Try again
+                            </button>
+                        </div>
+                    )}
+
+                    {status !== 'idle' && status !== 'done' && (
                         <button
-                            onClick={() => void start()}
-                            disabled={!selected || busy}
+                            onClick={() => { esRef.current?.close(); setStatus('idle'); setActiveQuality(null); setProgress(null); }}
                             style={{
-                                width: '100%',
-                                padding: '12px',
-                                borderRadius: '10px',
-                                border: 'none',
-                                background: selected && !busy ? '#3b82f6' : 'rgba(255,255,255,0.08)',
-                                color: selected && !busy ? '#fff' : 'rgba(255,255,255,0.3)',
-                                cursor: selected && !busy ? 'pointer' : 'not-allowed',
-                                fontWeight: 600,
-                                fontSize: '14px',
-                                transition: 'all 0.15s',
+                                display: 'block',
+                                margin: '12px auto 0',
+                                padding: '6px 14px',
+                                borderRadius: '8px',
+                                border: '1px solid rgba(255,255,255,0.15)',
+                                background: 'transparent',
+                                color: 'rgba(255,255,255,0.5)',
+                                cursor: 'pointer',
+                                fontSize: '12px',
                             }}
                         >
-                            {busy ? 'Merging…' : 'Start download'}
+                            Cancel
                         </button>
-                    </div>
-                )}
+                    )}
+                </div>
             </div>
+
+            <style jsx>{`
+                @keyframes pulse {
+                    0%, 100% { opacity: 0.5; }
+                    50% { opacity: 1; }
+                }
+            `}</style>
         </div>
     );
 }

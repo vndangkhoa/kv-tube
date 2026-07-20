@@ -94,6 +94,19 @@
     Aggressive caching, multi-client yt-dlp fallback, and lazy metadata hydration.
   </td>
 </tr>
+<tr>
+  <td width="50%">
+    <h3>📥 Server-side Downloads</h3>
+    Download any video straight to your device as an MP4. The server fetches it
+    with yt-dlp and streams a live progress bar — no ads, no client-side hacks.
+    Pick from three quality tiers: <b>Low</b> (≤360p), <b>Recommended</b> (≤1080p), or <b>Best</b>.
+  </td>
+  <td width="50%">
+    <h3>🧹 Self-cleaning Cache</h3>
+    Downloaded files live in a temp server cache (30-minute TTL) and are purged
+    automatically — nothing piles up on your disk.
+  </td>
+</tr>
 </table>
 
 ## 🚀 Quick Start
