@@ -112,4 +112,7 @@ dependencies {
 
     // OkHttp
     implementation(libs.okhttp)
+
+    // NewPipeExtractor
+    implementation(libs.newpipe.extractor)
 }

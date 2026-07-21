@@ -228,7 +228,7 @@ fun SettingsScreen(
                 if (updateInfo != null) {
                     if (updateInfo.hasUpdate) {
                         Text(
-                            text = "New version available: ${updateInfo.version}",
+                            text = "New version available: ${updateInfo.latestVersion}",
                             style = MaterialTheme.typography.bodyMedium,
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.primary
