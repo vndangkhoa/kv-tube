@@ -6,9 +6,12 @@ import com.kvtube.android.data.local.SettingsDataStore
 import com.kvtube.android.data.model.VideoData
 import com.kvtube.android.data.repository.VideoRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -19,7 +22,8 @@ data class HomeUiState(
     val isLoadingMore: Boolean = false,
     val error: String? = null,
     val selectedCategory: String = "All",
-    val hasMore: Boolean = true
+    val hasMore: Boolean = true,
+    val currentRegion: String = "GLOBAL"
 )
 
 @HiltViewModel
@@ -33,14 +37,31 @@ class HomeViewModel @Inject constructor(
 
     private var currentPage = 0
     private var currentRegion = "GLOBAL"
+    private var loadJob: Job? = null
 
     init {
         viewModelScope.launch {
-            settingsDataStore.region.collect { region ->
-                currentRegion = region
-                currentPage = 0
-                loadVideos()
-            }
+            settingsDataStore.region
+                .distinctUntilChanged()
+                .drop(1)
+                .collect { region ->
+                    currentRegion = region
+                    currentPage = 0
+                    _uiState.value = _uiState.value.copy(
+                        currentRegion = region,
+                        videos = emptyList(),
+                        isLoading = true,
+                        hasMore = true
+                    )
+                    loadVideos()
+                }
+        }
+
+        viewModelScope.launch {
+            val region = settingsDataStore.region.first()
+            currentRegion = region
+            _uiState.value = _uiState.value.copy(currentRegion = region)
+            loadVideos()
         }
     }
 
@@ -75,7 +96,8 @@ class HomeViewModel @Inject constructor(
     }
 
     private fun loadVideos() {
-        viewModelScope.launch {
+        loadJob?.cancel()
+        loadJob = viewModelScope.launch {
             try {
                 val category = _uiState.value.selectedCategory
                 val videos = if (category == "All" || category == "Trending") {

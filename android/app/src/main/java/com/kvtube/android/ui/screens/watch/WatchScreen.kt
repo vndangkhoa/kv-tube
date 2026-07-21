@@ -1,5 +1,9 @@
 package com.kvtube.android.ui.screens.watch
 
+import android.app.Activity
+import android.app.PictureInPictureParams
+import android.content.pm.ActivityInfo
+import android.util.Rational
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -22,8 +26,6 @@ import androidx.compose.material.icons.outlined.Favorite
 import androidx.compose.material.icons.outlined.FavoriteBorder
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -31,6 +33,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -57,6 +60,7 @@ import com.kvtube.android.ui.components.VideoCard
 import com.kvtube.android.ui.navigation.Screen
 import com.kvtube.android.ui.theme.YTBrandRed
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun WatchScreen(
     videoId: String,
@@ -64,8 +68,18 @@ fun WatchScreen(
     viewModel: WatchViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
-    var showDownloadSheet by remember { mutableStateOf(false) }
     val context = LocalContext.current
+    val activity = context as? Activity
+
+    var showDownloadSheet by remember { mutableStateOf(false) }
+    var isFullscreen by remember { mutableStateOf(false) }
+
+    LaunchedEffect(isFullscreen) {
+        activity?.requestedOrientation = if (isFullscreen)
+            ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+        else
+            ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+    }
 
     if (uiState.isLoading) {
         LoadingSpinner(fullScreen = true)
@@ -93,92 +107,105 @@ fun WatchScreen(
             uiState.selectedUrl?.let { url ->
                 ExoPlayerView(
                     videoUrl = url,
+                    isFullscreen = isFullscreen,
+                    onFullscreenToggle = { isFullscreen = !isFullscreen },
+                    onEnterPip = {
+                        activity?.let { act ->
+                            val params = PictureInPictureParams.Builder()
+                                .setSourceRectHint(android.graphics.Rect())
+                                .setAspectRatio(Rational(16, 9))
+                                .build()
+                            act.enterPictureInPictureMode(params)
+                        }
+                    },
                     modifier = Modifier.fillMaxWidth()
                 )
             }
         }
 
-        // Video Info
-        item {
-            uiState.video?.let { video ->
-                VideoInfoSection(
-                    video = video,
-                    playbackFormats = uiState.playbackInfo?.videoFormats ?: emptyList(),
-                    onFormatSelected = { format -> viewModel.selectQuality(format) },
-                    onDownloadClick = { showDownloadSheet = true },
+        if (!isFullscreen) {
+            // Video Info
+            item {
+                uiState.video?.let { video ->
+                    VideoInfoSection(
+                        video = video,
+                        playbackFormats = uiState.playbackInfo?.videoFormats ?: emptyList(),
+                        onFormatSelected = { format -> viewModel.selectQuality(format) },
+                        onDownloadClick = { showDownloadSheet = true },
+                        onChannelClick = { channelId ->
+                            navController.navigate(Screen.Channel.createRoute(channelId))
+                        }
+                    )
+                }
+            }
+
+            // Divider
+            item {
+                HorizontalDivider(
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                    color = MaterialTheme.colorScheme.outline.copy(alpha = 0.3f)
+                )
+            }
+
+            // Comments header
+            item {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { viewModel.toggleComments() }
+                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "Comments",
+                        style = MaterialTheme.typography.titleMedium,
+                        modifier = Modifier.weight(1f)
+                    )
+                    Text(
+                        text = if (uiState.showComments) "Hide" else "Show",
+                        color = MaterialTheme.colorScheme.primary,
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
+            }
+
+            // Comments
+            if (uiState.showComments) {
+                items(uiState.comments) { comment ->
+                    CommentItem(comment = comment)
+                }
+            }
+
+            // Divider
+            item {
+                HorizontalDivider(
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                    color = MaterialTheme.colorScheme.outline.copy(alpha = 0.3f)
+                )
+            }
+
+            // Related videos header
+            item {
+                Text(
+                    text = "Related",
+                    style = MaterialTheme.typography.titleMedium,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                )
+            }
+
+            // Related videos
+            items(uiState.relatedVideos) { related ->
+                VideoCard(
+                    video = related,
+                    onVideoClick = { id ->
+                        navController.navigate(Screen.Watch.createRoute(id))
+                    },
                     onChannelClick = { channelId ->
                         navController.navigate(Screen.Channel.createRoute(channelId))
-                    }
+                    },
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)
                 )
             }
-        }
-
-        // Divider
-        item {
-            HorizontalDivider(
-                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-                color = MaterialTheme.colorScheme.outline.copy(alpha = 0.3f)
-            )
-        }
-
-        // Comments header
-        item {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clickable { viewModel.toggleComments() }
-                    .padding(horizontal = 16.dp, vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = "Comments",
-                    style = MaterialTheme.typography.titleMedium,
-                    modifier = Modifier.weight(1f)
-                )
-                Text(
-                    text = if (uiState.showComments) "Hide" else "Show",
-                    color = MaterialTheme.colorScheme.primary,
-                    style = MaterialTheme.typography.bodySmall
-                )
-            }
-        }
-
-        // Comments
-        if (uiState.showComments) {
-            items(uiState.comments) { comment ->
-                CommentItem(comment = comment)
-            }
-        }
-
-        // Divider
-        item {
-            HorizontalDivider(
-                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-                color = MaterialTheme.colorScheme.outline.copy(alpha = 0.3f)
-            )
-        }
-
-        // Related videos header
-        item {
-            Text(
-                text = "Related",
-                style = MaterialTheme.typography.titleMedium,
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
-            )
-        }
-
-        // Related videos
-        items(uiState.relatedVideos) { related ->
-            VideoCard(
-                video = related,
-                onVideoClick = { id ->
-                    navController.navigate(Screen.Watch.createRoute(id))
-                },
-                onChannelClick = { channelId ->
-                    navController.navigate(Screen.Channel.createRoute(channelId))
-                },
-                modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)
-            )
         }
     }
 
@@ -322,7 +349,8 @@ private fun VideoInfoSection(
             colors = ButtonDefaults.buttonColors(
                 containerColor = MaterialTheme.colorScheme.surfaceVariant,
                 contentColor = MaterialTheme.colorScheme.onSurface
-            )
+            ),
+            shape = RoundedCornerShape(10.dp)
         ) {
             Text("Quality")
         }
