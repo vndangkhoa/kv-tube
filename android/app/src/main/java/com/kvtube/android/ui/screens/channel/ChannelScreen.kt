@@ -23,6 +23,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import coil3.compose.AsyncImagePainter
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -56,17 +60,24 @@ fun ChannelScreen(
     }
 
     uiState.channel?.let { channel ->
+        var showBanner by remember(channel.id) { mutableStateOf(!channel.bannerUrl.isNullOrBlank()) }
+
         Column(
             modifier = Modifier.fillMaxSize()
         ) {
             // Banner
-            if (!channel.bannerUrl.isNullOrBlank()) {
+            if (showBanner && !channel.bannerUrl.isNullOrBlank()) {
                 AsyncImage(
                     model = channel.bannerUrl,
                     contentDescription = null,
+                    onState = { state ->
+                        if (state is AsyncImagePainter.State.Error) {
+                            showBanner = false
+                        }
+                    },
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(120.dp)
+                        .height(60.dp)
                         .clip(RoundedCornerShape(bottomStart = 12.dp, bottomEnd = 12.dp)),
                     contentScale = ContentScale.Crop
                 )
@@ -96,7 +107,14 @@ fun ChannelScreen(
                 Text(
                     text = buildString {
                         if (channel.subscriberCount > 0) {
-                            append("${channel.subscriberCount} subscribers")
+                            val count = channel.subscriberCount
+                            val formattedSubscribers = when {
+                                count >= 1_000_000_000 -> String.format("%.1fB", count / 1_000_000_000f).replace(".0", "")
+                                count >= 1_000_000 -> String.format("%.1fM", count / 1_000_000f).replace(".0", "")
+                                count >= 1_000 -> String.format("%.1fk", count / 1_000f).replace(".0", "")
+                                else -> count.toString()
+                            }
+                            append("$formattedSubscribers subscribers")
                         }
                         if (channel.videoCount > 0) {
                             if (isNotEmpty()) append(" · ")
@@ -140,7 +158,8 @@ fun ChannelScreen(
                         video = video,
                         onVideoClick = { id ->
                             navController.navigate(Screen.Watch.createRoute(id))
-                        }
+                        },
+                        showChannelName = false
                     )
                 }
             }

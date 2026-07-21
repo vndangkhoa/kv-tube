@@ -15,8 +15,8 @@ android {
         applicationId = "com.kvtube.android"
         minSdk = 21
         targetSdk = 34
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = 2
+        versionName = "1.1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -75,6 +75,7 @@ dependencies {
     ksp(libs.hilt.compiler)
     implementation(libs.hilt.navigation.compose)
     implementation(libs.hilt.workmanager)
+    ksp(libs.hilt.ext.compiler)
 
     // Room
     implementation(libs.room.runtime)
@@ -91,6 +92,7 @@ dependencies {
     // Coil
     implementation(libs.coil.compose)
     implementation(libs.coil.network.okhttp)
+    implementation(libs.coil.gif)
 
     // Media3 ExoPlayer
     implementation(libs.exoplayer.core)

@@ -1,6 +1,5 @@
 package com.kvtube.android
 
-import android.graphics.Color
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -12,14 +11,16 @@ import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.size
 import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -30,12 +31,15 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.scale
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.kvtube.android.data.local.SettingsDataStore
 import com.kvtube.android.ui.MainScreen
 import com.kvtube.android.ui.theme.KVTubeTheme
-import com.kvtube.android.ui.theme.YTBackgroundDark
+import com.kvtube.android.ui.theme.YTBrandRed
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
@@ -50,7 +54,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-        window.decorView.setBackgroundColor(Color.parseColor("#0F0F0F"))
+        window.decorView.setBackgroundColor(0xFFFF0000.toInt())
         setContent {
             val themeMode by settingsDataStore.themeMode.collectAsState(initial = "dark")
 
@@ -126,15 +130,27 @@ private fun SplashScreen() {
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .background(YTBackgroundDark),
+            .background(YTBrandRed),
         contentAlignment = Alignment.Center
     ) {
-        Image(
-            painter = painterResource(id = R.drawable.ic_splash_logo),
-            contentDescription = "KV-Tube",
-            modifier = Modifier
-                .size(140.dp)
-                .scale(animatedScale)
-        )
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Image(
+                painter = painterResource(id = R.drawable.ic_splash_logo),
+                contentDescription = "KV-Tube",
+                modifier = Modifier
+                    .size(160.dp)
+                    .scale(animatedScale)
+            )
+            Text(
+                text = "KV-Tube",
+                color = Color.White,
+                fontSize = 28.sp,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.scale(animatedScale)
+            )
+        }
     }
 }

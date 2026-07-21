@@ -61,7 +61,12 @@ fun DownloadBottomSheet(
 
             Spacer(modifier = Modifier.height(16.dp))
 
-            if (progress == null || progress.status == DownloadStatus.QUEUED) {
+            val isDownloading = progress != null &&
+                    progress.status != DownloadStatus.COMPLETED &&
+                    progress.status != DownloadStatus.ERROR &&
+                    progress.status != DownloadStatus.CANCELLED
+
+            if (!isDownloading) {
                 // Show quality options
                 Quality.values().toList().forEach { quality ->
                     TextButton(

@@ -5,6 +5,39 @@ All notable changes to KV-Tube are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.4.0] - 2026-07-21
+
+### Fixed
+- **Android download crash** — added the missing `androidx.hilt:hilt-compiler`
+  KSP dependency (`hilt-ext-compiler`), which caused `NoSuchMethodException`
+  when WorkManager tried to instantiate `DownloadWorker` via Hilt injection.
+- **Download progress not visible** — downloads now appear immediately in the
+  Downloads tab with real-time progress (percent, speed, ETA) via chained
+  `StateFlow` combination of active downloads and completed Room DB entries.
+
+### Added
+- **Share button** — the Share pill on the Watch screen now opens the native
+  Android share sheet with the YouTube URL of the current video.
+- **Download badge on nav bar** — the Downloads tab icon shows a numeric badge
+  indicating the number of active/queued downloads.
+- **Channel page redesign** — compact banner, real channel avatar loaded from
+  the server API, subscriber and video counts, and clickable channel avatars
+  on the Subscriptions screen that navigate to the channel page.
+- **Download quality selection** — bottom sheet with three quality tiers
+  (Low ≤360p, Recommended ≤1080p, Best) before starting a download.
+- **Download management** — completed downloads saved to Room DB; users can
+  search, rename, sort (by name/date/size/channel), and permanently delete
+  downloaded files from the Downloads tab.
+- **Cancel active downloads** — active downloads can be cancelled from both
+  the download bottom sheet and the Downloads tab list/grid views.
+
+### Changed
+- Android app version bumped to `1.1.0` (versionCode 2).
+- `DownloadsViewModel` refactored to use chained `Flow.combine` to merge
+  active download progress with completed downloads from Room.
+- `DownloadsScreen` grid and list items now accept and display `DownloadProgress`
+  with `LinearProgressIndicator`, status text, and a cancel action.
+
 ## [4.3.0] - 2026-07-20
 
 ### Added
@@ -103,6 +136,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Initial public release of KV-Tube.
 
+[4.4.0]: https://github.com/vndangkhoa/kv-tube/compare/v4.3.0...v4.4.0
 [4.3.0]: https://github.com/vndangkhoa/kv-tube/compare/v4.2.1...v4.3.0
 [4.2.1]: https://github.com/vndangkhoa/kv-tube/compare/v4.2.0...v4.2.1
 [4.2.0]: https://github.com/vndangkhoa/kv-tube/compare/v4.1.0...v4.2.0

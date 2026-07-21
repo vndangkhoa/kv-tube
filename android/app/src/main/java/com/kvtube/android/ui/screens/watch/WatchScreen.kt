@@ -2,10 +2,15 @@ package com.kvtube.android.ui.screens.watch
 
 import android.app.Activity
 import android.app.PictureInPictureParams
+import android.content.Intent
 import android.content.pm.ActivityInfo
 import android.util.Rational
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -22,6 +27,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.outlined.Favorite
 import androidx.compose.material.icons.outlined.FavoriteBorder
 import androidx.compose.material3.Button
@@ -107,6 +113,7 @@ fun WatchScreen(
             uiState.selectedUrl?.let { url ->
                 ExoPlayerView(
                     videoUrl = url,
+                    audioUrl = uiState.audioUrl,
                     isFullscreen = isFullscreen,
                     onFullscreenToggle = { isFullscreen = !isFullscreen },
                     onEnterPip = {
@@ -118,6 +125,7 @@ fun WatchScreen(
                             act.enterPictureInPictureMode(params)
                         }
                     },
+                    onBackClick = { navController.popBackStack() },
                     modifier = Modifier.fillMaxWidth()
                 )
             }
@@ -130,8 +138,18 @@ fun WatchScreen(
                     VideoInfoSection(
                         video = video,
                         playbackFormats = uiState.playbackInfo?.videoFormats ?: emptyList(),
+                        isSubscribed = uiState.isSubscribed,
+                        onSubscribeClick = { viewModel.toggleSubscription() },
                         onFormatSelected = { format -> viewModel.selectQuality(format) },
                         onDownloadClick = { showDownloadSheet = true },
+                        onShareClick = {
+                            val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                                type = "text/plain"
+                                putExtra(Intent.EXTRA_SUBJECT, video.title)
+                                putExtra(Intent.EXTRA_TEXT, "https://youtube.com/watch?v=$videoId")
+                            }
+                            context.startActivity(Intent.createChooser(shareIntent, "Share video"))
+                        },
                         onChannelClick = { channelId ->
                             navController.navigate(Screen.Channel.createRoute(channelId))
                         }
@@ -139,49 +157,62 @@ fun WatchScreen(
                 }
             }
 
-            // Divider
+            // Comments section in a grey card (YouTube style)
             item {
-                HorizontalDivider(
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-                    color = MaterialTheme.colorScheme.outline.copy(alpha = 0.3f)
-                )
-            }
-
-            // Comments header
-            item {
-                Row(
+                Column(
                     modifier = Modifier
                         .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 8.dp)
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
                         .clickable { viewModel.toggleComments() }
-                        .padding(horizontal = 16.dp, vertical = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically
+                        .padding(12.dp)
                 ) {
-                    Text(
-                        text = "Comments",
-                        style = MaterialTheme.typography.titleMedium,
-                        modifier = Modifier.weight(1f)
-                    )
-                    Text(
-                        text = if (uiState.showComments) "Hide" else "Show",
-                        color = MaterialTheme.colorScheme.primary,
-                        style = MaterialTheme.typography.bodySmall
-                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "Comments",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.weight(1f)
+                        )
+                        Text(
+                            text = if (uiState.showComments) "Hide" else "Show",
+                            color = MaterialTheme.colorScheme.primary,
+                            style = MaterialTheme.typography.bodySmall,
+                            fontWeight = FontWeight.Medium
+                        )
+                    }
+                    if (!uiState.showComments && uiState.comments.isNotEmpty()) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        val topComment = uiState.comments.first()
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            ChannelAvatar(
+                                avatarUrl = topComment.authorThumbnail,
+                                channelName = topComment.author,
+                                size = 24.dp
+                            )
+                            Text(
+                                text = topComment.text,
+                                style = MaterialTheme.typography.bodySmall,
+                                maxLines = 1,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
                 }
             }
 
-            // Comments
+            // Comments list (visible when expanded)
             if (uiState.showComments) {
                 items(uiState.comments) { comment ->
                     CommentItem(comment = comment)
                 }
-            }
-
-            // Divider
-            item {
-                HorizontalDivider(
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-                    color = MaterialTheme.colorScheme.outline.copy(alpha = 0.3f)
-                )
             }
 
             // Related videos header
@@ -242,8 +273,11 @@ fun WatchScreen(
 private fun VideoInfoSection(
     video: VideoData,
     playbackFormats: List<PlaybackFormat>,
+    isSubscribed: Boolean,
+    onSubscribeClick: () -> Unit,
     onFormatSelected: (PlaybackFormat) -> Unit,
     onDownloadClick: () -> Unit,
+    onShareClick: () -> Unit,
     onChannelClick: (String) -> Unit
 ) {
     var showFormats by remember { mutableStateOf(false) }
@@ -304,77 +338,152 @@ private fun VideoInfoSection(
                     modifier = Modifier.clickable { onChannelClick(video.displayChannelId) }
                 )
             }
-            SubscribeButton(isSubscribed = false, onToggle = { /* TODO */ })
+            SubscribeButton(
+                isSubscribed = isSubscribed,
+                onToggle = onSubscribeClick
+            )
         }
 
         Spacer(modifier = Modifier.height(12.dp))
 
-        // Action buttons row
+        // Actions horizontal scrolling bar (YouTube style)
         Row(
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
+            modifier = Modifier
+                .fillMaxWidth()
+                .horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            // Like/Save
-            IconButton(onClick = { isSaved = !isSaved }) {
+            // Like/Save Pill
+            Row(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(20.dp))
+                    .background(MaterialTheme.colorScheme.surfaceVariant)
+                    .clickable { isSaved = !isSaved }
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.Center
+            ) {
                 Icon(
                     imageVector = if (isSaved) Icons.Outlined.Favorite else Icons.Outlined.FavoriteBorder,
                     contentDescription = "Save",
-                    tint = if (isSaved) YTBrandRed else MaterialTheme.colorScheme.onSurfaceVariant
+                    tint = if (isSaved) YTBrandRed else MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.size(20.dp)
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+                Text(
+                    text = if (isSaved) "Liked" else "Like",
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.Medium,
+                    color = MaterialTheme.colorScheme.onSurface
                 )
             }
 
-            // Download
-            IconButton(onClick = onDownloadClick) {
+            // Download Pill
+            Row(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(20.dp))
+                    .background(MaterialTheme.colorScheme.surfaceVariant)
+                    .clickable { onDownloadClick() }
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.Center
+            ) {
                 Icon(
                     imageVector = Icons.Filled.Download,
                     contentDescription = "Download",
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                    tint = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.size(20.dp)
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+                Text(
+                    text = "Download",
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.Medium,
+                    color = MaterialTheme.colorScheme.onSurface
                 )
             }
 
-            // Share
-            IconButton(onClick = { /* TODO */ }) {
+            // Share Pill
+            Row(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(20.dp))
+                    .background(MaterialTheme.colorScheme.surfaceVariant)
+                    .clickable { onShareClick() }
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.Center
+            ) {
                 Icon(
                     imageVector = Icons.Filled.Share,
                     contentDescription = "Share",
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                    tint = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.size(20.dp)
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+                Text(
+                    text = "Share",
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.Medium,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+            }
+
+            // Quality Pill
+            Row(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(20.dp))
+                    .background(MaterialTheme.colorScheme.surfaceVariant)
+                    .clickable { showFormats = !showFormats }
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.Settings,
+                    contentDescription = "Quality",
+                    tint = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.size(20.dp)
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+                Text(
+                    text = "Quality",
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontWeight = FontWeight.Medium,
+                    color = MaterialTheme.colorScheme.onSurface
                 )
             }
         }
 
-        Spacer(modifier = Modifier.height(8.dp))
-
-        // Quality selector
-        Button(
-            onClick = { showFormats = !showFormats },
-            colors = ButtonDefaults.buttonColors(
-                containerColor = MaterialTheme.colorScheme.surfaceVariant,
-                contentColor = MaterialTheme.colorScheme.onSurface
-            ),
-            shape = RoundedCornerShape(10.dp)
-        ) {
-            Text("Quality")
-        }
-
         if (showFormats && playbackFormats.isNotEmpty()) {
-            Spacer(modifier = Modifier.height(8.dp))
-            playbackFormats.forEach { format ->
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable { onFormatSelected(format) }
-                        .padding(vertical = 4.dp, horizontal = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = "${format.height}p",
-                        style = MaterialTheme.typography.bodyMedium
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = format.ext.uppercase(),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
+            Spacer(modifier = Modifier.height(12.dp))
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                    .padding(8.dp)
+            ) {
+                playbackFormats.forEach { format ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { onFormatSelected(format) }
+                            .padding(vertical = 8.dp, horizontal = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "${format.height}p",
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.Medium
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = format.ext.uppercase(),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
                 }
             }
         }

@@ -114,14 +114,16 @@
   <td width="50%">
     <h3>📱 Android App</h3>
     Native Android client built with Kotlin &amp; Jetpack Compose. Material 3 design,
-    ExoPlayer video playback, on-device NewPipeExtractor downloads, bottom navigation,
-    dark/light themes, and auto-updates via GitHub/Forgejo releases.
+    ExoPlayer video playback, on-device NewPipeExtractor downloads, share to any app,
+    download progress with badge indicator, dark/light themes, and auto-updates
+    via GitHub/Forgejo releases.
   </td>
   <td width="50%">
     <h3>⬇️ On-device Downloads</h3>
     Download videos directly on your Android device using NewPipeExtractor stream
     extraction. Three quality tiers (Low 360p, Recommended 1080p, Best) with
-    background download via WorkManager.
+    background download via WorkManager. Search, rename, sort, and delete
+    downloaded files from the Downloads tab.
   </td>
 </tr>
 </table>

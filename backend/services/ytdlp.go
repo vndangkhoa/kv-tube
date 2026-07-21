@@ -4,7 +4,9 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io/ioutil"
 	"log"
+	"net/http"
 	"os"
 	"os/exec"
 	"strconv"
@@ -610,11 +612,14 @@ func GetChannelInfo(channelID string) (*ChannelInfo, error) {
 		avatarStr = strings.ToUpper(string(title[0]))
 	}
 
+	avatarURL, _, _ := GetChannelAvatar(cID)
+
 	return &ChannelInfo{
 		ID:              cID,
 		Title:           title,
 		SubscriberCount: int64(subCountFloat),
-		Avatar:          avatarStr, // Simple fallback for now
+		Avatar:          avatarStr,
+		AvatarURL:       avatarURL,
 	}, nil
 }
 
@@ -707,6 +712,59 @@ func GetChannelAvatar(channelID string) (string, string, error) {
 	url := fmt.Sprintf("https://www.youtube.com/channel/%s", channelID)
 	if strings.HasPrefix(channelID, "@") {
 		url = fmt.Sprintf("https://www.youtube.com/%s", channelID)
+	}
+
+	// Try fetching the raw HTML and parsing og:image (fast, no yt-dlp dependency, highly reliable)
+	httpClient := &http.Client{Timeout: 5 * time.Second}
+	req, _ := http.NewRequest("GET", url, nil)
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+	resp, err := httpClient.Do(req)
+	if err == nil && resp.StatusCode == 200 {
+		defer resp.Body.Close()
+		bodyBytes, _ := ioutil.ReadAll(resp.Body)
+		bodyStr := string(bodyBytes)
+
+		// Extract og:image
+		var avatarURL string
+		imgIdx := strings.Index(bodyStr, `property="og:image"`)
+		if imgIdx != -1 {
+			contentStart := strings.Index(bodyStr[imgIdx:], `content="`)
+			if contentStart != -1 {
+				realStart := imgIdx + contentStart + len(`content="`)
+				contentEnd := strings.Index(bodyStr[realStart:], `"`)
+				if contentEnd != -1 {
+					avatarURL = bodyStr[realStart : realStart+contentEnd]
+				}
+			}
+		}
+
+		// Extract channel name from og:title
+		var name string
+		titleIdx := strings.Index(bodyStr, `property="og:title"`)
+		if titleIdx != -1 {
+			contentStart := strings.Index(bodyStr[titleIdx:], `content="`)
+			if contentStart != -1 {
+				realStart := titleIdx + contentStart + len(`content="`)
+				contentEnd := strings.Index(bodyStr[realStart:], `"`)
+				if contentEnd != -1 {
+					name = bodyStr[realStart : realStart+contentEnd]
+				}
+			}
+		}
+
+		if avatarURL != "" {
+			if name == "" {
+				name = channelID
+			}
+			res := struct {
+				AvatarURL string `json:"avatar_url"`
+				Name      string `json:"name"`
+			}{avatarURL, name}
+			if b, err := json.Marshal(res); err == nil {
+				_ = models.SetCachedVideo(cacheKey, string(b), int((7 * 24 * time.Hour).Seconds()))
+			}
+			return avatarURL, name, nil
+		}
 	}
 
 	out, err := RunYtDlpSingleJSON(

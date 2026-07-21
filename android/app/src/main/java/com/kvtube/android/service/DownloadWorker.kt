@@ -2,6 +2,8 @@ package com.kvtube.android.service
 
 import android.app.Notification
 import android.content.Context
+import android.content.pm.ServiceInfo
+import android.os.Build
 import androidx.core.app.NotificationCompat
 import androidx.hilt.work.HiltWorker
 import androidx.work.CoroutineWorker
@@ -21,6 +23,10 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import java.io.File
 import java.io.FileOutputStream
+import com.kvtube.android.data.api.KVApi
+import com.kvtube.android.data.model.PlaybackInfo
+import com.kvtube.android.data.model.PlaybackFormat
+import com.kvtube.android.data.extractor.ExtractedStream
 
 @HiltWorker
 class DownloadWorker @AssistedInject constructor(
@@ -28,7 +34,8 @@ class DownloadWorker @AssistedInject constructor(
     @Assisted workerParams: WorkerParameters,
     private val downloadRepository: DownloadRepository,
     private val extractorHelper: ExtractorHelper,
-    private val okHttpClient: OkHttpClient
+    private val okHttpClient: OkHttpClient,
+    private val api: KVApi
 ) : CoroutineWorker(appContext, workerParams) {
 
     companion object {
@@ -59,25 +66,50 @@ class DownloadWorker @AssistedInject constructor(
 
         try {
             // Phase 1: Extract stream URL via NewPipeExtractor
-            updateProgress(videoId, DownloadProgress(
+            updateProgress(
                 videoId = videoId,
-                percent = 0f,
                 status = DownloadStatus.EXTRACTING,
-                message = "Extracting video URL..."
-            ))
+                message = "Extracting video URL...",
+                title = title,
+                thumbnail = thumbnail,
+                channelTitle = channelTitle,
+                duration = duration,
+                quality = qualityStr
+            )
 
-            val extracted = extractorHelper.extractStreamUrl(videoId, quality)
+            var extracted = try {
+                extractorHelper.extractStreamUrl(videoId, quality)
+            } catch (e: Exception) {
+                ExtractedStream(videoUrl = "")
+            }
+
             if (extracted.videoUrl.isEmpty()) {
-                throw Exception("No suitable stream found")
+                val playbackInfo = api.getPlaybackInfo(videoId)
+                val format = selectPlaybackFormat(playbackInfo, quality)
+                if (format != null) {
+                    extracted = ExtractedStream(
+                        videoUrl = format.url,
+                        height = format.height,
+                        isDash = !format.hasAudio
+                    )
+                }
+            }
+
+            if (extracted.videoUrl.isEmpty()) {
+                throw Exception("No suitable stream found (tried client extraction and server fallback)")
             }
 
             // Phase 2: Download file(s)
-            updateProgress(videoId, DownloadProgress(
+            updateProgress(
                 videoId = videoId,
-                percent = 0f,
                 status = DownloadStatus.DOWNLOADING,
-                message = "Downloading..."
-            ))
+                message = "Downloading...",
+                title = title,
+                thumbnail = thumbnail,
+                channelTitle = channelTitle,
+                duration = duration,
+                quality = qualityStr
+            )
 
             val outputDir = downloadRepository.getDownloadDir(applicationContext)
             val baseName = sanitizeFileName(title)
@@ -88,14 +120,19 @@ class DownloadWorker @AssistedInject constructor(
             } else {
                 // Progressive: single file download
                 downloadFile(extracted.videoUrl, outputFile) { percent, speed, eta ->
-                    updateProgress(videoId, DownloadProgress(
+                    updateProgress(
                         videoId = videoId,
                         percent = percent,
                         speed = speed,
                         eta = eta,
                         status = DownloadStatus.DOWNLOADING,
-                        message = "Downloading ${percent.toInt()}%"
-                    ))
+                        message = "Downloading ${percent.toInt()}%",
+                        title = title,
+                        thumbnail = thumbnail,
+                        channelTitle = channelTitle,
+                        duration = duration,
+                        quality = qualityStr
+                    )
                 }
             }
 
@@ -113,21 +150,31 @@ class DownloadWorker @AssistedInject constructor(
             )
             downloadRepository.insertDownload(entity)
 
-            updateProgress(videoId, DownloadProgress(
+            updateProgress(
                 videoId = videoId,
                 percent = 100f,
                 status = DownloadStatus.COMPLETED,
-                message = "Download complete"
-            ))
+                message = "Download complete",
+                title = title,
+                thumbnail = thumbnail,
+                channelTitle = channelTitle,
+                duration = duration,
+                quality = qualityStr
+            )
 
             Result.success()
         } catch (e: Exception) {
             e.printStackTrace()
-            updateProgress(videoId, DownloadProgress(
+            updateProgress(
                 videoId = videoId,
                 status = DownloadStatus.ERROR,
-                message = e.message ?: "Download failed"
-            ))
+                message = e.message ?: "Download failed",
+                title = title,
+                thumbnail = thumbnail,
+                channelTitle = channelTitle,
+                duration = duration,
+                quality = qualityStr
+            )
             Result.failure()
         }
     }
@@ -187,8 +234,35 @@ class DownloadWorker @AssistedInject constructor(
         }
     }
 
-    private fun updateProgress(videoId: String, progress: DownloadProgress) {
-        downloadRepository.updateProgress(videoId, progress)
+    private fun updateProgress(
+        videoId: String,
+        percent: Float = 0f,
+        speed: String = "",
+        eta: String = "",
+        status: DownloadStatus,
+        message: String,
+        title: String,
+        thumbnail: String,
+        channelTitle: String,
+        duration: String,
+        quality: String
+    ) {
+        downloadRepository.updateProgress(
+            videoId,
+            DownloadProgress(
+                videoId = videoId,
+                percent = percent,
+                speed = speed,
+                eta = eta,
+                status = status,
+                message = message,
+                title = title,
+                thumbnail = thumbnail,
+                channelTitle = channelTitle,
+                duration = duration,
+                quality = quality
+            )
+        )
     }
 
     private fun createForegroundInfo(
@@ -210,12 +284,42 @@ class DownloadWorker @AssistedInject constructor(
             .setOngoing(true)
             .build()
 
-        return ForegroundInfo(DownloadService.NOTIFICATION_ID, notification)
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            ForegroundInfo(
+                DownloadService.NOTIFICATION_ID,
+                notification,
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
+            )
+        } else {
+            ForegroundInfo(DownloadService.NOTIFICATION_ID, notification)
+        }
     }
 
     private fun sanitizeFileName(name: String): String {
         return name.replace(Regex("[/\\\\:*?\"<>|]"), "_")
             .take(100)
+    }
+
+    private fun selectPlaybackFormat(playbackInfo: PlaybackInfo, quality: Quality): PlaybackFormat? {
+        val maxHeight = when (quality) {
+            Quality.LOW -> 360
+            Quality.RECOMMENDED -> 1080
+            Quality.BEST -> Int.MAX_VALUE
+        }
+
+        val progressive = playbackInfo.videoFormats.filter { it.hasAudio && it.url.isNotEmpty() }
+        val bestProgressive = progressive.filter { it.height <= maxHeight }
+            .maxByOrNull { it.height }
+            ?: progressive.minByOrNull { it.height }
+
+        if (bestProgressive != null) {
+            return bestProgressive
+        }
+
+        val videoOnly = playbackInfo.videoFormats.filter { !it.hasAudio && it.url.isNotEmpty() }
+        return videoOnly.filter { it.height <= maxHeight }
+            .maxByOrNull { it.height }
+            ?: videoOnly.minByOrNull { it.height }
     }
 
     private fun formatSpeed(bytesPerSec: Long): String {

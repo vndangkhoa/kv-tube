@@ -1,5 +1,6 @@
 package com.kvtube.android.ui.screens.subscriptions
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -75,7 +76,11 @@ fun SubscriptionsScreen(
                 ) {
                     items(uiState.subscriptions) { sub ->
                         Column(
-                            modifier = Modifier.padding(vertical = 8.dp),
+                            modifier = Modifier
+                                .padding(vertical = 8.dp)
+                                .clickable {
+                                    navController.navigate(Screen.Channel.createRoute(sub.channelId))
+                                },
                             horizontalAlignment = Alignment.CenterHorizontally
                         ) {
                             ChannelAvatar(

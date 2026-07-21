@@ -36,21 +36,26 @@ class LibraryViewModel @Inject constructor(
 
     private fun loadLibrary() {
         viewModelScope.launch {
-            try {
-                _uiState.value = _uiState.value.copy(isLoading = true)
-                val history = historyRepository.getHistory(20)
-                val liked = historyRepository.getLiked(20)
-                _uiState.value = LibraryUiState(
-                    history = history,
-                    liked = liked,
-                    isLoading = false
-                )
+            _uiState.value = _uiState.value.copy(isLoading = true, error = null)
+
+            val history = try {
+                historyRepository.getHistory(20)
             } catch (e: Exception) {
-                _uiState.value = _uiState.value.copy(
-                    isLoading = false,
-                    error = e.message
-                )
+                emptyList()
             }
+
+            val liked = try {
+                historyRepository.getLiked(20)
+            } catch (e: Exception) {
+                emptyList()
+            }
+
+            _uiState.value = LibraryUiState(
+                history = history,
+                liked = liked,
+                isLoading = false,
+                error = if (history.isEmpty() && liked.isEmpty()) "Failed to load library" else null
+            )
         }
     }
 }

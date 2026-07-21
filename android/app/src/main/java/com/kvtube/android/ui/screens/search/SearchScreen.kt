@@ -34,7 +34,7 @@ fun SearchScreen(
 
     LaunchedEffect(query) {
         if (query.isNotBlank() && !uiState.hasSearched) {
-            viewModel.search(query)
+            viewModel.searchImmediate(query)
         }
     }
 
@@ -44,7 +44,7 @@ fun SearchScreen(
         SearchBar(
             query = uiState.query,
             onQueryChange = { viewModel.onQueryChanged(it) },
-            onSearch = { viewModel.search(uiState.query) },
+            onSearch = { viewModel.searchImmediate(uiState.query) },
             modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
         )
 

@@ -28,7 +28,10 @@ import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.List
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Sort
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.LinearProgressIndicator
+import com.kvtube.android.data.model.DownloadProgress
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DropdownMenu
@@ -199,9 +202,11 @@ fun DownloadsScreen(
                     items(uiState.downloads, key = { it.videoId }) { video ->
                         DownloadGridItem(
                             video = video,
+                            progress = uiState.activeProgress[video.videoId],
                             onPlay = { viewModel.playVideo(context, video) },
                             onDelete = { viewModel.showDeleteConfirmation(video) },
-                            onRename = { viewModel.showRenameDialog(video) }
+                            onRename = { viewModel.showRenameDialog(video) },
+                            onCancel = { viewModel.cancelDownload(context, video.videoId) }
                         )
                     }
                 }
@@ -215,9 +220,11 @@ fun DownloadsScreen(
                     items(uiState.downloads, key = { it.videoId }) { video ->
                         DownloadListItem(
                             video = video,
+                            progress = uiState.activeProgress[video.videoId],
                             onPlay = { viewModel.playVideo(context, video) },
                             onDelete = { viewModel.showDeleteConfirmation(video) },
-                            onRename = { viewModel.showRenameDialog(video) }
+                            onRename = { viewModel.showRenameDialog(video) },
+                            onCancel = { viewModel.cancelDownload(context, video.videoId) }
                         )
                     }
                 }
@@ -230,16 +237,20 @@ fun DownloadsScreen(
 @Composable
 private fun DownloadListItem(
     video: DownloadedVideoEntity,
+    progress: DownloadProgress? = null,
     onPlay: () -> Unit,
     onDelete: () -> Unit,
-    onRename: () -> Unit
+    onRename: () -> Unit,
+    onCancel: () -> Unit = {}
 ) {
+    val isDownloading = progress != null
+
     Card(
         modifier = Modifier
             .fillMaxWidth()
             .combinedClickable(
-                onClick = onPlay,
-                onLongClick = onRename
+                onClick = { if (!isDownloading) onPlay() },
+                onLongClick = { if (!isDownloading) onRename() }
             ),
         shape = RoundedCornerShape(12.dp),
         colors = CardDefaults.cardColors(
@@ -282,37 +293,77 @@ private fun DownloadListItem(
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
 
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Text(
-                        text = video.quality,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = YTBlue
+                Spacer(modifier = Modifier.height(4.dp))
+
+                if (isDownloading && progress != null) {
+                    LinearProgressIndicator(
+                        progress = { progress.percent / 100f },
+                        modifier = Modifier.fillMaxWidth().height(4.dp).clip(RoundedCornerShape(2.dp)),
+                        color = YTBlue,
+                        trackColor = MaterialTheme.colorScheme.surfaceVariant
                     )
+
+                    Spacer(modifier = Modifier.height(4.dp))
+
+                    val statusText = buildString {
+                        append(progress.message)
+                        if (progress.speed.isNotEmpty()) {
+                            append(" • ")
+                            append(progress.speed)
+                        }
+                        if (progress.eta.isNotEmpty()) {
+                            append(" • ")
+                            append(progress.eta)
+                        }
+                    }
                     Text(
-                        text = formatFileSize(video.fileSize),
+                        text = statusText,
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
+                } else {
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Text(
+                            text = video.quality,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = YTBlue
+                        )
+                        Text(
+                            text = formatFileSize(video.fileSize),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
                 }
             }
 
             // Actions
             Column {
-                IconButton(onClick = onPlay) {
-                    Icon(
-                        imageVector = Icons.Filled.PlayArrow,
-                        contentDescription = "Play",
-                        tint = YTBlue
-                    )
-                }
-                IconButton(onClick = onDelete) {
-                    Icon(
-                        imageVector = Icons.Filled.Delete,
-                        contentDescription = "Delete",
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
+                if (isDownloading) {
+                    IconButton(onClick = onCancel) {
+                        Icon(
+                            imageVector = Icons.Filled.Close,
+                            contentDescription = "Cancel Download",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                } else {
+                    IconButton(onClick = onPlay) {
+                        Icon(
+                            imageVector = Icons.Filled.PlayArrow,
+                            contentDescription = "Play",
+                            tint = YTBlue
+                        )
+                    }
+                    IconButton(onClick = onDelete) {
+                        Icon(
+                            imageVector = Icons.Filled.Delete,
+                            contentDescription = "Delete",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
                 }
             }
         }
@@ -323,16 +374,20 @@ private fun DownloadListItem(
 @Composable
 private fun DownloadGridItem(
     video: DownloadedVideoEntity,
+    progress: DownloadProgress? = null,
     onPlay: () -> Unit,
     onDelete: () -> Unit,
-    onRename: () -> Unit
+    onRename: () -> Unit,
+    onCancel: () -> Unit = {}
 ) {
+    val isDownloading = progress != null
+
     Card(
         modifier = Modifier
             .fillMaxWidth()
             .combinedClickable(
-                onClick = onPlay,
-                onLongClick = onRename
+                onClick = { if (!isDownloading) onPlay() },
+                onLongClick = { if (!isDownloading) onRename() }
             ),
         shape = RoundedCornerShape(12.dp),
         colors = CardDefaults.cardColors(
@@ -355,17 +410,19 @@ private fun DownloadGridItem(
                     contentScale = ContentScale.Crop
                 )
 
-                // Play overlay
-                IconButton(
-                    onClick = onPlay,
-                    modifier = Modifier.align(Alignment.Center)
-                ) {
-                    Icon(
-                        imageVector = Icons.Filled.PlayArrow,
-                        contentDescription = "Play",
-                        tint = MaterialTheme.colorScheme.onSurface,
-                        modifier = Modifier.size(48.dp)
-                    )
+                if (!isDownloading) {
+                    // Play overlay
+                    IconButton(
+                        onClick = onPlay,
+                        modifier = Modifier.align(Alignment.Center)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.PlayArrow,
+                            contentDescription = "Play",
+                            tint = MaterialTheme.colorScheme.onSurface,
+                            modifier = Modifier.size(48.dp)
+                        )
+                    }
                 }
             }
 
@@ -379,37 +436,77 @@ private fun DownloadGridItem(
                     overflow = TextOverflow.Ellipsis
                 )
 
-                Text(
-                    text = video.quality,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = YTBlue
-                )
+                Spacer(modifier = Modifier.height(4.dp))
 
-                Text(
-                    text = formatFileSize(video.fileSize),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
+                if (isDownloading && progress != null) {
+                    LinearProgressIndicator(
+                        progress = { progress.percent / 100f },
+                        modifier = Modifier.fillMaxWidth().height(4.dp).clip(RoundedCornerShape(2.dp)),
+                        color = YTBlue,
+                        trackColor = MaterialTheme.colorScheme.surfaceVariant
+                    )
 
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.End
-                ) {
-                    IconButton(onClick = onDelete, modifier = Modifier.size(32.dp)) {
-                        Icon(
-                            imageVector = Icons.Filled.Delete,
-                            contentDescription = "Delete",
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.size(18.dp)
-                        )
+                    Spacer(modifier = Modifier.height(4.dp))
+
+                    val statusText = buildString {
+                        append(progress.message)
+                        if (progress.speed.isNotEmpty()) {
+                            append(" • ")
+                            append(progress.speed)
+                        }
                     }
-                    IconButton(onClick = onRename, modifier = Modifier.size(32.dp)) {
-                        Icon(
-                            imageVector = Icons.Filled.DriveFileRenameOutline,
-                            contentDescription = "Rename",
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.size(18.dp)
-                        )
+                    Text(
+                        text = statusText,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.End
+                    ) {
+                        IconButton(onClick = onCancel, modifier = Modifier.size(32.dp)) {
+                            Icon(
+                                imageVector = Icons.Filled.Close,
+                                contentDescription = "Cancel Download",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                    }
+                } else {
+                    Text(
+                        text = video.quality,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = YTBlue
+                    )
+
+                    Text(
+                        text = formatFileSize(video.fileSize),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.End
+                    ) {
+                        IconButton(onClick = onDelete, modifier = Modifier.size(32.dp)) {
+                            Icon(
+                                imageVector = Icons.Filled.Delete,
+                                contentDescription = "Delete",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
+                        IconButton(onClick = onRename, modifier = Modifier.size(32.dp)) {
+                            Icon(
+                                imageVector = Icons.Filled.DriveFileRenameOutline,
+                                contentDescription = "Rename",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
                     }
                 }
             }

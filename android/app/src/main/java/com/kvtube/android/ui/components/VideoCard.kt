@@ -30,6 +30,7 @@ fun VideoCard(
     video: VideoData,
     onVideoClick: (String) -> Unit,
     onChannelClick: ((String) -> Unit)? = null,
+    showChannelName: Boolean = true,
     modifier: Modifier = Modifier
 ) {
     Column(
@@ -71,13 +72,6 @@ fun VideoCard(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            // Channel avatar
-            ChannelAvatar(
-                avatarUrl = video.avatarUrl,
-                channelName = video.displayChannelTitle,
-                size = 32.dp
-            )
-
             Column(modifier = Modifier.weight(1f)) {
                 // Title
                 Text(
@@ -91,15 +85,18 @@ fun VideoCard(
                 Spacer(modifier = Modifier.height(4.dp))
 
                 // Channel name
-                Text(
-                    text = video.displayChannelTitle,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    modifier = if (onChannelClick != null) {
-                        Modifier.clickable { onChannelClick(video.displayChannelId) }
-                    } else Modifier
-                )
+                if (showChannelName) {
+                    Text(
+                        text = video.displayChannelTitle,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        modifier = if (onChannelClick != null) {
+                            Modifier.clickable { onChannelClick(video.displayChannelId) }
+                        } else Modifier
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                }
 
                 // Views and date
                 Text(

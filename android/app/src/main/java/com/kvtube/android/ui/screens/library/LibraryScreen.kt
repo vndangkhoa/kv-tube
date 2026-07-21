@@ -7,9 +7,12 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -32,84 +35,121 @@ fun LibraryScreen(
 ) {
     val uiState by viewModel.uiState.collectAsState()
 
-    Column(
-        modifier = Modifier.fillMaxSize()
-    ) {
-        Text(
-            text = "Library",
-            style = MaterialTheme.typography.titleLarge,
-            fontWeight = FontWeight.Bold,
-            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)
-        )
+    when {
+        uiState.isLoading -> LoadingSpinner(fullScreen = true)
 
-        when {
-            uiState.isLoading -> LoadingSpinner(fullScreen = true)
+        else -> {
+            val historyChunks = uiState.history.take(10).chunked(2)
+            val likedChunks = uiState.liked.take(10).chunked(2)
 
-            else -> {
-                // History section
-                Text(
-                    text = "History",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Medium,
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
-                )
+            LazyColumn(
+                modifier = Modifier.fillMaxSize(),
+                contentPadding = PaddingValues(bottom = 24.dp)
+            ) {
+                // Title
+                item {
+                    Text(
+                        text = "Library",
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)
+                    )
+                }
+
+                // History Section Header
+                item {
+                    Text(
+                        text = "History",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Medium,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                    )
+                }
 
                 if (uiState.history.isEmpty()) {
-                    Text(
-                        text = "No watch history",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(horizontal = 16.dp)
-                    )
+                    item {
+                        Text(
+                            text = "No watch history",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(horizontal = 16.dp)
+                        )
+                    }
                 } else {
-                    LazyVerticalGrid(
-                        columns = GridCells.Adaptive(minSize = 160.dp),
-                        contentPadding = PaddingValues(horizontal = 12.dp),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalArrangement = Arrangement.spacedBy(12.dp),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        items(uiState.history.take(6), key = { it.id }) { video ->
+                    items(historyChunks) { chunk ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp, vertical = 6.dp),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
                             VideoCard(
-                                video = video,
+                                video = chunk[0],
                                 onVideoClick = { id ->
                                     navController.navigate(Screen.Watch.createRoute(id))
-                                }
+                                },
+                                modifier = Modifier.weight(1f)
                             )
+                            if (chunk.size > 1) {
+                                VideoCard(
+                                    video = chunk[1],
+                                    onVideoClick = { id ->
+                                        navController.navigate(Screen.Watch.createRoute(id))
+                                    },
+                                    modifier = Modifier.weight(1f)
+                                )
+                            } else {
+                                Spacer(modifier = Modifier.weight(1f))
+                            }
                         }
                     }
                 }
 
-                // Liked section
-                Text(
-                    text = "Liked videos",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Medium,
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
-                )
+                // Liked Section Header
+                item {
+                    Text(
+                        text = "Liked videos",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Medium,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 16.dp)
+                    )
+                }
 
                 if (uiState.liked.isEmpty()) {
-                    Text(
-                        text = "No liked videos",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(horizontal = 16.dp)
-                    )
+                    item {
+                        Text(
+                            text = "No liked videos",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(horizontal = 16.dp)
+                        )
+                    }
                 } else {
-                    LazyVerticalGrid(
-                        columns = GridCells.Adaptive(minSize = 160.dp),
-                        contentPadding = PaddingValues(horizontal = 12.dp),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalArrangement = Arrangement.spacedBy(12.dp),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        items(uiState.liked.take(6), key = { it.id }) { video ->
+                    items(likedChunks) { chunk ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp, vertical = 6.dp),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
                             VideoCard(
-                                video = video,
+                                video = chunk[0],
                                 onVideoClick = { id ->
                                     navController.navigate(Screen.Watch.createRoute(id))
-                                }
+                                },
+                                modifier = Modifier.weight(1f)
                             )
+                            if (chunk.size > 1) {
+                                VideoCard(
+                                    video = chunk[1],
+                                    onVideoClick = { id ->
+                                        navController.navigate(Screen.Watch.createRoute(id))
+                                    },
+                                    modifier = Modifier.weight(1f)
+                                )
+                            } else {
+                                Spacer(modifier = Modifier.weight(1f))
+                            }
                         }
                     }
                 }

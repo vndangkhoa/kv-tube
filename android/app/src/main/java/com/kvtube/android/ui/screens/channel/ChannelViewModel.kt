@@ -39,9 +39,16 @@ class ChannelViewModel @Inject constructor(
                 val videosDeferred = async { channelRepository.getChannelVideos(channelId, 48) }
                 val subDeferred = async { subscriptionRepository.isSubscribed(channelId) }
 
-                val channel = channelDeferred.await()
+                var channel = channelDeferred.await()
                 val videos = videosDeferred.await()
                 val isSubscribed = subDeferred.await()
+
+                if (channel != null && channel.avatarUrl.isNullOrBlank()) {
+                    val fallbackAvatar = channelRepository.getChannelAvatarFallback(channelId)
+                    if (!fallbackAvatar.isNullOrBlank()) {
+                        channel = channel.copy(avatarUrl = fallbackAvatar)
+                    }
+                }
 
                 _uiState.value = ChannelUiState(
                     channel = channel,

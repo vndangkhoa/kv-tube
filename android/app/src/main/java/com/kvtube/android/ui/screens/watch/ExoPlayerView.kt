@@ -1,6 +1,7 @@
 package com.kvtube.android.ui.screens.watch
 
 import android.net.Uri
+import android.util.Log
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -11,21 +12,24 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Fullscreen
 import androidx.compose.material.icons.filled.FullscreenExit
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PictureInPictureAlt
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Replay
-import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material.icons.filled.VolumeOff
+import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -47,48 +51,62 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
-import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
+import androidx.media3.common.MediaMetadata
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.source.MergingMediaSource
 import androidx.media3.exoplayer.source.ProgressiveMediaSource
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import kotlinx.coroutines.delay
 
+private const val TAG = "ExoPlayerView"
+
 @OptIn(UnstableApi::class)
 @Composable
 fun ExoPlayerView(
     videoUrl: String,
+    audioUrl: String? = null,
     isFullscreen: Boolean = false,
     onFullscreenToggle: () -> Unit = {},
     onEnterPip: (() -> Unit)? = null,
+    onBackClick: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
 
-    val audioAttributes = remember {
-        AudioAttributes.Builder()
-            .setContentType(C.AUDIO_CONTENT_TYPE_MOVIE)
-            .setUsage(C.USAGE_MEDIA)
-            .build()
-    }
-
     val exoPlayer = remember {
         ExoPlayer.Builder(context).build().apply {
-            setAudioAttributes(audioAttributes, true)
-            setWakeMode(C.WAKE_MODE_NETWORK)
             val dataSourceFactory = DefaultHttpDataSource.Factory()
-            val mediaSource = ProgressiveMediaSource.Factory(dataSourceFactory)
+                .setConnectTimeoutMs(15000)
+                .setReadTimeoutMs(30000)
+
+            val videoSource = ProgressiveMediaSource.Factory(dataSourceFactory)
                 .createMediaSource(MediaItem.fromUri(Uri.parse(videoUrl)))
+
+            val mediaSource = if (!audioUrl.isNullOrBlank()) {
+                val audioSource = ProgressiveMediaSource.Factory(dataSourceFactory)
+                    .createMediaSource(MediaItem.fromUri(Uri.parse(audioUrl)))
+                MergingMediaSource(videoSource, audioSource)
+            } else {
+                videoSource
+            }
+
             setMediaSource(mediaSource)
             prepare()
             playWhenReady = true
             volume = 1f
+
+            addListener(object : Player.Listener {
+                override fun onPlayerError(error: PlaybackException) {
+                    Log.e(TAG, "Player error: ${error.message}", error)
+                }
+            })
         }
     }
 
@@ -98,12 +116,16 @@ fun ExoPlayerView(
     var duration by remember { mutableFloatStateOf(1f) }
     var showControls by remember { mutableStateOf(true) }
     var isMuted by remember { mutableStateOf(false) }
+    var hasError by remember { mutableStateOf(false) }
+    var errorMessage by remember { mutableStateOf("") }
 
     LaunchedEffect(Unit) {
         while (true) {
             delay(250)
-            currentPosition = exoPlayer.currentPosition.toFloat()
-            duration = exoPlayer.duration.toFloat().coerceAtLeast(1f)
+            try {
+                currentPosition = exoPlayer.currentPosition.toFloat()
+                duration = exoPlayer.duration.toFloat().coerceAtLeast(1f)
+            } catch (_: Exception) {}
         }
     }
 
@@ -120,7 +142,11 @@ fun ExoPlayerView(
             override fun onPlaybackStateChanged(state: Int) {
                 isEnded = state == Player.STATE_ENDED
             }
-            override fun onPlayerError(error: PlaybackException) {}
+            override fun onPlayerError(error: PlaybackException) {
+                hasError = true
+                errorMessage = error.message ?: "Playback failed"
+                Log.e(TAG, "Playback error", error)
+            }
         }
         exoPlayer.addListener(listener)
         onDispose { exoPlayer.release() }
@@ -129,7 +155,7 @@ fun ExoPlayerView(
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .then(if (isFullscreen) Modifier.fillMaxSize() else Modifier)
+            .then(if (isFullscreen) Modifier.fillMaxSize() else Modifier.aspectRatio(16f / 9f))
             .clip(RoundedCornerShape(if (isFullscreen) 0.dp else 12.dp))
             .background(Color.Black)
             .clickable(
@@ -151,8 +177,22 @@ fun ExoPlayerView(
             modifier = Modifier.fillMaxSize()
         )
 
+        if (hasError) {
+            Box(
+                modifier = Modifier.fillMaxSize(),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = "Playback error: $errorMessage",
+                    color = Color.White,
+                    style = MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier.padding(16.dp)
+                )
+            }
+        }
+
         AnimatedVisibility(
-            visible = showControls,
+            visible = showControls && !hasError,
             enter = fadeIn(),
             exit = fadeOut()
         ) {
@@ -162,24 +202,39 @@ fun ExoPlayerView(
                     .background(Color(0x80000000))
                     .clickable(enabled = false, onClick = {})
             ) {
-                // Top row: PiP + Mute
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
                         .align(Alignment.TopStart)
                         .padding(horizontal = 8.dp, vertical = 4.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    IconButton(onClick = {
-                        isMuted = !isMuted
-                        exoPlayer.volume = if (isMuted) 0f else 1f
-                    }) {
-                        Icon(
-                            imageVector = if (isMuted) Icons.Filled.VolumeOff else Icons.Filled.VolumeUp,
-                            contentDescription = if (isMuted) "Unmute" else "Mute",
-                            tint = Color.White,
-                            modifier = Modifier.size(24.dp)
-                        )
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        onBackClick?.let { backClick ->
+                            IconButton(onClick = backClick) {
+                                Icon(
+                                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                                    contentDescription = "Back",
+                                    tint = Color.White,
+                                    modifier = Modifier.size(24.dp)
+                                )
+                            }
+                            Spacer(modifier = Modifier.width(4.dp))
+                        }
+                        IconButton(onClick = {
+                            isMuted = !isMuted
+                            exoPlayer.volume = if (isMuted) 0f else 1f
+                        }) {
+                            Icon(
+                                imageVector = if (isMuted) Icons.Filled.VolumeOff else Icons.Filled.VolumeUp,
+                                contentDescription = if (isMuted) "Unmute" else "Mute",
+                                tint = Color.White,
+                                modifier = Modifier.size(24.dp)
+                            )
+                        }
                     }
                     onEnterPip?.let {
                         IconButton(onClick = it) {
@@ -193,7 +248,6 @@ fun ExoPlayerView(
                     }
                 }
 
-                // Center: Play/Pause button
                 Box(
                     modifier = Modifier.fillMaxSize(),
                     contentAlignment = Alignment.Center
@@ -216,8 +270,8 @@ fun ExoPlayerView(
                             if (exoPlayer.isPlaying) exoPlayer.pause() else exoPlayer.play()
                         }) {
                             Icon(
-                                imageVector = if (exoPlayer.isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
-                                contentDescription = if (exoPlayer.isPlaying) "Pause" else "Play",
+                                imageVector = if (isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,
+                                contentDescription = if (isPlaying) "Pause" else "Play",
                                 tint = Color.White,
                                 modifier = Modifier.size(64.dp)
                             )
@@ -225,7 +279,6 @@ fun ExoPlayerView(
                     }
                 }
 
-                // Bottom: progress + time + fullscreen
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()

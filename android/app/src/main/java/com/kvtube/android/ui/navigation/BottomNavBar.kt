@@ -8,6 +8,8 @@ import androidx.compose.material.icons.outlined.Home
 import androidx.compose.material.icons.outlined.LibraryMusic
 import androidx.compose.material.icons.outlined.Subscriptions
 import androidx.compose.material.icons.outlined.VideoLibrary
+import androidx.compose.material3.Badge
+import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
@@ -59,7 +61,9 @@ val bottomNavItems = listOf(
 @Composable
 fun BottomNavBar(
     navController: NavController,
-    modifier: Modifier = Modifier
+    activeDownloadsCount: Int = 0,
+    modifier: Modifier = Modifier,
+    onTabClick: (String) -> Unit = {}
 ) {
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = navBackStackEntry?.destination?.route
@@ -75,6 +79,7 @@ fun BottomNavBar(
             NavigationBarItem(
                 selected = selected,
                 onClick = {
+                    onTabClick(item.route)
                     if (currentRoute != item.route) {
                         navController.navigate(item.route) {
                             popUpTo(Screen.Home.route) { saveState = true }
@@ -84,10 +89,25 @@ fun BottomNavBar(
                     }
                 },
                 icon = {
-                    Icon(
-                        imageVector = if (selected) item.selectedIcon else item.unselectedIcon,
-                        contentDescription = item.label
-                    )
+                    if (item.route == Screen.Downloads.route && activeDownloadsCount > 0) {
+                        BadgedBox(
+                            badge = {
+                                Badge {
+                                    Text(text = activeDownloadsCount.toString())
+                                }
+                            }
+                        ) {
+                            Icon(
+                                imageVector = if (selected) item.selectedIcon else item.unselectedIcon,
+                                contentDescription = item.label
+                            )
+                        }
+                    } else {
+                        Icon(
+                            imageVector = if (selected) item.selectedIcon else item.unselectedIcon,
+                            contentDescription = item.label
+                        )
+                    }
                 },
                 label = {
                     Text(
