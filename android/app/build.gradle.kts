@@ -110,9 +110,6 @@ dependencies {
     implementation(libs.kotlinx.coroutines.core)
     implementation(libs.kotlinx.coroutines.android)
 
-    // NewPipeExtractor
-    implementation(libs.newpipe.extractor)
-
     // OkHttp
     implementation(libs.okhttp)
 }

@@ -44,10 +44,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavController
+import com.kvtube.android.data.model.Comment
 import com.kvtube.android.data.model.PlaybackFormat
 import com.kvtube.android.data.model.Quality
 import com.kvtube.android.data.model.VideoData
-import com.kvtube.android.data.repository.DownloadRepository
 import com.kvtube.android.ui.components.ChannelAvatar
 import com.kvtube.android.ui.components.DownloadBottomSheet
 import com.kvtube.android.ui.components.DurationBadge
@@ -146,14 +146,7 @@ fun WatchScreen(
         // Comments
         if (uiState.showComments) {
             items(uiState.comments) { comment ->
-                CommentItem(comment = com.kvtube.android.data.model.Comment(
-                    id = comment.id,
-                    text = comment.text,
-                    author = comment.author,
-                    authorThumbnail = comment.authorThumbnail,
-                    likes = comment.likes,
-                    published = comment.published
-                ))
+                CommentItem(comment = comment)
             }
         }
 

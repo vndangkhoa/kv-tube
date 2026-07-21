@@ -228,14 +228,14 @@ fun SettingsScreen(
                 if (updateInfo != null) {
                     if (updateInfo.hasUpdate) {
                         Text(
-                            text = "New version available: ${updateInfo.latestVersion}",
+                            text = "New version available: ${updateInfo.version}",
                             style = MaterialTheme.typography.bodyMedium,
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.primary
                         )
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
-                            text = updateInfo.releaseName,
+                            text = "Download: ${updateInfo.downloadUrl}",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )

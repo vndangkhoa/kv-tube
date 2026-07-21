@@ -92,7 +92,7 @@ fun DownloadsScreen(
 
     // Rename dialog
     uiState.videoToRename?.let { video ->
-        var newName by remember { mutableStateOf(video.displayName) }
+        var newName by remember { mutableStateOf(video.title) }
         AlertDialog(
             onDismissRequest = { viewModel.dismissRenameDialog() },
             title = { Text("Rename") },
@@ -268,7 +268,7 @@ private fun DownloadListItem(
             // Info
             Column(modifier = Modifier.weight(1f)) {
                 Text(
-                    text = video.displayName,
+                    text = video.title,
                     style = MaterialTheme.typography.titleMedium,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis
@@ -373,7 +373,7 @@ private fun DownloadGridItem(
                 modifier = Modifier.padding(8.dp)
             ) {
                 Text(
-                    text = video.displayName,
+                    text = video.title,
                     style = MaterialTheme.typography.titleMedium,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis
@@ -437,7 +437,7 @@ private fun SortButton(
             expanded = expanded,
             onDismissRequest = { expanded = false }
         ) {
-            SortCriteria.entries.forEach { criteria ->
+            SortCriteria.values().toList().forEach { criteria ->
                 DropdownMenuItem(
                     text = {
                         Row {

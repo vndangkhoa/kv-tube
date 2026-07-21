@@ -1,6 +1,8 @@
 package com.kvtube.android.service
 
+import android.app.Notification
 import android.content.Context
+import androidx.core.app.NotificationCompat
 import androidx.hilt.work.HiltWorker
 import androidx.work.CoroutineWorker
 import androidx.work.ForegroundInfo
@@ -189,21 +191,26 @@ class DownloadWorker @AssistedInject constructor(
         downloadRepository.updateProgress(videoId, progress)
     }
 
-    private suspend fun createForegroundInfo(
+    private fun createForegroundInfo(
         message: String,
         progress: Int,
         indeterminate: Boolean
     ): ForegroundInfo {
-        val notification = DownloadService::class.java
-        // For simplicity, return a basic foreground info
-        return ForegroundInfo(
-            DownloadService.NOTIFICATION_ID,
-            android.app.Notification.Builder(applicationContext, DownloadService.CHANNEL_ID)
-                .setContentTitle("Download")
-                .setContentText(message)
-                .setSmallIcon(android.R.drawable.stat_sys_download)
-                .build()
+        val notification: Notification = NotificationCompat.Builder(
+            applicationContext, DownloadService.CHANNEL_ID
         )
+            .setContentTitle("Download")
+            .setContentText(message)
+            .setSmallIcon(android.R.drawable.stat_sys_download)
+            .apply {
+                if (!indeterminate) {
+                    setProgress(100, progress, false)
+                }
+            }
+            .setOngoing(true)
+            .build()
+
+        return ForegroundInfo(DownloadService.NOTIFICATION_ID, notification)
     }
 
     private fun sanitizeFileName(name: String): String {

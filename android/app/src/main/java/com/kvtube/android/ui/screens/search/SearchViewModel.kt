@@ -2,6 +2,7 @@ package com.kvtube.android.ui.screens.search
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.kvtube.android.data.local.SettingsDataStore
 import com.kvtube.android.data.model.VideoData
 import com.kvtube.android.data.repository.VideoRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -10,6 +11,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
@@ -23,13 +25,21 @@ data class SearchUiState(
 
 @HiltViewModel
 class SearchViewModel @Inject constructor(
-    private val videoRepository: VideoRepository
+    private val videoRepository: VideoRepository,
+    private val settingsDataStore: SettingsDataStore
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(SearchUiState())
     val uiState: StateFlow<SearchUiState> = _uiState.asStateFlow()
 
     private var searchJob: Job? = null
+    private var currentRegion: String = "GLOBAL"
+
+    init {
+        viewModelScope.launch {
+            currentRegion = settingsDataStore.region.first()
+        }
+    }
 
     fun onQueryChanged(query: String) {
         _uiState.value = _uiState.value.copy(query = query)
@@ -49,7 +59,7 @@ class SearchViewModel @Inject constructor(
         viewModelScope.launch {
             try {
                 _uiState.value = _uiState.value.copy(isLoading = true, hasSearched = true)
-                val results = videoRepository.search(query, 20)
+                val results = videoRepository.search(query, 20, currentRegion)
                 _uiState.value = _uiState.value.copy(
                     results = results,
                     isLoading = false,

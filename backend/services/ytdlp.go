@@ -343,16 +343,20 @@ func runYtDlpWithBase(base []string, args ...string) ([]byte, error) {
 	return nil, fmt.Errorf("yt-dlp returned no usable output (possible bot-check): %s", lastStderr)
 }
 
-func SearchVideos(query string, limit int) ([]VideoData, error) {
+func SearchVideos(query string, limit int, region string) ([]VideoData, error) {
 	searchQuery := fmt.Sprintf("ytsearch%d:%s", limit, query)
 
 	// Cache flat search results for 30 minutes so repeat/category loads are instant.
-	cacheKey := fmt.Sprintf("search:%d:%s", limit, query)
-	out, err := RunYtDlpCached(cacheKey, 1800,
+	cacheKey := fmt.Sprintf("search:%d:%s:%s", limit, query, region)
+	args := []string{
 		"--flat-playlist",
 		"--no-warnings",
 		searchQuery,
-	)
+	}
+	if region != "" && region != "GLOBAL" {
+		args = append(args, "--geo-bypass-country", region)
+	}
+	out, err := RunYtDlpCached(cacheKey, 1800, args...)
 	if err != nil {
 		return nil, err
 	}

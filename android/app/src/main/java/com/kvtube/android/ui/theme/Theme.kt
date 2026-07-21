@@ -41,9 +41,14 @@ private val LightColorScheme = lightColorScheme(
 
 @Composable
 fun KVTubeTheme(
-    darkTheme: Boolean = true,
+    themeMode: String = "dark",
     content: @Composable () -> Unit
 ) {
+    val darkTheme = when (themeMode) {
+        "light" -> false
+        "system" -> isSystemInDarkTheme()
+        else -> true
+    }
     val colorScheme = if (darkTheme) DarkColorScheme else LightColorScheme
 
     val view = LocalView.current

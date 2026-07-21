@@ -63,7 +63,7 @@ fun DownloadBottomSheet(
 
             if (progress == null || progress.status == DownloadStatus.QUEUED) {
                 // Show quality options
-                Quality.entries.forEach { quality ->
+                Quality.values().toList().forEach { quality ->
                     TextButton(
                         onClick = {
                             selectedQuality = quality

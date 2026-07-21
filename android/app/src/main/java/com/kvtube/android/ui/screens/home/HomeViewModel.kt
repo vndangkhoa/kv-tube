@@ -2,12 +2,14 @@ package com.kvtube.android.ui.screens.home
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.kvtube.android.data.local.SettingsDataStore
 import com.kvtube.android.data.model.VideoData
 import com.kvtube.android.data.repository.VideoRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
@@ -22,16 +24,29 @@ data class HomeUiState(
 
 @HiltViewModel
 class HomeViewModel @Inject constructor(
-    private val videoRepository: VideoRepository
+    private val videoRepository: VideoRepository,
+    private val settingsDataStore: SettingsDataStore
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(HomeUiState())
     val uiState: StateFlow<HomeUiState> = _uiState.asStateFlow()
 
     private var currentPage = 0
+    private var currentRegion = "GLOBAL"
 
     init {
-        loadVideos()
+        viewModelScope.launch {
+            settingsDataStore.region.collect { region ->
+                currentRegion = region
+                currentPage = 0
+                loadVideos()
+            }
+        }
+    }
+
+    fun setRegion(region: String) {
+        currentRegion = region
+        selectCategory(_uiState.value.selectedCategory)
     }
 
     fun selectCategory(category: String) {
@@ -64,9 +79,9 @@ class HomeViewModel @Inject constructor(
             try {
                 val category = _uiState.value.selectedCategory
                 val videos = if (category == "All" || category == "Trending") {
-                    videoRepository.trending(20)
+                    videoRepository.trending(20, currentRegion)
                 } else {
-                    videoRepository.search(category, 20)
+                    videoRepository.search(category, 20, currentRegion)
                 }
 
                 val currentVideos = _uiState.value.videos

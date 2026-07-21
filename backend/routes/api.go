@@ -130,7 +130,9 @@ func handleSearch(c *gin.Context) {
 		limit = l
 	}
 
-	results, err := services.SearchVideos(query, limit)
+	region := c.Query("region")
+
+	results, err := services.SearchVideos(query, limit, region)
 	if err != nil {
 		log.Printf("Search error: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to search videos"})
@@ -191,8 +193,10 @@ func handleTrending(c *gin.Context) {
 		limit = l
 	}
 
+	region := c.Query("region")
+
 	// Use popular music search as trending
-	results, err := services.SearchVideos("popular music trending", limit)
+	results, err := services.SearchVideos("popular music trending", limit, region)
 	if err != nil {
 		log.Printf("Trending error: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get trending videos"})
