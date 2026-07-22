@@ -70,9 +70,10 @@ class WatchViewModel @Inject constructor(
     }
 
     fun selectQuality(format: PlaybackFormat) {
+        val audioUrl = if (format.hasAudio) null else _uiState.value.playbackInfo?.audioFormat?.url
         _uiState.value = _uiState.value.copy(
             selectedUrl = format.url,
-            audioUrl = _uiState.value.playbackInfo?.audioFormat?.url
+            audioUrl = audioUrl
         )
     }
 
@@ -158,17 +159,12 @@ class WatchViewModel @Inject constructor(
 
                 val isSubscribed = subscriptionRepository.isSubscribed(video.displayChannelId)
 
-                // Pick best mp4 format with audio, or smallest mp4 video-only for merging
-                val mp4Formats = playback.videoFormats
-                    .filter { it.ext == "mp4" }
-                    .sortedBy { it.height }
+                // Pick best format: prefer progressive (has audio), then fall back to video-only + separate audio
+                val bestFormat = playback.videoFormats.firstOrNull { it.hasAudio }
+                    ?: playback.videoFormats.firstOrNull()
 
-                val bestVideoFormat = mp4Formats.lastOrNull()
-                    ?: playback.videoFormats.minByOrNull { it.filesize }
-
-                val audioUrl = playback.audioFormat?.url
-
-                val firstUrl = bestVideoFormat?.url
+                val hasAudio = bestFormat?.hasAudio == true
+                val audioUrl = if (hasAudio) null else playback.audioFormat?.url
 
                 _uiState.value = WatchUiState(
                     video = video,
@@ -176,7 +172,7 @@ class WatchViewModel @Inject constructor(
                     relatedVideos = related,
                     comments = comments,
                     isLoading = false,
-                    selectedUrl = firstUrl,
+                    selectedUrl = bestFormat?.url,
                     audioUrl = audioUrl,
                     isSubscribed = isSubscribed
                 )

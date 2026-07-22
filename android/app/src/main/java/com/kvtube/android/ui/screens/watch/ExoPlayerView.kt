@@ -17,9 +17,9 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Fullscreen
@@ -51,21 +51,27 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
-import androidx.media3.common.C
 import androidx.media3.common.MediaItem
-import androidx.media3.common.MediaMetadata
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.exoplayer.ExoPlayer
-import androidx.media3.exoplayer.source.MergingMediaSource
+import androidx.media3.exoplayer.dash.DashMediaSource
 import androidx.media3.exoplayer.source.ProgressiveMediaSource
+import androidx.media3.exoplayer.source.MergingMediaSource
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import kotlinx.coroutines.delay
 
 private const val TAG = "ExoPlayerView"
+
+@OptIn(UnstableApi::class)
+private fun isDashUrl(url: String): Boolean {
+    return url.contains("/videoplayback") &&
+        (url.contains("mime=video") || url.contains("mime%3Dvideo")) &&
+        (url.contains("itag=") || url.contains("itag%3D"))
+}
 
 @OptIn(UnstableApi::class)
 @Composable
@@ -83,15 +89,25 @@ fun ExoPlayerView(
     val exoPlayer = remember {
         ExoPlayer.Builder(context).build().apply {
             val dataSourceFactory = DefaultHttpDataSource.Factory()
-                .setConnectTimeoutMs(15000)
-                .setReadTimeoutMs(30000)
+                .setConnectTimeoutMs(15_000)
+                .setReadTimeoutMs(30_000)
 
-            val videoSource = ProgressiveMediaSource.Factory(dataSourceFactory)
-                .createMediaSource(MediaItem.fromUri(Uri.parse(videoUrl)))
+            val videoSource = if (isDashUrl(videoUrl)) {
+                DashMediaSource.Factory(dataSourceFactory)
+                    .createMediaSource(MediaItem.fromUri(Uri.parse(videoUrl)))
+            } else {
+                ProgressiveMediaSource.Factory(dataSourceFactory)
+                    .createMediaSource(MediaItem.fromUri(Uri.parse(videoUrl)))
+            }
 
             val mediaSource = if (!audioUrl.isNullOrBlank()) {
-                val audioSource = ProgressiveMediaSource.Factory(dataSourceFactory)
-                    .createMediaSource(MediaItem.fromUri(Uri.parse(audioUrl)))
+                val audioSource = if (isDashUrl(audioUrl)) {
+                    DashMediaSource.Factory(dataSourceFactory)
+                        .createMediaSource(MediaItem.fromUri(Uri.parse(audioUrl)))
+                } else {
+                    ProgressiveMediaSource.Factory(dataSourceFactory)
+                        .createMediaSource(MediaItem.fromUri(Uri.parse(audioUrl)))
+                }
                 MergingMediaSource(videoSource, audioSource)
             } else {
                 videoSource

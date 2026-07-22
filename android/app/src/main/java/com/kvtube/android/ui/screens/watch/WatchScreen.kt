@@ -30,8 +30,6 @@ import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.outlined.Favorite
 import androidx.compose.material.icons.outlined.FavoriteBorder
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -108,7 +106,6 @@ fun WatchScreen(
     LazyColumn(
         modifier = Modifier.fillMaxSize()
     ) {
-        // Video Player
         item {
             uiState.selectedUrl?.let { url ->
                 ExoPlayerView(
@@ -119,7 +116,6 @@ fun WatchScreen(
                     onEnterPip = {
                         activity?.let { act ->
                             val params = PictureInPictureParams.Builder()
-                                .setSourceRectHint(android.graphics.Rect())
                                 .setAspectRatio(Rational(16, 9))
                                 .build()
                             act.enterPictureInPictureMode(params)
@@ -132,7 +128,6 @@ fun WatchScreen(
         }
 
         if (!isFullscreen) {
-            // Video Info
             item {
                 uiState.video?.let { video ->
                     VideoInfoSection(
@@ -157,7 +152,6 @@ fun WatchScreen(
                 }
             }
 
-            // Comments section in a grey card (YouTube style)
             item {
                 Column(
                     modifier = Modifier
@@ -208,14 +202,12 @@ fun WatchScreen(
                 }
             }
 
-            // Comments list (visible when expanded)
             if (uiState.showComments) {
                 items(uiState.comments) { comment ->
                     CommentItem(comment = comment)
                 }
             }
 
-            // Related videos header
             item {
                 Text(
                     text = "Related",
@@ -224,7 +216,6 @@ fun WatchScreen(
                 )
             }
 
-            // Related videos
             items(uiState.relatedVideos) { related ->
                 VideoCard(
                     video = related,
@@ -288,7 +279,6 @@ private fun VideoInfoSection(
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 12.dp)
     ) {
-        // Title
         Text(
             text = video.title,
             style = MaterialTheme.typography.titleMedium.copy(
@@ -300,7 +290,6 @@ private fun VideoInfoSection(
 
         Spacer(modifier = Modifier.height(8.dp))
 
-        // Stats row
         Row(
             verticalAlignment = Alignment.CenterVertically
         ) {
@@ -319,7 +308,6 @@ private fun VideoInfoSection(
 
         Spacer(modifier = Modifier.height(12.dp))
 
-        // Channel row + subscribe
         Row(
             verticalAlignment = Alignment.CenterVertically,
             modifier = Modifier.fillMaxWidth()
@@ -346,7 +334,6 @@ private fun VideoInfoSection(
 
         Spacer(modifier = Modifier.height(12.dp))
 
-        // Actions horizontal scrolling bar (YouTube style)
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -354,7 +341,6 @@ private fun VideoInfoSection(
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // Like/Save Pill
             Row(
                 modifier = Modifier
                     .clip(RoundedCornerShape(20.dp))
@@ -379,7 +365,6 @@ private fun VideoInfoSection(
                 )
             }
 
-            // Download Pill
             Row(
                 modifier = Modifier
                     .clip(RoundedCornerShape(20.dp))
@@ -404,7 +389,6 @@ private fun VideoInfoSection(
                 )
             }
 
-            // Share Pill
             Row(
                 modifier = Modifier
                     .clip(RoundedCornerShape(20.dp))
@@ -429,7 +413,6 @@ private fun VideoInfoSection(
                 )
             }
 
-            // Quality Pill
             Row(
                 modifier = Modifier
                     .clip(RoundedCornerShape(20.dp))
@@ -483,6 +466,14 @@ private fun VideoInfoSection(
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
+                        if (!format.hasAudio) {
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "video only",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.error
+                            )
+                        }
                     }
                 }
             }

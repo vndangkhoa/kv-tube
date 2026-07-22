@@ -91,10 +91,11 @@ class SubscriptionsViewModel @Inject constructor(
 
                 missingIds.chunked(batchSize).forEach { batch ->
                     try {
-                        val result = api.getChannelAvatars(batch)
+                        val idsStr = batch.joinToString(",")
+                        val result = api.getChannelAvatars(idsStr)
                         result.forEach { (id, info) ->
-                            if (info.avatar_url.isNotBlank()) {
-                                allAvatars[id] = info.avatar_url
+                            if (info.avatarUrl.isNotBlank()) {
+                                allAvatars[id] = info.avatarUrl
                             }
                         }
                     } catch (e: Exception) {

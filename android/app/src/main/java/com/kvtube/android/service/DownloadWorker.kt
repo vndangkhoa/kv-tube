@@ -26,7 +26,7 @@ import java.io.FileOutputStream
 import com.kvtube.android.data.api.KVApi
 import com.kvtube.android.data.model.PlaybackInfo
 import com.kvtube.android.data.model.PlaybackFormat
-import com.kvtube.android.data.extractor.ExtractedStream
+import com.kvtube.android.data.model.ExtractedStream
 
 @HiltWorker
 class DownloadWorker @AssistedInject constructor(
