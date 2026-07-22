@@ -356,6 +356,36 @@ fun ExoPlayerView(
                             )
                         }
                     }
+                    // Exit fullscreen button only when in fullscreen mode
+                    if (isFullscreen) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        IconButton(
+                            onClick = onFullscreenToggle,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(40.dp)
+                                .background(Color(0xFF333333))
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Filled.FullscreenExit,
+                                    contentDescription = "Exit Fullscreen",
+                                    tint = Color.White,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = "Exit Fullscreen",
+                                    color = Color.White,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    fontWeight = FontWeight.Medium
+                                )
+                            }
+                        }
+                    }
                 }
             }
         }
