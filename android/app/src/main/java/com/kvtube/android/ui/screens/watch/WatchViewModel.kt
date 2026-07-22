@@ -114,7 +114,7 @@ class WatchViewModel @Inject constructor(
                     subscriptionRepository.subscribe(
                         channelId = video.displayChannelId,
                         channelName = video.displayChannelTitle,
-                        channelAvatar = video.avatarUrl ?: ""
+                        channelAvatar = ""
                     )
                     _uiState.value = _uiState.value.copy(isSubscribed = true)
                 }
@@ -149,7 +149,7 @@ class WatchViewModel @Inject constructor(
                 val related = relatedDeferred.await()
                 val comments = commentsDeferred.await()
 
-                if (video == null || playback == null) {
+                if (playback == null) {
                     _uiState.value = _uiState.value.copy(
                         isLoading = false,
                         error = "Failed to load video info"
@@ -157,7 +157,13 @@ class WatchViewModel @Inject constructor(
                     return@launch
                 }
 
-                val isSubscribed = subscriptionRepository.isSubscribed(video.displayChannelId)
+                // If video info failed, construct a minimal VideoData from playback info
+                val videoData = video ?: VideoData(
+                    id = videoId,
+                    title = playback.title
+                )
+
+                val isSubscribed = subscriptionRepository.isSubscribed(videoData.displayChannelId)
 
                 // Pick best format: prefer progressive (has audio), then fall back to video-only + separate audio
                 val bestFormat = playback.videoFormats.firstOrNull { it.hasAudio }
@@ -167,7 +173,7 @@ class WatchViewModel @Inject constructor(
                 val audioUrl = if (hasAudio) null else playback.audioFormat?.url
 
                 _uiState.value = WatchUiState(
-                    video = video,
+                    video = videoData,
                     playbackInfo = playback,
                     relatedVideos = related,
                     comments = comments,
@@ -180,9 +186,9 @@ class WatchViewModel @Inject constructor(
                 // Record watch history
                 historyRepository.addToHistory(
                     videoId = videoId,
-                    title = video.title,
-                    thumbnail = video.thumbnail,
-                    uploader = video.displayChannelTitle
+                    title = videoData.title,
+                    thumbnail = videoData.thumbnail,
+                    uploader = videoData.displayChannelTitle
                 )
             } catch (e: Exception) {
                 _uiState.value = _uiState.value.copy(

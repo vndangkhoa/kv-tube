@@ -101,10 +101,12 @@ fun VideoCard(
                 // Views and date
                 Text(
                     text = buildString {
-                        video.viewCount?.let { append(it) }
-                        video.publishedAt?.let {
-                            if (isNotEmpty()) append(" · ")
-                            append(it)
+                        video.viewCountFormatted.let { if (it.isNotEmpty()) append(it) }
+                        video.publishedAt.let {
+                            if (it.isNotEmpty()) {
+                                if (isNotEmpty()) append(" · ")
+                                append(it)
+                            }
                         }
                     },
                     style = MaterialTheme.typography.bodySmall,

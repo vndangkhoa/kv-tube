@@ -95,35 +95,33 @@ fun ExoPlayerView(
             .setLoadControl(loadControl)
             .build()
             .apply {
-                val dataSourceFactory = DefaultHttpDataSource.Factory()
-                    .setConnectTimeoutMs(15_000)
-                    .setReadTimeoutMs(30_000)
-                    .setDefaultRequestProperties(
-                        mapOf("User-Agent" to USER_AGENT)
-                    )
-
-                val videoSource = ProgressiveMediaSource.Factory(dataSourceFactory)
-                    .createMediaSource(MediaItem.fromUri(Uri.parse(videoUrl)))
-
-                val mediaSource = if (!audioUrl.isNullOrBlank()) {
-                    val audioSource = ProgressiveMediaSource.Factory(dataSourceFactory)
-                        .createMediaSource(MediaItem.fromUri(Uri.parse(audioUrl)))
-                    MergingMediaSource(videoSource, audioSource)
-                } else {
-                    videoSource
-                }
-
-                setMediaSource(mediaSource)
-                prepare()
                 playWhenReady = true
                 volume = 1f
-
-                addListener(object : Player.Listener {
-                    override fun onPlayerError(error: PlaybackException) {
-                        Log.e(TAG, "Player error: ${error.errorCodeName}", error)
-                    }
-                })
             }
+    }
+
+    val dataSourceFactory = remember {
+        DefaultHttpDataSource.Factory()
+            .setConnectTimeoutMs(15_000)
+            .setReadTimeoutMs(30_000)
+            .setDefaultRequestProperties(
+                mapOf("User-Agent" to USER_AGENT)
+            )
+    }
+
+    LaunchedEffect(videoUrl, audioUrl) {
+        val videoSource = ProgressiveMediaSource.Factory(dataSourceFactory)
+            .createMediaSource(MediaItem.fromUri(Uri.parse(videoUrl)))
+        val mediaSource = if (!audioUrl.isNullOrBlank()) {
+            val audioSource = ProgressiveMediaSource.Factory(dataSourceFactory)
+                .createMediaSource(MediaItem.fromUri(Uri.parse(audioUrl)))
+            MergingMediaSource(videoSource, audioSource)
+        } else {
+            videoSource
+        }
+        exoPlayer.setMediaSource(mediaSource)
+        exoPlayer.prepare()
+        exoPlayer.playWhenReady = true
     }
 
     var isPlaying by remember { mutableStateOf(true) }
@@ -135,13 +133,15 @@ fun ExoPlayerView(
     var hasError by remember { mutableStateOf(false) }
     var errorMessage by remember { mutableStateOf("") }
 
-    LaunchedEffect(Unit) {
-        while (true) {
-            delay(250)
-            try {
-                currentPosition = exoPlayer.currentPosition.toFloat()
-                duration = exoPlayer.duration.toFloat().coerceAtLeast(1f)
-            } catch (_: Exception) {}
+    LaunchedEffect(isPlaying) {
+        if (isPlaying) {
+            while (true) {
+                delay(250)
+                try {
+                    currentPosition = exoPlayer.currentPosition.toFloat()
+                    duration = exoPlayer.duration.toFloat().coerceAtLeast(1f)
+                } catch (_: Exception) {}
+            }
         }
     }
 
@@ -165,7 +165,10 @@ fun ExoPlayerView(
             }
         }
         exoPlayer.addListener(listener)
-        onDispose { exoPlayer.release() }
+        onDispose {
+            exoPlayer.removeListener(listener)
+            exoPlayer.release()
+        }
     }
 
     Box(
@@ -198,12 +201,26 @@ fun ExoPlayerView(
                 modifier = Modifier.fillMaxSize(),
                 contentAlignment = Alignment.Center
             ) {
-                Text(
-                    text = "Playback error: $errorMessage",
-                    color = Color.White,
-                    style = MaterialTheme.typography.bodyMedium,
-                    modifier = Modifier.padding(16.dp)
-                )
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(
+                        text = "Playback error: $errorMessage",
+                        color = Color.White,
+                        style = MaterialTheme.typography.bodyMedium,
+                        modifier = Modifier.padding(16.dp)
+                    )
+                    IconButton(onClick = {
+                        hasError = false
+                        errorMessage = ""
+                        exoPlayer.prepare()
+                    }) {
+                        Icon(
+                            imageVector = Icons.Filled.Replay,
+                            contentDescription = "Retry",
+                            tint = Color.White,
+                            modifier = Modifier.size(48.dp)
+                        )
+                    }
+                }
             }
         }
 
@@ -283,7 +300,7 @@ fun ExoPlayerView(
                         }
                     } else {
                         IconButton(onClick = {
-                            if (exoPlayer.isPlaying) exoPlayer.pause() else exoPlayer.play()
+                            if (isPlaying) exoPlayer.pause() else exoPlayer.play()
                         }) {
                             Icon(
                                 imageVector = if (isPlaying) Icons.Filled.Pause else Icons.Filled.PlayArrow,

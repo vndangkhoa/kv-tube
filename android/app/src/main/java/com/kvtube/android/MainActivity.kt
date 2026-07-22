@@ -41,10 +41,13 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.kvtube.android.data.local.SettingsDataStore
 import com.kvtube.android.ui.MainScreen
+import com.kvtube.android.ui.screens.watch.ExoPlayerView
 import com.kvtube.android.ui.theme.KVTubeTheme
 import com.kvtube.android.ui.theme.YTBrandRed
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import javax.inject.Inject
 
 @AndroidEntryPoint
@@ -53,8 +56,19 @@ class MainActivity : ComponentActivity() {
     @Inject
     lateinit var settingsDataStore: SettingsDataStore
 
-    var isInPipMode = false
-        private set
+    private val _isInPipMode = MutableStateFlow(false)
+    val isInPipMode: StateFlow<Boolean> = _isInPipMode
+
+    private val _pipVideoUrl = MutableStateFlow<String?>(null)
+    val pipVideoUrl: StateFlow<String?> = _pipVideoUrl
+
+    private val _pipAudioUrl = MutableStateFlow<String?>(null)
+    val pipAudioUrl: StateFlow<String?> = _pipAudioUrl
+
+    fun setPipVideo(videoUrl: String, audioUrl: String?) {
+        _pipVideoUrl.value = videoUrl
+        _pipAudioUrl.value = audioUrl
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -62,10 +76,23 @@ class MainActivity : ComponentActivity() {
         window.decorView.setBackgroundColor(0xFFFF0000.toInt())
         setContent {
             val themeMode by settingsDataStore.themeMode.collectAsState(initial = "dark")
+            val isInPip by isInPipMode.collectAsState()
+            val pipVideoUrl by pipVideoUrl.collectAsState()
+            val pipAudioUrl by pipAudioUrl.collectAsState()
 
             KVTubeTheme(themeMode = themeMode) {
                 Surface(modifier = Modifier.fillMaxSize()) {
-                    AppEntry()
+                    if (isInPip && pipVideoUrl != null) {
+                        // PiP mode: show only the video player, no app chrome
+                        ExoPlayerView(
+                            videoUrl = pipVideoUrl!!,
+                            audioUrl = pipAudioUrl,
+                            isFullscreen = true,
+                            modifier = Modifier.fillMaxSize()
+                        )
+                    } else {
+                        AppEntry()
+                    }
                 }
             }
         }
@@ -76,7 +103,7 @@ class MainActivity : ComponentActivity() {
         newConfig: Configuration
     ) {
         super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig)
-        isInPipMode = isInPictureInPictureMode
+        _isInPipMode.value = isInPictureInPictureMode
     }
 
     override fun onUserLeaveHint() {

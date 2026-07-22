@@ -94,7 +94,7 @@ class SubscriptionsViewModel @Inject constructor(
                         val idsStr = batch.joinToString(",")
                         val result = api.getChannelAvatars(idsStr)
                         result.forEach { (id, info) ->
-                            if (info.avatarUrl.isNotBlank()) {
+                            if (!info.avatarUrl.isNullOrBlank()) {
                                 allAvatars[id] = info.avatarUrl
                             }
                         }

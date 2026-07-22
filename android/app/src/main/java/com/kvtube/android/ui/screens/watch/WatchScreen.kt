@@ -104,52 +104,35 @@ fun WatchScreen(
         return
     }
 
-    // Player is OUTSIDE LazyColumn so it survives scrolling
-    if (isFullscreen) {
-        // Fullscreen: player fills entire screen
-        Box(modifier = Modifier.fillMaxSize().background(Color.Black)) {
-            uiState.selectedUrl?.let { url ->
-                ExoPlayerView(
-                    videoUrl = url,
-                    audioUrl = uiState.audioUrl,
-                    isFullscreen = true,
-                    onFullscreenToggle = { isFullscreen = false },
-                    onEnterPip = {
-                        activity?.let { act ->
-                            val params = PictureInPictureParams.Builder()
-                                .setAspectRatio(Rational(16, 9))
-                                .build()
-                            act.enterPictureInPictureMode(params)
-                        }
-                    },
-                    onBackClick = { isFullscreen = false },
-                    modifier = Modifier.fillMaxSize()
-                )
-            }
+    // Player is at a single call site so it survives fullscreen toggling
+    Column(modifier = Modifier.fillMaxSize()) {
+        uiState.selectedUrl?.let { url ->
+            ExoPlayerView(
+                videoUrl = url,
+                audioUrl = uiState.audioUrl,
+                isFullscreen = isFullscreen,
+                onFullscreenToggle = { isFullscreen = !isFullscreen },
+                onEnterPip = {
+                    activity?.let { act ->
+                        (act as? com.kvtube.android.MainActivity)?.setPipVideo(
+                            videoUrl = url,
+                            audioUrl = uiState.audioUrl
+                        )
+                        val params = PictureInPictureParams.Builder()
+                            .setAspectRatio(Rational(16, 9))
+                            .build()
+                        act.enterPictureInPictureMode(params)
+                    }
+                },
+                onBackClick = {
+                    if (isFullscreen) isFullscreen = false
+                    else navController.popBackStack()
+                },
+                modifier = if (isFullscreen) Modifier.fillMaxSize() else Modifier.fillMaxWidth()
+            )
         }
-    } else {
-        // Normal: player at top, scrollable content below
-        Column(modifier = Modifier.fillMaxSize()) {
-            // Player — fixed at top, never disposed
-            uiState.selectedUrl?.let { url ->
-                ExoPlayerView(
-                    videoUrl = url,
-                    audioUrl = uiState.audioUrl,
-                    isFullscreen = false,
-                    onFullscreenToggle = { isFullscreen = true },
-                    onEnterPip = {
-                        activity?.let { act ->
-                            val params = PictureInPictureParams.Builder()
-                                .setAspectRatio(Rational(16, 9))
-                                .build()
-                            act.enterPictureInPictureMode(params)
-                        }
-                    },
-                    onBackClick = { navController.popBackStack() },
-                    modifier = Modifier.fillMaxWidth()
-                )
-            }
 
+        if (!isFullscreen) {
             // Scrollable content — player is NOT inside this
             LazyColumn(
                 modifier = Modifier.fillMaxSize()
@@ -325,7 +308,7 @@ private fun VideoInfoSection(
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
                 text = buildString {
-                    video.viewCount?.let { if (it.isNotEmpty()) append("$it views") }
+                    video.viewCountFormatted.let { if (it.isNotEmpty()) append(it) }
                     video.publishedAt?.let {
                         if (isNotEmpty()) append(" · ")
                         append(it)
@@ -343,7 +326,7 @@ private fun VideoInfoSection(
             modifier = Modifier.fillMaxWidth()
         ) {
             ChannelAvatar(
-                avatarUrl = video.avatarUrl,
+                avatarUrl = null,
                 channelName = video.displayChannelTitle,
                 size = 40.dp
             )
@@ -535,7 +518,7 @@ private fun CommentItem(
                 )
                 Spacer(modifier = Modifier.width(8.dp))
                 Text(
-                    text = comment.published,
+                    text = comment.timestamp,
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
