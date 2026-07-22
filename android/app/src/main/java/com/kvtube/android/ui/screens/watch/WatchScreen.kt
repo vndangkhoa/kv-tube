@@ -45,6 +45,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -103,16 +104,39 @@ fun WatchScreen(
         return
     }
 
-    LazyColumn(
-        modifier = Modifier.fillMaxSize()
-    ) {
-        item {
+    // Player is OUTSIDE LazyColumn so it survives scrolling
+    if (isFullscreen) {
+        // Fullscreen: player fills entire screen
+        Box(modifier = Modifier.fillMaxSize().background(Color.Black)) {
             uiState.selectedUrl?.let { url ->
                 ExoPlayerView(
                     videoUrl = url,
                     audioUrl = uiState.audioUrl,
-                    isFullscreen = isFullscreen,
-                    onFullscreenToggle = { isFullscreen = !isFullscreen },
+                    isFullscreen = true,
+                    onFullscreenToggle = { isFullscreen = false },
+                    onEnterPip = {
+                        activity?.let { act ->
+                            val params = PictureInPictureParams.Builder()
+                                .setAspectRatio(Rational(16, 9))
+                                .build()
+                            act.enterPictureInPictureMode(params)
+                        }
+                    },
+                    onBackClick = { isFullscreen = false },
+                    modifier = Modifier.fillMaxSize()
+                )
+            }
+        }
+    } else {
+        // Normal: player at top, scrollable content below
+        Column(modifier = Modifier.fillMaxSize()) {
+            // Player — fixed at top, never disposed
+            uiState.selectedUrl?.let { url ->
+                ExoPlayerView(
+                    videoUrl = url,
+                    audioUrl = uiState.audioUrl,
+                    isFullscreen = false,
+                    onFullscreenToggle = { isFullscreen = true },
                     onEnterPip = {
                         activity?.let { act ->
                             val params = PictureInPictureParams.Builder()
@@ -125,108 +149,116 @@ fun WatchScreen(
                     modifier = Modifier.fillMaxWidth()
                 )
             }
-        }
 
-        if (!isFullscreen) {
-            item {
-                uiState.video?.let { video ->
-                    VideoInfoSection(
-                        video = video,
-                        playbackFormats = uiState.playbackInfo?.videoFormats ?: emptyList(),
-                        isSubscribed = uiState.isSubscribed,
-                        onSubscribeClick = { viewModel.toggleSubscription() },
-                        onFormatSelected = { format -> viewModel.selectQuality(format) },
-                        onDownloadClick = { showDownloadSheet = true },
-                        onShareClick = {
-                            val shareIntent = Intent(Intent.ACTION_SEND).apply {
-                                type = "text/plain"
-                                putExtra(Intent.EXTRA_SUBJECT, video.title)
-                                putExtra(Intent.EXTRA_TEXT, "https://youtube.com/watch?v=$videoId")
+            // Scrollable content — player is NOT inside this
+            LazyColumn(
+                modifier = Modifier.fillMaxSize()
+            ) {
+                // Video Info
+                item {
+                    uiState.video?.let { video ->
+                        VideoInfoSection(
+                            video = video,
+                            playbackFormats = uiState.playbackInfo?.videoFormats ?: emptyList(),
+                            isSubscribed = uiState.isSubscribed,
+                            onSubscribeClick = { viewModel.toggleSubscription() },
+                            onFormatSelected = { format -> viewModel.selectQuality(format) },
+                            onDownloadClick = { showDownloadSheet = true },
+                            onShareClick = {
+                                val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                                    type = "text/plain"
+                                    putExtra(Intent.EXTRA_SUBJECT, video.title)
+                                    putExtra(Intent.EXTRA_TEXT, "https://youtube.com/watch?v=$videoId")
+                                }
+                                context.startActivity(Intent.createChooser(shareIntent, "Share video"))
+                            },
+                            onChannelClick = { channelId ->
+                                navController.navigate(Screen.Channel.createRoute(channelId))
                             }
-                            context.startActivity(Intent.createChooser(shareIntent, "Share video"))
+                        )
+                    }
+                }
+
+                // Comments section
+                item {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 8.dp)
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                            .clickable { viewModel.toggleComments() }
+                            .padding(12.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "Comments",
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.Bold,
+                                modifier = Modifier.weight(1f)
+                            )
+                            Text(
+                                text = if (uiState.showComments) "Hide" else "Show",
+                                color = MaterialTheme.colorScheme.primary,
+                                style = MaterialTheme.typography.bodySmall,
+                                fontWeight = FontWeight.Medium
+                            )
+                        }
+                        if (!uiState.showComments && uiState.comments.isNotEmpty()) {
+                            Spacer(modifier = Modifier.height(8.dp))
+                            val topComment = uiState.comments.first()
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                ChannelAvatar(
+                                    avatarUrl = topComment.authorThumbnail,
+                                    channelName = topComment.author,
+                                    size = 24.dp
+                                )
+                                Text(
+                                    text = topComment.text,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    maxLines = 1,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                    }
+                }
+
+                // Comments list
+                if (uiState.showComments) {
+                    items(uiState.comments) { comment ->
+                        CommentItem(comment = comment)
+                    }
+                }
+
+                // Related videos header
+                item {
+                    Text(
+                        text = "Related",
+                        style = MaterialTheme.typography.titleMedium,
+                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                    )
+                }
+
+                // Related videos
+                items(uiState.relatedVideos) { related ->
+                    VideoCard(
+                        video = related,
+                        onVideoClick = { id ->
+                            navController.navigate(Screen.Watch.createRoute(id))
                         },
                         onChannelClick = { channelId ->
                             navController.navigate(Screen.Channel.createRoute(channelId))
-                        }
+                        },
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)
                     )
                 }
-            }
-
-            item {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 8.dp)
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
-                        .clickable { viewModel.toggleComments() }
-                        .padding(12.dp)
-                ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = "Comments",
-                            style = MaterialTheme.typography.titleSmall,
-                            fontWeight = FontWeight.Bold,
-                            modifier = Modifier.weight(1f)
-                        )
-                        Text(
-                            text = if (uiState.showComments) "Hide" else "Show",
-                            color = MaterialTheme.colorScheme.primary,
-                            style = MaterialTheme.typography.bodySmall,
-                            fontWeight = FontWeight.Medium
-                        )
-                    }
-                    if (!uiState.showComments && uiState.comments.isNotEmpty()) {
-                        Spacer(modifier = Modifier.height(8.dp))
-                        val topComment = uiState.comments.first()
-                        Row(
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            ChannelAvatar(
-                                avatarUrl = topComment.authorThumbnail,
-                                channelName = topComment.author,
-                                size = 24.dp
-                            )
-                            Text(
-                                text = topComment.text,
-                                style = MaterialTheme.typography.bodySmall,
-                                maxLines = 1,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    }
-                }
-            }
-
-            if (uiState.showComments) {
-                items(uiState.comments) { comment ->
-                    CommentItem(comment = comment)
-                }
-            }
-
-            item {
-                Text(
-                    text = "Related",
-                    style = MaterialTheme.typography.titleMedium,
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
-                )
-            }
-
-            items(uiState.relatedVideos) { related ->
-                VideoCard(
-                    video = related,
-                    onVideoClick = { id ->
-                        navController.navigate(Screen.Watch.createRoute(id))
-                    },
-                    onChannelClick = { channelId ->
-                        navController.navigate(Screen.Channel.createRoute(channelId))
-                    },
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)
-                )
             }
         }
     }
@@ -290,9 +322,7 @@ private fun VideoInfoSection(
 
         Spacer(modifier = Modifier.height(8.dp))
 
-        Row(
-            verticalAlignment = Alignment.CenterVertically
-        ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
                 text = buildString {
                     video.viewCount?.let { if (it.isNotEmpty()) append("$it views") }

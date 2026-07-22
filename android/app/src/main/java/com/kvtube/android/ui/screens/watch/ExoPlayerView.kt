@@ -51,11 +51,13 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DefaultHttpDataSource
+import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.ProgressiveMediaSource
 import androidx.media3.exoplayer.source.MergingMediaSource
@@ -80,36 +82,48 @@ fun ExoPlayerView(
     val context = LocalContext.current
 
     val exoPlayer = remember {
-        ExoPlayer.Builder(context).build().apply {
-            val dataSourceFactory = DefaultHttpDataSource.Factory()
-                .setConnectTimeoutMs(15_000)
-                .setReadTimeoutMs(30_000)
-                .setDefaultRequestProperties(
-                    mapOf("User-Agent" to USER_AGENT)
-                )
+        val loadControl = DefaultLoadControl.Builder()
+            .setBufferDurationsMs(
+                /* minBufferMs = */ 15_000,
+                /* maxBufferMs = */ 60_000,
+                /* bufferForPlaybackMs = */ 2_500,
+                /* bufferForPlaybackAfterRebufferMs = */ 5_000
+            )
+            .build()
 
-            val videoSource = ProgressiveMediaSource.Factory(dataSourceFactory)
-                .createMediaSource(MediaItem.fromUri(Uri.parse(videoUrl)))
+        ExoPlayer.Builder(context)
+            .setLoadControl(loadControl)
+            .build()
+            .apply {
+                val dataSourceFactory = DefaultHttpDataSource.Factory()
+                    .setConnectTimeoutMs(15_000)
+                    .setReadTimeoutMs(30_000)
+                    .setDefaultRequestProperties(
+                        mapOf("User-Agent" to USER_AGENT)
+                    )
 
-            val mediaSource = if (!audioUrl.isNullOrBlank()) {
-                val audioSource = ProgressiveMediaSource.Factory(dataSourceFactory)
-                    .createMediaSource(MediaItem.fromUri(Uri.parse(audioUrl)))
-                MergingMediaSource(videoSource, audioSource)
-            } else {
-                videoSource
-            }
+                val videoSource = ProgressiveMediaSource.Factory(dataSourceFactory)
+                    .createMediaSource(MediaItem.fromUri(Uri.parse(videoUrl)))
 
-            setMediaSource(mediaSource)
-            prepare()
-            playWhenReady = true
-            volume = 1f
-
-            addListener(object : Player.Listener {
-                override fun onPlayerError(error: PlaybackException) {
-                    Log.e(TAG, "Player error: ${error.message}", error)
+                val mediaSource = if (!audioUrl.isNullOrBlank()) {
+                    val audioSource = ProgressiveMediaSource.Factory(dataSourceFactory)
+                        .createMediaSource(MediaItem.fromUri(Uri.parse(audioUrl)))
+                    MergingMediaSource(videoSource, audioSource)
+                } else {
+                    videoSource
                 }
-            })
-        }
+
+                setMediaSource(mediaSource)
+                prepare()
+                playWhenReady = true
+                volume = 1f
+
+                addListener(object : Player.Listener {
+                    override fun onPlayerError(error: PlaybackException) {
+                        Log.e(TAG, "Player error: ${error.errorCodeName}", error)
+                    }
+                })
+            }
     }
 
     var isPlaying by remember { mutableStateOf(true) }
