@@ -53,7 +53,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -63,6 +62,7 @@ import coil3.compose.AsyncImage
 import com.kvtube.android.data.local.DownloadedVideoEntity
 import com.kvtube.android.data.model.SortCriteria
 import com.kvtube.android.ui.components.SearchBar
+import com.kvtube.android.ui.navigation.Screen
 import com.kvtube.android.ui.theme.YTBlue
 
 @OptIn(ExperimentalFoundationApi::class, ExperimentalMaterial3Api::class)
@@ -72,7 +72,6 @@ fun DownloadsScreen(
     viewModel: DownloadsViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
-    val context = LocalContext.current
 
     // Delete confirmation dialog
     uiState.videoToDelete?.let { video ->
@@ -203,10 +202,10 @@ fun DownloadsScreen(
                         DownloadGridItem(
                             video = video,
                             progress = uiState.activeProgress[video.videoId],
-                            onPlay = { viewModel.playVideo(context, video) },
+                            onPlay = { navController.navigate(Screen.LocalWatch.createRoute(video.videoId)) },
                             onDelete = { viewModel.showDeleteConfirmation(video) },
                             onRename = { viewModel.showRenameDialog(video) },
-                            onCancel = { viewModel.cancelDownload(context, video.videoId) }
+                            onCancel = { viewModel.cancelDownload(video.videoId) }
                         )
                     }
                 }
@@ -221,10 +220,10 @@ fun DownloadsScreen(
                         DownloadListItem(
                             video = video,
                             progress = uiState.activeProgress[video.videoId],
-                            onPlay = { viewModel.playVideo(context, video) },
+                            onPlay = { navController.navigate(Screen.LocalWatch.createRoute(video.videoId)) },
                             onDelete = { viewModel.showDeleteConfirmation(video) },
                             onRename = { viewModel.showRenameDialog(video) },
-                            onCancel = { viewModel.cancelDownload(context, video.videoId) }
+                            onCancel = { viewModel.cancelDownload(video.videoId) }
                         )
                     }
                 }

@@ -64,17 +64,18 @@ class DownloadWorker @AssistedInject constructor(
 
         setForeground(createForegroundInfo("Starting download...", 0, true))
 
+        // Temp file for downloading
+        val tempDir = downloadRepository.getTempDownloadDir(applicationContext)
+        val tempFile = File(tempDir, "${videoId}_${System.currentTimeMillis()}.mp4")
+
         try {
-            // Phase 1: Extract stream URL via NewPipeExtractor
+            // Phase 1: Extract stream URL
             updateProgress(
                 videoId = videoId,
                 status = DownloadStatus.EXTRACTING,
                 message = "Extracting video URL...",
-                title = title,
-                thumbnail = thumbnail,
-                channelTitle = channelTitle,
-                duration = duration,
-                quality = qualityStr
+                title = title, thumbnail = thumbnail,
+                channelTitle = channelTitle, duration = duration, quality = qualityStr
             )
 
             var extracted = try {
@@ -96,84 +97,79 @@ class DownloadWorker @AssistedInject constructor(
             }
 
             if (extracted.videoUrl.isEmpty()) {
-                throw Exception("No suitable stream found (tried client extraction and server fallback)")
+                throw Exception("No suitable stream found")
             }
 
-            // Phase 2: Download file(s)
+            // Phase 2: Download to temp file
             updateProgress(
                 videoId = videoId,
                 status = DownloadStatus.DOWNLOADING,
                 message = "Downloading...",
-                title = title,
-                thumbnail = thumbnail,
-                channelTitle = channelTitle,
-                duration = duration,
-                quality = qualityStr
+                title = title, thumbnail = thumbnail,
+                channelTitle = channelTitle, duration = duration, quality = qualityStr
             )
-
-            val outputDir = downloadRepository.getDownloadDir(applicationContext)
-            val baseName = sanitizeFileName(title)
-            val outputFile = File(outputDir, "${baseName}_${videoId}.mp4")
 
             if (extracted.isDash && extracted.audioUrl != null) {
                 throw Exception("DASH merging not yet implemented; try a lower quality")
             } else {
-                // Progressive: single file download
-                downloadFile(extracted.videoUrl, outputFile) { percent, speed, eta ->
+                downloadFile(extracted.videoUrl, tempFile) { percent, speed, eta ->
                     updateProgress(
-                        videoId = videoId,
-                        percent = percent,
-                        speed = speed,
-                        eta = eta,
+                        videoId = videoId, percent = percent, speed = speed, eta = eta,
                         status = DownloadStatus.DOWNLOADING,
                         message = "Downloading ${percent.toInt()}%",
-                        title = title,
-                        thumbnail = thumbnail,
-                        channelTitle = channelTitle,
-                        duration = duration,
-                        quality = qualityStr
+                        title = title, thumbnail = thumbnail,
+                        channelTitle = channelTitle, duration = duration, quality = qualityStr
                     )
                 }
             }
 
-            // Phase 3: Save to Room DB
+            // Phase 3: Save to internal storage (for FileProvider playback)
+            val internalDir = downloadRepository.getDownloadDir(applicationContext)
+            val baseName = sanitizeFileName(title)
+            val internalFile = File(internalDir, "${baseName}_${videoId}.mp4")
+            tempFile.copyTo(internalFile, overwrite = true)
+
+            // Phase 4: Copy to MediaStore (visible in gallery/file manager)
+            val mediaStoreFileName = "${baseName}_${videoId}.mp4"
+            val contentUri = downloadRepository.saveToMediaStore(applicationContext, internalFile, mediaStoreFileName)
+
+            // Phase 5: Save to Room DB
             val entity = DownloadedVideoEntity(
                 videoId = videoId,
                 title = title,
                 quality = qualityStr,
-                filePath = outputFile.absolutePath,
-                fileSize = outputFile.length(),
+                filePath = internalFile.absolutePath,
+                fileSize = internalFile.length(),
                 duration = duration,
                 thumbnail = thumbnail,
                 channelTitle = channelTitle,
+                contentUri = contentUri,
                 downloadedAt = System.currentTimeMillis()
             )
             downloadRepository.insertDownload(entity)
 
+            // Cleanup temp file
+            if (tempFile.exists()) tempFile.delete()
+
             updateProgress(
-                videoId = videoId,
-                percent = 100f,
+                videoId = videoId, percent = 100f,
                 status = DownloadStatus.COMPLETED,
                 message = "Download complete",
-                title = title,
-                thumbnail = thumbnail,
-                channelTitle = channelTitle,
-                duration = duration,
-                quality = qualityStr
+                title = title, thumbnail = thumbnail,
+                channelTitle = channelTitle, duration = duration, quality = qualityStr
             )
 
             Result.success()
         } catch (e: Exception) {
             e.printStackTrace()
+            // Cleanup temp file on failure
+            if (tempFile.exists()) tempFile.delete()
             updateProgress(
                 videoId = videoId,
                 status = DownloadStatus.ERROR,
                 message = e.message ?: "Download failed",
-                title = title,
-                thumbnail = thumbnail,
-                channelTitle = channelTitle,
-                duration = duration,
-                quality = qualityStr
+                title = title, thumbnail = thumbnail,
+                channelTitle = channelTitle, duration = duration, quality = qualityStr
             )
             Result.failure()
         }
@@ -219,12 +215,10 @@ class DownloadWorker @AssistedInject constructor(
                                 val speedStr = formatSpeed(speedBytes)
                                 val remaining = ((contentLength - bytesRead).toFloat() / speedBytes).toLong()
                                 val etaStr = formatEta(remaining)
-
                                 onProgress(percent, speedStr, etaStr)
                             } else {
                                 onProgress(0f, "", "")
                             }
-
                             lastUpdate = now
                             lastBytes = bytesRead
                         }
@@ -235,44 +229,23 @@ class DownloadWorker @AssistedInject constructor(
     }
 
     private fun updateProgress(
-        videoId: String,
-        percent: Float = 0f,
-        speed: String = "",
-        eta: String = "",
-        status: DownloadStatus,
-        message: String,
-        title: String,
-        thumbnail: String,
-        channelTitle: String,
-        duration: String,
-        quality: String
+        videoId: String, percent: Float = 0f, speed: String = "", eta: String = "",
+        status: DownloadStatus, message: String,
+        title: String, thumbnail: String, channelTitle: String, duration: String, quality: String
     ) {
         downloadRepository.updateProgress(
             videoId,
             DownloadProgress(
-                videoId = videoId,
-                percent = percent,
-                speed = speed,
-                eta = eta,
-                status = status,
-                message = message,
-                title = title,
-                thumbnail = thumbnail,
-                channelTitle = channelTitle,
-                duration = duration,
-                quality = quality
+                videoId = videoId, percent = percent, speed = speed, eta = eta,
+                status = status, message = message,
+                title = title, thumbnail = thumbnail,
+                channelTitle = channelTitle, duration = duration, quality = quality
             )
         )
     }
 
-    private fun createForegroundInfo(
-        message: String,
-        progress: Int,
-        indeterminate: Boolean
-    ): ForegroundInfo {
-        val notification: Notification = NotificationCompat.Builder(
-            applicationContext, DownloadService.CHANNEL_ID
-        )
+    private fun createForegroundInfo(message: String, progress: Int, indeterminate: Boolean): ForegroundInfo {
+        val notification: Notification = NotificationCompat.Builder(applicationContext, DownloadService.CHANNEL_ID)
             .setContentTitle("Download")
             .setContentText(message)
             .setSmallIcon(android.R.drawable.stat_sys_download)
@@ -285,19 +258,14 @@ class DownloadWorker @AssistedInject constructor(
             .build()
 
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            ForegroundInfo(
-                DownloadService.NOTIFICATION_ID,
-                notification,
-                ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC
-            )
+            ForegroundInfo(DownloadService.NOTIFICATION_ID, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
         } else {
             ForegroundInfo(DownloadService.NOTIFICATION_ID, notification)
         }
     }
 
     private fun sanitizeFileName(name: String): String {
-        return name.replace(Regex("[/\\\\:*?\"<>|]"), "_")
-            .take(100)
+        return name.replace(Regex("[/\\\\:*?\"<>|]"), "_").take(100)
     }
 
     private fun selectPlaybackFormat(playbackInfo: PlaybackInfo, quality: Quality): PlaybackFormat? {
@@ -312,9 +280,7 @@ class DownloadWorker @AssistedInject constructor(
             .maxByOrNull { it.height }
             ?: progressive.minByOrNull { it.height }
 
-        if (bestProgressive != null) {
-            return bestProgressive
-        }
+        if (bestProgressive != null) return bestProgressive
 
         val videoOnly = playbackInfo.videoFormats.filter { !it.hasAudio && it.url.isNotEmpty() }
         return videoOnly.filter { it.height <= maxHeight }

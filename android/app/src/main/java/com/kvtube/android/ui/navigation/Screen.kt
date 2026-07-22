@@ -10,6 +10,9 @@ sealed class Screen(val route: String) {
     data object Watch : Screen("watch/{videoId}") {
         fun createRoute(videoId: String) = "watch/$videoId"
     }
+    data object LocalWatch : Screen("localWatch/{videoId}") {
+        fun createRoute(videoId: String) = "localWatch/$videoId"
+    }
     data object Search : Screen("search?q={query}") {
         fun createRoute(query: String) = "search?q=$query"
     }

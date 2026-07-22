@@ -7,6 +7,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.navArgument
 import com.kvtube.android.ui.screens.downloads.DownloadsScreen
+import com.kvtube.android.ui.screens.downloads.LocalWatchScreen
 import com.kvtube.android.ui.screens.home.HomeScreen
 import com.kvtube.android.ui.screens.library.LibraryScreen
 import com.kvtube.android.ui.screens.search.SearchScreen
@@ -86,6 +87,19 @@ fun NavGraph(navController: NavHostController) {
 
         composable(Screen.Settings.route) {
             SettingsScreen(navController = navController)
+        }
+
+        composable(
+            route = Screen.LocalWatch.route,
+            arguments = listOf(
+                navArgument("videoId") { type = NavType.StringType }
+            )
+        ) { backStackEntry ->
+            val videoId = backStackEntry.arguments?.getString("videoId") ?: return@composable
+            LocalWatchScreen(
+                videoId = videoId,
+                navController = navController
+            )
         }
     }
 }

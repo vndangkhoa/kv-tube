@@ -1,9 +1,12 @@
 package com.kvtube.android.ui.screens.downloads
 
+import android.app.Application
 import android.content.Context
+import android.content.Intent
 import android.net.Uri
+import android.os.Build
 import androidx.core.content.FileProvider
-import androidx.lifecycle.ViewModel
+import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.kvtube.android.data.local.DownloadedVideoEntity
 import com.kvtube.android.data.model.DownloadProgress
@@ -11,12 +14,10 @@ import com.kvtube.android.data.model.SortCriteria
 import com.kvtube.android.data.repository.DownloadRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.ExperimentalCoroutinesApi
-import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
-import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.launch
 import java.io.File
 import javax.inject.Inject
@@ -36,8 +37,9 @@ data class DownloadsUiState(
 @OptIn(ExperimentalCoroutinesApi::class)
 @HiltViewModel
 class DownloadsViewModel @Inject constructor(
+    application: Application,
     private val downloadRepository: DownloadRepository
-) : ViewModel() {
+) : AndroidViewModel(application) {
 
     private val _searchQuery = MutableStateFlow("")
     private val _sortCriteria = MutableStateFlow(SortCriteria.DATE)
@@ -46,6 +48,8 @@ class DownloadsViewModel @Inject constructor(
 
     private val _uiState = MutableStateFlow(DownloadsUiState())
     val uiState: StateFlow<DownloadsUiState> = _uiState.asStateFlow()
+
+    private val appContext: Context = application.applicationContext
 
     init {
         viewModelScope.launch {
@@ -67,7 +71,7 @@ class DownloadsViewModel @Inject constructor(
             }
             .combine(downloadRepository.activeDownloads) { state, progress ->
                 val activeItems = progress.values
-                    .filter { it.status != com.kvtube.android.data.model.DownloadStatus.COMPLETED && 
+                    .filter { it.status != com.kvtube.android.data.model.DownloadStatus.COMPLETED &&
                               it.status != com.kvtube.android.data.model.DownloadStatus.CANCELLED &&
                               it.status != com.kvtube.android.data.model.DownloadStatus.ERROR }
                     .map { p ->
@@ -84,7 +88,7 @@ class DownloadsViewModel @Inject constructor(
                     }
 
                 val activeIds = progress.values
-                    .filter { it.status != com.kvtube.android.data.model.DownloadStatus.COMPLETED && 
+                    .filter { it.status != com.kvtube.android.data.model.DownloadStatus.COMPLETED &&
                               it.status != com.kvtube.android.data.model.DownloadStatus.CANCELLED &&
                               it.status != com.kvtube.android.data.model.DownloadStatus.ERROR }
                     .map { it.videoId }
@@ -100,13 +104,13 @@ class DownloadsViewModel @Inject constructor(
                 val sortedDownloads = when (state.sortCriteria) {
                     SortCriteria.NAME -> if (state.sortAscending) searchFiltered.sortedBy { it.title.lowercase() }
                     else searchFiltered.sortedByDescending { it.title.lowercase() }
-                    
+
                     SortCriteria.DATE -> if (state.sortAscending) searchFiltered.sortedBy { it.downloadedAt }
                     else searchFiltered.sortedByDescending { it.downloadedAt }
-                    
+
                     SortCriteria.SIZE -> if (state.sortAscending) searchFiltered.sortedBy { it.fileSize }
                     else searchFiltered.sortedByDescending { it.fileSize }
-                    
+
                     SortCriteria.CHANNEL -> if (state.sortAscending) searchFiltered.sortedBy { it.channelTitle.lowercase() }
                     else searchFiltered.sortedByDescending { it.channelTitle.lowercase() }
                 }
@@ -141,13 +145,13 @@ class DownloadsViewModel @Inject constructor(
 
     fun deleteVideo(videoId: String) {
         viewModelScope.launch {
-            downloadRepository.deleteByVideoId(videoId)
+            downloadRepository.deleteByVideoId(appContext, videoId)
             _uiState.value = _uiState.value.copy(videoToDelete = null)
         }
     }
 
-    fun cancelDownload(context: Context, videoId: String) {
-        downloadRepository.cancelDownload(context, videoId)
+    fun cancelDownload(videoId: String) {
+        downloadRepository.cancelDownload(appContext, videoId)
     }
 
     fun showDeleteConfirmation(video: DownloadedVideoEntity) {
@@ -173,28 +177,18 @@ class DownloadsViewModel @Inject constructor(
         }
     }
 
-    fun playVideo(context: Context, video: DownloadedVideoEntity) {
+    fun playVideo(video: DownloadedVideoEntity): Uri? {
         val file = File(video.filePath)
-        if (!file.exists()) return
+        if (!file.exists()) return null
 
-        val uri = if (android.os.Build.VERSION.SDK_INT >= 24) {
+        return if (Build.VERSION.SDK_INT >= 24) {
             FileProvider.getUriForFile(
-                context,
-                "${context.packageName}.fileprovider",
+                appContext,
+                "${appContext.packageName}.fileprovider",
                 file
             )
         } else {
             Uri.fromFile(file)
-        }
-
-        val intent = android.content.Intent(android.content.Intent.ACTION_VIEW).apply {
-            setDataAndType(uri, "video/mp4")
-            addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
-        }
-
-        if (intent.resolveActivity(context.packageManager) != null) {
-            context.startActivity(intent)
         }
     }
 }
