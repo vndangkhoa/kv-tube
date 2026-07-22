@@ -57,7 +57,6 @@ import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.exoplayer.ExoPlayer
-import androidx.media3.exoplayer.dash.DashMediaSource
 import androidx.media3.exoplayer.source.ProgressiveMediaSource
 import androidx.media3.exoplayer.source.MergingMediaSource
 import androidx.media3.ui.AspectRatioFrameLayout
@@ -65,13 +64,7 @@ import androidx.media3.ui.PlayerView
 import kotlinx.coroutines.delay
 
 private const val TAG = "ExoPlayerView"
-
-@OptIn(UnstableApi::class)
-private fun isDashUrl(url: String): Boolean {
-    return url.contains("/videoplayback") &&
-        (url.contains("mime=video") || url.contains("mime%3Dvideo")) &&
-        (url.contains("itag=") || url.contains("itag%3D"))
-}
+private const val USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 
 @OptIn(UnstableApi::class)
 @Composable
@@ -91,23 +84,16 @@ fun ExoPlayerView(
             val dataSourceFactory = DefaultHttpDataSource.Factory()
                 .setConnectTimeoutMs(15_000)
                 .setReadTimeoutMs(30_000)
+                .setDefaultRequestProperties(
+                    mapOf("User-Agent" to USER_AGENT)
+                )
 
-            val videoSource = if (isDashUrl(videoUrl)) {
-                DashMediaSource.Factory(dataSourceFactory)
-                    .createMediaSource(MediaItem.fromUri(Uri.parse(videoUrl)))
-            } else {
-                ProgressiveMediaSource.Factory(dataSourceFactory)
-                    .createMediaSource(MediaItem.fromUri(Uri.parse(videoUrl)))
-            }
+            val videoSource = ProgressiveMediaSource.Factory(dataSourceFactory)
+                .createMediaSource(MediaItem.fromUri(Uri.parse(videoUrl)))
 
             val mediaSource = if (!audioUrl.isNullOrBlank()) {
-                val audioSource = if (isDashUrl(audioUrl)) {
-                    DashMediaSource.Factory(dataSourceFactory)
-                        .createMediaSource(MediaItem.fromUri(Uri.parse(audioUrl)))
-                } else {
-                    ProgressiveMediaSource.Factory(dataSourceFactory)
-                        .createMediaSource(MediaItem.fromUri(Uri.parse(audioUrl)))
-                }
+                val audioSource = ProgressiveMediaSource.Factory(dataSourceFactory)
+                    .createMediaSource(MediaItem.fromUri(Uri.parse(audioUrl)))
                 MergingMediaSource(videoSource, audioSource)
             } else {
                 videoSource
