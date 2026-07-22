@@ -15,7 +15,6 @@ import com.kvtube.android.data.repository.HistoryRepository
 import com.kvtube.android.data.repository.VideoRepository
 import com.kvtube.android.data.repository.SubscriptionRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
-import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -127,27 +126,8 @@ class WatchViewModel @Inject constructor(
             try {
                 _uiState.value = _uiState.value.copy(isLoading = true)
 
-                val videoDeferred = async {
-                    runCatching { videoRepository.getVideoInfo(videoId) }.getOrNull()
-                }
-                val playbackDeferred = async {
-                    runCatching { videoRepository.getPlaybackInfo(videoId) }.getOrNull()
-                }
-                val relatedDeferred = async {
-                    runCatching { videoRepository.getRelatedVideos(videoId) }
-                        .onFailure { Log.e(TAG, "Related videos failed", it) }
-                        .getOrNull() ?: emptyList()
-                }
-                val commentsDeferred = async {
-                    runCatching { videoRepository.getComments(videoId) }
-                        .onFailure { Log.e(TAG, "Comments failed", it) }
-                        .getOrNull() ?: emptyList()
-                }
-
-                val video = videoDeferred.await()
-                val playback = playbackDeferred.await()
-                val related = relatedDeferred.await()
-                val comments = commentsDeferred.await()
+                // Load playback info first (fast) - this is what we need to start playing
+                val playback = runCatching { videoRepository.getPlaybackInfo(videoId) }.getOrNull()
 
                 if (playback == null) {
                     _uiState.value = _uiState.value.copy(
@@ -157,14 +137,6 @@ class WatchViewModel @Inject constructor(
                     return@launch
                 }
 
-                // If video info failed, construct a minimal VideoData from playback info
-                val videoData = video ?: VideoData(
-                    id = videoId,
-                    title = playback.title
-                )
-
-                val isSubscribed = subscriptionRepository.isSubscribed(videoData.displayChannelId)
-
                 // Pick best format: prefer progressive (has audio), then fall back to video-only + separate audio
                 val bestFormat = playback.videoFormats.firstOrNull { it.hasAudio }
                     ?: playback.videoFormats.firstOrNull()
@@ -172,24 +144,45 @@ class WatchViewModel @Inject constructor(
                 val hasAudio = bestFormat?.hasAudio == true
                 val audioUrl = if (hasAudio) null else playback.audioFormat?.url
 
+                // Show video immediately with playback info
                 _uiState.value = WatchUiState(
-                    video = videoData,
+                    video = VideoData(id = videoId, title = playback.title),
                     playbackInfo = playback,
-                    relatedVideos = related,
-                    comments = comments,
                     isLoading = false,
                     selectedUrl = bestFormat?.url,
-                    audioUrl = audioUrl,
-                    isSubscribed = isSubscribed
+                    audioUrl = audioUrl
                 )
 
-                // Record watch history
-                historyRepository.addToHistory(
-                    videoId = videoId,
-                    title = videoData.title,
-                    thumbnail = videoData.thumbnail,
-                    uploader = videoData.displayChannelTitle
-                )
+                // Load video info, related videos, comments in background (non-blocking)
+                launch {
+                    val video = runCatching { videoRepository.getVideoInfo(videoId) }.getOrNull()
+                    if (video != null) {
+                        _uiState.value = _uiState.value.copy(
+                            video = video,
+                            isSubscribed = subscriptionRepository.isSubscribed(video.displayChannelId)
+                        )
+                    }
+                }
+                launch {
+                    val related = runCatching { videoRepository.getRelatedVideos(videoId) }
+                        .onFailure { Log.e(TAG, "Related videos failed", it) }
+                        .getOrNull() ?: emptyList()
+                    _uiState.value = _uiState.value.copy(relatedVideos = related)
+                }
+                launch {
+                    val comments = runCatching { videoRepository.getComments(videoId) }
+                        .onFailure { Log.e(TAG, "Comments failed", it) }
+                        .getOrNull() ?: emptyList()
+                    _uiState.value = _uiState.value.copy(comments = comments)
+                }
+                launch {
+                    historyRepository.addToHistory(
+                        videoId = videoId,
+                        title = playback.title,
+                        thumbnail = "",
+                        uploader = ""
+                    )
+                }
             } catch (e: Exception) {
                 _uiState.value = _uiState.value.copy(
                     isLoading = false,
