@@ -32,6 +32,7 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.LinearProgressIndicator
 import com.kvtube.android.data.model.DownloadProgress
+import com.kvtube.android.data.model.DownloadStatus
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DropdownMenu
@@ -242,7 +243,10 @@ private fun DownloadListItem(
     onRename: () -> Unit,
     onCancel: () -> Unit = {}
 ) {
-    val isDownloading = progress != null
+    val isDownloading = progress != null &&
+        progress.status != DownloadStatus.COMPLETED &&
+        progress.status != DownloadStatus.ERROR &&
+        progress.status != DownloadStatus.CANCELLED
 
     Card(
         modifier = Modifier
@@ -379,7 +383,10 @@ private fun DownloadGridItem(
     onRename: () -> Unit,
     onCancel: () -> Unit = {}
 ) {
-    val isDownloading = progress != null
+    val isDownloading = progress != null &&
+        progress.status != DownloadStatus.COMPLETED &&
+        progress.status != DownloadStatus.ERROR &&
+        progress.status != DownloadStatus.CANCELLED
 
     Card(
         modifier = Modifier

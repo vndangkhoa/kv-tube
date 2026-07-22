@@ -12,6 +12,7 @@ import coil3.ImageLoader
 import coil3.SingletonImageLoader
 import coil3.gif.AnimatedImageDecoder
 import coil3.gif.GifDecoder
+import coil3.network.okhttp.OkHttpNetworkFetcherFactory
 import com.kvtube.android.data.api.KVApi
 import com.kvtube.android.data.local.SettingsDataStore
 import dagger.hilt.android.HiltAndroidApp
@@ -21,6 +22,8 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import okhttp3.OkHttpClient
+import java.io.File
 import javax.inject.Inject
 
 @HiltAndroidApp
@@ -79,8 +82,10 @@ class KVTubeApp : Application(), Configuration.Provider, SingletonImageLoader.Fa
     }
 
     override fun newImageLoader(context: Context): ImageLoader {
+        val okHttpClient = OkHttpClient.Builder().build()
         return ImageLoader.Builder(context)
             .components {
+                add(OkHttpNetworkFetcherFactory(okHttpClient))
                 if (Build.VERSION.SDK_INT >= 28) {
                     add(AnimatedImageDecoder.Factory())
                 } else {

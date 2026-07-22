@@ -77,6 +77,7 @@ class DownloadWorker @AssistedInject constructor(
                 title = title, thumbnail = thumbnail,
                 channelTitle = channelTitle, duration = duration, quality = qualityStr
             )
+            setForeground(createForegroundInfo("Extracting video URL...", 0, true))
 
             var extracted = try {
                 extractorHelper.extractStreamUrl(videoId, quality)
@@ -108,6 +109,7 @@ class DownloadWorker @AssistedInject constructor(
                 title = title, thumbnail = thumbnail,
                 channelTitle = channelTitle, duration = duration, quality = qualityStr
             )
+            setForeground(createForegroundInfo("Downloading...", 0, true))
 
             if (extracted.isDash && extracted.audioUrl != null) {
                 throw Exception("DASH merging not yet implemented; try a lower quality")
@@ -158,6 +160,13 @@ class DownloadWorker @AssistedInject constructor(
                 title = title, thumbnail = thumbnail,
                 channelTitle = channelTitle, duration = duration, quality = qualityStr
             )
+
+            // Update notification to show completion
+            setForeground(createForegroundInfo("Download complete", 100, false))
+
+            // Clean up from active downloads after a short delay
+            kotlinx.coroutines.delay(1000)
+            downloadRepository.removeProgress(videoId)
 
             Result.success()
         } catch (e: Exception) {

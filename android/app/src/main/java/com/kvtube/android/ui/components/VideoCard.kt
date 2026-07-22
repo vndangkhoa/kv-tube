@@ -47,7 +47,7 @@ fun VideoCard(
         ) {
             AsyncImage(
                 model = video.thumbnail.ifBlank {
-                    "https://i.ytimg.com/vi/${video.id}/hqdefault.jpg"
+                    "https://i.ytimg.com/vi/${video.id}/mqdefault.jpg"
                 },
                 contentDescription = video.title,
                 modifier = Modifier.fillMaxWidth(),

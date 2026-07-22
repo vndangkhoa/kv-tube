@@ -50,6 +50,9 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavController
 import com.kvtube.android.data.model.Comment
@@ -79,11 +82,19 @@ fun WatchScreen(
     var showDownloadSheet by remember { mutableStateOf(false) }
     var isFullscreen by remember { mutableStateOf(false) }
 
+    // Hide/show system bars on fullscreen toggle
     LaunchedEffect(isFullscreen) {
-        activity?.requestedOrientation = if (isFullscreen)
-            ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
-        else
-            ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+        val window = activity?.window ?: return@LaunchedEffect
+        val controller = WindowCompat.getInsetsController(window, window.decorView)
+        if (isFullscreen) {
+            activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+            controller.hide(WindowInsetsCompat.Type.systemBars())
+            controller.systemBarsBehavior =
+                WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+        } else {
+            activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+            controller.show(WindowInsetsCompat.Type.systemBars())
+        }
     }
 
     if (uiState.isLoading) {
@@ -104,36 +115,58 @@ fun WatchScreen(
         return
     }
 
-    // Player is at a single call site so it survives fullscreen toggling
-    Column(modifier = Modifier.fillMaxSize()) {
+    if (isFullscreen) {
+        // Fullscreen: player covers everything including system bars
         uiState.selectedUrl?.let { url ->
-            ExoPlayerView(
-                videoUrl = url,
-                audioUrl = uiState.audioUrl,
-                isFullscreen = isFullscreen,
-                onFullscreenToggle = { isFullscreen = !isFullscreen },
-                onEnterPip = {
-                    activity?.let { act ->
-                        (act as? com.kvtube.android.MainActivity)?.setPipVideo(
-                            videoUrl = url,
-                            audioUrl = uiState.audioUrl
-                        )
-                        val params = PictureInPictureParams.Builder()
-                            .setAspectRatio(Rational(16, 9))
-                            .build()
-                        act.enterPictureInPictureMode(params)
-                    }
-                },
-                onBackClick = {
-                    if (isFullscreen) isFullscreen = false
-                    else navController.popBackStack()
-                },
-                modifier = if (isFullscreen) Modifier.fillMaxSize() else Modifier.fillMaxWidth()
-            )
+            Box(modifier = Modifier.fillMaxSize()) {
+                ExoPlayerView(
+                    videoUrl = url,
+                    audioUrl = uiState.audioUrl,
+                    isFullscreen = true,
+                    onFullscreenToggle = { isFullscreen = false },
+                    onEnterPip = {
+                        activity?.let { act ->
+                            (act as? com.kvtube.android.MainActivity)?.setPipVideo(
+                                videoUrl = url,
+                                audioUrl = uiState.audioUrl
+                            )
+                            val params = PictureInPictureParams.Builder()
+                                .setAspectRatio(Rational(16, 9))
+                                .build()
+                            act.enterPictureInPictureMode(params)
+                        }
+                    },
+                    onBackClick = { isFullscreen = false },
+                    modifier = Modifier.fillMaxSize()
+                )
+            }
         }
+    } else {
+        // Normal layout
+        Column(modifier = Modifier.fillMaxSize()) {
+            uiState.selectedUrl?.let { url ->
+                ExoPlayerView(
+                    videoUrl = url,
+                    audioUrl = uiState.audioUrl,
+                    isFullscreen = false,
+                    onFullscreenToggle = { isFullscreen = true },
+                    onEnterPip = {
+                        activity?.let { act ->
+                            (act as? com.kvtube.android.MainActivity)?.setPipVideo(
+                                videoUrl = url,
+                                audioUrl = uiState.audioUrl
+                            )
+                            val params = PictureInPictureParams.Builder()
+                                .setAspectRatio(Rational(16, 9))
+                                .build()
+                            act.enterPictureInPictureMode(params)
+                        }
+                    },
+                    onBackClick = { navController.popBackStack() },
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
 
-        if (!isFullscreen) {
-            // Scrollable content — player is NOT inside this
             LazyColumn(
                 modifier = Modifier.fillMaxSize()
             ) {
@@ -264,7 +297,7 @@ fun WatchScreen(
                     duration = video?.duration ?: "",
                     quality = quality
                 )
-                showDownloadSheet = false
+                // Don't dismiss - let the sheet show download progress
             },
             onCancel = {
                 viewModel.cancelDownload(context, videoId)

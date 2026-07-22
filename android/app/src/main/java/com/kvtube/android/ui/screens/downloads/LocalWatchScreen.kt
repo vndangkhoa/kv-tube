@@ -48,6 +48,7 @@ import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import com.kvtube.android.ui.components.LoadingSpinner
 import kotlinx.coroutines.delay
+import java.io.File
 
 @Composable
 fun LocalWatchScreen(
@@ -86,19 +87,19 @@ fun LocalWatchScreen(
     }
 
     Column(modifier = Modifier.fillMaxSize()) {
+        val videoUri = video.contentUri?.let { Uri.parse(it) }
+            ?: Uri.fromFile(File(video.filePath))
+
         LocalExoPlayerView(
-            videoUri = video.contentUri?.let { Uri.parse(it) }
-                ?: Uri.parse(video.filePath),
+            videoUri = videoUri,
             isFullscreen = isFullscreen,
             onFullscreenToggle = { isFullscreen = !isFullscreen },
             onBackClick = { navController.popBackStack() },
             onShareClick = {
-                val uri = video.contentUri?.let { Uri.parse(it) }
-                    ?: Uri.parse(video.filePath)
                 val shareIntent = Intent(Intent.ACTION_SEND).apply {
                     type = "video/*"
                     putExtra(Intent.EXTRA_SUBJECT, video.title)
-                    putExtra(Intent.EXTRA_STREAM, uri)
+                    putExtra(Intent.EXTRA_STREAM, videoUri)
                 }
                 context.startActivity(Intent.createChooser(shareIntent, "Share video"))
             },
