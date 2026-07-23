@@ -111,6 +111,11 @@ func InitDB() {
 		log.Printf("Warning: Failed to enable WAL mode: %v", err)
 	}
 
+	// Set busy timeout to avoid "database is locked" errors under concurrent writes
+	if _, err := db.Exec(`PRAGMA busy_timeout=5000`); err != nil {
+		log.Printf("Warning: Failed to set busy timeout: %v", err)
+	}
+
 	DB = db
 	log.Println("Database initialized successfully at", dbPath)
 }

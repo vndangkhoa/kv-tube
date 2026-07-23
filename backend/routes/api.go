@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"kvtube-go/services"
 
@@ -77,6 +78,8 @@ func SetupRouter() *gin.Engine {
 		// Video endpoints
 		api.GET("/search", handleSearch)
 		api.GET("/trending", handleTrending)
+		// Proxy for media segments (must be before :id to avoid conflict)
+		api.GET("/video/proxy", handleVideoProxy)
 		api.GET("/video/:id", handleGetVideoInfo)
 		api.GET("/video/:id/related", handleRelatedVideos)
 		api.GET("/video/:id/comments", handleComments)
@@ -222,6 +225,39 @@ func handleGetVideoInfo(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, video)
+}
+
+// handleVideoProxy fetches a remote URL and streams the response.
+// Used by the MSE player to proxy YouTube CDN segments.
+func handleVideoProxy(c *gin.Context) {
+	urlStr := c.Query("url")
+	if urlStr == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "url parameter is required"})
+		return
+	}
+
+	client := &http.Client{Timeout: 30 * time.Second}
+	req, err := http.NewRequest("GET", urlStr, nil)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid url"})
+		return
+	}
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		c.JSON(http.StatusBadGateway, gin.H{"error": "failed to fetch url"})
+		return
+	}
+	defer resp.Body.Close()
+
+	for k, v := range resp.Header {
+		if k == "Content-Type" || k == "Content-Length" || k == "Accept-Ranges" {
+			c.Header(k, v[0])
+		}
+	}
+	c.Status(resp.StatusCode)
+	io.Copy(c.Writer, resp.Body)
 }
 
 // Get related videos
