@@ -61,10 +61,12 @@ func SetCachedVideo(videoID string, data interface{}, ttlSeconds int) error {
 
 	expiresAt := time.Now().Add(time.Duration(ttlSeconds) * time.Second)
 
+	CacheMu.Lock()
 	_, err := DB.Exec(
 		`INSERT OR REPLACE INTO video_cache (video_id, data, expires_at) VALUES (?, ?, ?)`,
 		videoID, stored, expiresAt,
 	)
+	CacheMu.Unlock()
 
 	if err != nil {
 		log.Printf("Cache store error: %v", err)

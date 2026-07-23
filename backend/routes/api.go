@@ -78,6 +78,8 @@ func SetupRouter() *gin.Engine {
 		// Video endpoints
 		api.GET("/search", handleSearch)
 		api.GET("/trending", handleTrending)
+		// Image proxy for thumbnails (bots and external referrers hit this)
+		api.GET("/proxy", handleImageProxy)
 		// Proxy for media segments (must be before :id to avoid conflict)
 		api.GET("/video/proxy", handleVideoProxy)
 		api.GET("/video/:id", handleGetVideoInfo)
@@ -256,6 +258,35 @@ func handleVideoProxy(c *gin.Context) {
 			c.Header(k, v[0])
 		}
 	}
+	c.Status(resp.StatusCode)
+	io.Copy(c.Writer, resp.Body)
+}
+
+// handleImageProxy proxies thumbnail images (i.ytimg.com, yt3.ggpht.com).
+func handleImageProxy(c *gin.Context) {
+	urlStr := c.Query("url")
+	if urlStr == "" {
+		c.Redirect(http.StatusFound, "https://i.ytimg.com/vi/default/hqdefault.jpg")
+		return
+	}
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	req, err := http.NewRequest("GET", urlStr, nil)
+	if err != nil {
+		c.Redirect(http.StatusFound, "https://i.ytimg.com/vi/default/hqdefault.jpg")
+		return
+	}
+	req.Header.Set("User-Agent", "Mozilla/5.0")
+
+	resp, err := client.Do(req)
+	if err != nil {
+		c.Redirect(http.StatusFound, "https://i.ytimg.com/vi/default/hqdefault.jpg")
+		return
+	}
+	defer resp.Body.Close()
+
+	c.Header("Content-Type", resp.Header.Get("Content-Type"))
+	c.Header("Cache-Control", "public, max-age=86400")
 	c.Status(resp.StatusCode)
 	io.Copy(c.Writer, resp.Body)
 }

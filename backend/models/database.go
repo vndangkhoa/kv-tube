@@ -5,11 +5,13 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"sync"
 
 	_ "modernc.org/sqlite"
 )
 
 var DB *sql.DB
+var CacheMu sync.Mutex // serializes cache writes to avoid SQLITE_BUSY
 
 func InitDB() {
 	dataDir := os.Getenv("KVTUBE_DATA_DIR")
@@ -22,10 +24,13 @@ func InitDB() {
 	}
 
 	dbPath := filepath.Join(dataDir, "kvtube.db")
-	db, err := sql.Open("sqlite", dbPath)
+	db, err := sql.Open("sqlite", dbPath+"?_pragma=busy_timeout(5000)")
 	if err != nil {
 		log.Fatalf("Failed to open database: %v", err)
 	}
+
+	// Limit to 1 connection to serialize writes and avoid "database is locked"
+	db.SetMaxOpenConns(1)
 
 	// Create tables
 	userTable := `CREATE TABLE IF NOT EXISTS users (
@@ -109,11 +114,6 @@ func InitDB() {
 	// Enable WAL mode for better concurrent read/write performance
 	if _, err := db.Exec(`PRAGMA journal_mode=WAL`); err != nil {
 		log.Printf("Warning: Failed to enable WAL mode: %v", err)
-	}
-
-	// Set busy timeout to avoid "database is locked" errors under concurrent writes
-	if _, err := db.Exec(`PRAGMA busy_timeout=5000`); err != nil {
-		log.Printf("Warning: Failed to set busy timeout: %v", err)
 	}
 
 	DB = db
