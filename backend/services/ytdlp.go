@@ -17,7 +17,7 @@ import (
 	"kvtube-go/models"
 )
 
-const channelVideosCacheTTL = 30 * time.Minute
+const channelVideosCacheTTL = 60 * time.Minute
 
 var ytDlpBinPath string
 
@@ -302,11 +302,8 @@ func RunYtDlpSingleJSON(args ...string) ([]byte, error) {
 // runYtDlpWithBase runs yt-dlp with the given base flags, retrying across
 // player clients when YouTube's bot-check gate returns empty output.
 func runYtDlpWithBase(base []string, args ...string) ([]byte, error) {
-	// Player clients to try in order. Empty means yt-dlp's default. YouTube's
-	// bot-check gates certain clients intermittently, and with --ignore-errors
-	// yt-dlp exits 0 but returns empty output, so we treat empty output or a
-	// bot-check message as a signal to fall back to the next client.
-	clients := []string{"", "android", "tv", "ios", "web_safari"}
+	// Player clients to try in order. Reduced to 2 for CPU efficiency on NAS.
+	clients := []string{"", "android"}
 
 	var lastStderr string
 	var lastErr error
@@ -358,7 +355,7 @@ func SearchVideos(query string, limit int, region string) ([]VideoData, error) {
 	if region != "" && region != "GLOBAL" {
 		args = append(args, "--geo-bypass-country", region)
 	}
-	out, err := RunYtDlpCached(cacheKey, 1800, args...)
+	out, err := RunYtDlpCached(cacheKey, 7200, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -381,6 +378,13 @@ func SearchVideos(query string, limit int, region string) ([]VideoData, error) {
 }
 
 func GetVideoInfo(videoID string) (*VideoData, error) {
+	if cached, err := models.GetCachedVideo(videoID); err == nil && len(bytes.TrimSpace(cached)) > 0 {
+		var v VideoData
+		if json.Unmarshal(cached, &v) == nil && v.ID != "" {
+			return &v, nil
+		}
+	}
+
 	url := fmt.Sprintf("https://www.youtube.com/watch?v=%s", videoID)
 
 	args := []string{
@@ -390,7 +394,6 @@ func GetVideoInfo(videoID string) (*VideoData, error) {
 		url,
 	}
 
-	// Skip cache for now to avoid corrupted data issues
 	out, err := RunYtDlp(args...)
 	if err != nil {
 		log.Printf("yt-dlp failed for %s: %v", videoID, err)
@@ -412,6 +415,10 @@ func GetVideoInfo(videoID string) (*VideoData, error) {
 	data := sanitizeVideoData(entry)
 	data.StreamURL = entry.URL
 
+	if b, err := json.Marshal(data); err == nil {
+		_ = models.SetCachedVideo(videoID, string(b), 21600) // cache for 6h
+	}
+
 	return &data, nil
 }
 
@@ -424,6 +431,14 @@ func min(a, b int) int {
 
 // GetPlaybackInfo returns video + audio format information for client-side MSE playback.
 func GetPlaybackInfo(videoID string) (*PlaybackInfo, error) {
+	cacheKey := fmt.Sprintf("playback:%s", videoID)
+	if cached, err := models.GetCachedVideo(cacheKey); err == nil && len(bytes.TrimSpace(cached)) > 0 {
+		var pi PlaybackInfo
+		if json.Unmarshal(cached, &pi) == nil && pi.Title != "" {
+			return &pi, nil
+		}
+	}
+
 	url := fmt.Sprintf("https://www.youtube.com/watch?v=%s", videoID)
 
 	out, err := RunYtDlpSingleJSON(
@@ -544,6 +559,10 @@ func GetPlaybackInfo(videoID string) (*PlaybackInfo, error) {
 				pi.VideoFormats[i], pi.VideoFormats[j] = pi.VideoFormats[j], pi.VideoFormats[i]
 			}
 		}
+	}
+
+	if b, err := json.Marshal(pi); err == nil {
+		_ = models.SetCachedVideo(cacheKey, string(b), 21600) // cache for 6h
 	}
 
 	return pi, nil

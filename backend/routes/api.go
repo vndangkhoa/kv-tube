@@ -243,7 +243,7 @@ func handleRelatedVideos(c *gin.Context) {
 	if err != nil {
 		log.Printf("GetVideoInfo for related error: %v", err)
 		// Fallback: search for similar content
-		results, err := services.SearchVideos("music", limit)
+		results, err := services.SearchVideos("music", limit, "")
 		if err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get related videos"})
 			return
@@ -256,7 +256,7 @@ func handleRelatedVideos(c *gin.Context) {
 	if video.Uploader != "" {
 		query = video.Uploader + " " + video.Title
 	}
-	related, err := services.SearchVideos(query, limit)
+	related, err := services.SearchVideos(query, limit, "")
 	if err != nil {
 		log.Printf("GetRelatedVideos error: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get related videos"})

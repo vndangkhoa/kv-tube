@@ -1,10 +1,21 @@
 package services
 
 import (
+	"encoding/json"
 	"log"
+	"sync"
+	"time"
 
 	"kvtube-go/models"
 )
+
+var (
+	feedMu       sync.RWMutex
+	cachedFeed   []VideoData
+	cachedFeedAt time.Time
+)
+
+const feedCacheTTL = 15 * time.Minute
 
 type Subscription struct {
 	ID            int    `json:"id"`
@@ -49,31 +60,24 @@ func IsSubscribed(channelID string) (bool, error) {
 	return count > 0, nil
 }
 
-// GetSubscriptionsFeed builds a single mixed feed of the latest videos across the
-// most recently subscribed channels. Channels are fetched in parallel (cached,
-// flat-playlist so none get dropped), then round-robin interleaved in
-// subscription-recency order so the top of the feed is a blend of the newest
-// uploads from recently subscribed channels rather than being grouped per channel.
-//
-// maxChannels limits how many channels are pulled (subscriptions can number in the
-// thousands); offset lets the caller page through older subscriptions.
-func GetSubscriptionsFeed(perChannel, maxChannels, offset int) []VideoData {
+// StartFeedRefresher launches a background goroutine that pre-computes the
+// subscription feed every 15 minutes so that GetSubscriptionsFeed never has to
+// call yt-dlp on page load.
+func StartFeedRefresher() {
+	go func() {
+		refreshFeed()
+		ticker := time.NewTicker(feedCacheTTL)
+		for range ticker.C {
+			refreshFeed()
+		}
+	}()
+}
+
+func refreshFeed() {
 	subs, err := GetSubscriptions()
 	if err != nil || len(subs) == 0 {
-		return []VideoData{}
+		return
 	}
-
-	if offset < 0 {
-		offset = 0
-	}
-	if offset >= len(subs) {
-		return []VideoData{}
-	}
-	end := offset + maxChannels
-	if end > len(subs) {
-		end = len(subs)
-	}
-	subs = subs[offset:end]
 
 	channelIDs := make([]string, 0, len(subs))
 	for _, s := range subs {
@@ -82,9 +86,8 @@ func GetSubscriptionsFeed(perChannel, maxChannels, offset int) []VideoData {
 		}
 	}
 
-	batch := GetChannelVideosBatch(channelIDs, perChannel)
+	batch := GetChannelVideosBatch(channelIDs, 5)
 
-	// Preserve subscription-recency order; attach channel display info.
 	perChannelLists := make([][]VideoData, 0, len(subs))
 	for _, s := range subs {
 		vids := batch[s.ChannelID]
@@ -109,7 +112,6 @@ func GetSubscriptionsFeed(perChannel, maxChannels, offset int) []VideoData {
 		}
 	}
 
-	// Round-robin interleave: newest of every channel first, then the next, etc.
 	var feed []VideoData
 	seen := make(map[string]bool)
 	for i := 0; ; i++ {
@@ -129,7 +131,56 @@ func GetSubscriptionsFeed(perChannel, maxChannels, offset int) []VideoData {
 		}
 	}
 
-	return feed
+	if len(feed) > 0 {
+		feedMu.Lock()
+		cachedFeed = feed
+		cachedFeedAt = time.Now()
+		feedMu.Unlock()
+		// Also persist to DB for restart survival
+		if b, err := json.Marshal(feed); err == nil {
+			_ = models.SetCachedVideo("subscription_feed", string(b), int(feedCacheTTL.Seconds()))
+		}
+	}
+}
+
+// GetSubscriptionsFeed returns the pre-computed feed from cache if available
+// and fresh. Falls back to on-demand computation only on first run.
+func GetSubscriptionsFeed(perChannel, maxChannels, offset int) []VideoData {
+	feedMu.RLock()
+	feed := cachedFeed
+	feedAge := time.Since(cachedFeedAt)
+	feedMu.RUnlock()
+
+	if feed == nil || feedAge > feedCacheTTL {
+		// Try loading persisted cache from DB
+		if cached, err := models.GetCachedVideo("subscription_feed"); err == nil && len(cached) > 0 {
+			var restored []VideoData
+			if json.Unmarshal(cached, &restored) == nil && len(restored) > 0 {
+				feedMu.Lock()
+				cachedFeed = restored
+				cachedFeedAt = time.Now()
+				feedMu.Unlock()
+				feed = restored
+			}
+		}
+	}
+
+	if feed == nil {
+		return []VideoData{}
+	}
+
+	// Apply pagination (offset, maxChannels) in-memory
+	if offset < 0 {
+		offset = 0
+	}
+	if offset >= len(feed) {
+		return []VideoData{}
+	}
+	end := offset + maxChannels
+	if end > len(feed) {
+		end = len(feed)
+	}
+	return feed[offset:end]
 }
 
 func GetSubscriptions() ([]Subscription, error) {

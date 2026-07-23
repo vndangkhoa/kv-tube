@@ -6,6 +6,7 @@ import (
 
 	"kvtube-go/models"
 	"kvtube-go/routes"
+	"kvtube-go/services"
 
 	"github.com/gin-gonic/gin"
 	"github.com/joho/godotenv"
@@ -17,6 +18,12 @@ func main() {
 
 	// Initialize Database
 	models.InitDB()
+
+	// Start background cache cleanup
+	models.StartCacheCleanupScheduler()
+
+	// Start subscription feed background refresher (runs yt-dlp in background, not on page load)
+	services.StartFeedRefresher()
 
 	// Setup Gin Engine
 	if os.Getenv("GIN_MODE") == "release" {
