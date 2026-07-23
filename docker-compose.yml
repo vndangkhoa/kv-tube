@@ -1,15 +1,6 @@
 services:
   kv-tube:
-    # Pull from Docker Hub (recommended)
-    image: vndangkhoa/kv-tube:latest
-    # Or from another registry (uncomment to use instead)
-    # image: ghcr.io/vndangkhoa/kv-tube:latest
-    # image: git.khoavo.myds.me/vndangkhoa/kv-tube:latest
-
-    # Or build locally (uncomment to use instead)
-    # build:
-    #   context: .
-    #   dockerfile: Dockerfile
+    image: git.khoavo.myds.me/vndangkhoa/kv-tube:staging
 
     container_name: kv-tube
     platform: linux/amd64
@@ -21,14 +12,17 @@ services:
 
     volumes:
       - ./data:/app/data
+      - ./cookies.txt:/app/data/cookies.txt  # Optional: for YouTube comments support
 
     environment:
       - KVTUBE_DATA_DIR=/app/data
+      - YTDLP_COOKIES=/app/data/cookies.txt  # Comment out if no cookies.txt
       - GIN_MODE=release
       - NODE_ENV=production
-      # CORS - replace with your actual domain(s)
-      # Example: https://kv-tube.example.com,http://localhost:5011
       - CORS_ALLOWED_ORIGINS=http://localhost:3000,http://127.0.0.1:3000,http://localhost:5011
+
+    devices:
+      - /dev/ptmx  # Required for downloads
 
     labels:
       - "com.centurylinklabs.watchtower.enable=true"
