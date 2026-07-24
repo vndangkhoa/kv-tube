@@ -207,7 +207,7 @@ func (dm *DownloadManager) runDownload(job *downloadJob) {
 		"--newline",
 		"--no-colors",
 	}
-	args = appendYtDlpCookies(args)
+	args = appendYtDlpOpts(args)
 	args = append(args, url)
 
 	cmd := exec.Command(ytDlpBinPath, args...)
@@ -253,7 +253,7 @@ func (dm *DownloadManager) runDownload(job *downloadJob) {
 				}
 			}
 		}()
-		err = cmd.Wait()
+		err = downloadWaitWithTimeout(cmd, 30*time.Minute)
 	} else {
 		defer ptmx.Close()
 
@@ -298,7 +298,7 @@ func (dm *DownloadManager) runDownload(job *downloadJob) {
 			log.Printf("[download] pty scanner finished for %s (read %d lines, err=%v)", job.videoID, lineCount, scanner.Err())
 		}()
 
-		err = cmd.Wait()
+		err = downloadWaitWithTimeout(cmd, 30*time.Minute)
 	}
 
 	log.Printf("[download] yt-dlp finished for %s (err=%v)", job.videoID, err)
@@ -446,4 +446,23 @@ func parseSpeedETA(line string) (string, string) {
 	}
 
 	return speed, eta
+}
+
+// downloadWaitWithTimeout waits for a command to finish, killing it if it
+// exceeds the given timeout. This prevents zombie yt-dlp processes when
+// YouTube blocks the server IP and the process hangs indefinitely.
+func downloadWaitWithTimeout(cmd *exec.Cmd, timeout time.Duration) error {
+	done := make(chan error, 1)
+	go func() {
+		done <- cmd.Wait()
+	}()
+
+	select {
+	case err := <-done:
+		return err
+	case <-time.After(timeout):
+		log.Printf("[download] Process timed out after %v, killing PID %d", timeout, cmd.Process.Pid)
+		_ = cmd.Process.Kill()
+		return fmt.Errorf("download timed out after %v", timeout)
+	}
 }

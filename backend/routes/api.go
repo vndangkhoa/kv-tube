@@ -67,6 +67,10 @@ func SetupRouter() *gin.Engine {
 		c.Next()
 	})
 
+	// Rate limiting middleware - prevents burst requests that trigger YouTube blocks
+	rateLimiter := parseRateLimitConfig()
+	r.Use(RateLimitMiddleware(rateLimiter))
+
 	// API Routes - Using yt-dlp for video operations
 	api := r.Group("/api")
 	{
@@ -500,7 +504,7 @@ func handleChannelAvatars(c *gin.Context) {
 	results := make(map[string]avatarResult, len(ids))
 	var mu sync.Mutex
 	var wg sync.WaitGroup
-	sem := make(chan struct{}, 6)
+	sem := make(chan struct{}, 3)
 
 	for _, id := range ids {
 		wg.Add(1)

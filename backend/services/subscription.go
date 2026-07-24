@@ -74,6 +74,13 @@ func StartFeedRefresher() {
 }
 
 func refreshFeed() {
+	// Skip refresh if YouTube is currently blocking this server's IP.
+	// This prevents wasting CPU on yt-dlp processes that will timeout.
+	if isYtDlpBlocked() {
+		log.Printf("[feed] Skipping refresh: YouTube is blocking this server's IP")
+		return
+	}
+
 	subs, err := GetSubscriptions()
 	if err != nil || len(subs) == 0 {
 		return

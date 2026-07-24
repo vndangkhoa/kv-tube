@@ -21,6 +21,49 @@ const channelVideosCacheTTL = 60 * time.Minute
 
 var ytDlpBinPath string
 
+// ytDlpBlocked tracks whether YouTube is currently blocking this server's IP.
+// When true, all yt-dlp calls are short-circuited to avoid wasting CPU on
+// processes that will inevitably time out. The flag auto-resolves after a
+// cooldown period.
+var (
+	ytDlpBlocked     bool
+	ytDlpBlockedAt   time.Time
+	ytDlpBlockedMu   sync.RWMutex
+	ytDlpBlockCooldown = 2 * time.Minute
+)
+
+// markYtDlpBlocked records that YouTube is blocking this server's IP.
+func markYtDlpBlocked() {
+	ytDlpBlockedMu.Lock()
+	defer ytDlpBlockedMu.Unlock()
+	if !ytDlpBlocked {
+		log.Printf("[ytdlp] YouTube is blocking this server's IP, pausing new requests for %v", ytDlpBlockCooldown)
+	}
+	ytDlpBlocked = true
+	ytDlpBlockedAt = time.Now()
+}
+
+// isYtDlpBlocked reports whether YouTube is currently blocking. It
+// auto-clears after the cooldown period.
+func isYtDlpBlocked() bool {
+	ytDlpBlockedMu.RLock()
+	defer ytDlpBlockedMu.RUnlock()
+	if !ytDlpBlocked {
+		return false
+	}
+	if time.Since(ytDlpBlockedAt) > ytDlpBlockCooldown {
+		// Auto-clear after cooldown
+		go func() {
+			ytDlpBlockedMu.Lock()
+			ytDlpBlocked = false
+			ytDlpBlockedMu.Unlock()
+			log.Printf("[ytdlp] Block cooldown expired, resuming yt-dlp requests")
+		}()
+		return false
+	}
+	return true
+}
+
 func init() {
 	ytDlpBinPath = resolveYtDlpBinPath()
 }
@@ -257,17 +300,74 @@ func appendYtDlpCookies(args []string) []string {
 	return args
 }
 
+// ytDlpProxyArgs returns proxy arguments for yt-dlp from the YTDLP_PROXY
+// environment variable. Supports SOCKS5 and HTTP proxies, e.g.:
+//   - YTDLP_PROXY=socks5://user:pass@host:port
+//   - YTDLP_PROXY=http://user:pass@host:port
+func ytDlpProxyArgs() []string {
+	if p := os.Getenv("YTDLP_PROXY"); p != "" {
+		return []string{"--proxy", p}
+	}
+	return nil
+}
+
+// appendYtDlpProxy adds any configured proxy arguments to a yt-dlp arg list.
+func appendYtDlpProxy(args []string) []string {
+	if p := ytDlpProxyArgs(); p != nil {
+		return append(args, p...)
+	}
+	return args
+}
+
+// appendYtDlpOpts adds both cookie and proxy arguments to a yt-dlp arg list.
+func appendYtDlpOpts(args []string) []string {
+	args = appendYtDlpCookies(args)
+	args = appendYtDlpProxy(args)
+	return args
+}
+
+// ytDlpTimeout is the maximum time allowed for a single yt-dlp invocation.
+// When YouTube blocks the server IP, yt-dlp can hang for minutes without a
+// timeout, consuming a goroutine and (when retried) a full process.
+var ytDlpTimeout = 45 * time.Second
+
 // runYtDlpArgs runs yt-dlp with the exact given argument list.
+// It enforces a hard timeout to prevent zombie processes when YouTube is
+// blocking or rate-limiting the server IP. If the server is known to be
+// blocked, it short-circuits immediately.
 func runYtDlpArgs(cmdArgs []string) ([]byte, string, error) {
-	cmd := exec.Command(ytDlpBinPath, appendYtDlpCookies(cmdArgs)...)
+	if isYtDlpBlocked() {
+		return nil, "", fmt.Errorf("YouTube is blocking this server's IP, try again later")
+	}
+
+	cmd := exec.Command(ytDlpBinPath, appendYtDlpOpts(cmdArgs)...)
 
 	var out bytes.Buffer
 	var stderr bytes.Buffer
 	cmd.Stdout = &out
 	cmd.Stderr = &stderr
 
-	err := cmd.Run()
-	return out.Bytes(), stderr.String(), err
+	if err := cmd.Start(); err != nil {
+		return nil, "", err
+	}
+
+	done := make(chan error, 1)
+	go func() {
+		done <- cmd.Wait()
+	}()
+
+	select {
+	case err := <-done:
+		return out.Bytes(), stderr.String(), err
+	case <-time.After(ytDlpTimeout):
+		// Kill the process tree to prevent zombie processes
+		if cmd.Process != nil {
+			_ = cmd.Process.Kill()
+		}
+		log.Printf("[ytdlp] Process timed out after %v (killed)", ytDlpTimeout)
+		markYtDlpBlocked()
+		return nil, "", fmt.Errorf("yt-dlp timed out after %v", ytDlpTimeout)
+	}
 }
 
 // RunYtDlp securely executes yt-dlp with the given arguments and returns JSON output.
@@ -336,6 +436,9 @@ func runYtDlpWithBase(base []string, args ...string) ([]byte, error) {
 	}
 
 	log.Printf("yt-dlp failed after all client fallbacks: %v, stderr: %s", lastErr, lastStderr)
+	if IsBotCheckError(lastStderr) {
+		markYtDlpBlocked()
+	}
 	if lastErr != nil {
 		return nil, lastErr
 	}
@@ -994,7 +1097,7 @@ func GetVideoUploadDates(videoIDs []string) map[string]string {
 
 	// Keep concurrency low: heavy parallel extraction trips YouTube's bot check,
 	// which then breaks unrelated requests (e.g. video playback).
-	sem := make(chan struct{}, 3)
+	sem := make(chan struct{}, 2)
 	var wg sync.WaitGroup
 
 	for _, id := range toFetch {
@@ -1089,7 +1192,7 @@ func GetVideoStats(videoIDs []string) map[string]VideoStats {
 		return results
 	}
 
-	sem := make(chan struct{}, 3)
+	sem := make(chan struct{}, 2)
 	var wg sync.WaitGroup
 
 	for _, id := range toFetch {
@@ -1186,8 +1289,9 @@ func GetChannelVideosBatch(channelIDs []string, limit int) map[string][]VideoDat
 		toFetch = append(toFetch, cid)
 	}
 
-	// Worker pool: max 5 concurrent yt-dlp processes
-	sem := make(chan struct{}, 5)
+	// Worker pool: max 3 concurrent yt-dlp processes (reduced from 5 to lower
+	// CPU usage on NAS devices and reduce chance of triggering YouTube blocks).
+	sem := make(chan struct{}, 3)
 
 	for _, cid := range toFetch {
 		wg.Add(1)
@@ -1224,6 +1328,10 @@ type Comment struct {
 }
 
 func GetComments(videoID string, limit int) ([]Comment, error) {
+	if isYtDlpBlocked() {
+		return nil, fmt.Errorf("YouTube is blocking this server's IP, try again later")
+	}
+
 	url := fmt.Sprintf("https://www.youtube.com/watch?v=%s", videoID)
 
 	cmdArgs := []string{
@@ -1238,7 +1346,7 @@ func GetComments(videoID string, limit int) ([]Comment, error) {
 		url,
 	}
 
-	cmd := exec.Command(ytDlpBinPath, appendYtDlpCookies(cmdArgs)...)
+	cmd := exec.Command(ytDlpBinPath, appendYtDlpOpts(cmdArgs)...)
 
 	var out bytes.Buffer
 	var stderr bytes.Buffer
@@ -1321,6 +1429,10 @@ func formatCommentTime(timestamp int64) string {
 // format. Player clients are tried in order so a "confirm you're not a bot"
 // gate on the default client is bypassed automatically.
 func ResolveStreamURL(videoID string, heightCap int, forceAvc1 bool) (string, error) {
+	if isYtDlpBlocked() {
+		return "", fmt.Errorf("YouTube is blocking this server's IP, try again later")
+	}
+
 	urlStr := fmt.Sprintf("https://www.youtube.com/watch?v=%s", videoID)
 
 	sel := "best"
@@ -1336,7 +1448,8 @@ func ResolveStreamURL(videoID string, heightCap int, forceAvc1 bool) (string, er
 	}
 
 	const ua = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-	clients := []string{"web", "android", "tv", "ios", "web_safari"}
+	// Reduced from 5 to 3 clients to lower CPU usage on NAS when blocked.
+	clients := []string{"web", "android", "tv"}
 
 	for _, client := range clients {
 		args := []string{
@@ -1346,7 +1459,7 @@ func ResolveStreamURL(videoID string, heightCap int, forceAvc1 bool) (string, er
 			"-g", "-f", fmtStr,
 			urlStr,
 		}
-		args = appendYtDlpCookies(args)
+		args = appendYtDlpOpts(args)
 
 		out, _, err := runYtDlpArgs(args)
 		if err == nil {
