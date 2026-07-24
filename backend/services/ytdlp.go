@@ -282,14 +282,65 @@ func IsBotCheckError(stderr string) bool {
 func ytDlpCookieArgs() []string {
 	if p := os.Getenv("YTDLP_COOKIES"); p != "" {
 		if _, err := os.Stat(p); err == nil {
-			return []string{"--cookies", p}
+			if isValidNetscapeCookieFile(p) {
+				return []string{"--cookies", p}
+			}
+			log.Printf("[ytdlp] YTDLP_COOKIES file exists but is not valid Netscape format: %s (ignoring)", p)
+		} else {
+			log.Printf("[ytdlp] YTDLP_COOKIES file not found: %s", p)
 		}
-		log.Printf("[ytdlp] YTDLP_COOKIES file not found: %s", p)
 	}
 	if b := os.Getenv("YTDLP_COOKIES_FROM_BROWSER"); b != "" {
 		return []string{"--cookies-from-browser", b}
 	}
 	return nil
+}
+
+// isValidNetscapeCookieFile checks if a file looks like a valid Netscape
+// format cookies file. Valid files start with a comment line containing
+// "Netscape" or "HTTP Cookie File", or with tab-separated fields.
+func isValidNetscapeCookieFile(path string) bool {
+	f, err := os.Open(path)
+	if err != nil {
+		return false
+	}
+	defer f.Close()
+
+	buf := make([]byte, 512)
+	n, err := f.Read(buf)
+	if n == 0 {
+		return false
+	}
+	header := string(buf[:n])
+
+	// Check for valid Netscape cookie file headers
+	for _, validHeader := range []string{
+		"# Netscape HTTP Cookie File",
+		"# HTTP Cookie File",
+		"# This file was generated",
+		"# http://curl.haxx.se/rfc/cookie_spec.html",
+		"# This is a generated file!  Do not edit.",
+	} {
+		if strings.HasPrefix(header, validHeader) {
+			return true
+		}
+	}
+
+	// Also accept files that start with a tab-separated domain line
+	// (some tools produce cookies without the header comment)
+	lines := strings.SplitN(header, "\n", 3)
+	if len(lines) > 0 {
+		firstLine := strings.TrimSpace(lines[0])
+		if firstLine != "" && !strings.HasPrefix(firstLine, "#") {
+			// Looks like a data line, check if it has tab separators (cookie format)
+			fields := strings.Split(firstLine, "\t")
+			if len(fields) >= 7 {
+				return true
+			}
+		}
+	}
+
+	return false
 }
 
 // appendYtDlpCookies adds any configured cookie arguments to a yt-dlp arg list.
