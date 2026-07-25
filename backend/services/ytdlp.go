@@ -382,6 +382,16 @@ func appendYtDlpOpts(args []string) []string {
 // timeout, consuming a goroutine and (when retried) a full process.
 var ytDlpTimeout = 45 * time.Second
 
+// ytDlpSem is a global concurrency limiter for yt-dlp processes.
+// Each yt-dlp invocation is CPU-heavy (spawns a full Python process), so we
+// cap the total number of concurrent processes across ALL endpoints to avoid
+// saturating the CPU on a NAS. This must be the ONLY place that blocks on
+// concurrency — per-endpoint semaphores are removed to keep this single gate.
+var ytDlpSem = make(chan struct{}, 5)
+
+func acquireYtDlp() { ytDlpSem <- struct{}{} }
+func releaseYtDlp()  { <-ytDlpSem }
+
 // runYtDlpArgs runs yt-dlp with the exact given argument list.
 // It enforces a hard timeout to prevent zombie processes when YouTube is
 // blocking or rate-limiting the server IP. If the server is known to be
@@ -390,6 +400,9 @@ func runYtDlpArgs(cmdArgs []string) ([]byte, string, error) {
 	if isYtDlpBlocked() {
 		return nil, "", fmt.Errorf("YouTube is blocking this server's IP, try again later")
 	}
+
+	acquireYtDlp()
+	defer releaseYtDlp()
 
 	cmd := exec.Command(ytDlpBinPath, appendYtDlpOpts(cmdArgs)...)
 
@@ -1146,17 +1159,12 @@ func GetVideoUploadDates(videoIDs []string) map[string]string {
 		return results
 	}
 
-	// Keep concurrency low: heavy parallel extraction trips YouTube's bot check,
-	// which then breaks unrelated requests (e.g. video playback).
-	sem := make(chan struct{}, 2)
 	var wg sync.WaitGroup
 
 	for _, id := range toFetch {
 		wg.Add(1)
 		go func(videoID string) {
 			defer wg.Done()
-			sem <- struct{}{}
-			defer func() { <-sem }()
 
 			date := fetchUploadDate(videoID)
 			if date == "" {
@@ -1243,15 +1251,12 @@ func GetVideoStats(videoIDs []string) map[string]VideoStats {
 		return results
 	}
 
-	sem := make(chan struct{}, 2)
 	var wg sync.WaitGroup
 
 	for _, id := range toFetch {
 		wg.Add(1)
 		go func(videoID string) {
 			defer wg.Done()
-			sem <- struct{}{}
-			defer func() { <-sem }()
 
 			s, ok := fetchVideoStats(videoID)
 			if !ok {
@@ -1340,16 +1345,10 @@ func GetChannelVideosBatch(channelIDs []string, limit int) map[string][]VideoDat
 		toFetch = append(toFetch, cid)
 	}
 
-	// Worker pool: max 3 concurrent yt-dlp processes (reduced from 5 to lower
-	// CPU usage on NAS devices and reduce chance of triggering YouTube blocks).
-	sem := make(chan struct{}, 3)
-
 	for _, cid := range toFetch {
 		wg.Add(1)
 		go func(channelID string) {
 			defer wg.Done()
-			sem <- struct{}{}
-			defer func() { <-sem }()
 
 			videos, err := GetChannelVideos(channelID, limit)
 			if err != nil {

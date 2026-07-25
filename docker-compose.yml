@@ -12,11 +12,11 @@ services:
 
     volumes:
       - ./data:/app/data
-      - ./cookies.txt:/app/data/cookies.txt  # Optional: for YouTube comments support
+      # - ./cookies.txt:/app/data/cookies.txt  # Optional: place valid Netscape cookies.txt here
 
     environment:
       - KVTUBE_DATA_DIR=/app/data
-      - YTDLP_COOKIES=/app/data/cookies.txt  # Comment out if no cookies.txt
+      # - YTDLP_COOKIES=/app/data/cookies.txt  # Enable only with valid Netscape cookies.txt
       - GIN_MODE=release
       - NODE_ENV=production
       - CORS_ALLOWED_ORIGINS=http://localhost:3000,http://127.0.0.1:3000,http://localhost:5011
