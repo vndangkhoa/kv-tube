@@ -12,6 +12,7 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/creack/pty"
@@ -211,6 +212,7 @@ func (dm *DownloadManager) runDownload(job *downloadJob) {
 	args = append(args, url)
 
 	cmd := exec.Command(ytDlpBinPath, args...)
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 
 	log.Printf("[download] Starting yt-dlp for %s (quality=%s)", job.videoID, job.quality)
 
@@ -448,9 +450,8 @@ func parseSpeedETA(line string) (string, string) {
 	return speed, eta
 }
 
-// downloadWaitWithTimeout waits for a command to finish, killing it if it
-// exceeds the given timeout. This prevents zombie yt-dlp processes when
-// YouTube blocks the server IP and the process hangs indefinitely.
+// downloadWaitWithTimeout waits for a command to finish, killing its process group if it
+// exceeds the given timeout.
 func downloadWaitWithTimeout(cmd *exec.Cmd, timeout time.Duration) error {
 	done := make(chan error, 1)
 	go func() {
@@ -461,8 +462,11 @@ func downloadWaitWithTimeout(cmd *exec.Cmd, timeout time.Duration) error {
 	case err := <-done:
 		return err
 	case <-time.After(timeout):
-		log.Printf("[download] Process timed out after %v, killing PID %d", timeout, cmd.Process.Pid)
-		_ = cmd.Process.Kill()
+		if cmd.Process != nil && cmd.Process.Pid > 0 {
+			log.Printf("[download] Process timed out after %v, killing process group for PID %d", timeout, cmd.Process.Pid)
+			_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+		}
+		<-done
 		return fmt.Errorf("download timed out after %v", timeout)
 	}
 }

@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"kvtube-go/models"
@@ -264,14 +265,33 @@ func RunYtDlpCached(cacheKey string, ttlSeconds int, args ...string) ([]byte, er
 	return data, nil
 }
 
+var (
+	cookieWarningLogged   bool
+	cookieWarningLoggedMu sync.Mutex
+)
+
+func logCookieWarningOnce(msg string, args ...interface{}) {
+	cookieWarningLoggedMu.Lock()
+	defer cookieWarningLoggedMu.Unlock()
+	if !cookieWarningLogged {
+		log.Printf(msg, args...)
+		cookieWarningLogged = true
+	}
+}
+
 // IsBotCheckError reports whether yt-dlp's stderr indicates YouTube's
-// "confirm you're not a bot" gate, which can usually be bypassed by
-// switching to an alternate player client.
+// bot gate or IP block.
 func IsBotCheckError(stderr string) bool {
 	s := strings.ToLower(stderr)
 	return strings.Contains(s, "not a bot") ||
 		strings.Contains(s, "sign in to confirm") ||
-		strings.Contains(s, "confirm you")
+		strings.Contains(s, "confirm you") ||
+		strings.Contains(s, "blocking this server's ip") ||
+		strings.Contains(s, "http error 429") ||
+		strings.Contains(s, "too many requests") ||
+		strings.Contains(s, "rate limit") ||
+		strings.Contains(s, "captcha") ||
+		strings.Contains(s, "bot-check")
 }
 
 // ytDlpCookieArgs returns cookie arguments for yt-dlp derived from the
@@ -285,9 +305,8 @@ func ytDlpCookieArgs() []string {
 			if isValidNetscapeCookieFile(p) {
 				return []string{"--cookies", p}
 			}
-			log.Printf("[ytdlp] YTDLP_COOKIES file exists but is not valid Netscape format: %s (ignoring)", p)
 		} else {
-			log.Printf("[ytdlp] YTDLP_COOKIES file not found: %s", p)
+			logCookieWarningOnce("[ytdlp] YTDLP_COOKIES file not found: %s", p)
 		}
 	}
 	if b := os.Getenv("YTDLP_COOKIES_FROM_BROWSER"); b != "" {
@@ -297,8 +316,7 @@ func ytDlpCookieArgs() []string {
 }
 
 // isValidNetscapeCookieFile checks if a file looks like a valid Netscape
-// format cookies file. Valid files start with a comment line containing
-// "Netscape" or "HTTP Cookie File", or with tab-separated fields.
+// format cookies file.
 func isValidNetscapeCookieFile(path string) bool {
 	f, err := os.Open(path)
 	if err != nil {
@@ -306,40 +324,33 @@ func isValidNetscapeCookieFile(path string) bool {
 	}
 	defer f.Close()
 
-	buf := make([]byte, 512)
+	buf := make([]byte, 1024)
 	n, err := f.Read(buf)
 	if n == 0 {
+		logCookieWarningOnce("[ytdlp] YTDLP_COOKIES file is empty: %s (ignoring)", path)
 		return false
 	}
 	header := string(buf[:n])
 
-	// Check for valid Netscape cookie file headers
-	for _, validHeader := range []string{
-		"# Netscape HTTP Cookie File",
-		"# HTTP Cookie File",
-		"# This file was generated",
-		"# http://curl.haxx.se/rfc/cookie_spec.html",
-		"# This is a generated file!  Do not edit.",
-	} {
-		if strings.HasPrefix(header, validHeader) {
-			return true
-		}
+	lowerHeader := strings.ToLower(header)
+	if strings.Contains(lowerHeader, "netscape") ||
+		strings.Contains(lowerHeader, "cookie file") ||
+		strings.Contains(lowerHeader, "curl.haxx.se") {
+		return true
 	}
 
-	// Also accept files that start with a tab-separated domain line
-	// (some tools produce cookies without the header comment)
-	lines := strings.SplitN(header, "\n", 3)
-	if len(lines) > 0 {
-		firstLine := strings.TrimSpace(lines[0])
-		if firstLine != "" && !strings.HasPrefix(firstLine, "#") {
-			// Looks like a data line, check if it has tab separators (cookie format)
-			fields := strings.Split(firstLine, "\t")
-			if len(fields) >= 7 {
+	lines := strings.Split(header, "\n")
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line != "" && !strings.HasPrefix(line, "#") {
+			fields := strings.Split(line, "\t")
+			if len(fields) >= 6 {
 				return true
 			}
 		}
 	}
 
+	logCookieWarningOnce("[ytdlp] YTDLP_COOKIES file exists but is not valid Netscape format: %s (ignoring)", path)
 	return false
 }
 
@@ -378,24 +389,18 @@ func appendYtDlpOpts(args []string) []string {
 }
 
 // ytDlpTimeout is the maximum time allowed for a single yt-dlp invocation.
-// When YouTube blocks the server IP, yt-dlp can hang for minutes without a
-// timeout, consuming a goroutine and (when retried) a full process.
-var ytDlpTimeout = 45 * time.Second
+var ytDlpTimeout = 15 * time.Second
 
 // ytDlpSem is a global concurrency limiter for yt-dlp processes.
-// Each yt-dlp invocation is CPU-heavy (spawns a full Python process), so we
-// cap the total number of concurrent processes across ALL endpoints to avoid
-// saturating the CPU on a NAS. This must be the ONLY place that blocks on
-// concurrency — per-endpoint semaphores are removed to keep this single gate.
 var ytDlpSem = make(chan struct{}, 5)
 
 func acquireYtDlp() { ytDlpSem <- struct{}{} }
 func releaseYtDlp()  { <-ytDlpSem }
 
 // runYtDlpArgs runs yt-dlp with the exact given argument list.
-// It enforces a hard timeout to prevent zombie processes when YouTube is
-// blocking or rate-limiting the server IP. If the server is known to be
-// blocked, it short-circuits immediately.
+// It enforces a hard timeout and kills the entire process group on timeout
+// to prevent zombie processes. If the server is known to be blocked, it
+// short-circuits immediately.
 func runYtDlpArgs(cmdArgs []string) ([]byte, string, error) {
 	if isYtDlpBlocked() {
 		return nil, "", fmt.Errorf("YouTube is blocking this server's IP, try again later")
@@ -405,6 +410,7 @@ func runYtDlpArgs(cmdArgs []string) ([]byte, string, error) {
 	defer releaseYtDlp()
 
 	cmd := exec.Command(ytDlpBinPath, appendYtDlpOpts(cmdArgs)...)
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 
 	var out bytes.Buffer
 	var stderr bytes.Buffer
@@ -424,19 +430,18 @@ func runYtDlpArgs(cmdArgs []string) ([]byte, string, error) {
 	case err := <-done:
 		return out.Bytes(), stderr.String(), err
 	case <-time.After(ytDlpTimeout):
-		// Kill the process tree to prevent zombie processes
-		if cmd.Process != nil {
-			_ = cmd.Process.Kill()
+		if cmd.Process != nil && cmd.Process.Pid > 0 {
+			// Kill the entire process group (-pid) to terminate python and all child processes
+			_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
 		}
-		log.Printf("[ytdlp] Process timed out after %v (killed)", ytDlpTimeout)
+		<-done
+		log.Printf("[ytdlp] Process timed out after %v (killed process group)", ytDlpTimeout)
 		markYtDlpBlocked()
 		return nil, "", fmt.Errorf("yt-dlp timed out after %v", ytDlpTimeout)
 	}
 }
 
 // RunYtDlp securely executes yt-dlp with the given arguments and returns JSON output.
-// If YouTube's bot-check is hit, it retries once with the android player client,
-// which is not subject to the same gate.
 func RunYtDlp(args ...string) ([]byte, error) {
 	base := []string{
 		"--dump-json",
@@ -450,8 +455,7 @@ func RunYtDlp(args ...string) ([]byte, error) {
 }
 
 // RunYtDlpSingleJSON runs yt-dlp expecting a single JSON document (for use with
-// -J / --dump-single-json). It omits --dump-json, which would otherwise emit
-// one object per entry and corrupt single-JSON output.
+// -J / --dump-single-json).
 func RunYtDlpSingleJSON(args ...string) ([]byte, error) {
 	base := []string{
 		"--no-warnings",
@@ -466,12 +470,15 @@ func RunYtDlpSingleJSON(args ...string) ([]byte, error) {
 // runYtDlpWithBase runs yt-dlp with the given base flags, retrying across
 // player clients when YouTube's bot-check gate returns empty output.
 func runYtDlpWithBase(base []string, args ...string) ([]byte, error) {
-	// Player clients to try in order. Reduced to 2 for CPU efficiency on NAS.
 	clients := []string{"", "android"}
 
 	var lastStderr string
 	var lastErr error
 	for _, client := range clients {
+		if isYtDlpBlocked() {
+			return nil, fmt.Errorf("YouTube is blocking this server's IP, try again later")
+		}
+
 		cmdArgs := append([]string{}, base...)
 		if client != "" {
 			cmdArgs = append(cmdArgs, "--extractor-args", "youtube:player_client="+client)
@@ -490,23 +497,27 @@ func runYtDlpWithBase(base []string, args ...string) ([]byte, error) {
 			return out, nil
 		}
 
-		if client == "" {
-			log.Printf("yt-dlp default client failed (bot-check=%v, err=%v), falling back", IsBotCheckError(stderr), err)
-		} else {
-			log.Printf("yt-dlp client %q failed (bot-check=%v, err=%v), falling back", client, IsBotCheckError(stderr), err)
-		}
 		lastStderr = stderr
 		lastErr = err
+
+		if IsBotCheckError(stderr) {
+			log.Printf("[ytdlp] Bot-check/IP block detected on client %q: %s", client, stderr)
+			markYtDlpBlocked()
+			break // Stop trying additional clients if IP is blocked
+		}
+
+		if client == "" {
+			log.Printf("yt-dlp default client failed (err=%v), falling back", err)
+		} else {
+			log.Printf("yt-dlp client %q failed (err=%v), falling back", client, err)
+		}
 	}
 
 	log.Printf("yt-dlp failed after all client fallbacks: %v, stderr: %s", lastErr, lastStderr)
-	if IsBotCheckError(lastStderr) {
-		markYtDlpBlocked()
-	}
 	if lastErr != nil {
 		return nil, lastErr
 	}
-	return nil, fmt.Errorf("yt-dlp returned no usable output (possible bot-check): %s", lastStderr)
+	return nil, fmt.Errorf("yt-dlp returned no usable output: %s", lastStderr)
 }
 
 func SearchVideos(query string, limit int, region string) ([]VideoData, error) {
@@ -1134,13 +1145,86 @@ func GetChannelPage(channelID string, limit int) (*ChannelPage, error) {
 	return page, nil
 }
 
+// fetchVideoStatsBatch fetches view_count and upload_date for a slice of video IDs
+// in batched yt-dlp calls (up to 15 per call) to avoid spawning N separate Python processes.
+func fetchVideoStatsBatch(videoIDs []string) map[string]VideoStats {
+	results := make(map[string]VideoStats)
+	if len(videoIDs) == 0 || isYtDlpBlocked() {
+		return results
+	}
+
+	const chunkSize = 15
+	for i := 0; i < len(videoIDs); i += chunkSize {
+		if isYtDlpBlocked() {
+			break
+		}
+		end := i + chunkSize
+		if end > len(videoIDs) {
+			end = len(videoIDs)
+		}
+		chunk := videoIDs[i:end]
+
+		urls := make([]string, 0, len(chunk))
+		for _, id := range chunk {
+			urls = append(urls, fmt.Sprintf("https://www.youtube.com/watch?v=%s", id))
+		}
+
+		base := []string{
+			"--skip-download",
+			"--no-warnings",
+			"--quiet",
+			"--force-ipv4",
+			"--no-playlist",
+			"--print", "%(id)s|%(view_count)s|%(upload_date)s",
+		}
+
+		out, stderr, err := runYtDlpArgs(append(append([]string{}, base...), urls...))
+		if err != nil && IsBotCheckError(stderr) {
+			retry := append(append([]string{}, base...), "--extractor-args", "youtube:player_client=android")
+			retry = append(retry, urls...)
+			out, _, err = runYtDlpArgs(retry)
+		}
+		if err != nil {
+			continue
+		}
+
+		lines := strings.Split(strings.TrimSpace(string(out)), "\n")
+		for _, line := range lines {
+			line = strings.TrimSpace(line)
+			if line == "" {
+				continue
+			}
+			parts := strings.SplitN(line, "|", 3)
+			if len(parts) >= 1 {
+				id := strings.TrimSpace(parts[0])
+				if id == "" {
+					continue
+				}
+				var s VideoStats
+				if len(parts) > 1 {
+					if n, err := strconv.ParseInt(strings.TrimSpace(parts[1]), 10, 64); err == nil {
+						s.ViewCount = n
+					}
+				}
+				if len(parts) > 2 {
+					d := strings.TrimSpace(parts[2])
+					if d != "" && d != "NA" {
+						s.UploadDate = d
+					}
+				}
+				results[id] = s
+			}
+		}
+	}
+
+	return results
+}
+
 // GetVideoUploadDates resolves the real upload_date (YYYYMMDD) for a list of
-// video IDs, using a persistent SQLite cache and a bounded worker pool.
+// video IDs, using a persistent SQLite cache and batched yt-dlp extraction.
 func GetVideoUploadDates(videoIDs []string) map[string]string {
 	results := make(map[string]string)
-	var mu sync.Mutex
 
-	// Serve cached dates first; only resolve the misses.
 	var toFetch []string
 	for _, id := range videoIDs {
 		if id == "" {
@@ -1159,63 +1243,18 @@ func GetVideoUploadDates(videoIDs []string) map[string]string {
 		return results
 	}
 
-	var wg sync.WaitGroup
-
-	for _, id := range toFetch {
-		wg.Add(1)
-		go func(videoID string) {
-			defer wg.Done()
-
-			date := fetchUploadDate(videoID)
-			if date == "" {
-				return
-			}
-			mu.Lock()
-			results[videoID] = date
-			mu.Unlock()
+	fetched := fetchVideoStatsBatch(toFetch)
+	for id, s := range fetched {
+		if s.UploadDate != "" {
+			results[id] = s.UploadDate
 			_, _ = models.DB.Exec(
 				"INSERT OR REPLACE INTO video_dates_cache (video_id, upload_date, fetched_at) VALUES (?, ?, CURRENT_TIMESTAMP)",
-				videoID, date,
+				id, s.UploadDate,
 			)
-		}(id)
+		}
 	}
 
-	wg.Wait()
 	return results
-}
-
-// fetchUploadDate resolves just the YYYYMMDD upload date for a single video using
-// a lightweight metadata-only extraction (no formats), which is far gentler on
-// YouTube than a full --dump-json. Falls back to the android player client on a
-// bot check.
-func fetchUploadDate(videoID string) string {
-	url := fmt.Sprintf("https://www.youtube.com/watch?v=%s", videoID)
-	base := []string{
-		"--skip-download",
-		"--no-warnings",
-		"--quiet",
-		"--force-ipv4",
-		"--no-playlist",
-		"--print", "%(upload_date)s",
-	}
-
-	out, stderr, err := runYtDlpArgs(append(append([]string{}, base...), url))
-	if err != nil && IsBotCheckError(stderr) {
-		retry := append(append([]string{}, base...), "--extractor-args", "youtube:player_client=android", url)
-		out, _, err = runYtDlpArgs(retry)
-	}
-	if err != nil {
-		return ""
-	}
-
-	date := strings.TrimSpace(string(out))
-	if idx := strings.IndexByte(date, '\n'); idx >= 0 {
-		date = strings.TrimSpace(date[:idx])
-	}
-	if date == "" || date == "NA" {
-		return ""
-	}
-	return date
 }
 
 // VideoStats holds lightweight per-video metadata resolved on demand.
@@ -1225,11 +1264,9 @@ type VideoStats struct {
 }
 
 // GetVideoStats resolves view counts (and upload dates) for a set of video IDs.
-// Flat-playlist listings (used by the channel page) don't include view counts,
-// so we fetch them lazily via a metadata-only extraction and cache long-term.
+// Uses batched yt-dlp calls to prevent CPU saturation and process spawning floods.
 func GetVideoStats(videoIDs []string) map[string]VideoStats {
 	results := make(map[string]VideoStats)
-	var mu sync.Mutex
 
 	var toFetch []string
 	for _, id := range videoIDs {
@@ -1251,71 +1288,15 @@ func GetVideoStats(videoIDs []string) map[string]VideoStats {
 		return results
 	}
 
-	var wg sync.WaitGroup
-
-	for _, id := range toFetch {
-		wg.Add(1)
-		go func(videoID string) {
-			defer wg.Done()
-
-			s, ok := fetchVideoStats(videoID)
-			if !ok {
-				return
-			}
-			mu.Lock()
-			results[videoID] = s
-			mu.Unlock()
-			if b, err := json.Marshal(s); err == nil {
-				_ = models.SetCachedVideo(fmt.Sprintf("videostats:%s", videoID), string(b), int((6 * time.Hour).Seconds()))
-			}
-		}(id)
+	fetched := fetchVideoStatsBatch(toFetch)
+	for id, s := range fetched {
+		results[id] = s
+		if b, err := json.Marshal(s); err == nil {
+			_ = models.SetCachedVideo(fmt.Sprintf("videostats:%s", id), string(b), int((6 * time.Hour).Seconds()))
+		}
 	}
 
-	wg.Wait()
 	return results
-}
-
-// fetchVideoStats grabs view count + upload date for a single video using a
-// metadata-only extraction (no formats), retrying with the android client on a
-// bot check.
-func fetchVideoStats(videoID string) (VideoStats, bool) {
-	url := fmt.Sprintf("https://www.youtube.com/watch?v=%s", videoID)
-	base := []string{
-		"--skip-download",
-		"--no-warnings",
-		"--quiet",
-		"--force-ipv4",
-		"--no-playlist",
-		"--print", "%(view_count)s|%(upload_date)s",
-	}
-
-	out, stderr, err := runYtDlpArgs(append(append([]string{}, base...), url))
-	if err != nil && IsBotCheckError(stderr) {
-		retry := append(append([]string{}, base...), "--extractor-args", "youtube:player_client=android", url)
-		out, _, err = runYtDlpArgs(retry)
-	}
-	if err != nil {
-		return VideoStats{}, false
-	}
-
-	line := strings.TrimSpace(string(out))
-	if idx := strings.IndexByte(line, '\n'); idx >= 0 {
-		line = strings.TrimSpace(line[:idx])
-	}
-	parts := strings.SplitN(line, "|", 2)
-	var s VideoStats
-	if len(parts) > 0 {
-		if n, err := strconv.ParseInt(strings.TrimSpace(parts[0]), 10, 64); err == nil {
-			s.ViewCount = n
-		}
-	}
-	if len(parts) > 1 {
-		d := strings.TrimSpace(parts[1])
-		if d != "" && d != "NA" {
-			s.UploadDate = d
-		}
-	}
-	return s, true
 }
 
 // GetChannelVideosBatch fetches videos for multiple channels in parallel.
@@ -1396,16 +1377,9 @@ func GetComments(videoID string, limit int) ([]Comment, error) {
 		url,
 	}
 
-	cmd := exec.Command(ytDlpBinPath, appendYtDlpOpts(cmdArgs)...)
-
-	var out bytes.Buffer
-	var stderr bytes.Buffer
-	cmd.Stdout = &out
-	cmd.Stderr = &stderr
-
-	err := cmd.Run()
+	outBytes, stderr, err := runYtDlpArgs(cmdArgs)
 	if err != nil {
-		log.Printf("yt-dlp comments error: %v, stderr: %s", err, stderr.String())
+		log.Printf("yt-dlp comments error: %v, stderr: %s", err, stderr)
 		return nil, err
 	}
 
@@ -1423,7 +1397,7 @@ func GetComments(videoID string, limit int) ([]Comment, error) {
 		} `json:"comments"`
 	}
 
-	if err := json.Unmarshal(out.Bytes(), &raw); err != nil {
+	if err := json.Unmarshal(outBytes, &raw); err != nil {
 		return nil, err
 	}
 
