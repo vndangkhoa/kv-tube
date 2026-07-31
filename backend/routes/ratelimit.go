@@ -87,9 +87,16 @@ func (rl *RateLimiter) cleanupLoop() {
 // RateLimitMiddleware returns a Gin middleware that enforces per-IP rate limiting.
 func RateLimitMiddleware(rl *RateLimiter) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		path := c.Request.URL.Path
+		// Exempt proxy endpoints from rate limiting so image thumbnails and media streams never trigger 429
+		if path == "/api/proxy" || path == "/api/video/proxy" {
+			c.Next()
+			return
+		}
+
 		ip := c.ClientIP()
 		if !rl.Allow(ip) {
-			log.Printf("[ratelimit] Rate limit exceeded for %s on %s", ip, c.Request.URL.Path)
+			log.Printf("[ratelimit] Rate limit exceeded for %s on %s", ip, path)
 			c.JSON(http.StatusTooManyRequests, gin.H{"error": "Rate limit exceeded. Please try again later."})
 			c.Abort()
 			return
@@ -101,11 +108,11 @@ func RateLimitMiddleware(rl *RateLimiter) gin.HandlerFunc {
 // parseRateLimitConfig reads rate limit settings from environment variables
 // and returns a configured RateLimiter. Falls back to sensible defaults.
 //
-//	RATE_LIMIT_RATE=60        (requests per interval, default: 60)
+//	RATE_LIMIT_RATE=300       (requests per interval, default: 300)
 //	RATE_LIMIT_INTERVAL=1m    (interval window, default: 1m)
-//	RATE_LIMIT_BURST=20       (burst capacity, default: 20)
+//	RATE_LIMIT_BURST=120      (burst capacity, default: 120)
 func parseRateLimitConfig() *RateLimiter {
-	rate := 60
+	rate := 300
 	if v := os.Getenv("RATE_LIMIT_RATE"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil && n > 0 {
 			rate = n
@@ -119,7 +126,7 @@ func parseRateLimitConfig() *RateLimiter {
 		}
 	}
 
-	burst := 20
+	burst := 120
 	if v := os.Getenv("RATE_LIMIT_BURST"); v != "" {
 		if n, err := strconv.Atoi(v); err == nil && n > 0 {
 			burst = n

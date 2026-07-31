@@ -243,16 +243,22 @@ func extractVideoID(args []string) string {
 	return ""
 }
 
-// RunYtDlpCached executes yt-dlp with caching
+// RunYtDlpCached executes yt-dlp with caching. If yt-dlp fails or is blocked,
+// it attempts to fall back to stale cached data to keep the UI functional.
 func RunYtDlpCached(cacheKey string, ttlSeconds int, args ...string) ([]byte, error) {
-	// Try to get from cache first
-	if cachedData, err := models.GetCachedVideo(cacheKey); err == nil && cachedData != nil {
+	// Try to get from fresh cache first
+	if cachedData, err := models.GetCachedVideo(cacheKey); err == nil && len(bytes.TrimSpace(cachedData)) > 0 {
 		return cachedData, nil
 	}
 
 	// Execute yt-dlp
 	data, err := RunYtDlp(args...)
 	if err != nil {
+		// Fallback to stale cache if available when yt-dlp fails or YouTube is blocking
+		if staleData, sErr := models.GetStaleCachedVideo(cacheKey); sErr == nil && len(bytes.TrimSpace(staleData)) > 0 {
+			log.Printf("[ytdlp] Serving stale cache for key %s (error: %v)", cacheKey, err)
+			return staleData, nil
+		}
 		return nil, err
 	}
 

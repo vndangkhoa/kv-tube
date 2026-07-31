@@ -37,6 +37,28 @@ func GetCachedVideo(videoID string) ([]byte, error) {
 	return data, nil
 }
 
+// GetStaleCachedVideo retrieves cached video data even if expired (used as fallback when YouTube is blocking)
+func GetStaleCachedVideo(videoID string) ([]byte, error) {
+	if DB == nil {
+		return nil, nil
+	}
+
+	var data []byte
+	err := DB.QueryRow(
+		`SELECT data FROM video_cache WHERE video_id = ? ORDER BY expires_at DESC LIMIT 1`,
+		videoID,
+	).Scan(&data)
+
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	return data, nil
+}
+
 // SetCachedVideo stores video data in cache with TTL
 func SetCachedVideo(videoID string, data interface{}, ttlSeconds int) error {
 	if DB == nil {

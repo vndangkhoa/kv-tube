@@ -143,8 +143,8 @@ func handleSearch(c *gin.Context) {
 
 	results, err := services.SearchVideos(query, limit, region)
 	if err != nil {
-		log.Printf("Search error: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to search videos"})
+		log.Printf("Search error for %q: %v", query, err)
+		c.JSON(http.StatusOK, []services.VideoData{})
 		return
 	}
 
@@ -208,7 +208,7 @@ func handleTrending(c *gin.Context) {
 	results, err := services.SearchVideos("popular music trending", limit, region)
 	if err != nil {
 		log.Printf("Trending error: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get trending videos"})
+		c.JSON(http.StatusOK, []services.VideoData{})
 		return
 	}
 
