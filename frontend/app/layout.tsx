@@ -20,8 +20,11 @@ export const metadata: Metadata = {
   description: 'A modern YouTube-like video streaming platform with background playback',
   manifest: '/manifest.json',
   icons: {
-    icon: [{ url: '/icon.svg', type: 'image/svg+xml' }],
-    shortcut: ['/icon.svg'],
+    icon: [
+      { url: '/favicon.ico', sizes: 'any' },
+      { url: '/icon.svg', type: 'image/svg+xml' },
+    ],
+    shortcut: ['/favicon.ico'],
     apple: [{ url: '/apple-touch-icon.png' }],
   },
   appleWebApp: {
