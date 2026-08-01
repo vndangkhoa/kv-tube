@@ -289,9 +289,13 @@ func logCookieWarningOnce(msg string, args ...interface{}) {
 // bot gate or IP block.
 func IsBotCheckError(stderr string) bool {
 	s := strings.ToLower(stderr)
+	// Do NOT treat age-restricted videos ("sign in to confirm your age") as IP blocks/bot checks.
+	if strings.Contains(s, "confirm your age") {
+		return false
+	}
 	return strings.Contains(s, "not a bot") ||
-		strings.Contains(s, "sign in to confirm") ||
-		strings.Contains(s, "confirm you") ||
+		strings.Contains(s, "sign in to confirm you're not a bot") ||
+		strings.Contains(s, "confirm you're not a bot") ||
 		strings.Contains(s, "blocking this server's ip") ||
 		strings.Contains(s, "http error 429") ||
 		strings.Contains(s, "too many requests") ||
@@ -541,7 +545,12 @@ func SearchVideos(query string, limit int, region string) ([]VideoData, error) {
 	}
 	out, err := RunYtDlpCached(cacheKey, 7200, args...)
 	if err != nil {
-		return nil, err
+		if stale, sErr := models.GetStaleCachedVideo(cacheKey); sErr == nil && len(bytes.TrimSpace(stale)) > 0 {
+			out = stale
+			err = nil
+		} else {
+			return nil, err
+		}
 	}
 
 	var results []VideoData
@@ -581,6 +590,13 @@ func GetVideoInfo(videoID string) (*VideoData, error) {
 	out, err := RunYtDlp(args...)
 	if err != nil {
 		log.Printf("yt-dlp failed for %s: %v", videoID, err)
+		if stale, sErr := models.GetStaleCachedVideo(videoID); sErr == nil && len(bytes.TrimSpace(stale)) > 0 {
+			var v VideoData
+			if json.Unmarshal(stale, &v) == nil && v.ID != "" {
+				log.Printf("Serving stale cached video info for %s", videoID)
+				return &v, nil
+			}
+		}
 		return nil, err
 	}
 

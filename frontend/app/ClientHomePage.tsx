@@ -386,7 +386,7 @@ export default function ClientHomePage() {
                 // Build query list: a little personalization + localized topics.
                 const queries = [...historyQueries];
                 for (const topic of shuffled) {
-                    if (queries.length >= 6) break;
+                    if (queries.length >= 2) break;
                     queries.push(topic);
                 }
 
@@ -404,11 +404,17 @@ export default function ClientHomePage() {
             }
 
             // Remove duplicates and filter out videos without thumbnails
-            const uniqueResults = results.filter((video, index, self) => {
+            let uniqueResults = results.filter((video, index, self) => {
                 const isUnique = index === self.findIndex(v => v.id === video.id);
                 const hasThumbnail = isValidThumbnail(video.thumbnail);
                 return isUnique && hasThumbnail;
             });
+
+            // If empty, attempt fallback to general trending content so the feed is never blank
+            if (uniqueResults.length === 0 && category !== 'Trending') {
+                const fallback = await searchVideosClient(rc.trending || 'popular music trending', 20);
+                uniqueResults = fallback.filter(v => isValidThumbnail(v.thumbnail));
+            }
 
             setVideos(uniqueResults);
             setPage(pageNum);
