@@ -41,199 +41,8 @@ interface MsePlayerProps {
     onError?: () => void;
 }
 
-function isProgressive(f: PlaybackFormat): boolean {
-    return f.has_audio || f.fragment_count === 0 || !f.init_url;
-}
-
 function proxyUrl(raw: string): string {
     return `/api/video/proxy?url=${encodeURIComponent(raw)}`;
-}
-
-function buildDashSegmentUrl(fmt: PlaybackFormat, segmentNumber: number): string {
-    const template = fmt.media_url || fmt.init_url || '';
-    const u = new URL(template);
-    const parts = u.pathname.split('/');
-    for (let i = parts.length - 1; i >= 0; i--) {
-        const p = parts[i];
-        if (/^\d+$/.test(p)) {
-            parts[i] = `${segmentNumber}`;
-            break;
-        }
-        if (p.includes('init')) {
-            parts.splice(i, 1, `sq/${segmentNumber}`);
-            break;
-        }
-        if (p === 'sq') {
-            parts.splice(i, 1, `sq/${segmentNumber}`);
-            break;
-        }
-    }
-    u.pathname = parts.join('/');
-    return proxyUrl(u.toString());
-}
-
-function waitForSourceBuffer(sb: SourceBuffer): Promise<void> {
-    return new Promise(resolve => {
-        if (sb.updating) {
-            sb.addEventListener('updateend', () => resolve(), { once: true });
-        } else {
-            resolve();
-        }
-    });
-}
-
-async function fetchBuffer(url: string, signal: AbortSignal): Promise<ArrayBuffer | null> {
-    try {
-        const resp = await fetch(url, { signal });
-        return resp.arrayBuffer();
-    } catch (e: any) {
-        if (e?.name === 'AbortError') return null;
-        throw e;
-    }
-}
-
-async function removeBuffered(sb: SourceBuffer): Promise<void> {
-    if (sb.updating) {
-        await waitForSourceBuffer(sb);
-    }
-    for (let i = sb.buffered.length - 1; i >= 0; i--) {
-        sb.remove(sb.buffered.start(i), sb.buffered.end(i));
-        await waitForSourceBuffer(sb);
-    }
-}
-
-async function runDashPipeline(
-    video: HTMLVideoElement,
-    videoFormat: PlaybackFormat,
-    audioFormat: PlaybackFormat,
-    duration: number,
-    signal: AbortSignal,
-): Promise<void> {
-    const ms = new MediaSource();
-    const msUrl = URL.createObjectURL(ms);
-    video.src = msUrl;
-
-    await new Promise<void>((resolve, reject) => {
-        ms.addEventListener('sourceopen', () => resolve(), { once: true });
-        if (signal.aborted) {
-            URL.revokeObjectURL(msUrl);
-            reject(new DOMException('Aborted', 'AbortError'));
-        }
-    });
-
-    if (signal.aborted) {
-        URL.revokeObjectURL(msUrl);
-        return;
-    }
-
-    const videoMime = `video/${videoFormat.ext}; codecs="${videoFormat.vcodec}"`;
-    const audioMime = `audio/${audioFormat.ext}; codecs="${audioFormat.acodec}"`;
-
-    let videoSb: SourceBuffer;
-    let audioSb: SourceBuffer;
-    try {
-        videoSb = ms.addSourceBuffer(videoMime);
-        videoSb.mode = 'segments';
-        audioSb = ms.addSourceBuffer(audioMime);
-        audioSb.mode = 'segments';
-    } catch (e) {
-        URL.revokeObjectURL(msUrl);
-        throw e;
-    }
-
-    const segmentDuration = duration / videoFormat.fragment_count;
-    let pipelineAbort: AbortController | null = null;
-
-    async function loadFromSegment(startSeg: number): Promise<void> {
-        pipelineAbort?.abort();
-        const localAbort = new AbortController();
-        pipelineAbort = localAbort;
-
-        try { videoSb.abort(); } catch {}
-        try { audioSb.abort(); } catch {}
-
-        await removeBuffered(videoSb);
-        if (localAbort.signal.aborted) return;
-        await removeBuffered(audioSb);
-        if (localAbort.signal.aborted) return;
-
-        const vInit = await fetchBuffer(proxyUrl(videoFormat.init_url!), localAbort.signal);
-        if (!vInit || localAbort.signal.aborted) return;
-
-        const aInit = await fetchBuffer(proxyUrl(audioFormat.init_url!), localAbort.signal);
-        if (!aInit || localAbort.signal.aborted) return;
-
-        videoSb.appendBuffer(vInit);
-        await waitForSourceBuffer(videoSb);
-        if (localAbort.signal.aborted) return;
-
-        audioSb.appendBuffer(aInit);
-        await waitForSourceBuffer(audioSb);
-        if (localAbort.signal.aborted) return;
-
-        let pendingVideo: Promise<ArrayBuffer | null> | null = null;
-        let pendingAudio: Promise<ArrayBuffer | null> | null = null;
-
-        for (let n = startSeg; n <= videoFormat.fragment_count; n++) {
-            if (localAbort.signal.aborted) return;
-
-            const nextVideo = n < videoFormat.fragment_count
-                ? fetchBuffer(buildDashSegmentUrl(videoFormat, n + 1), localAbort.signal)
-                : null;
-            const nextAudio = n < videoFormat.fragment_count
-                ? fetchBuffer(buildDashSegmentUrl(audioFormat, n + 1), localAbort.signal)
-                : null;
-
-            let vData: ArrayBuffer | null;
-            let aData: ArrayBuffer | null;
-
-            if (pendingVideo && pendingAudio) {
-                vData = await pendingVideo;
-                if (!vData) return;
-                aData = await pendingAudio;
-                if (!aData) return;
-            } else {
-                vData = await fetchBuffer(buildDashSegmentUrl(videoFormat, n), localAbort.signal);
-                if (!vData) return;
-                aData = await fetchBuffer(buildDashSegmentUrl(audioFormat, n), localAbort.signal);
-                if (!aData) return;
-            }
-
-            videoSb.appendBuffer(vData);
-            await waitForSourceBuffer(videoSb);
-            if (localAbort.signal.aborted) return;
-
-            audioSb.appendBuffer(aData);
-            await waitForSourceBuffer(audioSb);
-            if (localAbort.signal.aborted) return;
-
-            pendingVideo = nextVideo;
-            pendingAudio = nextAudio;
-
-            const buffered = videoSb.buffered;
-            if (buffered.length > 0 && buffered.end(buffered.length - 1) >= duration) break;
-        }
-
-        if (!localAbort.signal.aborted && ms.readyState === 'open') {
-            try { ms.endOfStream(); } catch {}
-        }
-    }
-
-    loadFromSegment(1).catch(() => {});
-
-    const onSeek = () => {
-        if (signal.aborted) return;
-        const ct = video.currentTime;
-        const seg = Math.min(Math.floor(ct / segmentDuration) + 1, videoFormat.fragment_count);
-        loadFromSegment(seg).catch(() => {});
-    };
-    video.addEventListener('seeking', onSeek);
-
-    signal.addEventListener('abort', () => {
-        video.removeEventListener('seeking', onSeek);
-        pipelineAbort?.abort();
-        URL.revokeObjectURL(msUrl);
-    }, { once: true });
 }
 
 export default function MsePlayer({
@@ -255,7 +64,7 @@ export default function MsePlayer({
     const [showQuality, setShowQuality] = useState(false);
     const [selectedFormatId, setSelectedFormatId] = useState<string | null>(null);
     const videoRef = useRef<HTMLVideoElement>(null);
-    const pipelineAbortRef = useRef<AbortController | null>(null);
+    const audioRef = useRef<HTMLAudioElement>(null);
     const [playbackKey, setPlaybackKey] = useState(0);
 
     useEffect(() => {
@@ -277,13 +86,11 @@ export default function MsePlayer({
                     setSelectedFormatId(sorted[0].format_id);
                 } else {
                     setFailed(true);
-                    onError?.();
                 }
             })
             .catch((err: any) => {
                 if (cancelled || err?.name === 'AbortError') return;
                 setFailed(true);
-                onError?.();
             });
 
         return () => {
@@ -296,6 +103,10 @@ export default function MsePlayer({
         if (!playbackInfo?.video_formats || !selectedFormatId) return null;
         return playbackInfo.video_formats.find(f => f.format_id === selectedFormatId) || null;
     }, [playbackInfo, selectedFormatId]);
+
+    const needsSeparateAudio = useMemo(() => {
+        return !!(currentFormat && !currentFormat.has_audio && playbackInfo?.audio_format?.url);
+    }, [currentFormat, playbackInfo]);
 
     const qualityOptions = useMemo(() => {
         if (!playbackInfo?.video_formats) return [];
@@ -319,74 +130,95 @@ export default function MsePlayer({
     const handleWaiting = useCallback(() => setIsBuffering(true), []);
     const handlePlaying = useCallback(() => setIsBuffering(false), []);
 
+    // Set video src and handle audio track synchronization
     useEffect(() => {
-        if (!currentFormat || !videoRef.current || !playbackInfo) return;
-
-        pipelineAbortRef.current?.abort();
-        const controller = new AbortController();
-        pipelineAbortRef.current = controller;
-
+        if (!currentFormat || !videoRef.current) return;
         const video = videoRef.current;
+        const audio = audioRef.current;
 
-        if (isProgressive(currentFormat)) {
-            setIsBuffering(true);
-            video.removeAttribute('crossorigin');
-            video.src = proxyUrl(currentFormat.url);
-            if (autoplay) {
-                video.play().catch(() => {});
-            }
-            const onAbort = () => {
-                video.pause();
-                video.removeAttribute('src');
-                video.load();
-            };
-            controller.signal.addEventListener('abort', onAbort, { once: true });
-        } else if (
-            currentFormat.init_url &&
-            playbackInfo.audio_format?.init_url
-        ) {
-            setIsBuffering(true);
-            video.setAttribute('crossorigin', 'anonymous');
-            video.src = '';
+        setIsBuffering(true);
+        video.src = proxyUrl(currentFormat.url);
 
-            runDashPipeline(
-                video,
-                currentFormat,
-                playbackInfo.audio_format,
-                playbackInfo.duration,
-                controller.signal,
-            ).catch((err: any) => {
-                if (err?.name === 'AbortError') return;
-                // Fallback to progressive format if available
-                const prog = playbackInfo.video_formats.find(f => f.has_audio || f.fragment_count === 0);
-                if (prog && prog.format_id !== currentFormat.format_id) {
-                    setSelectedFormatId(prog.format_id);
-                } else {
-                    setFailed(true);
-                    onError?.();
-                }
-            });
-        } else if (currentFormat.url) {
-            setIsBuffering(true);
-            video.removeAttribute('crossorigin');
-            video.src = proxyUrl(currentFormat.url);
-            if (autoplay) {
-                video.play().catch(() => {});
-            }
-        } else {
-            const prog = playbackInfo.video_formats.find(f => f.has_audio || f.fragment_count === 0);
-            if (prog && prog.format_id !== currentFormat.format_id) {
-                setSelectedFormatId(prog.format_id);
-            } else {
-                setFailed(true);
-                onError?.();
+        if (needsSeparateAudio && audio && playbackInfo?.audio_format?.url) {
+            audio.src = proxyUrl(playbackInfo.audio_format.url);
+            audio.load();
+        } else if (audio) {
+            audio.pause();
+            audio.removeAttribute('src');
+        }
+
+        if (autoplay) {
+            video.play().catch(() => {});
+            if (needsSeparateAudio && audio) {
+                audio.play().catch(() => {});
             }
         }
 
-        return () => {
-            controller.abort();
+        // Sync Audio with Video in real-time
+        const syncAudio = () => {
+            if (!needsSeparateAudio || !audio) return;
+            const diff = Math.abs(audio.currentTime - video.currentTime);
+            if (diff > 0.15) {
+                audio.currentTime = video.currentTime;
+            }
         };
-    }, [currentFormat, playbackInfo, autoplay, onError]);
+
+        const onPlay = () => {
+            if (needsSeparateAudio && audio) {
+                audio.play().catch(() => {});
+                syncAudio();
+            }
+        };
+
+        const onPause = () => {
+            if (needsSeparateAudio && audio) {
+                audio.pause();
+            }
+        };
+
+        const onSeeking = () => {
+            syncAudio();
+        };
+
+        const onSeeked = () => {
+            syncAudio();
+        };
+
+        const onTimeUpdate = () => {
+            syncAudio();
+        };
+
+        const onRateChange = () => {
+            if (needsSeparateAudio && audio) {
+                audio.playbackRate = video.playbackRate;
+            }
+        };
+
+        const onVolumeChange = () => {
+            if (needsSeparateAudio && audio) {
+                audio.volume = video.volume;
+                audio.muted = video.muted;
+            }
+        };
+
+        video.addEventListener('play', onPlay);
+        video.addEventListener('pause', onPause);
+        video.addEventListener('seeking', onSeeking);
+        video.addEventListener('seeked', onSeeked);
+        video.addEventListener('timeupdate', onTimeUpdate);
+        video.addEventListener('ratechange', onRateChange);
+        video.addEventListener('volumechange', onVolumeChange);
+
+        return () => {
+            video.removeEventListener('play', onPlay);
+            video.removeEventListener('pause', onPause);
+            video.removeEventListener('seeking', onSeeking);
+            video.removeEventListener('seeked', onSeeked);
+            video.removeEventListener('timeupdate', onTimeUpdate);
+            video.removeEventListener('ratechange', onRateChange);
+            video.removeEventListener('volumechange', onVolumeChange);
+        };
+    }, [currentFormat, playbackInfo, autoplay, needsSeparateAudio]);
 
     const handleQualitySelect = useCallback((formatId: string) => {
         setSelectedFormatId(formatId);
@@ -418,10 +250,18 @@ export default function MsePlayer({
                 playsInline
                 controls
                 onError={() => {
-                    setFailed(true);
-                    onError?.();
+                    // If current format fails, try switching to a format with audio before declaring failure
+                    const prog = playbackInfo?.video_formats?.find(f => f.has_audio);
+                    if (prog && prog.format_id !== selectedFormatId) {
+                        setSelectedFormatId(prog.format_id);
+                    } else {
+                        setFailed(true);
+                    }
                 }}
-                onEnded={() => onVideoEnd?.()}
+                onEnded={() => {
+                    if (audioRef.current) audioRef.current.pause();
+                    onVideoEnd?.();
+                }}
                 onCanPlay={() => {
                     onVideoReady?.();
                     setIsBuffering(false);
@@ -429,6 +269,13 @@ export default function MsePlayer({
                 onWaiting={handleWaiting}
                 onPlaying={handlePlaying}
                 style={{ width: '100%', height: '100%', objectFit: 'contain' }}
+            />
+
+            {/* Hidden Audio Element for Video-Only DASH Stream Sync */}
+            <audio
+                ref={audioRef}
+                style={{ display: 'none' }}
+                preload="auto"
             />
 
             {isBuffering && (
