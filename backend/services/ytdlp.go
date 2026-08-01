@@ -16,11 +16,25 @@ import (
 	"time"
 
 	"kvtube-go/models"
+
+	"golang.org/x/sync/singleflight"
 )
 
 const channelVideosCacheTTL = 60 * time.Minute
 
 var ytDlpBinPath string
+
+// singleflight groups prevent duplicate concurrent yt-dlp / cache calls for
+// the same key.  If N goroutines request the same video simultaneously, only
+// one yt-dlp process is spawned and the result is shared.
+var (
+	videoInfoFlight   singleflight.Group
+	searchFlight      singleflight.Group
+	playbackFlight    singleflight.Group
+	channelPageFlight singleflight.Group
+	channelVidFlight  singleflight.Group
+	commentsFlight    singleflight.Group
+)
 
 // ytDlpBlocked tracks whether YouTube is currently blocking this server's IP.
 // When true, all yt-dlp calls are short-circuited to avoid wasting CPU on
@@ -402,7 +416,8 @@ func appendYtDlpOpts(args []string) []string {
 var ytDlpTimeout = 15 * time.Second
 
 // ytDlpSem is a global concurrency limiter for yt-dlp processes.
-var ytDlpSem = make(chan struct{}, 5)
+// Reduced from 5 to 3 to prevent CPU saturation when many requests arrive.
+var ytDlpSem = make(chan struct{}, 3)
 
 func acquireYtDlp() { ytDlpSem <- struct{}{} }
 func releaseYtDlp()  { <-ytDlpSem }
@@ -535,26 +550,42 @@ func SearchVideos(query string, limit int, region string) ([]VideoData, error) {
 
 	// Cache flat search results for 30 minutes so repeat/category loads are instant.
 	cacheKey := fmt.Sprintf("search:%d:%s:%s", limit, query, region)
-	args := []string{
-		"--flat-playlist",
-		"--no-warnings",
-		searchQuery,
-	}
-	if region != "" && region != "GLOBAL" {
-		args = append(args, "--geo-bypass-country", region)
-	}
-	out, err := RunYtDlpCached(cacheKey, 7200, args...)
-	if err != nil {
-		if stale, sErr := models.GetStaleCachedVideo(cacheKey); sErr == nil && len(bytes.TrimSpace(stale)) > 0 {
-			out = stale
-			err = nil
-		} else {
-			return nil, err
-		}
+
+	// Fast path: serve from cache without singleflight contention.
+	if cachedData, err := models.GetCachedVideo(cacheKey); err == nil && len(bytes.TrimSpace(cachedData)) > 0 {
+		return parseSearchResults(cachedData), nil
 	}
 
+	// Deduplicate concurrent identical search requests.
+	v, err, _ := searchFlight.Do(cacheKey, func() (interface{}, error) {
+		args := []string{
+			"--flat-playlist",
+			"--no-warnings",
+			searchQuery,
+		}
+		if region != "" && region != "GLOBAL" {
+			args = append(args, "--geo-bypass-country", region)
+		}
+		out, err := RunYtDlpCached(cacheKey, 7200, args...)
+		if err != nil {
+			if stale, sErr := models.GetStaleCachedVideo(cacheKey); sErr == nil && len(bytes.TrimSpace(stale)) > 0 {
+				out = stale
+				err = nil
+			} else {
+				return nil, err
+			}
+		}
+		return parseSearchResults(out), nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return v.([]VideoData), nil
+}
+
+func parseSearchResults(data []byte) []VideoData {
 	var results []VideoData
-	lines := strings.Split(strings.TrimSpace(string(out)), "\n")
+	lines := strings.Split(strings.TrimSpace(string(data)), "\n")
 	for _, line := range lines {
 		if line == "" {
 			continue
@@ -566,11 +597,11 @@ func SearchVideos(query string, limit int, region string) ([]VideoData, error) {
 			}
 		}
 	}
-
-	return results, nil
+	return results
 }
 
 func GetVideoInfo(videoID string) (*VideoData, error) {
+	// Fast path: serve from cache.
 	if cached, err := models.GetCachedVideo(videoID); err == nil && len(bytes.TrimSpace(cached)) > 0 {
 		var v VideoData
 		if json.Unmarshal(cached, &v) == nil && v.ID != "" {
@@ -578,48 +609,55 @@ func GetVideoInfo(videoID string) (*VideoData, error) {
 		}
 	}
 
-	url := fmt.Sprintf("https://www.youtube.com/watch?v=%s", videoID)
+	// Deduplicate concurrent requests for the same video.
+	v, err, _ := videoInfoFlight.Do(videoID, func() (interface{}, error) {
+		url := fmt.Sprintf("https://www.youtube.com/watch?v=%s", videoID)
 
-	args := []string{
-		"--format", "bestvideo+bestaudio/best",
-		"--skip-download",
-		"--no-playlist",
-		url,
-	}
-
-	out, err := RunYtDlp(args...)
-	if err != nil {
-		log.Printf("yt-dlp failed for %s: %v", videoID, err)
-		if stale, sErr := models.GetStaleCachedVideo(videoID); sErr == nil && len(bytes.TrimSpace(stale)) > 0 {
-			var v VideoData
-			if json.Unmarshal(stale, &v) == nil && v.ID != "" {
-				log.Printf("Serving stale cached video info for %s", videoID)
-				return &v, nil
-			}
+		args := []string{
+			"--format", "bestvideo+bestaudio/best",
+			"--skip-download",
+			"--no-playlist",
+			url,
 		}
+
+		out, err := RunYtDlp(args...)
+		if err != nil {
+			log.Printf("yt-dlp failed for %s: %v", videoID, err)
+			if stale, sErr := models.GetStaleCachedVideo(videoID); sErr == nil && len(bytes.TrimSpace(stale)) > 0 {
+				var v VideoData
+				if json.Unmarshal(stale, &v) == nil && v.ID != "" {
+					log.Printf("Serving stale cached video info for %s", videoID)
+					return &v, nil
+				}
+			}
+			return nil, err
+		}
+
+		// Log first 500 chars for debugging
+		if len(out) > 0 {
+			log.Printf("yt-dlp response for %s (first 200 chars): %s", videoID, string(out[:min(200, len(out))]))
+		}
+
+		var entry YtDlpEntry
+		if err := json.Unmarshal(out, &entry); err != nil {
+			log.Printf("JSON unmarshal error for %s: %v", videoID, err)
+			log.Printf("Raw response: %s", string(out[:min(500, len(out))]))
+			return nil, fmt.Errorf("failed to parse video info: %w", err)
+		}
+
+		data := sanitizeVideoData(entry)
+		data.StreamURL = entry.URL
+
+		if b, err := json.Marshal(data); err == nil {
+			_ = models.SetCachedVideo(videoID, string(b), 21600) // cache for 6h
+		}
+
+		return &data, nil
+	})
+	if err != nil {
 		return nil, err
 	}
-
-	// Log first 500 chars for debugging
-	if len(out) > 0 {
-		log.Printf("yt-dlp response for %s (first 200 chars): %s", videoID, string(out[:min(200, len(out))]))
-	}
-
-	var entry YtDlpEntry
-	if err := json.Unmarshal(out, &entry); err != nil {
-		log.Printf("JSON unmarshal error for %s: %v", videoID, err)
-		log.Printf("Raw response: %s", string(out[:min(500, len(out))]))
-		return nil, fmt.Errorf("failed to parse video info: %w", err)
-	}
-
-	data := sanitizeVideoData(entry)
-	data.StreamURL = entry.URL
-
-	if b, err := json.Marshal(data); err == nil {
-		_ = models.SetCachedVideo(videoID, string(b), 21600) // cache for 6h
-	}
-
-	return &data, nil
+	return v.(*VideoData), nil
 }
 
 func min(a, b int) int {
@@ -632,6 +670,7 @@ func min(a, b int) int {
 // GetPlaybackInfo returns video + audio format information for client-side MSE playback.
 func GetPlaybackInfo(videoID string) (*PlaybackInfo, error) {
 	cacheKey := fmt.Sprintf("playback:%s", videoID)
+	// Fast path: serve from cache.
 	if cached, err := models.GetCachedVideo(cacheKey); err == nil && len(bytes.TrimSpace(cached)) > 0 {
 		var pi PlaybackInfo
 		if json.Unmarshal(cached, &pi) == nil && pi.Title != "" {
@@ -639,144 +678,148 @@ func GetPlaybackInfo(videoID string) (*PlaybackInfo, error) {
 		}
 	}
 
-	url := fmt.Sprintf("https://www.youtube.com/watch?v=%s", videoID)
+	v, err, _ := playbackFlight.Do(cacheKey, func() (interface{}, error) {
+		url := fmt.Sprintf("https://www.youtube.com/watch?v=%s", videoID)
 
-	out, err := RunYtDlpSingleJSON(
-		"--dump-json",
-		"--no-playlist",
-		"--force-ipv4",
-		"--user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-		url,
-	)
+		out, err := RunYtDlpSingleJSON(
+			"--dump-json",
+			"--no-playlist",
+			"--force-ipv4",
+			"--user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+			url,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		var raw struct {
+			Title    string  `json:"title"`
+			Duration float64 `json:"duration"`
+			Formats  []struct {
+				FormatID      string  `json:"format_id"`
+				FormatNote    string  `json:"format_note"`
+				Ext           string  `json:"ext"`
+				Width         int     `json:"width"`
+				Height        int     `json:"height"`
+				VCodec        string  `json:"vcodec"`
+				ACodec        string  `json:"acodec"`
+				TBR           float64 `json:"tbr"`
+				FPS           float64 `json:"fps"`
+				Filesize      float64 `json:"filesize"`
+				URL           string  `json:"url"`
+				FragmentCount int     `json:"fragment_count"`
+				InitURL       string  `json:"init_url"`
+				ManifestURL   string  `json:"manifest_url"`
+			} `json:"formats"`
+		}
+
+		if err := json.Unmarshal(out, &raw); err != nil {
+			return nil, err
+		}
+
+		pi := &PlaybackInfo{
+			Title:    raw.Title,
+			Duration: raw.Duration,
+		}
+
+		// First pass: separate audio and video formats
+		var audioFormats []PlaybackFormat
+		var videoFormats []PlaybackFormat
+
+		for _, f := range raw.Formats {
+			isVideo := f.VCodec != "" && f.VCodec != "none"
+			isAudio := f.ACodec != "" && f.ACodec != "none"
+
+			if !isVideo && !isAudio {
+				continue
+			}
+
+			// Build init & media URLs for DASH
+			initURL := f.InitURL
+			var mediaURL string
+
+			if f.FragmentCount > 0 && f.URL != "" {
+				if initURL != "" && f.ManifestURL == "" {
+					mediaURL = f.URL
+				} else if f.FragmentCount > 0 {
+					mediaURL = f.URL
+				}
+			}
+
+			pf := PlaybackFormat{
+				FormatID:      f.FormatID,
+				Height:        f.Height,
+				Width:         f.Width,
+				VCodec:        f.VCodec,
+				ACodec:        f.ACodec,
+				Ext:           f.Ext,
+				Bandwidth:     int(f.TBR),
+				FPS:           int(f.FPS),
+				Filesize:      int64(f.Filesize),
+				URL:           f.URL,
+				HasAudio:      isAudio,
+				FragmentCount: f.FragmentCount,
+				InitURL:       initURL,
+				MediaURL:      mediaURL,
+			}
+
+			if isVideo {
+				videoFormats = append(videoFormats, pf)
+			}
+			if isAudio && !isVideo {
+				audioFormats = append(audioFormats, pf)
+			}
+		}
+
+		// Pick the best audio format (highest bandwidth)
+		if len(audioFormats) > 0 {
+			best := audioFormats[0]
+			for _, a := range audioFormats[1:] {
+				if a.Bandwidth > best.Bandwidth {
+					best = a
+				}
+			}
+			pi.AudioFormat = &best
+		}
+
+		// Deduplicate video formats by height:
+		bestByHeight := make(map[int]PlaybackFormat)
+		for _, f := range videoFormats {
+			existing, found := bestByHeight[f.Height]
+			if !found {
+				bestByHeight[f.Height] = f
+				continue
+			}
+			if f.HasAudio && !existing.HasAudio {
+				bestByHeight[f.Height] = f
+			} else if f.HasAudio == existing.HasAudio && f.FPS > existing.FPS {
+				bestByHeight[f.Height] = f
+			}
+		}
+
+		for _, f := range bestByHeight {
+			pi.VideoFormats = append(pi.VideoFormats, f)
+		}
+
+		// Sort by height descending
+		for i := range pi.VideoFormats {
+			for j := i + 1; j < len(pi.VideoFormats); j++ {
+				if pi.VideoFormats[j].Height > pi.VideoFormats[i].Height {
+					pi.VideoFormats[i], pi.VideoFormats[j] = pi.VideoFormats[j], pi.VideoFormats[i]
+				}
+			}
+		}
+
+		if b, err := json.Marshal(pi); err == nil {
+			_ = models.SetCachedVideo(cacheKey, string(b), 21600) // cache for 6h
+		}
+
+		return pi, nil
+	})
 	if err != nil {
 		return nil, err
 	}
-
-	var raw struct {
-		Title    string  `json:"title"`
-		Duration float64 `json:"duration"`
-		Formats  []struct {
-			FormatID      string  `json:"format_id"`
-			FormatNote    string  `json:"format_note"`
-			Ext           string  `json:"ext"`
-			Width         int     `json:"width"`
-			Height        int     `json:"height"`
-			VCodec        string  `json:"vcodec"`
-			ACodec        string  `json:"acodec"`
-			TBR           float64 `json:"tbr"`
-			FPS           float64 `json:"fps"`
-			Filesize      float64 `json:"filesize"`
-			URL           string  `json:"url"`
-			FragmentCount int     `json:"fragment_count"`
-			InitURL       string  `json:"init_url"`
-			ManifestURL   string  `json:"manifest_url"`
-		} `json:"formats"`
-	}
-
-	if err := json.Unmarshal(out, &raw); err != nil {
-		return nil, err
-	}
-
-	pi := &PlaybackInfo{
-		Title:    raw.Title,
-		Duration: raw.Duration,
-	}
-
-	// First pass: separate audio and video formats
-	var audioFormats []PlaybackFormat
-	var videoFormats []PlaybackFormat
-
-	for _, f := range raw.Formats {
-		isVideo := f.VCodec != "" && f.VCodec != "none"
-		isAudio := f.ACodec != "" && f.ACodec != "none"
-
-		if !isVideo && !isAudio {
-			continue
-		}
-
-		// Build init & media URLs for DASH
-		initURL := f.InitURL
-		var mediaURL string
-
-		if f.FragmentCount > 0 && f.URL != "" {
-			if initURL != "" && f.ManifestURL == "" {
-				mediaURL = f.URL
-			} else if f.FragmentCount > 0 {
-				mediaURL = f.URL
-			}
-		}
-
-		pf := PlaybackFormat{
-			FormatID:      f.FormatID,
-			Height:        f.Height,
-			Width:         f.Width,
-			VCodec:        f.VCodec,
-			ACodec:        f.ACodec,
-			Ext:           f.Ext,
-			Bandwidth:     int(f.TBR),
-			FPS:           int(f.FPS),
-			Filesize:      int64(f.Filesize),
-			URL:           f.URL,
-			HasAudio:      isAudio,
-			FragmentCount: f.FragmentCount,
-			InitURL:       initURL,
-			MediaURL:      mediaURL,
-		}
-
-		if isVideo {
-			videoFormats = append(videoFormats, pf)
-		}
-		if isAudio && !isVideo {
-			audioFormats = append(audioFormats, pf)
-		}
-	}
-
-	// Pick the best audio format (highest bandwidth)
-	if len(audioFormats) > 0 {
-		best := audioFormats[0]
-		for _, a := range audioFormats[1:] {
-			if a.Bandwidth > best.Bandwidth {
-				best = a
-			}
-		}
-		pi.AudioFormat = &best
-	}
-
-	// Deduplicate video formats by height:
-	// Prioritize combined formats (HasAudio == true) so HD player streams audio+video natively
-	bestByHeight := make(map[int]PlaybackFormat)
-	for _, f := range videoFormats {
-		existing, found := bestByHeight[f.Height]
-		if !found {
-			bestByHeight[f.Height] = f
-			continue
-		}
-		// Prefer format with audio over video-only
-		if f.HasAudio && !existing.HasAudio {
-			bestByHeight[f.Height] = f
-		} else if f.HasAudio == existing.HasAudio && f.FPS > existing.FPS {
-			bestByHeight[f.Height] = f
-		}
-	}
-
-	for _, f := range bestByHeight {
-		pi.VideoFormats = append(pi.VideoFormats, f)
-	}
-
-	// Sort by height descending
-	for i := range pi.VideoFormats {
-		for j := i + 1; j < len(pi.VideoFormats); j++ {
-			if pi.VideoFormats[j].Height > pi.VideoFormats[i].Height {
-				pi.VideoFormats[i], pi.VideoFormats[j] = pi.VideoFormats[j], pi.VideoFormats[i]
-			}
-		}
-	}
-
-	if b, err := json.Marshal(pi); err == nil {
-		_ = models.SetCachedVideo(cacheKey, string(b), 21600) // cache for 6h
-	}
-
-	return pi, nil
+	return v.(*PlaybackInfo), nil
 }
 
 type ChannelInfo struct {
@@ -867,51 +910,55 @@ func GetChannelVideos(channelID string, limit int) ([]VideoData, error) {
 		}
 	}
 
-	url := fmt.Sprintf("https://www.youtube.com/channel/%s", channelID)
-	if strings.HasPrefix(channelID, "@") {
-		url = fmt.Sprintf("https://www.youtube.com/%s", channelID)
-	}
+	flightKey := fmt.Sprintf("chanvids:%s:%d", channelID, limit)
+	v, err, _ := channelVidFlight.Do(flightKey, func() (interface{}, error) {
+		url := fmt.Sprintf("https://www.youtube.com/channel/%s", channelID)
+		if strings.HasPrefix(channelID, "@") {
+			url = fmt.Sprintf("https://www.youtube.com/%s", channelID)
+		}
 
-	// Use --flat-playlist: fast, reliable, and far less likely to trip YouTube's
-	// bot check than a full per-video extraction. The channel /videos tab is
-	// already ordered newest-first, so this always yields the latest uploads.
-	args := []string{
-		url + "/videos",
-		"--flat-playlist",
-		"--playlist-end=" + fmt.Sprintf("%d", limit),
-	}
+		args := []string{
+			url + "/videos",
+			"--flat-playlist",
+			"--playlist-end=" + fmt.Sprintf("%d", limit),
+		}
 
-	out, err := RunYtDlp(args...)
+		out, err := RunYtDlp(args...)
+		if err != nil {
+			return nil, err
+		}
+
+		var results []VideoData
+		lines := strings.Split(strings.TrimSpace(string(out)), "\n")
+		for _, line := range lines {
+			if line == "" {
+				continue
+			}
+			var entry YtDlpEntry
+			if err := json.Unmarshal([]byte(line), &entry); err == nil {
+				if entry.ID != "" {
+					results = append(results, sanitizeVideoData(entry))
+				}
+			}
+		}
+
+		// Store in SQLite cache (upsert)
+		if jsonBytes, err := json.Marshal(results); err == nil {
+			_, err := models.DB.Exec(
+				"INSERT OR REPLACE INTO channel_videos_cache (channel_id, videos_json, fetched_at) VALUES (?, ?, CURRENT_TIMESTAMP)",
+				channelID, string(jsonBytes),
+			)
+			if err != nil {
+				log.Printf("[Cache] Failed to store channel videos for %s: %v", channelID, err)
+			}
+		}
+
+		return results, nil
+	})
 	if err != nil {
 		return nil, err
 	}
-
-	var results []VideoData
-	lines := strings.Split(strings.TrimSpace(string(out)), "\n")
-	for _, line := range lines {
-		if line == "" {
-			continue
-		}
-		var entry YtDlpEntry
-		if err := json.Unmarshal([]byte(line), &entry); err == nil {
-			if entry.ID != "" {
-				results = append(results, sanitizeVideoData(entry))
-			}
-		}
-	}
-
-	// Store in SQLite cache (upsert)
-	if jsonBytes, err := json.Marshal(results); err == nil {
-		_, err := models.DB.Exec(
-			"INSERT OR REPLACE INTO channel_videos_cache (channel_id, videos_json, fetched_at) VALUES (?, ?, CURRENT_TIMESTAMP)",
-			channelID, string(jsonBytes),
-		)
-		if err != nil {
-			log.Printf("[Cache] Failed to store channel videos for %s: %v", channelID, err)
-		}
-	}
-
-	return results, nil
+	return v.([]VideoData), nil
 }
 
 // ChannelPage bundles a channel's metadata and its latest videos so the whole
@@ -1059,6 +1106,7 @@ func GetChannelAvatar(channelID string) (string, string, error) {
 
 func GetChannelPage(channelID string, limit int) (*ChannelPage, error) {
 	cacheKey := fmt.Sprintf("channelpage:%s:%d", channelID, limit)
+	// Fast path: serve from cache.
 	if cached, err := models.GetCachedVideo(cacheKey); err == nil && len(bytes.TrimSpace(cached)) > 0 {
 		var page ChannelPage
 		if json.Unmarshal(cached, &page) == nil && page.Info != nil {
@@ -1066,116 +1114,122 @@ func GetChannelPage(channelID string, limit int) (*ChannelPage, error) {
 		}
 	}
 
-	url := fmt.Sprintf("https://www.youtube.com/channel/%s", channelID)
-	if strings.HasPrefix(channelID, "@") {
-		url = fmt.Sprintf("https://www.youtube.com/%s", channelID)
-	}
+	v, err, _ := channelPageFlight.Do(cacheKey, func() (interface{}, error) {
+		url := fmt.Sprintf("https://www.youtube.com/channel/%s", channelID)
+		if strings.HasPrefix(channelID, "@") {
+			url = fmt.Sprintf("https://www.youtube.com/%s", channelID)
+		}
 
-	out, err := RunYtDlpSingleJSON(
-		url+"/videos",
-		"--flat-playlist",
-		"-J",
-		"--playlist-end="+fmt.Sprintf("%d", limit),
-	)
+		out, err := RunYtDlpSingleJSON(
+			url+"/videos",
+			"--flat-playlist",
+			"-J",
+			"--playlist-end="+fmt.Sprintf("%d", limit),
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		var raw struct {
+			ChannelID            string  `json:"channel_id"`
+			Channel              string  `json:"channel"`
+			Title                string  `json:"title"`
+			Uploader             string  `json:"uploader"`
+			ChannelFollowerCount float64 `json:"channel_follower_count"`
+			Description          string  `json:"description"`
+			PlaylistCount        int     `json:"playlist_count"`
+			Thumbnails           []struct {
+				ID     string `json:"id"`
+				URL    string `json:"url"`
+				Width  int    `json:"width"`
+				Height int    `json:"height"`
+			} `json:"thumbnails"`
+			Entries []YtDlpEntry `json:"entries"`
+		}
+		if err := json.Unmarshal(out, &raw); err != nil {
+			return nil, err
+		}
+
+		title := raw.Channel
+		if title == "" {
+			title = raw.Uploader
+		}
+		if title == "" {
+			title = strings.TrimSuffix(raw.Title, " - Videos")
+		}
+		if title == "" {
+			title = channelID
+		}
+
+		// Pick avatar (square) and banner (wide) thumbnails.
+		var avatarURL, bannerURL string
+		var avatarBest, bannerBest int
+		for _, t := range raw.Thumbnails {
+			id := strings.ToLower(t.ID)
+			if strings.Contains(id, "avatar") && avatarURL == "" {
+				avatarURL = t.URL
+			}
+			if strings.Contains(id, "banner") && bannerURL == "" {
+				bannerURL = t.URL
+			}
+			if t.Width > 0 && t.Height > 0 {
+				if t.Width == t.Height && t.Width > avatarBest {
+					avatarBest = t.Width
+					if avatarURL == "" || !strings.Contains(strings.ToLower(avatarURL), "avatar") {
+						avatarURL = t.URL
+					}
+				}
+				if t.Width >= t.Height*2 && t.Width > bannerBest {
+					bannerBest = t.Width
+					if bannerURL == "" || !strings.Contains(strings.ToLower(bannerURL), "banner") {
+						bannerURL = t.URL
+					}
+				}
+			}
+		}
+
+		cID := raw.ChannelID
+		if cID == "" {
+			cID = channelID
+		}
+
+		avatarStr := "?"
+		if r := []rune(title); len(r) > 0 {
+			avatarStr = strings.ToUpper(string(r[0]))
+		}
+
+		info := &ChannelInfo{
+			ID:              cID,
+			Title:           title,
+			SubscriberCount: int64(raw.ChannelFollowerCount),
+			Avatar:          avatarStr,
+			AvatarURL:       avatarURL,
+			BannerURL:       bannerURL,
+			Description:     raw.Description,
+			VideoCount:      raw.PlaylistCount,
+		}
+
+		var videos []VideoData
+		for _, e := range raw.Entries {
+			if e.ID != "" {
+				v := sanitizeVideoData(e)
+				if v.Uploader == "" || v.Uploader == "Unknown" {
+					v.Uploader = title
+				}
+				videos = append(videos, v)
+			}
+		}
+
+		page := &ChannelPage{Info: info, Videos: videos}
+		if b, err := json.Marshal(page); err == nil {
+			_ = models.SetCachedVideo(cacheKey, string(b), int(channelVideosCacheTTL.Seconds()))
+		}
+		return page, nil
+	})
 	if err != nil {
 		return nil, err
 	}
-
-	var raw struct {
-		ChannelID            string  `json:"channel_id"`
-		Channel              string  `json:"channel"`
-		Title                string  `json:"title"`
-		Uploader             string  `json:"uploader"`
-		ChannelFollowerCount float64 `json:"channel_follower_count"`
-		Description          string  `json:"description"`
-		PlaylistCount        int     `json:"playlist_count"`
-		Thumbnails           []struct {
-			ID     string `json:"id"`
-			URL    string `json:"url"`
-			Width  int    `json:"width"`
-			Height int    `json:"height"`
-		} `json:"thumbnails"`
-		Entries []YtDlpEntry `json:"entries"`
-	}
-	if err := json.Unmarshal(out, &raw); err != nil {
-		return nil, err
-	}
-
-	title := raw.Channel
-	if title == "" {
-		title = raw.Uploader
-	}
-	if title == "" {
-		title = strings.TrimSuffix(raw.Title, " - Videos")
-	}
-	if title == "" {
-		title = channelID
-	}
-
-	// Pick avatar (square) and banner (wide) thumbnails.
-	var avatarURL, bannerURL string
-	var avatarBest, bannerBest int
-	for _, t := range raw.Thumbnails {
-		id := strings.ToLower(t.ID)
-		if strings.Contains(id, "avatar") && avatarURL == "" {
-			avatarURL = t.URL
-		}
-		if strings.Contains(id, "banner") && bannerURL == "" {
-			bannerURL = t.URL
-		}
-		if t.Width > 0 && t.Height > 0 {
-			if t.Width == t.Height && t.Width > avatarBest {
-				avatarBest = t.Width
-				if avatarURL == "" || !strings.Contains(strings.ToLower(avatarURL), "avatar") {
-					avatarURL = t.URL
-				}
-			}
-			if t.Width >= t.Height*2 && t.Width > bannerBest {
-				bannerBest = t.Width
-				if bannerURL == "" || !strings.Contains(strings.ToLower(bannerURL), "banner") {
-					bannerURL = t.URL
-				}
-			}
-		}
-	}
-
-	cID := raw.ChannelID
-	if cID == "" {
-		cID = channelID
-	}
-
-	avatarStr := "?"
-	if r := []rune(title); len(r) > 0 {
-		avatarStr = strings.ToUpper(string(r[0]))
-	}
-
-	info := &ChannelInfo{
-		ID:              cID,
-		Title:           title,
-		SubscriberCount: int64(raw.ChannelFollowerCount),
-		Avatar:          avatarStr,
-		AvatarURL:       avatarURL,
-		BannerURL:       bannerURL,
-		Description:     raw.Description,
-		VideoCount:      raw.PlaylistCount,
-	}
-
-	var videos []VideoData
-	for _, e := range raw.Entries {
-		if e.ID != "" {
-			v := sanitizeVideoData(e)
-			if v.Uploader == "" || v.Uploader == "Unknown" {
-				v.Uploader = title
-			}
-			videos = append(videos, v)
-		}
-	}
-
-	page := &ChannelPage{Info: info, Videos: videos}
-	if b, err := json.Marshal(page); err == nil {
-		_ = models.SetCachedVideo(cacheKey, string(b), int(channelVideosCacheTTL.Seconds()))
-	}
-	return page, nil
+	return v.(*ChannelPage), nil
 }
 
 // fetchVideoStatsBatch fetches view_count and upload_date for a slice of video IDs
@@ -1392,68 +1446,92 @@ type Comment struct {
 }
 
 func GetComments(videoID string, limit int) ([]Comment, error) {
-	if isYtDlpBlocked() {
-		return nil, fmt.Errorf("YouTube is blocking this server's IP, try again later")
-	}
+	// Cache comments for 1 hour.  The cache key includes the limit so different
+	// page sizes are stored independently.
+	cacheKey := fmt.Sprintf("comments:%s:%d", videoID, limit)
 
-	url := fmt.Sprintf("https://www.youtube.com/watch?v=%s", videoID)
-
-	cmdArgs := []string{
-		"--no-warnings",
-		"--quiet",
-		"--user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-		"--dump-json",
-		"--no-download",
-		"--no-playlist",
-		"--write-comments",
-		"--extractor-args", fmt.Sprintf("youtube:comment_sort=top;max_comments=%d", limit),
-		url,
-	}
-
-	outBytes, stderr, err := runYtDlpArgs(cmdArgs)
-	if err != nil {
-		log.Printf("yt-dlp comments error: %v, stderr: %s", err, stderr)
-		return nil, err
-	}
-
-	var raw struct {
-		Comments []struct {
-			ID          string `json:"id"`
-			Text        string `json:"text"`
-			Author      string `json:"author"`
-			AuthorID    string `json:"author_id"`
-			AuthorThumb string `json:"author_thumbnail"`
-			Likes       int    `json:"like_count"`
-			IsReply     bool   `json:"is_reply"`
-			Parent      string `json:"parent"`
-			Timestamp   int64  `json:"timestamp"`
-		} `json:"comments"`
-	}
-
-	if err := json.Unmarshal(outBytes, &raw); err != nil {
-		return nil, err
-	}
-
-	var comments []Comment
-	for _, c := range raw.Comments {
-		timestamp := ""
-		if c.Timestamp > 0 {
-			timestamp = formatCommentTime(c.Timestamp)
+	// Fast path: serve from cache.
+	if cached, err := models.GetCachedVideo(cacheKey); err == nil && len(bytes.TrimSpace(cached)) > 0 {
+		var comments []Comment
+		if json.Unmarshal(cached, &comments) == nil && len(comments) > 0 {
+			return comments, nil
 		}
-		comments = append(comments, Comment{
-			ID:          c.ID,
-			Text:        c.Text,
-			Author:      c.Author,
-			AuthorID:    c.AuthorID,
-			AuthorThumb: c.AuthorThumb,
-			Likes:       c.Likes,
-			IsReply:     c.IsReply,
-			Parent:      c.Parent,
-			Timestamp:   timestamp,
-		})
 	}
 
-	return comments, nil
+	// Deduplicate concurrent comment fetches for the same video.
+	v, err, _ := commentsFlight.Do(cacheKey, func() (interface{}, error) {
+		if isYtDlpBlocked() {
+			return nil, fmt.Errorf("YouTube is blocking this server's IP, try again later")
+		}
+
+		url := fmt.Sprintf("https://www.youtube.com/watch?v=%s", videoID)
+
+		cmdArgs := []string{
+			"--no-warnings",
+			"--quiet",
+			"--user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+			"--dump-json",
+			"--no-download",
+			"--no-playlist",
+			"--write-comments",
+			"--extractor-args", fmt.Sprintf("youtube:comment_sort=top;max_comments=%d", limit),
+			url,
+		}
+
+		outBytes, stderr, err := runYtDlpArgs(cmdArgs)
+		if err != nil {
+			log.Printf("yt-dlp comments error: %v, stderr: %s", err, stderr)
+			return nil, err
+		}
+
+		var raw struct {
+			Comments []struct {
+				ID          string `json:"id"`
+				Text        string `json:"text"`
+				Author      string `json:"author"`
+				AuthorID    string `json:"author_id"`
+				AuthorThumb string `json:"author_thumbnail"`
+				Likes       int    `json:"like_count"`
+				IsReply     bool   `json:"is_reply"`
+				Parent      string `json:"parent"`
+				Timestamp   int64  `json:"timestamp"`
+			} `json:"comments"`
+		}
+
+		if err := json.Unmarshal(outBytes, &raw); err != nil {
+			return nil, err
+		}
+
+		var comments []Comment
+		for _, c := range raw.Comments {
+			timestamp := ""
+			if c.Timestamp > 0 {
+				timestamp = formatCommentTime(c.Timestamp)
+			}
+			comments = append(comments, Comment{
+				ID:          c.ID,
+				Text:        c.Text,
+				Author:      c.Author,
+				AuthorID:    c.AuthorID,
+				AuthorThumb: c.AuthorThumb,
+				Likes:       c.Likes,
+				IsReply:     c.IsReply,
+				Parent:      c.Parent,
+				Timestamp:   timestamp,
+			})
+		}
+
+		// Cache for 1 hour.
+		if b, err := json.Marshal(comments); err == nil {
+			_ = models.SetCachedVideo(cacheKey, string(b), 3600)
+		}
+
+		return comments, nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return v.([]Comment), nil
 }
 
 func formatCommentTime(timestamp int64) string {
