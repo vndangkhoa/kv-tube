@@ -966,7 +966,6 @@ export default function ClientWatchPage() {
 						onVideoEnd={handleVideoEnd}
 						onNext={handleNext}
 						onPrev={handlePrevious}
-						onError={() => setPlayerMode('iframe')}
 					/>
 				)}
 					</div>

@@ -742,13 +742,24 @@ func GetPlaybackInfo(videoID string) (*PlaybackInfo, error) {
 		pi.AudioFormat = &best
 	}
 
-	// Deduplicate video formats by height (prefer higher FPS)
-	seenHeights := make(map[int]bool)
+	// Deduplicate video formats by height:
+	// Prioritize combined formats (HasAudio == true) so HD player streams audio+video natively
+	bestByHeight := make(map[int]PlaybackFormat)
 	for _, f := range videoFormats {
-		if seenHeights[f.Height] {
+		existing, found := bestByHeight[f.Height]
+		if !found {
+			bestByHeight[f.Height] = f
 			continue
 		}
-		seenHeights[f.Height] = true
+		// Prefer format with audio over video-only
+		if f.HasAudio && !existing.HasAudio {
+			bestByHeight[f.Height] = f
+		} else if f.HasAudio == existing.HasAudio && f.FPS > existing.FPS {
+			bestByHeight[f.Height] = f
+		}
+	}
+
+	for _, f := range bestByHeight {
 		pi.VideoFormats = append(pi.VideoFormats, f)
 	}
 

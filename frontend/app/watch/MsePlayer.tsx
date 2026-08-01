@@ -42,7 +42,7 @@ interface MsePlayerProps {
 }
 
 function isProgressive(f: PlaybackFormat): boolean {
-    return f.has_audio && f.fragment_count === 0;
+    return f.has_audio || f.fragment_count === 0 || !f.init_url;
 }
 
 function proxyUrl(raw: string): string {
@@ -357,12 +357,30 @@ export default function MsePlayer({
                 controller.signal,
             ).catch((err: any) => {
                 if (err?.name === 'AbortError') return;
+                // Fallback to progressive format if available
+                const prog = playbackInfo.video_formats.find(f => f.has_audio || f.fragment_count === 0);
+                if (prog && prog.format_id !== currentFormat.format_id) {
+                    setSelectedFormatId(prog.format_id);
+                } else {
+                    setFailed(true);
+                    onError?.();
+                }
+            });
+        } else if (currentFormat.url) {
+            setIsBuffering(true);
+            video.removeAttribute('crossorigin');
+            video.src = proxyUrl(currentFormat.url);
+            if (autoplay) {
+                video.play().catch(() => {});
+            }
+        } else {
+            const prog = playbackInfo.video_formats.find(f => f.has_audio || f.fragment_count === 0);
+            if (prog && prog.format_id !== currentFormat.format_id) {
+                setSelectedFormatId(prog.format_id);
+            } else {
                 setFailed(true);
                 onError?.();
-            });
-        } else {
-            setFailed(true);
-            onError?.();
+            }
         }
 
         return () => {
