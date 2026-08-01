@@ -723,7 +723,7 @@ export default function MsePlayer({
                                                         style={{
                                                             width: '100%',
                                                             display: 'flex',
-                                                            justify: 'space-between',
+                                                            justifyContent: 'space-between',
                                                             padding: '8px 10px',
                                                             background: o.value === selectedFormatId ? 'rgba(255,0,51,0.2)' : 'none',
                                                             border: 'none',
@@ -753,7 +753,7 @@ export default function MsePlayer({
                                                         style={{
                                                             width: '100%',
                                                             display: 'flex',
-                                                            justify: 'space-between',
+                                                            justifyContent: 'space-between',
                                                             padding: '8px 10px',
                                                             background: r === playbackRate ? 'rgba(255,0,51,0.2)' : 'none',
                                                             border: 'none',
