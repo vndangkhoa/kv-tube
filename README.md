@@ -33,6 +33,7 @@
   <a href="#-why-kv-tube">Why KV-Tube?</a> •
   <a href="#-deployment">Deployment</a> •
   <a href="#-development">Development</a> •
+  <a href="#-support">Support</a> •
   <a href="#-contributing">Contributing</a>
 </p>
 
@@ -294,6 +295,20 @@ cd android
 # Install on emulator/device
 adb install app/build/outputs/apk/debug/app-debug.apk
 ```
+
+---
+
+## 💖 Support the Project
+
+KV-Tube is free, open source, and ad-free — built and maintained in spare time. If it saves you from subscriptions or just brings you joy, I'd love your support to keep the project going:
+
+<p align="center">
+  <img src="frontend/public/donation.jpg" alt="Donate to support KV-Tube" width="360" />
+</p>
+
+<p align="center">
+  Every contribution — no matter how small — means a lot. Thank you! ❤️
+</p>
 
 ---
 
