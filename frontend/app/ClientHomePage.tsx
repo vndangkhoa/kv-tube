@@ -516,7 +516,6 @@ export default function ClientHomePage() {
             (entries) => {
                 const entry = entries[0];
                 if (entry.isIntersecting && !loadingMoreRef.current && !loadingRef.current && hasMoreRef.current) {
-                    console.log('Sentinel intersecting, loading more...');
                     loadMoreCallbackRef.current();
                 }
             },
@@ -529,7 +528,6 @@ export default function ClientHomePage() {
         // Small delay to ensure DOM is ready
         const timer = setTimeout(() => {
             const sentinel = document.getElementById('scroll-sentinel');
-            console.log('Sentinel element:', sentinel);
             if (sentinel) {
                 observer.observe(sentinel);
             }

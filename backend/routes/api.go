@@ -120,6 +120,13 @@ func SetupRouter() *gin.Engine {
 		// Import routes
 		api.POST("/import/takeout", handleImportTakeout)
 		api.POST("/import/debug", handleDebugImport)
+
+		// Settings routes
+		api.GET("/settings/status", handleSettingsStatus)
+		api.POST("/settings/cookies", handleCookiesUpload)
+		api.POST("/settings/cookies/fetch", handleCookiesFetch)
+		api.DELETE("/settings/cookies", handleCookiesDelete)
+		api.POST("/settings/ytdlp/update", handleYtDlpUpdate)
 	}
 
 	return r

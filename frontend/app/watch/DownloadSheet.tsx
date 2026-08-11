@@ -75,10 +75,13 @@ export default function DownloadSheet({
 
         es.onerror = () => {
             es.close();
-            if (status === 'downloading') {
-                setStatus('error');
-                setProgress({ type: 'error', message: 'Connection lost' });
-            }
+            setStatus(prev => {
+                if (prev === 'downloading') {
+                    setProgress({ type: 'error', message: 'Connection lost' });
+                    return 'error';
+                }
+                return prev;
+            });
         };
     }
 

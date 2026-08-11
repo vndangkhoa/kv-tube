@@ -25,6 +25,9 @@ func main() {
 	// Start subscription feed background refresher (runs yt-dlp in background, not on page load)
 	services.StartFeedRefresher()
 
+	// Keep yt-dlp on the latest nightly build (runs on startup and every 24h)
+	services.StartYtDlpUpdater()
+
 	// Setup Gin Engine
 	if os.Getenv("GIN_MODE") == "release" {
 		gin.SetMode(gin.ReleaseMode)

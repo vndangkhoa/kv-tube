@@ -28,8 +28,11 @@ RUN npm run build
 FROM alpine:latest
 
 RUN apk add --no-cache nodejs ca-certificates ffmpeg curl python3 py3-pip supervisor \
-    && curl -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o /usr/local/bin/yt-dlp \
-    && chmod a+rx /usr/local/bin/yt-dlp
+    && mkdir -p /app/bin \
+    && curl -L https://github.com/yt-dlp/yt-dlp-nightly-builds/releases/latest/download/yt-dlp -o /app/bin/yt-dlp \
+    && chmod a+rx /app/bin/yt-dlp \
+    && curl -fsSL https://deno.land/install.sh | DENO_INSTALL=/app/bin/deno sh -s -- -y \
+    && rm -rf /app/bin/deno/bin/deno.uninstall
 
 WORKDIR /app
 
@@ -55,6 +58,8 @@ ENV NODE_ENV=production
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV KVTUBE_DATA_DIR=/app/data
 ENV GIN_MODE=release
+# Prefer the container's yt-dlp nightly binary (writable by the kvtube user so it can self-update)
+ENV PATH=/app/bin/deno/bin:/app/bin:$PATH
 RUN addgroup -S kvtube && adduser -S kvtube -G kvtube && chown -R kvtube:kvtube /app
 
 USER kvtube

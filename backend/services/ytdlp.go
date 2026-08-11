@@ -2,6 +2,7 @@ package services
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
@@ -9,6 +10,8 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -81,6 +84,44 @@ func isYtDlpBlocked() bool {
 
 func init() {
 	ytDlpBinPath = resolveYtDlpBinPath()
+	denoBinPath = resolveDenoBinPath()
+}
+
+// denoBinPath is the resolved path of the deno JS runtime, used by yt-dlp to
+// solve YouTube's JavaScript challenges (n challenge, signature solving) when
+// cookies are in use. Empty means deno is unavailable; yt-dlp falls back to
+// whatever runtime is on PATH (or fails with reduced formats).
+var denoBinPath string
+
+// resolveDenoBinPath locates a deno binary: on PATH first, then common install
+// locations (deno.land installer, homebrew, /usr/local). Returns "" if none
+// found.
+func resolveDenoBinPath() string {
+	if _, err := exec.LookPath("deno"); err == nil {
+		return "deno"
+	}
+	candidates := []string{
+		os.ExpandEnv("$HOME/.deno/bin/deno"),
+		"/usr/local/bin/deno",
+		"/opt/homebrew/bin/deno",
+		"/usr/bin/deno",
+		"/app/bin/deno/bin/deno",
+	}
+	for _, p := range candidates {
+		if _, err := os.Stat(p); err == nil {
+			return p
+		}
+	}
+	return ""
+}
+
+// appendYtDlpRuntimeArgs appends --js-runtimes deno:<path> when a deno binary
+// is available, enabling JS challenge solving for the web player client.
+func appendYtDlpRuntimeArgs(args []string) []string {
+	if denoBinPath != "" {
+		return append(args, "--js-runtimes", "deno:"+denoBinPath)
+	}
+	return args
 }
 
 func resolveYtDlpBinPath() string {
@@ -90,6 +131,7 @@ func resolveYtDlpBinPath() string {
 	}
 
 	fallbacks := []string{
+		"/app/bin/yt-dlp",
 		os.ExpandEnv("$HOME/Library/Python/3.14/bin/yt-dlp"),
 		os.ExpandEnv("$HOME/Library/Python/3.13/bin/yt-dlp"),
 		os.ExpandEnv("$HOME/Library/Python/3.12/bin/yt-dlp"),
@@ -321,8 +363,10 @@ func IsBotCheckError(stderr string) bool {
 // ytDlpCookieArgs returns cookie arguments for yt-dlp derived from the
 // environment. Set YTDLP_COOKIES to a Netscape/cookies.txt file path, or
 // YTDLP_COOKIES_FROM_BROWSER to a browser name (e.g. "chrome") to export
-// cookies from a local browser. This is required to bypass YouTube's
-// "confirm you're not a bot" gate when the server's IP is rate-limited.
+// cookies from a local browser. If YTDLP_COOKIES is unset, the persisted
+// cookies file at <dataDir>/cookies.txt is used when present. This is
+// required to bypass YouTube's "confirm you're not a bot" gate when the
+// server's IP is rate-limited.
 func ytDlpCookieArgs() []string {
 	if p := os.Getenv("YTDLP_COOKIES"); p != "" {
 		if _, err := os.Stat(p); err == nil {
@@ -332,11 +376,182 @@ func ytDlpCookieArgs() []string {
 		} else {
 			logCookieWarningOnce("[ytdlp] YTDLP_COOKIES file not found: %s", p)
 		}
+	} else if p := PersistedCookiesPath(); p != "" {
+		if _, err := os.Stat(p); err == nil {
+			if isValidNetscapeCookieFile(p) {
+				return []string{"--cookies", p}
+			}
+		}
 	}
 	if b := os.Getenv("YTDLP_COOKIES_FROM_BROWSER"); b != "" {
 		return []string{"--cookies-from-browser", b}
 	}
 	return nil
+}
+
+// DataDir returns the configured KV-Tube data directory (KVTUBE_DATA_DIR),
+// defaulting to "../data" when unset. The directory is created if missing.
+func DataDir() string {
+	dataDir := os.Getenv("KVTUBE_DATA_DIR")
+	if dataDir == "" {
+		dataDir = "../data"
+	}
+	os.MkdirAll(dataDir, 0755)
+	return dataDir
+}
+
+// PersistedCookiesPath returns the path of the persisted cookies file that
+// users upload via the settings page, or "" when the data dir is unavailable.
+func PersistedCookiesPath() string {
+	return filepath.Join(DataDir(), "cookies.txt")
+}
+
+// SaveCookiesFile validates an uploaded Netscape-format cookies file and
+// atomically persists it to <dataDir>/cookies.txt so future yt-dlp calls use
+// it. Returns an error if the content is not a valid Netscape cookie file.
+func SaveCookiesFile(data []byte) error {
+	path := PersistedCookiesPath()
+	if len(data) == 0 {
+		return fmt.Errorf("cookies file is empty")
+	}
+
+	tmpPath := path + ".tmp"
+	if err := os.WriteFile(tmpPath, data, 0600); err != nil {
+		return err
+	}
+	if !isValidNetscapeCookieFile(tmpPath) {
+		os.Remove(tmpPath)
+		return fmt.Errorf("not a valid Netscape-format cookies file (expected 'Netscape HTTP Cookie File' header or tab-separated rows)")
+	}
+	if err := os.Rename(tmpPath, path); err != nil {
+		os.Remove(tmpPath)
+		return err
+	}
+	log.Printf("[ytdlp] Cookies file saved to %s", path)
+	return nil
+}
+
+// RemoveCookiesFile deletes the persisted cookies file, if any.
+func RemoveCookiesFile() error {
+	path := PersistedCookiesPath()
+	if _, err := os.Stat(path); os.IsNotExist(err) {
+		return nil
+	}
+	if err := os.Remove(path); err != nil {
+		return err
+	}
+	log.Printf("[ytdlp] Cookies file removed: %s", path)
+	return nil
+}
+
+// SupportedBrowserCookies lists browsers yt-dlp can export cookies from.
+var SupportedBrowserCookies = []string{"chrome", "chromium", "firefox", "edge", "brave", "opera", "vivaldi", "whale"}
+
+// FetchCookiesFromBrowser exports cookies from a local browser via yt-dlp and
+// persists them to <dataDir>/cookies.txt, replacing any existing file. This
+// automates the manual `yt-dlp --cookies-from-browser <browser> --cookies
+// cookies.txt ...` step. Requires a browser with cookies present on the host
+// (works in Docker when the browser profile dir is mounted).
+func FetchCookiesFromBrowser(browser string) error {
+	if !slices.Contains(SupportedBrowserCookies, browser) {
+		return fmt.Errorf("unsupported browser %q (supported: %s)", browser, strings.Join(SupportedBrowserCookies, ", "))
+	}
+
+	path := PersistedCookiesPath()
+	tmpPath := path + ".tmp"
+	os.Remove(tmpPath)
+
+	// yt-dlp writes the exported cookies into --cookies FILE; use a known-good
+	// video URL so no actual download happens (--skip-download). Extraction of
+	// the test video may still fail (bot gate / downgraded player), but the
+	// cookie export happens first and is what we care about, so only treat a
+	// missing/invalid output file as failure.
+	args := []string{
+		"--cookies-from-browser", browser,
+		"--cookies", tmpPath,
+		"--skip-download",
+		"--no-warnings",
+		"--force-ipv4",
+		"https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, ytDlpBinPath, args...).CombinedOutput()
+	if err != nil {
+		if ctx.Err() == context.DeadlineExceeded {
+			os.Remove(tmpPath)
+			return fmt.Errorf("cookie export timed out (browser may be locked)")
+		}
+		// Exit non-zero is expected when video extraction fails; check the file.
+		log.Printf("[ytdlp] yt-dlp exited during cookie export (non-fatal): %v (%s)", err, strings.TrimSpace(string(out)))
+	}
+	if !isValidNetscapeCookieFile(tmpPath) {
+		os.Remove(tmpPath)
+		return fmt.Errorf("exported cookies file is not valid Netscape format")
+	}
+	if err := os.Rename(tmpPath, path); err != nil {
+		os.Remove(tmpPath)
+		return err
+	}
+	log.Printf("[ytdlp] Cookies fetched from browser %q (%d entries)", browser, countCookieEntries(path))
+	return nil
+}
+
+// CookiesStatus describes the current cookies configuration.
+type CookiesStatus struct {
+	Configured bool   `json:"configured"`   // cookies will be passed to yt-dlp
+	Source     string `json:"source"`       // env | persisted | browser | none
+	Path       string `json:"path,omitempty"` // file path when file-based
+	Exists     bool   `json:"exists"`       // file exists on disk
+	Valid      bool   `json:"valid"`        // parses as Netscape format
+	Entries    int    `json:"entries"`      // number of non-comment lines
+}
+
+// CookiesStatus reports how yt-dlp cookies are currently configured.
+func GetCookiesStatus() CookiesStatus {
+	st := CookiesStatus{}
+
+	switch {
+	case os.Getenv("YTDLP_COOKIES") != "":
+		st.Source = "env"
+		st.Path = os.Getenv("YTDLP_COOKIES")
+	case os.Getenv("YTDLP_COOKIES_FROM_BROWSER") != "":
+		st.Source = "browser"
+		st.Configured = true
+		return st
+	default:
+		if _, err := os.Stat(PersistedCookiesPath()); err == nil {
+			st.Source = "persisted"
+			st.Path = PersistedCookiesPath()
+		} else {
+			st.Source = "none"
+			return st
+		}
+	}
+
+	if _, err := os.Stat(st.Path); err == nil {
+		st.Exists = true
+		st.Valid = isValidNetscapeCookieFile(st.Path)
+		st.Configured = st.Valid
+		st.Entries = countCookieEntries(st.Path)
+	}
+	return st
+}
+
+func countCookieEntries(path string) int {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return 0
+	}
+	count := 0
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSpace(line)
+		if line != "" && !strings.HasPrefix(line, "#") {
+			count++
+		}
+	}
+	return count
 }
 
 // isValidNetscapeCookieFile checks if a file looks like a valid Netscape
@@ -405,15 +620,19 @@ func appendYtDlpProxy(args []string) []string {
 	return args
 }
 
-// appendYtDlpOpts adds both cookie and proxy arguments to a yt-dlp arg list.
+// appendYtDlpOpts adds cookie, proxy, and JS-runtime arguments to a yt-dlp
+// arg list.
 func appendYtDlpOpts(args []string) []string {
 	args = appendYtDlpCookies(args)
 	args = appendYtDlpProxy(args)
+	args = appendYtDlpRuntimeArgs(args)
 	return args
 }
 
 // ytDlpTimeout is the maximum time allowed for a single yt-dlp invocation.
-var ytDlpTimeout = 15 * time.Second
+// Generous, because JS challenge solving (deno) + cookies add latency; a short
+// timeout would kill slow-but-valid requests and trigger false IP blocks.
+var ytDlpTimeout = 60 * time.Second
 
 // ytDlpSem is a global concurrency limiter for yt-dlp processes.
 // Reduced from 5 to 3 to prevent CPU saturation when many requests arrive.
@@ -461,7 +680,9 @@ func runYtDlpArgs(cmdArgs []string) ([]byte, string, error) {
 		}
 		<-done
 		log.Printf("[ytdlp] Process timed out after %v (killed process group)", ytDlpTimeout)
-		markYtDlpBlocked()
+		// NOTE: a timeout alone does not mean the IP is blocked (it may just
+		// be a slow challenge solve), so do NOT markYtDlpBlocked() here. Only
+		// explicit bot-check errors mark the block.
 		return nil, "", fmt.Errorf("yt-dlp timed out after %v", ytDlpTimeout)
 	}
 }

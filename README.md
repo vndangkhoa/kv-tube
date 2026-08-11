@@ -149,6 +149,14 @@ docker build -t kv-tube:latest .
 docker compose up -d
 ```
 
+> **Note:** When YouTube starts serving the "Sign in to confirm you're not a bot"
+> error (common on datacenter IPs), upload a cookies file in
+> **Settings → YouTube Cookies** (available from the sidebar). The server also
+> needs the [deno](https://deno.com) runtime on `PATH` to solve YouTube's
+> JavaScript challenges with cookies — the Docker image bundles it at
+> `/app/bin/deno/bin/deno` automatically. yt-dlp is kept on the latest nightly
+> build automatically (check/update manually from **Settings → yt-dlp**).
+
 <p align="center">
   <b>Frontend:</b> <a href="http://localhost:5011">http://localhost:5011</a> &nbsp;•&nbsp;
   <b>API:</b> <a href="http://localhost:8981">http://localhost:8981</a>

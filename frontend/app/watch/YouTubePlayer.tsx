@@ -124,7 +124,6 @@ export default function YouTubePlayer({
         document.head.appendChild(tag);
 
         window.onYouTubeIframeAPIReady = () => {
-            console.log('YouTube IFrame API ready');
             setIsApiReady(true);
         };
 
@@ -186,7 +185,6 @@ export default function YouTubePlayer({
                 },
                 events: {
                     onReady: (event: any) => {
-                        console.log('YouTube Player ready for video:', videoId);
                         setIsPlayerReady(true);
                         if (onVideoReady) onVideoReady();
                         
@@ -388,7 +386,6 @@ export default function YouTubePlayer({
 export function playVideo(videoId: string) {
     if (window.YT && window.YT.Player) {
         // Could create a new player instance or use existing one
-        console.log('Playing video:', videoId);
     }
 }
 

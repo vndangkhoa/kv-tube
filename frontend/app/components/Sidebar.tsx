@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useSidebar } from '../context/SidebarContext';
-import { HomeIcon, SubscriptionsIcon, LibraryIcon } from '../icons';
+import { HomeIcon, SubscriptionsIcon, LibraryIcon, SettingsIcon } from '../icons';
 
 export default function Sidebar() {
     const pathname = usePathname();
@@ -13,6 +13,7 @@ export default function Sidebar() {
         { icon: <HomeIcon size={24} />, label: 'Home', path: '/' },
         { icon: <SubscriptionsIcon size={24} />, label: 'Sub', path: '/feed/subscriptions' },
         { icon: <LibraryIcon size={24} />, label: 'You', path: '/feed/library' },
+        { icon: <SettingsIcon size={24} />, label: 'Settings', path: '/settings' },
     ];
 
     return (

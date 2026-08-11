@@ -6,3 +6,4 @@ export { default as LibraryIcon } from './LibraryIcon';
 export { default as ShortsIcon } from './ShortsIcon';
 export { default as PlayIcon } from './PlayIcon';
 export { default as SearchIcon } from './SearchIcon';
+export { default as SettingsIcon } from './SettingsIcon';

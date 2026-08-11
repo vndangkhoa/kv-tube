@@ -784,6 +784,8 @@ export default function ClientWatchPage() {
 		if (!videoId) return;
 
 		const loadVideoData = async () => {
+			let keywords = '';
+			let firstWords = '';
 			try {
 				setLoading(true);
 				setApiError(null);
@@ -806,28 +808,31 @@ export default function ClientWatchPage() {
 					}).catch(() => {});
 				}
 
-				const keywords = titleKeywords(video?.title || '');
+				keywords = titleKeywords(video?.title || '');
 				const channel = video?.channelTitle || video?.uploader || '';
-				const firstWords = keywords.split(' ').slice(0, 3).join(' ');
+				firstWords = keywords.split(' ').slice(0, 3).join(' ');
 				const exclude = new Set<string>([videoId]);
 
-				// Up Next: related content, from specific to broad. The last query
-				// is a generic one so the list is never empty.
+				// Up Next: related content, from specific to broad. The last two
+				// queries are video-specific (title + channel) so the list varies
+				// per video instead of always falling back to one generic query.
 				const relatedQueries = [
 					[channel, keywords].filter(Boolean).join(' '),
 					keywords,
 					channel,
 					firstWords,
-					'trending videos 2026',
+					`${firstWords} official video`,
+					`${channel || firstWords} live`,
 				];
 
-				// Mix: playlist/compilation style, also with broad fallbacks.
+				// Mix: playlist/compilation style, also video-specific fallbacks.
 				const mixQueries = [
 					keywords ? `${keywords} mix` : '',
 					channel ? `${channel} playlist` : '',
 					firstWords ? `${firstWords} playlist` : '',
-					keywords,
-					'popular music mix',
+					keywords ? `${keywords} album` : '',
+					firstWords ? `${firstWords} full album` : '',
+					firstWords ? `${firstWords} best of` : '',
 				];
 
 				const [relatedResults, mixResults] = await Promise.all([
@@ -870,7 +875,12 @@ export default function ClientWatchPage() {
 			} catch (error) {
 				console.error('Failed to load video data:', error);
 				try {
-					const fallbackResults = await searchVideosClient('music popular', 20);
+					// Video-specific last-resort so suggestions differ per video.
+					const fallbackQueries = [
+						keywords ? `${keywords} video` : 'music popular',
+						firstWords ? `${firstWords} mix` : 'music popular',
+					];
+					const fallbackResults = await searchWithFallback(fallbackQueries, 20, 20, new Set<string>([videoId]));
 					const arr = Array.isArray(fallbackResults) ? fallbackResults : [];
 					setRelatedVideos(arr.slice(0, 10));
 					setMixPlaylist(arr.slice(10, 20));

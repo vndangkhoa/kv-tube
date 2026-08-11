@@ -36,30 +36,32 @@ function setClientCache<T>(key: string, val: T): void {
   }
 }
 
-// Invidious Public API Mirrors for direct client-side fallback when server is busy
-const INVIDIOUS_MIRRORS = [
-  'https://invidious.nerdvpn.de',
-  'https://inv.tux.pizza',
-  'https://invidious.drgns.space',
-];
+// Search videos using client cache + backend API
+export async function searchVideosClient(query: string, limit: number = 20): Promise<VideoData[]> {
+  if (!query) return [];
+  const cacheKey = `srch_${query}_${limit}`;
+  const cached = getClientCache<VideoData[]>(cacheKey);
+  if (cached && cached.length > 0) return cached;
 
-async function fetchInvidiousFallback(path: string): Promise<any> {
-  for (const mirror of INVIDIOUS_MIRRORS) {
-    try {
-      const res = await fetch(`${mirror}/api/v1${path}`, {
-        signal: AbortSignal.timeout(4000),
-      });
-      if (res.ok) {
-        return await res.json();
+  try {
+    const response = await fetch(`${API_BASE}/search?q=${encodeURIComponent(query)}&limit=${limit}`, {
+      signal: AbortSignal.timeout(8000),
+    });
+    
+    if (response.ok) {
+      const data = await response.json();
+      if (Array.isArray(data) && data.length > 0) {
+        const transformed = data.map(transformVideo).filter((v: VideoData) => v.id && v.title);
+        setClientCache(cacheKey, transformed);
+        return transformed;
       }
-    } catch (_) {
-      continue;
     }
+  } catch (error) {
+    console.warn('Backend search failed:', error);
   }
-  return null;
-}
 
-// Transform backend or Invidious response to VideoData
+  return [];
+}
 function transformVideo(item: any): VideoData {
   return {
     id: item.id || item.videoId || '',
@@ -169,42 +171,7 @@ export async function getVideoStatsClient(
   }
 }
 
-// Search videos using client cache + backend API + Invidious fallback
-export async function searchVideosClient(query: string, limit: number = 20): Promise<VideoData[]> {
-  if (!query) return [];
-  const cacheKey = `srch_${query}_${limit}`;
-  const cached = getClientCache<VideoData[]>(cacheKey);
-  if (cached && cached.length > 0) return cached;
-
-  try {
-    const response = await fetch(`${API_BASE}/search?q=${encodeURIComponent(query)}&limit=${limit}`, {
-      signal: AbortSignal.timeout(8000),
-    });
-    
-    if (response.ok) {
-      const data = await response.json();
-      if (Array.isArray(data) && data.length > 0) {
-        const transformed = data.map(transformVideo).filter((v: VideoData) => v.id && v.title);
-        setClientCache(cacheKey, transformed);
-        return transformed;
-      }
-    }
-  } catch (error) {
-    console.warn('Backend search busy, trying direct client fallback...');
-  }
-
-  // Fallback: Fetch directly from Invidious mirror to unburden backend
-  const invData = await fetchInvidiousFallback(`/search?q=${encodeURIComponent(query)}`);
-  if (Array.isArray(invData) && invData.length > 0) {
-    const transformed = invData.map(transformVideo).filter((v: VideoData) => v.id && v.title).slice(0, limit);
-    setClientCache(cacheKey, transformed);
-    return transformed;
-  }
-
-  return [];
-}
-
-// Get video details using client cache + backend API + Invidious fallback
+// Get video details using client cache + backend API
 export async function getVideoDetailsClient(videoId: string): Promise<VideoData | null> {
   if (!videoId) return null;
   const cacheKey = `vdet_${videoId}`;
@@ -225,15 +192,7 @@ export async function getVideoDetailsClient(videoId: string): Promise<VideoData 
       }
     }
   } catch (error) {
-    console.warn('Backend video details busy, trying direct client fallback...');
-  }
-
-  // Fallback: Fetch directly from Invidious mirror
-  const invData = await fetchInvidiousFallback(`/videos/${videoId}`);
-  if (invData && invData.title) {
-    const transformed = transformVideo(invData);
-    setClientCache(cacheKey, transformed);
-    return transformed;
+    console.warn('Backend video details failed:', error);
   }
 
   return null;

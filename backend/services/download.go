@@ -224,6 +224,15 @@ func (dm *DownloadManager) runDownload(job *downloadJob) {
 		// Fallback: run without a pty. Progress will not be reported, but the
 		// download still completes and the result is served.
 		log.Printf("[download] pty.Start failed for %s: %v (falling back to direct exec)", job.videoID, err)
+		// pty.Start assigns cmd.Stdin/Stdout/Stderr to the tty, replaces
+		// SysProcAttr, and calls cmd.Start() before returning, so the cmd is
+		// left in a partially-started state (Process set) even on failure.
+		// Reap any spawned zombie, then use a fresh command for the fallback.
+		if cmd.Process != nil {
+			go func() { _ = cmd.Wait() }()
+		}
+		cmd = exec.Command(ytDlpBinPath, args...)
+		cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 		stderr, perr := cmd.StderrPipe()
 		if perr != nil {
 			job.mu.Lock()
@@ -335,7 +344,16 @@ func (dm *DownloadManager) runDownload(job *downloadJob) {
 		return
 	}
 
-	fi, _ := os.Stat(mp4File)
+	fi, err := os.Stat(mp4File)
+	if err != nil {
+		job.mu.Lock()
+		job.status = "error"
+		job.errorMsg = fmt.Sprintf("Failed to stat output file: %v", err)
+		job.mu.Unlock()
+		dm.broadcast(job, DownloadEvent{Type: "error", Message: job.errorMsg})
+		dm.closeSubs(job)
+		return
+	}
 	filename := filepath.Base(mp4File)
 
 	job.mu.Lock()
