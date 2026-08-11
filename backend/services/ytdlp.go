@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"log"
 	"net/http"
@@ -423,10 +424,11 @@ func SaveCookiesFile(data []byte) error {
 		os.Remove(tmpPath)
 		return fmt.Errorf("not a valid Netscape-format cookies file (expected 'Netscape HTTP Cookie File' header or tab-separated rows)")
 	}
-	if err := os.Rename(tmpPath, path); err != nil {
+	if err := copyFile(tmpPath, path); err != nil {
 		os.Remove(tmpPath)
 		return err
 	}
+	os.Remove(tmpPath)
 	log.Printf("[ytdlp] Cookies file saved to %s", path)
 	return nil
 }
@@ -490,12 +492,31 @@ func FetchCookiesFromBrowser(browser string) error {
 		os.Remove(tmpPath)
 		return fmt.Errorf("exported cookies file is not valid Netscape format")
 	}
-	if err := os.Rename(tmpPath, path); err != nil {
+	if err := copyFile(tmpPath, path); err != nil {
 		os.Remove(tmpPath)
 		return err
 	}
+	os.Remove(tmpPath)
 	log.Printf("[ytdlp] Cookies fetched from browser %q (%d entries)", browser, countCookieEntries(path))
 	return nil
+}
+
+// copyFile copies src to dst. Works around os.Rename failures on Docker volumes.
+func copyFile(src, dst string) error {
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+	out, err := os.Create(dst)
+	if err != nil {
+		return err
+	}
+	defer out.Close()
+	if _, err := io.Copy(out, in); err != nil {
+		return err
+	}
+	return out.Close()
 }
 
 // CookiesStatus describes the current cookies configuration.
