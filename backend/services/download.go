@@ -177,44 +177,110 @@ var downloadProgressRe = regexp.MustCompile(`\[download\]\s+(\d+\.?\d*)%`)
 var downloadMergeRe = regexp.MustCompile(`\[Merger\]`)
 var ansiRe = regexp.MustCompile(`\x1b\[[0-9;]*[A-Za-z]`)
 
+// downloadOutputTail keeps the last maxLines lines of yt-dlp output so
+// failures can be reported verbatim to the user (KB §6: the error body must
+// contain yt-dlp's stderr — it is the fastest diagnostic).
+type downloadOutputTail struct {
+	lines []string
+}
+
+func (t *downloadOutputTail) add(line string, maxLines int) {
+	t.lines = append(t.lines, line)
+	if len(t.lines) > maxLines {
+		t.lines = t.lines[len(t.lines)-maxLines:]
+	}
+}
+
+func (t *downloadOutputTail) String() string {
+	return strings.Join(t.lines, "\n")
+}
+
 func (dm *DownloadManager) runDownload(job *downloadJob) {
 	url := fmt.Sprintf("https://www.youtube.com/watch?v=%s", job.videoID)
-
-	tmpDir, err := os.MkdirTemp(dm.cacheDir, "dl-*")
-	if err != nil {
-		job.mu.Lock()
-		job.status = "error"
-		job.errorMsg = fmt.Sprintf("Failed to create temp dir: %v", err)
-		job.mu.Unlock()
-		dm.broadcast(job, DownloadEvent{Type: "error", Message: job.errorMsg})
-		dm.closeSubs(job)
-		return
-	}
 
 	formatStr := qualityFormats[job.quality]
 	if formatStr == "" {
 		formatStr = qualityFormats["recommended"]
 	}
 
-	outputTmpl := filepath.Join(tmpDir, "%(title)s.%(ext)s")
-
-	args := []string{
-		"--format", formatStr,
-		"--merge-output-format", "mp4",
-		"--output", outputTmpl,
-		"--no-playlist",
-		"--no-warnings",
-		"--force-ipv4",
-		"--newline",
-		"--no-colors",
+	// Retry chain (mirrors the player fix): with cookies first (full quality
+	// when YouTube allows), then anonymous (stale/rotated cookie sessions get
+	// downgraded responses with zero formats), then anonymous android client
+	// (always extracts, caps ~360p). Each attempt gets a fresh temp dir.
+	attempts := []struct {
+		withCookies bool
+		client      string
+		label       string
+	}{
+		{true, "", "cookies+web"},
+		{false, "", "anonymous web"},
+		{false, "android", "anonymous android"},
 	}
-	args = appendYtDlpOpts(args)
-	args = append(args, url)
 
+	var lastErr error
+	var lastTail string
+	for ai, attempt := range attempts {
+		// NOTE: no isYtDlpBlocked() check here — the retry chain IS the
+		// recovery. On a flagged IP, earlier requests may have marked the
+		// block, but attempts 2-3 (anonymous web / android) are exactly what
+		// can still succeed, so they must always run.
+
+		tmpDir, err := os.MkdirTemp(dm.cacheDir, "dl-*")
+		if err != nil {
+			lastErr = fmt.Errorf("failed to create temp dir: %v", err)
+			break
+		}
+
+		outputTmpl := filepath.Join(tmpDir, "%(title)s.%(ext)s")
+
+		args := []string{
+			"--format", formatStr,
+			"--merge-output-format", "mp4",
+			"--output", outputTmpl,
+			"--no-playlist",
+			"--no-warnings",
+			"--newline",
+			"--no-colors",
+		}
+		args = appendYtDlpOpts(args, attempt.withCookies)
+		args = append(args, ipFamilyArgs()...)
+		if attempt.client != "" {
+			args = append(args, "--extractor-args", "youtube:player_client="+attempt.client)
+		}
+		args = append(args, url)
+
+		log.Printf("[download] Starting yt-dlp for %s (quality=%s, attempt %d/%d: %s)", job.videoID, job.quality, ai+1, len(attempts), attempt.label)
+
+		err, tail := dm.runDownloadAttempt(job, args, tmpDir)
+		if err == nil {
+			log.Printf("[download] yt-dlp finished for %s (attempt %d/%d: %s)", job.videoID, ai+1, len(attempts), attempt.label)
+			dm.completeDownload(job, tmpDir)
+			return
+		}
+
+		lastErr = err
+		lastTail = tail
+		log.Printf("[download] attempt %d/%d (%s) failed for %s: %v", ai+1, len(attempts), attempt.label, job.videoID, err)
+		os.RemoveAll(tmpDir)
+	}
+
+	job.mu.Lock()
+	job.status = "error"
+	msg := fmt.Sprintf("yt-dlp failed: %v", lastErr)
+	if strings.TrimSpace(lastTail) != "" {
+		msg = fmt.Sprintf("yt-dlp failed: %v. stderr: %s", lastErr, strings.TrimSpace(lastTail))
+	}
+	job.errorMsg = msg
+	job.mu.Unlock()
+	dm.broadcast(job, DownloadEvent{Type: "error", Message: job.errorMsg})
+	dm.closeSubs(job)
+}
+
+// runDownloadAttempt executes one yt-dlp download attempt inside a pty for
+// progress parsing. Returns (nil, "") on success, or (err, outputTail).
+func (dm *DownloadManager) runDownloadAttempt(job *downloadJob, args []string, tmpDir string) (error, string) {
 	cmd := exec.Command(ytDlpBinPath, args...)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-
-	log.Printf("[download] Starting yt-dlp for %s (quality=%s)", job.videoID, job.quality)
 
 	// yt-dlp suppresses progress output unless it is attached to a terminal.
 	// Run it inside a pseudo-terminal (pty) so the progress bar is emitted,
@@ -235,27 +301,19 @@ func (dm *DownloadManager) runDownload(job *downloadJob) {
 		cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 		stderr, perr := cmd.StderrPipe()
 		if perr != nil {
-			job.mu.Lock()
-			job.status = "error"
-			job.errorMsg = fmt.Sprintf("Failed to start yt-dlp: %v", perr)
-			job.mu.Unlock()
-			dm.broadcast(job, DownloadEvent{Type: "error", Message: job.errorMsg})
-			dm.closeSubs(job)
-			return
+			return fmt.Errorf("failed to start yt-dlp: %v", perr), ""
 		}
 		if perr := cmd.Start(); perr != nil {
-			job.mu.Lock()
-			job.status = "error"
-			job.errorMsg = fmt.Sprintf("Failed to start yt-dlp: %v", perr)
-			job.mu.Unlock()
-			dm.broadcast(job, DownloadEvent{Type: "error", Message: job.errorMsg})
-			dm.closeSubs(job)
-			return
+			return fmt.Errorf("failed to start yt-dlp: %v", perr), ""
 		}
+		var tail downloadOutputTail
+		scannerDone := make(chan struct{})
 		go func() {
+			defer close(scannerDone)
 			scanner := bufio.NewScanner(stderr)
 			for scanner.Scan() {
 				line := ansiRe.ReplaceAllString(scanner.Text(), "")
+				tail.add(line, 40)
 				if downloadMergeRe.MatchString(line) {
 					job.mu.Lock()
 					job.status = "merging"
@@ -265,64 +323,71 @@ func (dm *DownloadManager) runDownload(job *downloadJob) {
 			}
 		}()
 		err = downloadWaitWithTimeout(cmd, 30*time.Minute)
-	} else {
-		defer ptmx.Close()
+		<-scannerDone
+		return err, tail.String()
+	}
 
-		job.mu.Lock()
-		job.status = "downloading"
-		job.mu.Unlock()
+	defer ptmx.Close()
 
-		go func() {
-			scanner := bufio.NewScanner(ptmx)
-			lineCount := 0
-			for scanner.Scan() {
-				line := ansiRe.ReplaceAllString(scanner.Text(), "")
-				lineCount++
+	job.mu.Lock()
+	job.status = "downloading"
+	job.mu.Unlock()
 
-				if downloadMergeRe.MatchString(line) {
-					log.Printf("[download] Merge phase for %s", job.videoID)
-					job.mu.Lock()
-					job.status = "merging"
-					job.mu.Unlock()
-					dm.broadcast(job, DownloadEvent{Type: "merging"})
-					continue
-				}
+	var tail downloadOutputTail
+	scannerDone := make(chan struct{})
+	go func() {
+		defer close(scannerDone)
+		scanner := bufio.NewScanner(ptmx)
+		lineCount := 0
+		for scanner.Scan() {
+			line := ansiRe.ReplaceAllString(scanner.Text(), "")
+			lineCount++
+			tail.add(line, 40)
 
-				matches := downloadProgressRe.FindStringSubmatch(line)
-				if len(matches) >= 2 {
-					percent := parseFloat(matches[1])
-					speed, eta := parseSpeedETA(line)
-					job.mu.Lock()
-					job.progress = percent
-					job.speed = speed
-					job.eta = eta
-					job.mu.Unlock()
-					dm.broadcast(job, DownloadEvent{
-						Type:    "progress",
-						Percent: percent,
-						Speed:   speed,
-						ETA:     eta,
-						Message: fmt.Sprintf("Downloading... %.1f%%", percent),
-					})
-				}
+			if downloadMergeRe.MatchString(line) {
+				log.Printf("[download] Merge phase for %s", job.videoID)
+				job.mu.Lock()
+				job.status = "merging"
+				job.mu.Unlock()
+				dm.broadcast(job, DownloadEvent{Type: "merging"})
+				continue
 			}
-			log.Printf("[download] pty scanner finished for %s (read %d lines, err=%v)", job.videoID, lineCount, scanner.Err())
-		}()
 
-		err = downloadWaitWithTimeout(cmd, 30*time.Minute)
+			matches := downloadProgressRe.FindStringSubmatch(line)
+			if len(matches) >= 2 {
+				percent := parseFloat(matches[1])
+				speed, eta := parseSpeedETA(line)
+				job.mu.Lock()
+				job.progress = percent
+				job.speed = speed
+				job.eta = eta
+				job.mu.Unlock()
+				dm.broadcast(job, DownloadEvent{
+					Type:    "progress",
+					Percent: percent,
+					Speed:   speed,
+					ETA:     eta,
+					Message: fmt.Sprintf("Downloading... %.1f%%", percent),
+				})
+			}
+		}
+		log.Printf("[download] pty scanner finished for %s (read %d lines, err=%v)", job.videoID, lineCount, scanner.Err())
+	}()
+
+	err = downloadWaitWithTimeout(cmd, 30*time.Minute)
+	<-scannerDone
+
+	// yt-dlp writes its error to the pty stream; surface the tail so the
+	// user gets the actual reason (bot gate, cookie rejection, 403/429).
+	if err != nil && tail.String() != "" {
+		err = fmt.Errorf("%w. stderr: %s", err, tail.String())
 	}
+	return err, tail.String()
+}
 
-	log.Printf("[download] yt-dlp finished for %s (err=%v)", job.videoID, err)
-	if err != nil {
-		job.mu.Lock()
-		job.status = "error"
-		job.errorMsg = fmt.Sprintf("yt-dlp failed: %v", err)
-		job.mu.Unlock()
-		dm.broadcast(job, DownloadEvent{Type: "error", Message: job.errorMsg})
-		dm.closeSubs(job)
-		return
-	}
-
+// completeDownload finalizes a successful download: locates the produced mp4,
+// records it in the cache, and notifies subscribers.
+func (dm *DownloadManager) completeDownload(job *downloadJob, tmpDir string) {
 	var mp4File string
 	filepath.Walk(tmpDir, func(path string, info os.FileInfo, err error) error {
 		if err != nil || mp4File != "" {

@@ -86,6 +86,44 @@ func isYtDlpBlocked() bool {
 func init() {
 	ytDlpBinPath = resolveYtDlpBinPath()
 	denoBinPath = resolveDenoBinPath()
+	nodeBinPath = resolveNodeBinPath()
+	impersonateSupported = detectImpersonateSupport()
+}
+
+// impersonateSupported indicates whether this yt-dlp install can impersonate
+// browser TLS fingerprints (KB §4: curl_cffi helps against bot checks).
+// Only pip-style installs with curl_cffi support it; standalone binaries do
+// not, and passing --impersonate there errors out — so it is auto-detected.
+var impersonateSupported bool
+
+// detectImpersonateSupport checks whether THIS yt-dlp binary can impersonate
+// browser TLS fingerprints. Probing the binary itself is the only reliable
+// way: standalone builds lack curl_cffi even when the system python has it
+// (pip installs carry their own env). YTDLP_IMPERSONATE=<target> forces
+// impersonation regardless.
+func detectImpersonateSupport() bool {
+	if p := os.Getenv("YTDLP_IMPERSONATE"); p != "" {
+		return true
+	}
+	out, err := exec.Command(ytDlpBinPath, "--list-impersonate-targets").CombinedOutput()
+	if err != nil {
+		return false
+	}
+	s := string(out)
+	return strings.Contains(s, "Chrome") && !strings.Contains(s, "unavailable")
+}
+
+// impersonateArgs returns --impersonate <target> when supported (default
+// "chrome", overridable via YTDLP_IMPERSONATE).
+func impersonateArgs() []string {
+	if !impersonateSupported {
+		return nil
+	}
+	target := os.Getenv("YTDLP_IMPERSONATE")
+	if target == "" {
+		target = "chrome"
+	}
+	return []string{"--impersonate", target}
 }
 
 // denoBinPath is the resolved path of the deno JS runtime, used by yt-dlp to
@@ -116,11 +154,44 @@ func resolveDenoBinPath() string {
 	return ""
 }
 
-// appendYtDlpRuntimeArgs appends --js-runtimes deno:<path> when a deno binary
-// is available, enabling JS challenge solving for the web player client.
+// nodeBinPath is the resolved path of the node JS runtime, used by yt-dlp as
+// a second JS challenge solver when deno is unavailable. The runtime name is
+// "node" (NOT "nodejs" — yt-dlp ignores "nodejs" with a warning).
+var nodeBinPath string
+
+// resolveNodeBinPath locates a node binary: on PATH first, then common
+// install locations. Returns "" if none found.
+func resolveNodeBinPath() string {
+	if _, err := exec.LookPath("node"); err == nil {
+		return "node"
+	}
+	candidates := []string{
+		"/usr/bin/node",
+		"/usr/local/bin/node",
+		"/opt/homebrew/bin/node",
+		"/app/bin/node",
+	}
+	for _, p := range candidates {
+		if _, err := os.Stat(p); err == nil {
+			return p
+		}
+	}
+	return ""
+}
+
+// appendYtDlpRuntimeArgs appends --js-runtimes with the available JS runtimes
+// (deno preferred, node as fallback), enabling JS challenge solving for the
+// web player client.
 func appendYtDlpRuntimeArgs(args []string) []string {
+	var runtimes []string
 	if denoBinPath != "" {
-		return append(args, "--js-runtimes", "deno:"+denoBinPath)
+		runtimes = append(runtimes, "deno:"+denoBinPath)
+	}
+	if nodeBinPath != "" {
+		runtimes = append(runtimes, "node")
+	}
+	if len(runtimes) > 0 {
+		return append(args, "--js-runtimes", strings.Join(runtimes, ","))
 	}
 	return args
 }
@@ -361,33 +432,165 @@ func IsBotCheckError(stderr string) bool {
 		strings.Contains(s, "bot-check")
 }
 
+// Cookie rejection / blacklist (KB §3): once YouTube reports the provided
+// cookies as invalid ("no longer valid" = expired/rotated), blacklist the
+// user-provided file for the process lifetime and switch to the
+// auto-refreshed anonymous session. Never keep reusing a rejected file
+// silently.
+var (
+	cookiesBlacklisted   bool
+	cookiesBlacklistedMu sync.RWMutex
+)
+
+func markCookiesBlacklisted() {
+	cookiesBlacklistedMu.Lock()
+	defer cookiesBlacklistedMu.Unlock()
+	if !cookiesBlacklisted {
+		log.Printf("[ytdlp] YouTube rejected the provided cookies; blacklisting them for this process lifetime")
+	}
+	cookiesBlacklisted = true
+}
+
+// clearCookiesBlacklist un-blacklists the user cookies (called when a fresh
+// file is uploaded/fetched — new session, new chance).
+func clearCookiesBlacklist() {
+	cookiesBlacklistedMu.Lock()
+	defer cookiesBlacklistedMu.Unlock()
+	if cookiesBlacklisted {
+		log.Printf("[ytdlp] cookies un-blacklisted (new session provided)")
+	}
+	cookiesBlacklisted = false
+}
+
+func areCookiesBlacklisted() bool {
+	cookiesBlacklistedMu.RLock()
+	defer cookiesBlacklistedMu.RUnlock()
+	return cookiesBlacklisted
+}
+
+// IsCookieRejectionError reports whether yt-dlp stderr indicates the supplied
+// cookies were rejected (they expired/rotated and must be re-exported or
+// replaced with a fresh anonymous session).
+func IsCookieRejectionError(stderr string) bool {
+	s := strings.ToLower(stderr)
+	return strings.Contains(s, "no longer valid") ||
+		strings.Contains(s, "cookies have expired") ||
+		strings.Contains(s, "invalid cookies")
+}
+
+// runtimeCookiesPath is the writable staging path yt-dlp actually receives.
+// yt-dlp WRITES BACK to the --cookies file on exit, so passing a read-only
+// mount (./cookies.txt:ro) or a path in a directory it can't touch would
+// crash it. Every configured cookie source is copied here first.
+func runtimeCookiesPath() string {
+	return filepath.Join(DataDir(), ".cookies-runtime.txt")
+}
+
+// cookiesStageMu serializes the staging copy so concurrent yt-dlp invocations
+// never read a half-written file.
+var cookiesStageMu sync.Mutex
+
+// prepareCookieFile validates a Netscape cookie file and returns a canonical,
+// writable staging path safe for yt-dlp to read AND write back to.
+//   - is_file() check: a missing mount point is a DIRECTORY, not a file
+//   - canonicalize: yt-dlp may run with a different current_dir
+//   - copy to a writable location so :ro mounts cannot crash yt-dlp
+func prepareCookieFile(src string) (string, bool) {
+	fi, err := os.Stat(src)
+	if err != nil || fi.IsDir() {
+		return "", false
+	}
+	if !isValidNetscapeCookieFile(src) {
+		return "", false
+	}
+
+	abs := src
+	if a, aerr := filepath.Abs(src); aerr == nil {
+		if resolved, rerr := filepath.EvalSymlinks(a); rerr == nil {
+			abs = resolved
+		} else {
+			abs = a
+		}
+	}
+
+	cookiesStageMu.Lock()
+	defer cookiesStageMu.Unlock()
+
+	dst := runtimeCookiesPath()
+	if dfi, derr := os.Stat(dst); derr == nil && dfi.Size() == fi.Size() && dfi.ModTime().Equal(fi.ModTime()) {
+		return dst, true
+	}
+	if err := copyFile(abs, dst); err != nil {
+		log.Printf("[ytdlp] failed to stage cookies file at %s: %v", dst, err)
+		return "", false
+	}
+	_ = os.Chtimes(dst, fi.ModTime(), fi.ModTime())
+	return dst, true
+}
+
+// AnonymousCookiesPath returns the writable anonymous-session cookie file
+// (VISITOR_INFO1_LIVE, YSC, PREF), auto-fetched at boot and refreshed when
+// the user cookies are rejected.
+func AnonymousCookiesPath() string {
+	return filepath.Join(DataDir(), "cookies-anonymous.txt")
+}
+
+// anonymousCookieArgs returns --cookies for the anonymous session when one
+// has been fetched.
+func anonymousCookieArgs() []string {
+	if p := AnonymousCookiesPath(); p != "" {
+		if rp, ok := prepareCookieFile(p); ok {
+			return []string{"--cookies", rp}
+		}
+	}
+	return nil
+}
+
+// ytDlpUserCookieArgs returns the USER-provided cookie file regardless of the
+// blacklist state (used by personalization endpoints — a blacklisted session
+// still personalizes the home feed, which is a lightweight call that passes
+// on flagged IPs). Falls back to the anonymous session when no user file
+// exists.
+func ytDlpUserCookieArgs() []string {
+	if p := os.Getenv("YTDLP_COOKIES"); p != "" {
+		if rp, ok := prepareCookieFile(p); ok {
+			return []string{"--cookies", rp}
+		}
+	} else if p := PersistedCookiesPath(); p != "" {
+		if rp, ok := prepareCookieFile(p); ok {
+			return []string{"--cookies", rp}
+		}
+	}
+	return anonymousCookieArgs()
+}
+
 // ytDlpCookieArgs returns cookie arguments for yt-dlp derived from the
 // environment. Set YTDLP_COOKIES to a Netscape/cookies.txt file path, or
 // YTDLP_COOKIES_FROM_BROWSER to a browser name (e.g. "chrome") to export
 // cookies from a local browser. If YTDLP_COOKIES is unset, the persisted
-// cookies file at <dataDir>/cookies.txt is used when present. This is
-// required to bypass YouTube's "confirm you're not a bot" gate when the
-// server's IP is rate-limited.
+// cookies file at <dataDir>/cookies.txt is used when present. When no user
+// cookies exist (or they were rejected), the auto-refreshed anonymous
+// session is used. This is required to bypass YouTube's "confirm you're not
+// a bot" gate when the server's IP is rate-limited.
 func ytDlpCookieArgs() []string {
+	if areCookiesBlacklisted() {
+		return anonymousCookieArgs()
+	}
+
 	if p := os.Getenv("YTDLP_COOKIES"); p != "" {
-		if _, err := os.Stat(p); err == nil {
-			if isValidNetscapeCookieFile(p) {
-				return []string{"--cookies", p}
-			}
-		} else {
-			logCookieWarningOnce("[ytdlp] YTDLP_COOKIES file not found: %s", p)
+		if rp, ok := prepareCookieFile(p); ok {
+			return []string{"--cookies", rp}
 		}
+		logCookieWarningOnce("[ytdlp] YTDLP_COOKIES file not usable: %s", p)
 	} else if p := PersistedCookiesPath(); p != "" {
-		if _, err := os.Stat(p); err == nil {
-			if isValidNetscapeCookieFile(p) {
-				return []string{"--cookies", p}
-			}
+		if rp, ok := prepareCookieFile(p); ok {
+			return []string{"--cookies", rp}
 		}
 	}
 	if b := os.Getenv("YTDLP_COOKIES_FROM_BROWSER"); b != "" {
 		return []string{"--cookies-from-browser", b}
 	}
-	return nil
+	return anonymousCookieArgs()
 }
 
 // DataDir returns the configured KV-Tube data directory (KVTUBE_DATA_DIR),
@@ -430,19 +633,32 @@ func SaveCookiesFile(data []byte) error {
 	}
 	os.Remove(tmpPath)
 	log.Printf("[ytdlp] Cookies file saved to %s", path)
+	// New session cookies: un-blacklist and clear in-memory caches so
+	// everything re-fetches with the new session.
+	clearCookiesBlacklist()
+	models.ClearVideoCache()
 	return nil
 }
 
 // RemoveCookiesFile deletes the persisted cookies file, if any.
 func RemoveCookiesFile() error {
 	path := PersistedCookiesPath()
-	if _, err := os.Stat(path); os.IsNotExist(err) {
+	fi, err := os.Stat(path)
+	if os.IsNotExist(err) {
 		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if fi.IsDir() {
+		return fmt.Errorf("%s is a directory, not a cookies file", path)
 	}
 	if err := os.Remove(path); err != nil {
 		return err
 	}
 	log.Printf("[ytdlp] Cookies file removed: %s", path)
+	clearCookiesBlacklist()
+	models.ClearVideoCache()
 	return nil
 }
 
@@ -473,9 +689,9 @@ func FetchCookiesFromBrowser(browser string) error {
 		"--cookies", tmpPath,
 		"--skip-download",
 		"--no-warnings",
-		"--force-ipv4",
 		"https://www.youtube.com/watch?v=dQw4w9WgXcQ",
 	}
+	args = append(args, ipFamilyArgs()...)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
@@ -498,7 +714,93 @@ func FetchCookiesFromBrowser(browser string) error {
 	}
 	os.Remove(tmpPath)
 	log.Printf("[ytdlp] Cookies fetched from browser %q (%d entries)", browser, countCookieEntries(path))
+	clearCookiesBlacklist()
+	models.ClearVideoCache()
 	return nil
+}
+
+// anonymousCookiesFlight coalesces concurrent anonymous-session refreshes so
+// a burst of cookie rejections (or rejection + boot bootstrap) share one
+// fetch instead of racing each other.
+var anonymousCookiesFlight singleflight.Group
+
+// RefreshAnonymousCookies fetches a fresh anonymous YouTube session
+// (VISITOR_INFO1_LIVE, YSC, PREF) into <dataDir>/cookies-anonymous.txt.
+// Used at boot (when no cookies exist at all) and when YouTube rejects the
+// user-provided cookies (KB §3: discard the rejected file, auto-refresh an
+// anonymous session, write to a writable path, retry).
+func RefreshAnonymousCookies() error {
+	_, err, _ := anonymousCookiesFlight.Do("refresh", func() (interface{}, error) {
+		return nil, refreshAnonymousCookiesOnce()
+	})
+	return err
+}
+
+func refreshAnonymousCookiesOnce() error {
+	path := AnonymousCookiesPath()
+	tmpPath := path + ".tmp"
+	os.Remove(tmpPath)
+
+	args := []string{
+		"--cookies", tmpPath,
+		"--skip-download",
+		"--no-warnings",
+		"--quiet",
+		"https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+	}
+	args = append(args, ipFamilyArgs()...)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, ytDlpBinPath, args...).CombinedOutput()
+	if err != nil {
+		if ctx.Err() == context.DeadlineExceeded {
+			os.Remove(tmpPath)
+			return fmt.Errorf("anonymous cookie fetch timed out")
+		}
+		// Non-zero exit is expected when video extraction fails; the cookie
+		// export happens first and is what we care about.
+		log.Printf("[ytdlp] yt-dlp exited during anonymous cookie fetch (non-fatal): %v (%s)", err, strings.TrimSpace(string(out)))
+	}
+	if !isValidNetscapeCookieFile(tmpPath) || countCookieEntries(tmpPath) == 0 {
+		os.Remove(tmpPath)
+		return fmt.Errorf("anonymous cookie fetch produced no valid cookies")
+	}
+	if err := copyFile(tmpPath, path); err != nil {
+		os.Remove(tmpPath)
+		return err
+	}
+	os.Remove(tmpPath)
+	log.Printf("[ytdlp] anonymous session cookies refreshed (%d entries)", countCookieEntries(path))
+	return nil
+}
+
+// StartCookieBootstrap auto-fetches an anonymous session in the background at
+// boot when no user cookies exist at all, so the first yt-dlp calls are not
+// cookie-less (KB §3: startup refresh).
+func StartCookieBootstrap() {
+	go func() {
+		time.Sleep(3 * time.Second)
+
+		if areCookiesBlacklisted() {
+			_ = RefreshAnonymousCookies()
+			return
+		}
+		if p := os.Getenv("YTDLP_COOKIES"); p != "" {
+			if fi, err := os.Stat(p); err == nil && !fi.IsDir() {
+				return // user cookies present, nothing to bootstrap
+			}
+		}
+		if fi, err := os.Stat(PersistedCookiesPath()); err == nil && !fi.IsDir() {
+			return
+		}
+		if fi, err := os.Stat(AnonymousCookiesPath()); err == nil && !fi.IsDir() {
+			return
+		}
+		if err := RefreshAnonymousCookies(); err != nil {
+			log.Printf("[ytdlp] anonymous cookie bootstrap failed: %v", err)
+		}
+	}()
 }
 
 // copyFile copies src to dst. Works around os.Rename failures on Docker volumes.
@@ -521,17 +823,29 @@ func copyFile(src, dst string) error {
 
 // CookiesStatus describes the current cookies configuration.
 type CookiesStatus struct {
-	Configured bool   `json:"configured"`   // cookies will be passed to yt-dlp
-	Source     string `json:"source"`       // env | persisted | browser | none
-	Path       string `json:"path,omitempty"` // file path when file-based
-	Exists     bool   `json:"exists"`       // file exists on disk
-	Valid      bool   `json:"valid"`        // parses as Netscape format
-	Entries    int    `json:"entries"`      // number of non-comment lines
+	Configured  bool   `json:"configured"`    // cookies will be passed to yt-dlp
+	Source      string `json:"source"`        // env | persisted | browser | anonymous | none
+	Path        string `json:"path,omitempty"` // file path when file-based
+	Exists      bool   `json:"exists"`        // file exists on disk (as a file)
+	Valid       bool   `json:"valid"`         // parses as Netscape format
+	Entries     int    `json:"entries"`       // number of non-comment lines
+	Blacklisted bool   `json:"blacklisted"`   // user cookies rejected by YouTube this process
 }
 
 // CookiesStatus reports how yt-dlp cookies are currently configured.
 func GetCookiesStatus() CookiesStatus {
 	st := CookiesStatus{}
+
+	statFile := func(p string) {
+		fi, err := os.Stat(p)
+		if err != nil || fi.IsDir() {
+			return
+		}
+		st.Exists = true
+		st.Valid = isValidNetscapeCookieFile(p)
+		st.Configured = st.Valid
+		st.Entries = countCookieEntries(p)
+	}
 
 	switch {
 	case os.Getenv("YTDLP_COOKIES") != "":
@@ -540,23 +854,24 @@ func GetCookiesStatus() CookiesStatus {
 	case os.Getenv("YTDLP_COOKIES_FROM_BROWSER") != "":
 		st.Source = "browser"
 		st.Configured = true
+		st.Blacklisted = areCookiesBlacklisted()
 		return st
 	default:
-		if _, err := os.Stat(PersistedCookiesPath()); err == nil {
+		if fi, err := os.Stat(PersistedCookiesPath()); err == nil && !fi.IsDir() {
 			st.Source = "persisted"
 			st.Path = PersistedCookiesPath()
+		} else if fi, err := os.Stat(AnonymousCookiesPath()); err == nil && !fi.IsDir() {
+			st.Source = "anonymous"
+			st.Path = AnonymousCookiesPath()
 		} else {
 			st.Source = "none"
+			st.Blacklisted = areCookiesBlacklisted()
 			return st
 		}
 	}
 
-	if _, err := os.Stat(st.Path); err == nil {
-		st.Exists = true
-		st.Valid = isValidNetscapeCookieFile(st.Path)
-		st.Configured = st.Valid
-		st.Entries = countCookieEntries(st.Path)
-	}
+	statFile(st.Path)
+	st.Blacklisted = areCookiesBlacklisted()
 	return st
 }
 
@@ -568,7 +883,12 @@ func countCookieEntries(path string) int {
 	count := 0
 	for _, line := range strings.Split(string(data), "\n") {
 		line = strings.TrimSpace(line)
-		if line != "" && !strings.HasPrefix(line, "#") {
+		if line == "" {
+			continue
+		}
+		// Netscape files mark HttpOnly cookies with a #HttpOnly_ prefix —
+		// those are real entries, unlike header comments.
+		if strings.HasPrefix(line, "#HttpOnly_") || !strings.HasPrefix(line, "#") {
 			count++
 		}
 	}
@@ -642,11 +962,17 @@ func appendYtDlpProxy(args []string) []string {
 }
 
 // appendYtDlpOpts adds cookie, proxy, and JS-runtime arguments to a yt-dlp
-// arg list.
-func appendYtDlpOpts(args []string) []string {
-	args = appendYtDlpCookies(args)
+// arg list. withCookies=false skips cookies entirely — used for the
+// last-resort retry, because a stale/rotated cookie session makes YouTube
+// serve downgraded (empty-format) player responses while anonymous requests
+// still extract fine.
+func appendYtDlpOpts(args []string, withCookies bool) []string {
+	if withCookies {
+		args = appendYtDlpCookies(args)
+	}
 	args = appendYtDlpProxy(args)
 	args = appendYtDlpRuntimeArgs(args)
+	args = append(args, impersonateArgs()...)
 	return args
 }
 
@@ -662,19 +988,104 @@ var ytDlpSem = make(chan struct{}, 3)
 func acquireYtDlp() { ytDlpSem <- struct{}{} }
 func releaseYtDlp()  { <-ytDlpSem }
 
-// runYtDlpArgs runs yt-dlp with the exact given argument list.
+// runYtDlpArgs runs yt-dlp with the exact given argument list, handling the
+// three distinct failure classes from the knowledge base:
+//   - network failures  -> flip IP family (IPv4 <-> IPv6) and retry once
+//   - rate limits (429) -> retry with backoff (up to maxRateLimitRetries)
+//   - cookie rejection  -> blacklist the user cookies + trigger an anonymous
+//     session refresh (the caller's retry loop picks up the fresh session)
+//
 // It enforces a hard timeout and kills the entire process group on timeout
 // to prevent zombie processes. If the server is known to be blocked, it
 // short-circuits immediately.
+var maxRateLimitRetries = 2
+
 func runYtDlpArgs(cmdArgs []string) ([]byte, string, error) {
-	if isYtDlpBlocked() {
+	return runYtDlpArgsMode(cmdArgs, true, false, false)
+}
+
+// runYtDlpArgsNoCookies is like runYtDlpArgs but never attaches cookies and
+// ignores the IP-blocked cooldown (last-resort retry for downgraded
+// extractions — a flagged IPv4 route is exactly when the anonymous android
+// client is needed, so the block flag must not short-circuit it).
+func runYtDlpArgsNoCookies(cmdArgs []string) ([]byte, string, error) {
+	return runYtDlpArgsMode(cmdArgs, false, true, false)
+}
+
+// runYtDlpArgsUserCookies runs with the USER-provided cookie file even when
+// the session is blacklisted (personalization endpoints like the home feed:
+// a blacklisted session still personalizes, and flat calls pass on flagged
+// IPs).
+func runYtDlpArgsUserCookies(cmdArgs []string) ([]byte, string, error) {
+	return runYtDlpArgsMode(cmdArgs, true, false, true)
+}
+
+func runYtDlpArgsMode(cmdArgs []string, withCookies bool, ignoreBlock bool, forceUserCookies bool) ([]byte, string, error) {
+	if !ignoreBlock && isYtDlpBlocked() {
 		return nil, "", fmt.Errorf("YouTube is blocking this server's IP, try again later")
 	}
 
 	acquireYtDlp()
 	defer releaseYtDlp()
 
-	cmd := exec.Command(ytDlpBinPath, appendYtDlpOpts(cmdArgs)...)
+	family := currentIPFamily()
+	var out []byte
+	var stderr string
+	var err error
+
+	for attempt := 0; ; attempt++ {
+		out, stderr, err = runYtDlpArgsOnce(cmdArgs, family, withCookies, forceUserCookies)
+
+		if IsCookieRejectionError(stderr) {
+			markCookiesBlacklisted()
+			go func() { _ = RefreshAnonymousCookies() }()
+		}
+
+		// IPv6 is the best weapon against IPv4 bot-blocks; on network-level
+		// failures flip the family and retry once.
+		if isNetworkFailure(stderr) {
+			other := alternateIPFamily(family)
+			log.Printf("[ytdlp] network failure on %s (%s), retrying over %s", family, strings.TrimSpace(stderr), other)
+			out2, stderr2, err2 := runYtDlpArgsOnce(cmdArgs, other, withCookies, forceUserCookies)
+			if !isNetworkFailure(stderr2) {
+				return out2, stderr2, err2
+			}
+		}
+
+		if !isRateLimitError(stderr) || attempt >= maxRateLimitRetries {
+			break
+		}
+		backoff := time.Duration(attempt+1) * 2 * time.Second
+		log.Printf("[ytdlp] rate-limited (attempt %d/%d), backing off %v", attempt+1, maxRateLimitRetries, backoff)
+		time.Sleep(backoff)
+	}
+
+	return out, stderr, err
+}
+
+// isRateLimitError distinguishes HTTP 429 / "too many requests" (retry with
+// backoff) from hard blocks (give up and mark the IP blocked).
+func isRateLimitError(stderr string) bool {
+	s := strings.ToLower(stderr)
+	return strings.Contains(s, "http error 429") ||
+		strings.Contains(s, "too many requests") ||
+		strings.Contains(s, "rate limit")
+}
+
+// runYtDlpArgsOnce executes a single yt-dlp attempt on the given IP family.
+func runYtDlpArgsOnce(cmdArgs []string, family string, withCookies bool, forceUserCookies bool) ([]byte, string, error) {
+	cmdArgs = stripFamilyArgs(cmdArgs)
+	cmdArgs = append(cmdArgs, ipFamilyArgsFor(family)...)
+
+	var opts []string
+	if forceUserCookies {
+		// Personalization endpoints: use the user file even when blacklisted.
+		opts = append(appendYtDlpOpts(cmdArgs, false), ytDlpUserCookieArgs()...)
+	} else {
+		opts = appendYtDlpOpts(cmdArgs, withCookies)
+	}
+
+	cmd := exec.Command(ytDlpBinPath, opts...)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 
 	var out bytes.Buffer
@@ -714,7 +1125,6 @@ func RunYtDlp(args ...string) ([]byte, error) {
 		"--dump-json",
 		"--no-warnings",
 		"--quiet",
-		"--force-ipv4",
 		"--ignore-errors",
 		"--user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
 	}
@@ -727,7 +1137,6 @@ func RunYtDlpSingleJSON(args ...string) ([]byte, error) {
 	base := []string{
 		"--no-warnings",
 		"--quiet",
-		"--force-ipv4",
 		"--ignore-errors",
 		"--user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
 	}
@@ -735,14 +1144,65 @@ func RunYtDlpSingleJSON(args ...string) ([]byte, error) {
 }
 
 // runYtDlpWithBase runs yt-dlp with the given base flags, retrying across
-// player clients when YouTube's bot-check gate returns empty output.
+// player clients when YouTube's bot-check gate returns empty output, and
+// repairing the cookie session once when YouTube rejects it (KB §1: detect →
+// discard rejected cookies → refresh anonymous session → retry). When every
+// attempt fails it makes one last pass WITHOUT cookies: a stale/rotated
+// cookie session makes YouTube serve downgraded (empty-format) player
+// responses, while anonymous extraction still passes.
 func runYtDlpWithBase(base []string, args ...string) ([]byte, error) {
+	out, err := runYtDlpWithBaseLoop(base, true, args...)
+	if err == nil {
+		return out, nil
+	}
+	// The block cooldown must NOT skip this pass: on a flagged IP the
+	// cookie-less anonymous android client is the only path that works.
+	log.Printf("[ytdlp] all attempts with cookies failed (%v); retrying without cookies", err)
+	out2, err2 := runYtDlpWithBaseLoop(base, false, args...)
+	if err2 == nil {
+		// The cookie session is actively HURTING (every client + cookies gets
+		// a downgraded empty-format response, anonymous works). Blacklist it
+		// so later requests skip straight to the anonymous pass; the user can
+		// re-upload fresh cookies to un-blacklist (SaveCookiesFile).
+		markCookiesBlacklisted()
+		models.ClearVideoCache()
+		log.Printf("[ytdlp] anonymous extraction succeeded where cookies failed; blacklisting cookie session")
+	} else if isCookieBlockedError(err) && isCookieBlockedError(err2) {
+		// Both passes blocked (bot gate / downgraded formats): the uploaded
+		// cookies demonstrably don't authenticate (they're stale). Blacklist
+		// them so the Settings page warns the user to re-export fresh ones —
+		// fresh logged-in cookies are what defeats this exact gate (KB §3).
+		markCookiesBlacklisted()
+		log.Printf("[ytdlp] blocked with and without cookies (%v); blacklisting stale cookie session", err2)
+	}
+	return out2, err2
+}
+
+// isCookieBlockedError matches the failure signatures that fresh cookies
+// would fix: the explicit bot gate and the downgraded empty-format response.
+func isCookieBlockedError(err error) bool {
+	s := strings.ToLower(err.Error())
+	return strings.Contains(s, "sign in to confirm") ||
+		strings.Contains(s, "not a bot") ||
+		strings.Contains(s, "requested format is not available")
+}
+
+func runYtDlpWithBaseLoop(base []string, withCookies bool, args ...string) ([]byte, error) {
 	clients := []string{"", "android"}
+	if !withCookies {
+		// Last-resort pass: throw a couple more player clients at it
+		// (KB §4 — unreliable alone, useful as fallbacks).
+		clients = append(clients, "tv", "web_embedded")
+	}
 
 	var lastStderr string
 	var lastErr error
+	cookieRepaired := false
 	for _, client := range clients {
-		if isYtDlpBlocked() {
+		// The with-cookies pass respects the block cooldown; the cookie-less
+		// recovery pass must always run (flagged IPs need the anonymous
+		// android client).
+		if withCookies && isYtDlpBlocked() {
 			return nil, fmt.Errorf("YouTube is blocking this server's IP, try again later")
 		}
 
@@ -752,15 +1212,33 @@ func runYtDlpWithBase(base []string, args ...string) ([]byte, error) {
 		}
 		cmdArgs = append(cmdArgs, args...)
 
-		out, stderr, err := runYtDlpArgs(cmdArgs)
+		out, stderr, err := runYtDlpArgsMode(cmdArgs, withCookies, !withCookies, false)
+
+		// Cookie rejection (expired/rotated user cookies): blacklist the file,
+		// refresh an anonymous session, and retry the download once with it.
+		if IsCookieRejectionError(stderr) && !cookieRepaired {
+			cookieRepaired = true
+			log.Printf("[ytdlp] Cookies rejected by YouTube; refreshing anonymous session and retrying")
+			if rerr := RefreshAnonymousCookies(); rerr != nil {
+				log.Printf("[ytdlp] anonymous cookie refresh failed: %v", rerr)
+				markYtDlpBlocked()
+				break
+			}
+			continue // re-run clients with the fresh anonymous session
+		}
 
 		// Success: usable output and no bot-check gate.
 		if len(bytes.TrimSpace(out)) > 0 && !IsBotCheckError(stderr) {
 			return out, nil
 		}
 
-		// Genuine empty result (no error, no bot-check): nothing to retry for.
-		if err == nil && !IsBotCheckError(stderr) {
+		// Genuine empty result (no error, no bot-check, nothing on stderr):
+		// nothing to retry for. NOTE: --ignore-errors makes yt-dlp swallow
+		// extraction errors (exit 0, empty stdout, "ERROR:" on stderr) — an
+		// empty output with an ERROR on stderr is a FAILURE and must continue
+		// the retry chain (android client / no-cookie pass), otherwise the
+		// recovery never runs on blocked IPs.
+		if err == nil && !IsBotCheckError(stderr) && !strings.Contains(stderr, "ERROR:") {
 			return out, nil
 		}
 
@@ -782,6 +1260,9 @@ func runYtDlpWithBase(base []string, args ...string) ([]byte, error) {
 
 	log.Printf("yt-dlp failed after all client fallbacks: %v, stderr: %s", lastErr, lastStderr)
 	if lastErr != nil {
+		if strings.TrimSpace(lastStderr) != "" {
+			return nil, fmt.Errorf("%v. stderr: %s", lastErr, strings.TrimSpace(lastStderr))
+		}
 		return nil, lastErr
 	}
 	return nil, fmt.Errorf("yt-dlp returned no usable output: %s", lastStderr)
@@ -855,8 +1336,12 @@ func GetVideoInfo(videoID string) (*VideoData, error) {
 	v, err, _ := videoInfoFlight.Do(videoID, func() (interface{}, error) {
 		url := fmt.Sprintf("https://www.youtube.com/watch?v=%s", videoID)
 
+		// Metadata-only call: NO --format selection. Passing a format string
+		// forces yt-dlp to fully negotiate a stream, which both costs extra
+		// and trips the bot gate ("Requested format is not available" when the
+		// player response is downgraded). --skip-download + plain dump-json is
+		// enough and works even under heavy blocking.
 		args := []string{
-			"--format", "bestvideo+bestaudio/best",
 			"--skip-download",
 			"--no-playlist",
 			url,
@@ -865,6 +1350,17 @@ func GetVideoInfo(videoID string) (*VideoData, error) {
 		out, err := RunYtDlp(args...)
 		if err != nil {
 			log.Printf("yt-dlp failed for %s: %v", videoID, err)
+			// yt-dlp full extraction is the first thing YouTube bot-blocks
+			// ("Requested format is not available" = downgraded player with
+			// zero formats), while the raw watch page still loads. Fall back
+			// to parsing metadata from the watch page before serving stale
+			// cache or failing.
+			if v, ok := FetchWatchPageVideoInfo(videoID); ok {
+				if b, merr := json.Marshal(v); merr == nil {
+					_ = models.SetCachedVideo(videoID, string(b), 21600)
+				}
+				return v, nil
+			}
 			if stale, sErr := models.GetStaleCachedVideo(videoID); sErr == nil && len(bytes.TrimSpace(stale)) > 0 {
 				var v VideoData
 				if json.Unmarshal(stale, &v) == nil && v.ID != "" {
@@ -909,9 +1405,49 @@ func min(a, b int) int {
 	return b
 }
 
-// GetPlaybackInfo returns video + audio format information for client-side MSE playback.
-func GetPlaybackInfo(videoID string) (*PlaybackInfo, error) {
-	cacheKey := fmt.Sprintf("playback:%s", videoID)
+// pickAudioFormat selects the best audio stream for the client. YouTube
+// serves WebM/Opus (itag 251) by default — open codec, plays in Chrome,
+// Firefox, Edge and codec-restricted clients (VS Code webview). Safari
+// cannot play WebM/Opus and needs m4a/AAC (itag 140): the frontend detects
+// this via canPlayType and requests "m4a" explicitly (KB §5).
+func pickAudioFormat(formats []PlaybackFormat, pref string) PlaybackFormat {
+	var candidate PlaybackFormat
+	if pref == "m4a" {
+		for _, f := range formats {
+			if f.Ext == "m4a" || strings.HasPrefix(f.ACodec, "aac") {
+				if candidate.FormatID == "" || f.Bandwidth > candidate.Bandwidth {
+					candidate = f
+				}
+			}
+		}
+		if candidate.FormatID != "" {
+			return candidate
+		}
+	}
+	for _, f := range formats {
+		if f.Ext == "webm" || strings.HasPrefix(f.ACodec, "opus") {
+			if candidate.FormatID == "" || f.Bandwidth > candidate.Bandwidth {
+				candidate = f
+			}
+		}
+	}
+	if candidate.FormatID != "" {
+		return candidate
+	}
+	best := formats[0]
+	for _, f := range formats[1:] {
+		if f.Bandwidth > best.Bandwidth {
+			best = f
+		}
+	}
+	return best
+}
+
+// GetPlaybackInfo returns video + audio format information for client-side MSE
+// playback. audioPref selects the codec family ("m4a" for AAC, anything else
+// defaults to WebM/Opus).
+func GetPlaybackInfo(videoID, audioPref string) (*PlaybackInfo, error) {
+	cacheKey := fmt.Sprintf("playback:%s:%s", videoID, audioPref)
 	// Fast path: serve from cache.
 	if cached, err := models.GetCachedVideo(cacheKey); err == nil && len(bytes.TrimSpace(cached)) > 0 {
 		var pi PlaybackInfo
@@ -926,7 +1462,6 @@ func GetPlaybackInfo(videoID string) (*PlaybackInfo, error) {
 		out, err := RunYtDlpSingleJSON(
 			"--dump-json",
 			"--no-playlist",
-			"--force-ipv4",
 			"--user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
 			url,
 		)
@@ -1013,14 +1548,9 @@ func GetPlaybackInfo(videoID string) (*PlaybackInfo, error) {
 			}
 		}
 
-		// Pick the best audio format (highest bandwidth)
+		// Pick the best audio format for the requested codec family
 		if len(audioFormats) > 0 {
-			best := audioFormats[0]
-			for _, a := range audioFormats[1:] {
-				if a.Bandwidth > best.Bandwidth {
-					best = a
-				}
-			}
+			best := pickAudioFormat(audioFormats, audioPref)
 			pi.AudioFormat = &best
 		}
 
@@ -1502,7 +2032,6 @@ func fetchVideoStatsBatch(videoIDs []string) map[string]VideoStats {
 			"--skip-download",
 			"--no-warnings",
 			"--quiet",
-			"--force-ipv4",
 			"--no-playlist",
 			"--print", "%(id)s|%(view_count)s|%(upload_date)s",
 		}
@@ -1722,7 +2251,18 @@ func GetComments(videoID string, limit int) ([]Comment, error) {
 
 		outBytes, stderr, err := runYtDlpArgs(cmdArgs)
 		if err != nil {
+			// Stale/rotated cookie sessions yield downgraded extractions;
+			// anonymous runs often still pass. One cookie-less retry.
 			log.Printf("yt-dlp comments error: %v, stderr: %s", err, stderr)
+			outBytes2, stderr2, err2 := runYtDlpArgsNoCookies(cmdArgs)
+			if err2 == nil && len(bytes.TrimSpace(outBytes2)) > 0 && !IsBotCheckError(stderr2) {
+				outBytes = outBytes2
+				err = nil
+			} else if err2 != nil {
+				log.Printf("yt-dlp comments cookie-less retry failed: %v, stderr: %s", err2, stderr2)
+			}
+		}
+		if err != nil {
 			return nil, err
 		}
 
@@ -1826,19 +2366,46 @@ func ResolveStreamURL(videoID string, heightCap int, forceAvc1 bool) (string, er
 
 	const ua = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 	// Reduced from 5 to 3 clients to lower CPU usage on NAS when blocked.
+	// Player-client tricks are unreliable (KB §4): used only as fallbacks.
 	clients := []string{"web", "android", "tv"}
 
+	cookieRepaired := false
+	cookieLessTried := false
 	for _, client := range clients {
+		if isYtDlpBlocked() {
+			return "", fmt.Errorf("YouTube is blocking this server's IP, try again later")
+		}
+
 		args := []string{
-			"--no-warnings", "--quiet", "--force-ipv4", "--no-playlist",
+			"--no-warnings", "--quiet", "--no-playlist",
 			"--user-agent", ua,
 			"--extractor-args", "youtube:player_client=" + client,
 			"-g", "-f", fmtStr,
 			urlStr,
 		}
-		args = appendYtDlpOpts(args)
 
-		out, _, err := runYtDlpArgs(args)
+		out, stderr, err := runYtDlpArgs(args)
+		if err != nil && IsCookieRejectionError(stderr) {
+			// Cookie rejection: blacklist the user file, refresh an anonymous
+			// session, and retry once (KB §1 repair loop).
+			if !cookieRepaired {
+				cookieRepaired = true
+				log.Printf("[ytdlp] Cookies rejected by YouTube; refreshing anonymous session and retrying stream resolve")
+				if rerr := RefreshAnonymousCookies(); rerr != nil {
+					log.Printf("[ytdlp] anonymous cookie refresh failed: %v", rerr)
+					markYtDlpBlocked()
+					return "", fmt.Errorf("cookies rejected and anonymous refresh failed: %v. stderr: %s", rerr, stderr)
+				}
+				continue // next client uses the fresh anonymous session
+			}
+		}
+
+		if IsBotCheckError(stderr) {
+			log.Printf("[ytdlp] Bot-check/IP block detected while resolving stream (client %q): %s", client, stderr)
+			markYtDlpBlocked()
+			return "", fmt.Errorf("YouTube is blocking this server's IP. stderr: %s", strings.TrimSpace(stderr))
+		}
+
 		if err == nil {
 			s := strings.TrimSpace(string(out))
 			if s != "" {
@@ -1848,6 +2415,29 @@ func ResolveStreamURL(videoID string, heightCap int, forceAvc1 bool) (string, er
 					line = strings.TrimSpace(line)
 					if strings.HasPrefix(line, "http") {
 						return line, nil
+					}
+				}
+			}
+		}
+
+		// Last resort: a stale cookie session makes YouTube serve downgraded
+		// responses; anonymous extraction often still passes (KB §4).
+		if !cookieLessTried {
+			cookieLessTried = true
+			log.Printf("[ytdlp] stream resolve with cookies failed on %q; retrying without cookies", client)
+			out, stderr, err = runYtDlpArgsNoCookies(args)
+			if IsBotCheckError(stderr) {
+				markYtDlpBlocked()
+				return "", fmt.Errorf("YouTube is blocking this server's IP. stderr: %s", strings.TrimSpace(stderr))
+			}
+			if err == nil {
+				s := strings.TrimSpace(string(out))
+				if s != "" {
+					for _, line := range strings.Split(s, "\n") {
+						line = strings.TrimSpace(line)
+						if strings.HasPrefix(line, "http") {
+							return line, nil
+						}
 					}
 				}
 			}

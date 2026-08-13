@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { useState, useCallback, memo } from 'react';
 import { VideoData } from '@/app/constants';
+import { proxiedThumb, proxiedImageUrl } from '@/app/utils';
 import LoadingSpinner from './LoadingSpinner';
 
 function formatViews(views: number): string {
@@ -19,12 +20,14 @@ function getStableRelativeTime(id: string): string {
 
 const DEFAULT_THUMBNAIL = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="320" height="180" viewBox="0 0 320 180"%3E%3Crect fill="%23222" width="320" height="180"/%3E%3Cpath fill="%23555" d="M140 65v50l40-25z"/%3E%3C/svg%3E';
 
-// YouTube thumbnail fallback chain: hqdefault → mqdefault → default
+// YouTube thumbnail fallback chain via the backend proxy (hqdefault →
+// mqdefault → default). The proxy keeps thumbnails working when the browser
+// cannot reach i.ytimg.com directly (ad blockers, DNS/referrer filters).
 function getThumbFallbacks(id: string): string[] {
     return [
-        `https://i.ytimg.com/vi/${id}/hqdefault.jpg`,
-        `https://i.ytimg.com/vi/${id}/mqdefault.jpg`,
-        `https://i.ytimg.com/vi/${id}/default.jpg`,
+        proxiedThumb(id, 'hqdefault'),
+        proxiedThumb(id, 'mqdefault'),
+        proxiedThumb(id, 'default'),
     ];
 }
 
@@ -42,10 +45,11 @@ function VideoCard({ video, hideChannelAvatar }: { video: VideoData; hideChannel
     // Build the thumbnail src with fallback chain
     let thumbnailSrc = DEFAULT_THUMBNAIL;
     if (thumbError === 0) {
-        // First attempt: use the provided thumbnail or construct from ID
+        // First attempt: use the provided thumbnail or construct from ID,
+        // both routed through the backend proxy.
         thumbnailSrc = (video.thumbnail && isValidThumbUrl(video.thumbnail))
-            ? video.thumbnail
-            : `https://i.ytimg.com/vi/${video.id}/hqdefault.jpg`;
+            ? proxiedImageUrl(video.thumbnail)
+            : proxiedThumb(video.id);
     } else if (video.id) {
         // Subsequent attempts: try fallback URLs
         const fallbacks = getThumbFallbacks(video.id);

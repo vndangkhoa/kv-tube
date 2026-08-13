@@ -127,7 +127,21 @@ func logYtDlpUpdateResult(before, after, method string) {
 }
 
 // updateYtDlpSelf runs yt-dlp's own updater pinned to the nightly channel.
+// For pip installs it upgrades via pip instead (keeping the curl_cffi<0.16
+// pin — a plain pip upgrade would pull curl_cffi 0.16 and break
+// impersonation).
 func updateYtDlpSelf() error {
+	binPath, err := exec.LookPath(ytDlpBinPath)
+	if err != nil {
+		binPath = ytDlpBinPath
+	}
+	if resolved, rerr := filepath.EvalSymlinks(binPath); rerr == nil {
+		binPath = resolved
+	}
+	if isPythonScript(binPath) {
+		return upgradeYtDlpViaPip()
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), ytDlpUpdateTimeout)
 	defer cancel()
 
@@ -143,8 +157,9 @@ func updateYtDlpSelf() error {
 	return nil
 }
 
-// updateYtDlpDirect downloads the latest nightly standalone binary and
-// atomically replaces the currently resolved yt-dlp binary with it.
+// updateYtDlpDirect upgrades yt-dlp when self-update is unavailable. For
+// pip-installed yt-dlp (a python console script) it re-runs pip so curl_cffi
+// impersonation stays intact; for standalone binaries it replaces the file.
 func updateYtDlpDirect() error {
 	binPath, err := exec.LookPath(ytDlpBinPath)
 	if err != nil {
@@ -152,6 +167,10 @@ func updateYtDlpDirect() error {
 	}
 	if resolved, rerr := filepath.EvalSymlinks(binPath); rerr == nil {
 		binPath = resolved
+	}
+
+	if isPythonScript(binPath) {
+		return upgradeYtDlpViaPip()
 	}
 
 	tmpFile, err := os.CreateTemp(filepath.Dir(binPath), ".yt-dlp-update-*")
@@ -194,6 +213,34 @@ func updateYtDlpDirect() error {
 		return err
 	}
 	log.Printf("[ytdlp-updater] direct download: replaced %s with latest nightly", binPath)
+	return nil
+}
+
+// isPythonScript detects pip-style console scripts (shebang) vs compiled
+// standalone binaries.
+func isPythonScript(path string) bool {
+	f, err := os.Open(path)
+	if err != nil {
+		return false
+	}
+	defer f.Close()
+	buf := make([]byte, 2)
+	n, _ := f.Read(buf)
+	return n >= 2 && buf[0] == '#' && buf[1] == '!'
+}
+
+// upgradeYtDlpViaPip upgrades the pip install (yt-dlp nightly via --pre +
+// curl_cffi), keeping TLS impersonation available. curl_cffi is pinned
+// <0.16 — 0.16 broke yt-dlp's impersonation API.
+func upgradeYtDlpViaPip() error {
+	ctx, cancel := context.WithTimeout(context.Background(), ytDlpUpdateTimeout)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, "pip", "install", "--break-system-packages", "-U", "--pre", "yt-dlp", "curl_cffi<0.16").CombinedOutput()
+	if err != nil {
+		log.Printf("[ytdlp-updater] pip upgrade failed: %v (%s)", err, strings.TrimSpace(string(out)))
+		return err
+	}
+	log.Printf("[ytdlp-updater] pip upgraded yt-dlp nightly + curl_cffi")
 	return nil
 }
 

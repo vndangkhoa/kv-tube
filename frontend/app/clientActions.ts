@@ -62,6 +62,35 @@ export async function searchVideosClient(query: string, limit: number = 20): Pro
 
   return [];
 }
+
+// Personalized YouTube home feed from the backend (served from the server's
+// cookie session, cached 15 min server-side). Returns an empty list when the
+// feed is unavailable so callers can fall back.
+export async function getHomeFeedClient(limit: number = 30, offset: number = 0): Promise<{ videos: VideoData[]; hasMore: boolean }> {
+  const cacheKey = `home_${limit}_${offset}`;
+  const cached = getClientCache<{ videos: VideoData[]; hasMore: boolean }>(cacheKey);
+  if (offset === 0 && cached && cached.videos.length > 0) return cached;
+
+  try {
+    const response = await fetch(`${API_BASE}/home?limit=${limit}&offset=${offset}`, {
+      signal: AbortSignal.timeout(20000),
+    });
+    if (response.ok) {
+      const data = await response.json();
+      const arr = Array.isArray(data?.videos) ? data.videos : [];
+      const videos = arr.map(transformVideo).filter((v: VideoData) => v.id && v.title);
+      const hasMore = !!data?.has_more;
+      const page = { videos, hasMore };
+      if (offset === 0 && videos.length > 0) {
+        setClientCache(cacheKey, page);
+      }
+      return page;
+    }
+  } catch (error) {
+    console.warn('Backend home feed failed:', error);
+  }
+  return { videos: [], hasMore: false };
+}
 function transformVideo(item: any): VideoData {
   return {
     id: item.id || item.videoId || '',
@@ -207,7 +236,7 @@ export async function getRelatedVideosClient(videoId: string, limit: number = 15
 
   try {
     const response = await fetch(`${API_BASE}/video/${videoId}/related?limit=${limit}`, {
-      signal: AbortSignal.timeout(8000),
+      signal: AbortSignal.timeout(20000),
     });
     
     if (response.ok) {

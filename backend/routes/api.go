@@ -81,6 +81,7 @@ func SetupRouter() *gin.Engine {
 
 		// Video endpoints
 		api.GET("/search", handleSearch)
+		api.GET("/home", handleHomeFeed)
 		api.GET("/trending", handleTrending)
 		// Image proxy for thumbnails (bots and external referrers hit this)
 		api.GET("/proxy", handleImageProxy)
@@ -127,6 +128,7 @@ func SetupRouter() *gin.Engine {
 		api.POST("/settings/cookies/fetch", handleCookiesFetch)
 		api.DELETE("/settings/cookies", handleCookiesDelete)
 		api.POST("/settings/ytdlp/update", handleYtDlpUpdate)
+		api.GET("/settings/diagnose", handleSettingsDiagnose)
 	}
 
 	return r
@@ -156,6 +158,22 @@ func handleSearch(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, results)
+}
+
+// handleHomeFeed returns the personalized YouTube home feed (based on the
+// server's cookies), sliced for infinite scroll.
+// GET /api/home?limit=20&offset=0
+func handleHomeFeed(c *gin.Context) {
+	limit := 30
+	if l, err := strconv.Atoi(c.Query("limit")); err == nil && l > 0 && l <= 100 {
+		limit = l
+	}
+	offset := 0
+	if o, err := strconv.Atoi(c.Query("offset")); err == nil && o > 0 {
+		offset = o
+	}
+
+	c.JSON(http.StatusOK, services.GetHomeFeedPage(limit, offset))
 }
 
 // handleVideoDates resolves real upload dates for a batch of video IDs.
@@ -233,7 +251,9 @@ func handleGetVideoInfo(c *gin.Context) {
 	video, err := services.GetVideoInfo(videoID)
 	if err != nil {
 		log.Printf("GetVideoInfo error: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get video info"})
+		// Return the real error (includes yt-dlp stderr) so the player UI
+		// and users can see WHY extraction failed.
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
@@ -241,7 +261,9 @@ func handleGetVideoInfo(c *gin.Context) {
 }
 
 // handleVideoProxy fetches a remote URL and streams the response.
-// Used by the MSE player to proxy YouTube CDN segments.
+// Used by the MSE player to proxy YouTube CDN segments. Range requests from
+// the browser are forwarded so seeking works (the CDN answers 206 Partial
+// Content; without this the player gets full 200s and breaks).
 func handleVideoProxy(c *gin.Context) {
 	urlStr := c.Query("url")
 	if urlStr == "" {
@@ -249,13 +271,16 @@ func handleVideoProxy(c *gin.Context) {
 		return
 	}
 
-	client := &http.Client{Timeout: 30 * time.Second}
+	client := &http.Client{Timeout: 60 * time.Second}
 	req, err := http.NewRequest("GET", urlStr, nil)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid url"})
 		return
 	}
-	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
+	req.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+	if r := c.GetHeader("Range"); r != "" {
+		req.Header.Set("Range", r)
+	}
 
 	resp, err := client.Do(req)
 	if err != nil {
@@ -265,7 +290,8 @@ func handleVideoProxy(c *gin.Context) {
 	defer resp.Body.Close()
 
 	for k, v := range resp.Header {
-		if k == "Content-Type" || k == "Content-Length" || k == "Accept-Ranges" {
+		switch http.CanonicalHeaderKey(k) {
+		case "Content-Type", "Content-Length", "Accept-Ranges", "Content-Range", "Content-Disposition":
 			c.Header(k, v[0])
 		}
 	}
@@ -302,7 +328,8 @@ func handleImageProxy(c *gin.Context) {
 	io.Copy(c.Writer, resp.Body)
 }
 
-// Get related videos
+// Get related videos. Served from YouTube's real "Up next" list when
+// available, with a channel+title search fallback (see services/related.go).
 func handleRelatedVideos(c *gin.Context) {
 	videoID := c.Param("id")
 	if videoID == "" {
@@ -316,31 +343,7 @@ func handleRelatedVideos(c *gin.Context) {
 		limit = l
 	}
 
-	// First get video info to get title and uploader
-	video, err := services.GetVideoInfo(videoID)
-	if err != nil {
-		log.Printf("GetVideoInfo for related error: %v", err)
-		// Fallback: search for similar content
-		results, err := services.SearchVideos("music", limit, "")
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get related videos"})
-			return
-		}
-		c.JSON(http.StatusOK, results)
-		return
-	}
-
-	query := video.Title
-	if video.Uploader != "" {
-		query = video.Uploader + " " + video.Title
-	}
-	related, err := services.SearchVideos(query, limit, "")
-	if err != nil {
-		log.Printf("GetRelatedVideos error: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get related videos"})
-		return
-	}
-
+	related := services.GetRelatedVideos(videoID, limit)
 	c.JSON(http.StatusOK, related)
 }
 
@@ -369,7 +372,7 @@ func handleComments(c *gin.Context) {
 }
 
 // handlePlaybackInfo returns format details for the MSE player.
-// GET /api/video/:id/playback-info
+// GET /api/video/:id/playback-info?audio=opus|m4a
 func handlePlaybackInfo(c *gin.Context) {
 	videoID := c.Param("id")
 	if videoID == "" {
@@ -377,10 +380,18 @@ func handlePlaybackInfo(c *gin.Context) {
 		return
 	}
 
-	info, err := services.GetPlaybackInfo(videoID)
+	// Safari and other WebM-incapable clients request m4a/AAC explicitly;
+	// anything else gets WebM/Opus (the codec-restriction-proof default).
+	audioPref := c.DefaultQuery("audio", "opus")
+	if audioPref != "m4a" {
+		audioPref = "opus"
+	}
+
+	info, err := services.GetPlaybackInfo(videoID, audioPref)
 	if err != nil {
 		log.Printf("GetPlaybackInfo error: %v", err)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get playback info"})
+		// Surface the real reason (bot gate, age gate, stderr) in the player UI.
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 

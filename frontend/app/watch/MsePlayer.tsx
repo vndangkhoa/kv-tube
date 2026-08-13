@@ -1,7 +1,9 @@
 'use client';
 
 import { useEffect, useMemo, useState, useCallback, useRef } from 'react';
+import Hls from 'hls.js';
 import YouTubePlayer from './YouTubePlayer';
+import { useMediaSession, setMediaSessionPlaybackState, updateMediaSessionPosition } from '../hooks/useMediaSession';
 
 interface PlaybackFormat {
     format_id: string;
@@ -39,10 +41,59 @@ interface MsePlayerProps {
     onNext?: () => void;
     onPrev?: () => void;
     onError?: () => void;
+    onUseIframe?: () => void; // switch back to the YouTube embed manually
 }
 
 function proxyUrl(raw: string): string {
     return `/api/video/proxy?url=${encodeURIComponent(raw)}`;
+}
+
+// KB §5: YouTube serves WebM/Opus by default — plays in Chrome, Firefox, Edge
+// and codec-restricted clients (VS Code webview). Safari cannot play
+// WebM/Opus, so detect support and request m4a/AAC only when needed.
+function supportsWebmOpus(): boolean {
+    if (typeof window === 'undefined') return true;
+    const a = document.createElement('audio');
+    return a.canPlayType('audio/webm; codecs="opus"') !== '';
+}
+const OPUS_SUPPORTED = supportsWebmOpus();
+
+// YouTube's bot gate / stale-cookie signatures — the failure the user can
+// fix by uploading fresh cookies (Settings → YouTube Cookies).
+function isBotGateError(msg: string): boolean {
+    return /sign in to confirm|not a bot|bot-check|requested format is not available/i.test(msg);
+}
+
+// YouTube formats come in three families: progressive (single playable file,
+// caps ~360p on modern uploads), HLS manifest (up to 4K, played via hls.js),
+// and DASH (init+media segments, needs full MSE — not supported here).
+// Modern HLS manifests are VIDEO-ONLY (vp9, no audio group), so the separate
+// audio stream from playback-info is played in a second <audio> element and
+// kept in sync (needsSeparateAudio + syncAudio).
+function isHlsFormat(f: PlaybackFormat): boolean {
+    return /m3u8/i.test(f.url || '');
+}
+function isPlayableFormat(f: PlaybackFormat): boolean {
+    if (isHlsFormat(f)) return true; // video-only is fine — audio comes separately
+    return f.has_audio && f.fragment_count === 0; // progressive
+}
+
+// Route every hls.js request (manifest, segments, keys) through the backend
+// proxy: the CDN URLs are signed for the server's IP, and the proxy now
+// honors Range requests (206), so streaming works exactly like the
+// extraction does. Without this, the browser would fetch googlevideo
+// directly with its own IP/referrer and often fail.
+class ProxyLoader extends Hls.DefaultConfig.loader {
+    load(context: any, config: any, callbacks: any) {
+        const url = context?.url;
+        if (typeof url === 'string' && /^https?:\/\//i.test(url) && !url.startsWith(window.location.origin)) {
+            context.url = `/api/video/proxy?url=${encodeURIComponent(url)}`;
+            super.load(context, config, callbacks);
+            context.url = url;
+            return;
+        }
+        super.load(context, config, callbacks);
+    }
 }
 
 function formatTime(seconds: number): string {
@@ -68,9 +119,12 @@ export default function MsePlayer({
     onNext,
     onPrev,
     onError,
+    onUseIframe,
 }: MsePlayerProps) {
     const [playbackInfo, setPlaybackInfo] = useState<PlaybackInfo | null>(null);
     const [failed, setFailed] = useState(false);
+    const [failReason, setFailReason] = useState<string | null>(null);
+    const [retryKey, setRetryKey] = useState(0);
     const [isBuffering, setIsBuffering] = useState(true);
     const [isPlaying, setIsPlaying] = useState(autoplay);
     const [currentTime, setCurrentTime] = useState(0);
@@ -84,45 +138,83 @@ export default function MsePlayer({
     const [showControls, setShowControls] = useState(true);
     const [isFullscreen, setIsFullscreen] = useState(false);
     const [playbackKey, setPlaybackKey] = useState(0);
+    const [audioPref, setAudioPref] = useState<'opus' | 'm4a'>(OPUS_SUPPORTED ? 'opus' : 'm4a');
 
     const containerRef = useRef<HTMLDivElement>(null);
     const videoRef = useRef<HTMLVideoElement>(null);
     const audioRef = useRef<HTMLAudioElement>(null);
+    const hlsRef = useRef<Hls | null>(null);
     const progressBarRef = useRef<HTMLDivElement>(null);
     const hideControlsTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const audioErrorHandled = useRef(false);
+    // Throttle position-state updates sent to the OS media notification.
+    const lastPosUpdateRef = useRef(0);
+
+    // Phone lock-screen / media notification controls (Media Session API).
+    useMediaSession({
+        videoId,
+        title,
+        uploader,
+        thumbnail,
+        getVideo: () => videoRef.current,
+        getAudio: () => audioRef.current,
+        onNext,
+        onPrev,
+    });
 
     useEffect(() => {
         let cancelled = false;
         setIsBuffering(true);
         setFailed(false);
+        setFailReason(null);
         setPlaybackInfo(null);
         setSelectedFormatId(null);
+        audioErrorHandled.current = false;
 
         const controller = new AbortController();
 
-        fetch(`/api/video/${videoId}/playback-info`, { signal: controller.signal })
-            .then(r => r.json())
-            .then((d: PlaybackInfo) => {
+        fetch(`/api/video/${videoId}/playback-info?audio=${audioPref}`, { signal: controller.signal })
+            .then(async (r) => {
+                const d = await r.json();
                 if (cancelled) return;
+                if (!r.ok) {
+                    const msg = d?.error || `playback-info failed (HTTP ${r.status})`;
+                    console.error('[MsePlayer] playback-info error:', msg);
+                    setFailReason(msg);
+                    setFailed(true);
+                    onError?.();
+                    return;
+                }
                 setPlaybackInfo(d);
                 if (d.duration > 0) setDuration(d.duration);
                 if (d.video_formats && d.video_formats.length > 0) {
-                    const sorted = [...d.video_formats].sort((a, b) => b.height - a.height);
+                    // This player uses a plain <video> (progressive) or hls.js
+                    // (HLS manifest); DASH-only formats (fragment_count>0)
+                    // need full MSE and are skipped. Pick the best playable
+                    // format up front instead of waiting for an error fallback.
+                    const playable = d.video_formats.filter(isPlayableFormat);
+                    const pool = playable.length > 0 ? playable : d.video_formats;
+                    const sorted = [...pool].sort((a, b) => b.height - a.height);
                     setSelectedFormatId(sorted[0].format_id);
                 } else {
+                    setFailReason('No playable formats returned');
                     setFailed(true);
+                    onError?.();
                 }
             })
             .catch((err: any) => {
                 if (cancelled || err?.name === 'AbortError') return;
+                console.error('[MsePlayer] playback-info fetch failed:', err);
+                setFailReason(err?.message || String(err));
                 setFailed(true);
+                onError?.();
             });
 
         return () => {
             cancelled = true;
             controller.abort();
         };
-    }, [videoId]);
+    }, [videoId, audioPref, retryKey]);
 
     const currentFormat = useMemo(() => {
         if (!playbackInfo?.video_formats || !selectedFormatId) return null;
@@ -135,8 +227,12 @@ export default function MsePlayer({
 
     const qualityOptions = useMemo(() => {
         if (!playbackInfo?.video_formats) return [];
+        // Only list formats this player can actually play: progressive
+        // (plain <video>) and HLS manifests (hls.js / native Safari).
+        const playable = playbackInfo.video_formats.filter(isPlayableFormat);
+        const pool = playable.length > 0 ? playable : playbackInfo.video_formats;
         const byHeight = new Map<number, PlaybackFormat>();
-        for (const f of playbackInfo.video_formats) {
+        for (const f of pool) {
             const existing = byHeight.get(f.height);
             if (!existing || f.bandwidth > existing.bandwidth) {
                 byHeight.set(f.height, f);
@@ -164,6 +260,36 @@ export default function MsePlayer({
         }
     }, [isPlaying]);
 
+    // KB §5: browsers/webviews cache stale JS and codec-restricted clients
+    // leave the audio element in error state even when the URL is valid.
+    // Retry ladder: opus → m4a (codec switch), then one same-URL reload,
+    // then surface the failure.
+    const handleAudioError = useCallback(() => {
+        if (audioPref === 'opus' && !audioErrorHandled.current) {
+            audioErrorHandled.current = true;
+            setAudioPref('m4a'); // re-fetches playback-info with m4a/AAC
+            return;
+        }
+        if (!audioErrorHandled.current) {
+            audioErrorHandled.current = true;
+            const a = audioRef.current;
+            if (a && a.src) {
+                const src = a.src;
+                a.removeAttribute('src');
+                a.load();
+                window.setTimeout(() => {
+                    if (!a) return;
+                    a.src = src;
+                    a.load();
+                }, 300);
+            }
+            return;
+        }
+        console.error('[MsePlayer] audio element failed after retries');
+        setFailReason('Audio stream failed after retries');
+        setFailed(true);
+    }, [audioPref]);
+
     // Synchronize media elements (video + audio)
     useEffect(() => {
         if (!currentFormat || !videoRef.current) return;
@@ -171,7 +297,36 @@ export default function MsePlayer({
         const audio = audioRef.current;
 
         setIsBuffering(true);
-        video.src = proxyUrl(currentFormat.url);
+
+        // HLS manifests (up to 4K) play via hls.js on MSE-capable browsers
+        // and natively in Safari; progressive formats play directly.
+        hlsRef.current?.destroy();
+        hlsRef.current = null;
+        if (isHlsFormat(currentFormat)) {
+            if (Hls.isSupported()) {
+                const hls = new Hls({ enableWorker: true, loader: ProxyLoader });
+                hlsRef.current = hls;
+                hls.attachMedia(video);
+                hls.on(Hls.Events.ERROR, (_evt, data) => {
+                    if (!data.fatal) return;
+                    if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
+                        hls.startLoad();
+                    } else if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
+                        hls.recoverMediaError();
+                    } else {
+                        console.error('[MsePlayer] hls fatal error:', data.type, data.details);
+                        setFailReason(`HLS error: ${data.type} / ${data.details}`);
+                        setFailed(true);
+                    }
+                });
+                hls.loadSource(proxyUrl(currentFormat.url));
+            } else {
+                // Safari plays HLS natively in the video element
+                video.src = proxyUrl(currentFormat.url);
+            }
+        } else {
+            video.src = proxyUrl(currentFormat.url);
+        }
 
         if (needsSeparateAudio && audio && playbackInfo?.audio_format?.url) {
             audio.src = proxyUrl(playbackInfo.audio_format.url);
@@ -211,6 +366,8 @@ export default function MsePlayer({
 
         const onPlay = () => {
             setIsPlaying(true);
+            setMediaSessionPlaybackState('playing');
+            updateMediaSessionPosition(video.duration || duration, video.playbackRate, video.currentTime);
             if (needsSeparateAudio && audio) {
                 audio.play().catch(() => {});
                 syncAudio();
@@ -219,6 +376,7 @@ export default function MsePlayer({
 
         const onPause = () => {
             setIsPlaying(false);
+            setMediaSessionPlaybackState('paused');
             if (needsSeparateAudio && audio) {
                 audio.pause();
             }
@@ -228,6 +386,12 @@ export default function MsePlayer({
             setCurrentTime(video.currentTime);
             if (video.duration && !isNaN(video.duration)) {
                 setDuration(video.duration);
+            }
+            // Keep the notification seek bar fresh, throttled to ~1s.
+            const now = Date.now();
+            if (now - lastPosUpdateRef.current > 1000) {
+                lastPosUpdateRef.current = now;
+                updateMediaSessionPosition(video.duration || duration, video.playbackRate, video.currentTime);
             }
             syncAudio();
         };
@@ -264,6 +428,8 @@ export default function MsePlayer({
         video.addEventListener('canplay', onCanPlay);
 
         return () => {
+            hlsRef.current?.destroy();
+            hlsRef.current = null;
             video.removeEventListener('play', onPlay);
             video.removeEventListener('pause', onPause);
             video.removeEventListener('timeupdate', onTimeUpdate);
@@ -390,14 +556,89 @@ export default function MsePlayer({
     }, []);
 
     if (failed) {
+        const gate = failReason ? isBotGateError(failReason) : false;
         return (
-            <YouTubePlayer
-                videoId={videoId}
-                title={title}
-                autoplay={autoplay}
-                onVideoEnd={onVideoEnd}
-                loop={loop}
-            />
+            <div style={{
+                position: 'relative',
+                width: '100%',
+                aspectRatio: '16/9',
+                backgroundColor: '#000',
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                justifyContent: 'center',
+                gap: '12px',
+                padding: '24px',
+                boxSizing: 'border-box',
+            }}>
+                <div style={{ color: '#fff', fontSize: '15px', fontWeight: 600 }}>
+                    {gate ? 'YouTube is blocking this server for this video' : 'Playback failed'}
+                </div>
+                {gate ? (
+                    <div style={{
+                        color: 'rgba(255,255,255,0.75)',
+                        fontSize: '13px',
+                        maxWidth: '520px',
+                        textAlign: 'center',
+                        lineHeight: 1.5,
+                    }}>
+                        YouTube&apos;s bot check is blocking extraction from this server&apos;s IP for this
+                        video. Fresh logged-in cookies fix this: open{' '}
+                        <a href="/settings" style={{ color: '#FF0033', fontWeight: 600 }}>Settings → YouTube Cookies</a>{' '}
+                        and upload a fresh cookies.txt exported from a browser that is logged into YouTube
+                        (e.g. the &quot;Get cookies.txt LOCALLY&quot; extension). You can also try
+                        YouTube embed below meanwhile.
+                    </div>
+                ) : (
+                    failReason && (
+                        <div style={{
+                            color: 'rgba(255,255,255,0.7)',
+                            fontSize: '12px',
+                            maxWidth: '520px',
+                            textAlign: 'center',
+                            fontFamily: 'monospace',
+                            wordBreak: 'break-word',
+                            lineHeight: 1.5,
+                        }}>
+                            {failReason}
+                        </div>
+                    )
+                )}
+                <div style={{ display: 'flex', gap: '10px', marginTop: '6px' }}>
+                    <button
+                        onClick={() => setRetryKey(k => k + 1)}
+                        style={{
+                            padding: '9px 18px',
+                            borderRadius: '20px',
+                            border: 'none',
+                            background: '#FF0033',
+                            color: '#fff',
+                            cursor: 'pointer',
+                            fontSize: '13px',
+                            fontWeight: 600,
+                        }}
+                    >
+                        Retry
+                    </button>
+                    {onUseIframe && (
+                        <button
+                            onClick={onUseIframe}
+                            style={{
+                                padding: '9px 18px',
+                                borderRadius: '20px',
+                                border: '1px solid rgba(255,255,255,0.4)',
+                                background: 'transparent',
+                                color: '#fff',
+                                cursor: 'pointer',
+                                fontSize: '13px',
+                                fontWeight: 600,
+                            }}
+                        >
+                            Use YouTube embed
+                        </button>
+                    )}
+                </div>
+            </div>
         );
     }
 
@@ -426,6 +667,8 @@ export default function MsePlayer({
                     if (prog && prog.format_id !== selectedFormatId) {
                         setSelectedFormatId(prog.format_id);
                     } else {
+                        console.error('[MsePlayer] video element error, current src:', videoRef.current?.src?.slice(0, 120));
+                        setFailReason('Video element failed to decode/play the selected stream');
                         setFailed(true);
                     }
                 }}
@@ -441,6 +684,7 @@ export default function MsePlayer({
                 ref={audioRef}
                 style={{ display: 'none' }}
                 preload="auto"
+                onError={handleAudioError}
             />
 
             {/* Buffering Indicator Spinner */}

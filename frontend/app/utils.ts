@@ -42,3 +42,19 @@ const RANDOM_MODIFIERS = ['viral', 'popular', 'new', 'best', 'top', 'hot', 'fres
 export function getRandomModifier(): string {
     return RANDOM_MODIFIERS[Math.floor(Math.random() * RANDOM_MODIFIERS.length)];
 }
+
+// Thumbnails are routed through the backend image proxy (/api/proxy) so they
+// keep loading even when the browser cannot reach i.ytimg.com directly
+// (ad blockers, DNS/referrer filters). The proxy fetches server-side and the
+// browser caches the response for 24h.
+const THUMB_SIZES = ['hqdefault', 'mqdefault', 'default'] as const;
+export type ThumbSize = typeof THUMB_SIZES[number];
+
+export function proxiedThumb(id: string, size: ThumbSize = 'hqdefault'): string {
+    return `/api/proxy?url=${encodeURIComponent(`https://i.ytimg.com/vi/${id}/${size}.jpg`)}`;
+}
+
+export function proxiedImageUrl(raw: string | undefined | null): string {
+    if (!raw) return '';
+    return `/api/proxy?url=${encodeURIComponent(raw)}`;
+}

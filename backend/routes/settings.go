@@ -20,12 +20,13 @@ type settingsStatus struct {
 		LastCheckAt string `json:"last_check_at,omitempty"`
 	} `json:"ytdlp"`
 	Cookies services.CookiesStatus `json:"cookies"`
+	IPv6    services.IPv6Status    `json:"ipv6"`
 	Server  struct {
 		Time string `json:"time"`
 	} `json:"server"`
 }
 
-// handleSettingsStatus reports the current yt-dlp and cookies configuration.
+// handleSettingsStatus reports the current yt-dlp, cookies, and IPv6 configuration.
 // GET /api/settings/status
 func handleSettingsStatus(c *gin.Context) {
 	var st settingsStatus
@@ -33,6 +34,7 @@ func handleSettingsStatus(c *gin.Context) {
 	st.YtDlp.AutoUpdate = services.YtDlpUpdateEnabled()
 	st.YtDlp.LastCheckAt = services.YtDlpLastUpdateAt()
 	st.Cookies = services.GetCookiesStatus()
+	st.IPv6 = services.GetIPv6Status()
 	st.Server.Time = time.Now().Format(time.RFC3339)
 	c.JSON(http.StatusOK, st)
 }
@@ -92,4 +94,17 @@ func handleYtDlpUpdate(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"ok": true, "before": before, "after": after})
+}
+
+// handleSettingsDiagnose runs network diagnostics from inside the server
+// (IPv4/IPv6 reachability of YouTube). With ?test=1 it also runs a real
+// yt-dlp extraction through the playback retry chain.
+// GET /api/settings/diagnose[?test=1]
+func handleSettingsDiagnose(c *gin.Context) {
+	diag := services.RunNetworkDiagnostics()
+	if c.Query("test") != "" {
+		diag.ExtractionTest = new(services.ExtractionResult)
+		*diag.ExtractionTest = services.RunExtractionTest(c.Query("video"))
+	}
+	c.JSON(http.StatusOK, diag)
 }

@@ -7,6 +7,7 @@ import YouTubePlayer from './YouTubePlayer';
 import DownloadSheet from './DownloadSheet';
 import { getVideoDetailsClient, getRelatedVideosClient, getCommentsClient, searchVideosClient } from '../clientActions';
 import { VideoData } from '../constants';
+import { proxiedThumb, proxiedImageUrl } from '../utils';
 import { isVideoSaved, toggleSaveVideo } from '../storage';
 import LoadingSpinner from '../components/LoadingSpinner';
 import Link from 'next/link';
@@ -89,6 +90,18 @@ async function searchWithFallback(
         if (acc.length >= min) break;
     }
     return acc;
+}
+
+// Deduplicate and filter mix results against the current video and the
+// Up Next list so the two tabs never show the same video.
+function mixArrFilter(mix: VideoData[], videoId: string, related: VideoData[]): VideoData[] {
+    const relatedIds = new Set(related.map(v => v.id));
+    return (Array.isArray(mix) ? mix : [])
+        .filter((v, i, self) =>
+            i === self.findIndex(item => item.id === v.id) &&
+            v.id !== videoId &&
+            !relatedIds.has(v.id)
+        );
 }
 
 // Video Info Section
@@ -486,7 +499,7 @@ function MixPlaylist({ videos, currentIndex, onVideoSelect, title }: {
                         {/* Thumbnail with index */}
                         <div style={{ position: 'relative', flexShrink: 0 }}>
                             <img 
-                                src={video.thumbnail || `https://i.ytimg.com/vi/${video.id}/mqdefault.jpg`}
+                                src={video.thumbnail ? proxiedImageUrl(video.thumbnail) : proxiedThumb(video.id, 'mqdefault')}
                                 alt={video.title}
                                 loading="lazy"
                                 decoding="async"
@@ -497,7 +510,7 @@ function MixPlaylist({ videos, currentIndex, onVideoSelect, title }: {
                                     borderRadius: '6px',
                                 }}
                                 onError={(e) => {
-                                    (e.target as HTMLImageElement).src = `https://i.ytimg.com/vi/${video.id}/default.jpg`;
+                                    (e.target as HTMLImageElement).src = proxiedThumb(video.id, 'default');
                                 }}
                             />
                             <div style={{
@@ -790,6 +803,12 @@ export default function ClientWatchPage() {
 				setLoading(true);
 				setApiError(null);
 
+				// Continue from the clicked position when navigating between
+				// videos (?idx=N), so Next/Prev follow the list order instead
+				// of always restarting at the top.
+				const startIdx = Math.max(0, parseInt(searchParams.get('idx') || '0', 10) || 0);
+				setCurrentIndex(startIdx);
+
 				// Fetch video details first so we can build good search terms.
 				const video = await getOrFetchData(`video_${videoId}`, () => getVideoDetailsClient(videoId));
 				setVideoInfo(video);
@@ -813,18 +832,6 @@ export default function ClientWatchPage() {
 				firstWords = keywords.split(' ').slice(0, 3).join(' ');
 				const exclude = new Set<string>([videoId]);
 
-				// Up Next: related content, from specific to broad. The last two
-				// queries are video-specific (title + channel) so the list varies
-				// per video instead of always falling back to one generic query.
-				const relatedQueries = [
-					[channel, keywords].filter(Boolean).join(' '),
-					keywords,
-					channel,
-					firstWords,
-					`${firstWords} official video`,
-					`${channel || firstWords} live`,
-				];
-
 				// Mix: playlist/compilation style, also video-specific fallbacks.
 				const mixQueries = [
 					keywords ? `${keywords} mix` : '',
@@ -835,23 +842,42 @@ export default function ClientWatchPage() {
 					firstWords ? `${firstWords} best of` : '',
 				];
 
-				const [relatedResults, mixResults] = await Promise.all([
-					getOrFetchData(`related_${videoId}`, () => searchWithFallback(relatedQueries, 10, 20, exclude)),
+				// Up Next: prefer the backend's related list, which uses
+				// YouTube's real "Up next" from the watch page (with a
+				// channel+title search fallback). Only when that is too thin
+				// do we top it up with our own search ladder.
+				const [upNextResult, mixResults] = await Promise.all([
+					getOrFetchData(`related_${videoId}`, () => getRelatedVideosClient(videoId, 20)),
 					getOrFetchData(`mix_${videoId}`, () => searchWithFallback(mixQueries, 10, 20, exclude)),
 				]);
 
-				// Deduplicate and filter
-				const relArr = Array.isArray(relatedResults) ? relatedResults : [];
-				const mixArr = Array.isArray(mixResults) ? mixResults : [];
+				let uniqueRelated = (Array.isArray(upNextResult) ? upNextResult : [])
+					.filter((v, i, self) =>
+						i === self.findIndex(item => item.id === v.id) && v.id !== videoId
+					);
 
-				let uniqueRelated = relArr.filter((v, i, self) =>
-					i === self.findIndex(item => item.id === v.id) && v.id !== videoId
-				);
-				let uniqueMix = mixArr.filter((v, i, self) =>
-					i === self.findIndex(item => item.id === v.id) &&
-					v.id !== videoId &&
-					!uniqueRelated.some(r => r.id === v.id)
-				);
+				if (uniqueRelated.length < 6) {
+					// Backend related is thin/unavailable: top up with search,
+					// from specific (channel + title) to broad.
+					const relatedQueries = [
+						[channel, keywords].filter(Boolean).join(' '),
+						keywords,
+						channel,
+						firstWords,
+						`${firstWords} official video`,
+						`${channel || firstWords} live`,
+					];
+					const seen = new Set<string>(uniqueRelated.map(v => v.id));
+					const extra = await searchWithFallback(relatedQueries, 10, 20, new Set<string>([videoId, ...seen]));
+					for (const v of extra) {
+						if (uniqueRelated.length >= 20) break;
+						if (seen.has(v.id)) continue;
+						seen.add(v.id);
+						uniqueRelated.push(v);
+					}
+				}
+
+				let uniqueMix = mixArrFilter(mixResults, videoId, uniqueRelated);
 
 				// Guarantee both sections have content: if one came back empty,
 				// borrow from the other so the UI always shows Mix + Up Next.
@@ -865,7 +891,6 @@ export default function ClientWatchPage() {
 					uniqueRelated = uniqueRelated.slice(0, half);
 				}
 
-				setCurrentIndex(0);
 				setRelatedVideos(uniqueRelated);
 				setMixPlaylist(uniqueMix.slice(0, 20));
 
@@ -901,14 +926,15 @@ export default function ClientWatchPage() {
     const handleVideoSelect = (index: number) => {
         const video = activeTab === 'upnext' ? relatedVideos[index] : mixPlaylist[index];
         if (video) {
-            router.push(`/watch?v=${video.id}`);
+            router.push(`/watch?v=${video.id}&idx=${index}`);
         }
     };
 
     const handlePrevious = () => {
+        const playlist = activeTab === 'mix' ? mixPlaylist : relatedVideos;
         if (currentIndex > 0) {
-            const prevVideo = relatedVideos[currentIndex - 1];
-            router.push(`/watch?v=${prevVideo.id}`);
+            const prevVideo = playlist[currentIndex - 1];
+            router.push(`/watch?v=${prevVideo.id}&idx=${currentIndex - 1}`);
         }
     };
 
@@ -916,7 +942,7 @@ export default function ClientWatchPage() {
         const playlist = activeTab === 'mix' ? mixPlaylist : relatedVideos;
         if (currentIndex < playlist.length - 1) {
             const nextVideo = playlist[currentIndex + 1];
-            router.push(`/watch?v=${nextVideo.id}`);
+            router.push(`/watch?v=${nextVideo.id}&idx=${currentIndex + 1}`);
         }
     };
 
@@ -976,6 +1002,7 @@ export default function ClientWatchPage() {
 						onVideoEnd={handleVideoEnd}
 						onNext={handleNext}
 						onPrev={handlePrevious}
+						onUseIframe={() => setPlayerMode('iframe')}
 					/>
 				)}
 					</div>
@@ -1096,7 +1123,7 @@ export default function ClientWatchPage() {
                             {/* Player source toggle: YouTube embed (fast) <-> self-hosted HD (4K + background) */}
                             <button
                                 onClick={togglePlayerMode}
-                                title={playerMode === 'iframe' ? 'Switch to self-hosted HD (4K + background audio)' : 'Switch to YouTube embed (instant)'}
+                                title={playerMode === 'iframe' ? 'Switch to self-hosted HD (4K + lock-screen controls)' : 'Switch to YouTube embed (instant)'}
                                 className="watch-ctrl-btn"
                                 style={{
                                     display: 'flex',
@@ -1150,24 +1177,35 @@ export default function ClientWatchPage() {
                     <CommentSection videoId={videoId} />
                 </div>
 
-                {/* Sidebar */}
+                {/* Sidebar — in wide mode it flows below the main content
+                    (single-column grid) as ONE column: Mix first, Up Next
+                    below, full width. */}
                 <div className="watch-sidebar" style={{
-                    position: 'sticky',
-                    top: '70px',
-                    height: 'calc(100vh - 90px)',
-                    maxHeight: 'calc(100vh - 90px)',
-                    overflow: 'hidden',
-                    display: wideMode ? 'none' : 'flex',
+                    position: wideMode ? 'relative' : 'sticky',
+                    top: wideMode ? 0 : '70px',
+                    height: wideMode ? 'auto' : 'calc(100vh - 90px)',
+                    maxHeight: wideMode ? 'none' : 'calc(100vh - 90px)',
+                    overflow: wideMode ? 'visible' : 'hidden',
+                    display: 'flex',
                     flexDirection: 'column',
+                    alignItems: 'stretch',
                     gap: '12px',
+                    width: '100%',
                 }}>
                     {/* Mix Playlist - Always on top */}
-                    <MixPlaylist 
-                        videos={mixPlaylist}
-                        currentIndex={currentIndex}
-                        onVideoSelect={handleVideoSelect}
-                        title={videoInfo?.title ? `Mix - ${videoInfo.title.split(' ').slice(0, 3).join(' ')}` : 'Mix Playlist'}
-                    />
+                    <div style={{
+                        display: 'flex',
+                        flexDirection: 'column',
+                        minWidth: 0,
+                        width: '100%',
+                    }}>
+                        <MixPlaylist 
+                            videos={mixPlaylist}
+                            currentIndex={currentIndex}
+                            onVideoSelect={handleVideoSelect}
+                            title={videoInfo?.title ? `Mix - ${videoInfo.title.split(' ').slice(0, 3).join(' ')}` : 'Mix Playlist'}
+                        />
+                    </div>
 
                     {/* API Error Message */}
                     {apiError && (
@@ -1189,8 +1227,8 @@ export default function ClientWatchPage() {
                         backgroundColor: 'var(--yt-hover)',
                         borderRadius: '12px',
                         overflow: 'hidden',
-                        flex: 1,
-                        minHeight: 0,
+                        minHeight: wideMode ? 'auto' : 0,
+                        flex: wideMode ? undefined : 1,
                         display: 'flex',
                         flexDirection: 'column',
                     }}>
@@ -1209,7 +1247,11 @@ export default function ClientWatchPage() {
                                 {relatedVideos.length} videos
                             </span>
                         </div>
-                        <div className="upnext-list" style={{ flex: 1, minHeight: 0, overflowY: 'auto' }}>
+                        <div className="upnext-list" style={{ 
+                            flex: wideMode ? 'none' : 1, 
+                            minHeight: wideMode ? 'auto' : 0, 
+                            overflowY: wideMode ? 'visible' : 'auto',
+                        }}>
                             {relatedVideos.slice(0, 30).map((video, index) => (
                                 <div 
                                     key={video.id}
@@ -1238,13 +1280,13 @@ export default function ClientWatchPage() {
                                 >
                                     <div style={{ position: 'relative', flexShrink: 0 }}>
                                         <img 
-                                            src={video.thumbnail || `https://i.ytimg.com/vi/${video.id}/mqdefault.jpg`}
+                                            src={video.thumbnail ? proxiedImageUrl(video.thumbnail) : proxiedThumb(video.id, 'mqdefault')}
                                             alt={video.title}
                                             loading="lazy"
                                             decoding="async"
                                             style={{ width: '120px', height: '68px', objectFit: 'cover', borderRadius: '6px' }}
                                             onError={(e) => {
-                                                (e.target as HTMLImageElement).src = `https://i.ytimg.com/vi/${video.id}/mqdefault.jpg`;
+                                                (e.target as HTMLImageElement).src = proxiedThumb(video.id, 'mqdefault');
                                             }}
                                         />
                                         {video.duration && (

@@ -97,6 +97,24 @@ func SetCachedVideo(videoID string, data interface{}, ttlSeconds int) error {
 	return err
 }
 
+// ClearVideoCache removes all cached yt-dlp data so everything re-fetches
+// under a new cookie session (KB §7: clear in-memory caches after any cookie
+// refresh so nothing keeps using the stale session).
+func ClearVideoCache() {
+	if DB == nil {
+		return
+	}
+
+	CacheMu.Lock()
+	_, err := DB.Exec(`DELETE FROM video_cache`)
+	CacheMu.Unlock()
+	if err != nil {
+		log.Printf("Cache clear error: %v", err)
+		return
+	}
+	log.Printf("Cleared video cache after cookie change")
+}
+
 // CleanExpiredCache removes expired cache entries
 func CleanExpiredCache() {
 	if DB == nil {

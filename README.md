@@ -154,8 +154,20 @@ docker compose up -d
 > **Settings → YouTube Cookies** (available from the sidebar). The server also
 > needs the [deno](https://deno.com) runtime on `PATH` to solve YouTube's
 > JavaScript challenges with cookies — the Docker image bundles it at
-> `/app/bin/deno/bin/deno` automatically. yt-dlp is kept on the latest nightly
-> build automatically (check/update manually from **Settings → yt-dlp**).
+> `/app/bin/deno/bin/deno` automatically (Node.js is used as a fallback
+> runtime). yt-dlp is kept on the latest nightly build automatically (check/update
+> manually from **Settings → yt-dlp**).
+>
+> The server also fights bot-blocks automatically:
+> - **IPv6 first** — YouTube blocks many residential IPv4 routes but allows the
+>   same traffic over IPv6. The server probes IPv6 at startup and prefers it
+>   when routable, flipping back to IPv4 on network failures. Override with
+>   `FORCE_IPV6=1` (always) / `FORCE_IPV6=0` (never). Docker needs a
+>   dual-stack network (already configured in `docker-compose.yml`).
+> - **Cookies auto-repair** — when YouTube rejects your uploaded cookies they are
+>   blacklisted, an anonymous session is auto-refreshed, and the request is
+>   retried. If no cookies exist at all, an anonymous session is fetched at
+>   boot. Rate limits (HTTP 429) are retried with backoff.
 
 <p align="center">
   <b>Frontend:</b> <a href="http://localhost:5011">http://localhost:5011</a> &nbsp;•&nbsp;
@@ -235,18 +247,49 @@ services:
     image: vndangkhoa/kv-tube:latest
     container_name: kv-tube
     platform: linux/amd64
+    restart: unless-stopped
     ports:
-      - "5011:3000"
-      - "8981:8080"
+      - "5011:3000"   # Frontend (Next.js)
+      - "8981:8080"   # Backend API (Go)
     volumes:
       - ./data:/app/data
+      # Optional: mount a valid Netscape cookies.txt for YouTube (read-only is
+      # fine — the server stages a writable copy internally):
+      # - ./cookies.txt:/app/data/cookies.txt:ro
     environment:
       - KVTUBE_DATA_DIR=/app/data
+      # - YTDLP_COOKIES=/app/data/cookies.txt  # Only needed if you mount a file above
+      # - FORCE_IPV6=1                         # 1=always IPv6, 0=never, unset=auto probe
       - GIN_MODE=release
       - NODE_ENV=production
-      - CORS_ALLOWED_ORIGINS=http://localhost:3000,http://localhost:5011
-    restart: unless-stopped
+      - CORS_ALLOWED_ORIGINS=http://localhost:3000,http://127.0.0.1:3000,http://localhost:5011
+    devices:
+      - /dev/ptmx  # Required for downloads (progress parsing via pseudo-terminal)
+    dns:
+      - 8.8.8.8    # Docker's embedded DNS strips AAAA records; public
+      - 1.1.1.1    # resolvers make IPv6 lookups work
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8080/api/health"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    networks:
+      - kvtube-net
+
+networks:
+  kvtube-net:
+    driver: bridge
+    enable_ipv6: true   # Dual-stack: lets the server prefer IPv6 (best weapon
+    ipam:               # against YouTube IPv4 bot-blocks). Server auto-falls
+      config:           # back to IPv4 when IPv6 isn't routable.
+        - subnet: fd00:1234::/64
 ```
+
+> **Troubleshooting:** if your Docker daemon can't create the IPv6 network
+> (pre-20.10, or IPv6 disabled in the daemon), delete the `networks:` block at
+> the bottom and remove `networks:` from the service — everything still works
+> over IPv4, the IPv6 benefits are simply skipped.
 
 Or pull from another registry — swap the image line:
 
@@ -263,6 +306,15 @@ Prefer building locally? Replace `image:` with `build: .`.
 2. Upload `docker-compose.yml`, `Dockerfile`, `supervisord.conf`
 3. In **Container Manager** → **Project** → **Create**, select the folder
 4. Done. The container builds and starts automatically.
+
+> **Note for Synology:** DSM 7.2 ships a Docker daemon with IPv6 enabled, so
+> the dual-stack network in `docker-compose.yml` works out of the box. Beware
+> the "assigned but not routed" trap — many routers hand out IPv6 addresses
+> without a working route, so the server's IPv6 probe may fail and fall back
+> to IPv4 (which YouTube may bot-block). If IPv4 is blocked, enable IPv6
+> routing on your router/ISP, or force the family with `FORCE_IPV6=1`.
+> If Project creation fails with a network error, remove the `networks:`
+> blocks from the compose file.
 
 ### 🛠️ Multi-arch Build
 
@@ -281,10 +333,25 @@ docker buildx build --platform linux/amd64 -t kv-tube:latest --push .
 | `NODE_ENV` | `production` | Node.js environment |
 | `CORS_ALLOWED_ORIGINS` | `""` | Comma-separated allowed origins |
 | `PORT` | `8080` | Backend API listen port |
+| `FORCE_IPV6` | `auto` | `1` = always IPv6, `0` = always IPv4, unset = probe at startup |
+| `YTDLP_COOKIES` | `""` | Path to a Netscape-format cookies.txt passed to yt-dlp |
+| `YTDLP_COOKIES_FROM_BROWSER` | `""` | Export cookies from a browser (e.g. `chrome`) |
+| `YTDLP_PROXY` | `""` | Route yt-dlp through an HTTP/SOCKS5 proxy |
+| `YTDLP_AUTO_UPDATE` | `true` | Keep yt-dlp on the latest nightly build |
 
 ---
 
 ## 💻 Development
+
+Run the whole stack (backend + frontend) with one command:
+
+```bash
+./launch.sh dev     # dev: backend binary + next dev (hot reload)
+./launch.sh prod    # prod: GIN_MODE=release build + next build/start
+./stop.sh           # stop both services
+```
+
+Or start each part manually:
 
 ```bash
 # Frontend

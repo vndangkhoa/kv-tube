@@ -3,9 +3,10 @@
 import { useEffect, useState, useRef, useCallback, memo } from 'react';
 import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
-import { searchVideosClient, getVideoDatesClient, formatRelativeTime } from './clientActions';
+import { searchVideosClient, getHomeFeedClient, getVideoDatesClient, formatRelativeTime } from './clientActions';
 import { VideoData } from './constants';
 import { getRegionContent, categoryQuery } from './regionContent';
+import { proxiedThumb, proxiedImageUrl } from './utils';
 import LoadingSpinner from './components/LoadingSpinner';
 
 // Format view count
@@ -22,15 +23,16 @@ function getFallbackThumbnail(videoId: string): string {
 
 // Video Card Component (React.memo - prevents re-renders from scroll/resize, TypeType pattern)
 const VideoCard = memo(function VideoCard({ video }: { video: VideoData }) {
-    const [imgSrc, setImgSrc] = useState(`https://i.ytimg.com/vi/${video.id}/hqdefault.jpg`);
+    const thumbSizes = ['hqdefault', 'mqdefault', 'default'];
+    const [thumbIdx, setThumbIdx] = useState(0);
+    const [imgSrc, setImgSrc] = useState(() => proxiedImageUrl(video.thumbnail) || proxiedThumb(video.id));
     const [imgLoaded, setImgLoaded] = useState(false);
-    const [imgError, setImgError] = useState(false);
-    
+
     const handleError = () => {
-        if (!imgError) {
-            setImgSrc(`https://i.ytimg.com/vi/${video.id}/mqdefault.jpg`);
-            setImgError(true);
-        }
+        const next = thumbIdx + 1;
+        if (next >= thumbSizes.length) return; // give up: keep the dark cover
+        setThumbIdx(next);
+        setImgSrc(proxiedThumb(video.id, thumbSizes[next] as any));
     };
     
     return (
@@ -59,7 +61,7 @@ const VideoCard = memo(function VideoCard({ video }: { video: VideoData }) {
                         }}
                     />
                     
-                    {!imgLoaded && !imgError && (
+                    {!imgLoaded && (
                         <div style={{
                             position: 'absolute',
                             inset: 0,
@@ -277,6 +279,9 @@ export default function ClientHomePage() {
     const hasMoreRef = useRef(true);
     const pageRef = useRef(1);
     const emptyStreakRef = useRef(0);
+    // Whether "All" is serving the real personalized feed (offset pagination)
+    // or the search-based fallback (topic rotation).
+    const usingHomeFeedRef = useRef(false);
     
     useEffect(() => { loadingMoreRef.current = loadingMore; }, [loadingMore]);
     useEffect(() => { loadingRef.current = loading; }, [loading]);
@@ -357,6 +362,35 @@ export default function ClientHomePage() {
         }));
     }, []);
 
+    // Search-based "All" fallback: region-localized topics + light history
+    // personalization, used when the real personalized feed is unavailable.
+    const loadSearchAllFallback = useCallback(async (): Promise<VideoData[]> => {
+        const rc = getRegionContent(regionCode);
+        const trendingPromise = searchVideosClient(rc.trending, 15);
+
+        const historyRes = await fetch('/api/history?limit=10', { cache: 'no-store' });
+        const history = historyRes.ok ? await historyRes.json() : [];
+
+        const historyQueries: string[] = [];
+        if (Array.isArray(history) && history.length > 0) {
+            const channels = [...new Set(history.map((h: any) => h.uploader || h.channelTitle || '').filter(Boolean))]
+                .filter(c => c !== 'History')
+                .slice(0, 1);
+            historyQueries.push(...channels);
+        }
+
+        const shuffled = [...rc.topics].sort(() => Math.random() - 0.5);
+        const queries = [...historyQueries];
+        for (const topic of shuffled) {
+            if (queries.length >= 2) break;
+            queries.push(topic);
+        }
+
+        const searchResults = await Promise.all(queries.map(q => searchVideosClient(q, 10)));
+        const trending = await trendingPromise;
+        return [...trending, ...searchResults.flat()].sort(() => Math.random() - 0.5);
+    }, [regionCode]);
+
     const loadVideos = async (category: string, pageNum: number) => {
         try {
             setLoading(true);
@@ -364,39 +398,17 @@ export default function ClientHomePage() {
             const rc = getRegionContent(regionCode);
 
             if (category === 'All') {
-                // Region-localized diverse feed + trending as base.
-                const trendingPromise = searchVideosClient(rc.trending, 15);
-
-                // Fetch history for light personalization (channel names only, so it
-                // stays consistent with what the user actually watches).
-                const historyRes = await fetch('/api/history?limit=10', { cache: 'no-store' });
-                const history = historyRes.ok ? await historyRes.json() : [];
-
-                const historyQueries: string[] = [];
-                if (Array.isArray(history) && history.length > 0) {
-                    const channels = [...new Set(history.map((h: any) => h.uploader || h.channelTitle || '').filter(Boolean))]
-                        .filter(c => c !== 'History')
-                        .slice(0, 1);
-                    historyQueries.push(...channels);
+                // The real personalized YouTube feed (server fetches it with
+                // its cookie session). Falls back to search-based content
+                // when the feed is unavailable.
+                const feed = await getHomeFeedClient(30, 0);
+                if (feed.videos.length > 0) {
+                    usingHomeFeedRef.current = true;
+                    results = feed.videos;
+                } else {
+                    usingHomeFeedRef.current = false;
+                    results = await loadSearchAllFallback();
                 }
-
-                // Shuffle localized topics so each refresh varies.
-                const shuffled = [...rc.topics].sort(() => Math.random() - 0.5);
-
-                // Build query list: a little personalization + localized topics.
-                const queries = [...historyQueries];
-                for (const topic of shuffled) {
-                    if (queries.length >= 2) break;
-                    queries.push(topic);
-                }
-
-                const searchResults = await Promise.all(
-                    queries.map(q => searchVideosClient(q, 10))
-                );
-                const trending = await trendingPromise;
-                results = [...trending, ...searchResults.flat()];
-                // Shuffle results so each refresh shows different order
-                results = results.sort(() => Math.random() - 0.5);
             } else if (category === 'Trending') {
                 results = await searchVideosClient(rc.trending, 30);
             } else {
@@ -447,16 +459,28 @@ export default function ClientHomePage() {
             const rc = getRegionContent(regionCode);
 
             if (currentCategory === 'All') {
-                // Rotate through localized topics; go deeper (larger limit) on each
-                // full cycle so results keep coming instead of repeating.
-                const topics = rc.topics;
-                const cycle = Math.floor(((nextPage - 1) * 3) / topics.length);
-                const perTopicLimit = 12 + cycle * 10;
-                const startIdx = ((nextPage - 1) * 3) % topics.length;
-                const batch = [0, 1, 2].map(i => topics[(startIdx + i) % topics.length]);
+                if (usingHomeFeedRef.current) {
+                    // Real feed: paginate through the server-cached list.
+                    const nextOffset = (nextPage - 1) * 30;
+                    const feed = await getHomeFeedClient(30, nextOffset);
+                    moreVideos = feed.videos;
+                    if (!feed.hasMore || moreVideos.length === 0) {
+                        setHasMore(false);
+                        hasMoreRef.current = false;
+                    }
+                } else {
+                    // Search fallback: rotate through localized topics; go
+                    // deeper (larger limit) on each full cycle so results
+                    // keep coming instead of repeating.
+                    const topics = getRegionContent(regionCode).topics;
+                    const cycle = Math.floor(((nextPage - 1) * 3) / topics.length);
+                    const perTopicLimit = 12 + cycle * 10;
+                    const startIdx = ((nextPage - 1) * 3) % topics.length;
+                    const batch = [0, 1, 2].map(i => topics[(startIdx + i) % topics.length]);
 
-                const results = await Promise.all(batch.map(q => searchVideosClient(q, perTopicLimit)));
-                moreVideos = results.flat().sort(() => Math.random() - 0.5);
+                    const results = await Promise.all(batch.map(q => searchVideosClient(q, perTopicLimit)));
+                    moreVideos = results.flat().sort(() => Math.random() - 0.5);
+                }
             } else if (currentCategory === 'Trending') {
                 const limit = 30 + (nextPage - 1) * 20;
                 moreVideos = await searchVideosClient(rc.trending, limit);

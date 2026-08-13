@@ -27,10 +27,14 @@ RUN npm run build
 # ---- Final Unified Image ----
 FROM alpine:latest
 
+# yt-dlp is installed via pip with --pre (nightly = the .dev0 pre-releases,
+# carrying the newest anti-bot workarounds) + curl_cffi for Chrome TLS
+# impersonation — the standalone binary cannot use curl_cffi. curl_cffi is
+# pinned <0.16: 0.16 broke yt-dlp's impersonation API. Deno stays as the JS
+# runtime.
 RUN apk add --no-cache nodejs ca-certificates ffmpeg curl python3 py3-pip supervisor \
     && mkdir -p /app/bin \
-    && curl -L https://github.com/yt-dlp/yt-dlp-nightly-builds/releases/latest/download/yt-dlp -o /app/bin/yt-dlp \
-    && chmod a+rx /app/bin/yt-dlp \
+    && pip install --break-system-packages -U --pre "yt-dlp" "curl_cffi<0.16" \
     && curl -fsSL https://deno.land/install.sh | DENO_INSTALL=/app/bin/deno sh -s -- -y \
     && rm -rf /app/bin/deno/bin/deno.uninstall
 

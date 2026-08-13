@@ -6,11 +6,12 @@ const API_BASE = '/api';
 
 interface CookiesStatus {
     configured: boolean;
-    source: 'env' | 'persisted' | 'browser' | 'none';
+    source: 'env' | 'persisted' | 'browser' | 'anonymous' | 'none';
     path?: string;
     exists?: boolean;
     valid?: boolean;
     entries?: number;
+    blacklisted?: boolean;
 }
 
 interface SettingsStatus {
@@ -20,6 +21,28 @@ interface SettingsStatus {
         last_check_at?: string;
     };
     cookies: CookiesStatus;
+    ipv6?: {
+        force: 'auto' | 'ipv6' | 'ipv4';
+        available: boolean;
+        probed: boolean;
+        targets?: Record<string, string>;
+    };
+}
+
+interface NetworkDiag {
+    family: 'ipv4' | 'ipv6';
+    ipv6_routable: boolean;
+    youtube_v4: string;
+    youtube_v6: string;
+    ytdlp_version: string;
+    impersonate?: boolean;
+    extraction_test?: {
+        ok: boolean;
+        video_id: string;
+        title?: string;
+        format_count?: number;
+        error?: string;
+    };
 }
 
 export default function SettingsPage() {
@@ -31,6 +54,8 @@ export default function SettingsPage() {
     const [fileError, setFileError] = useState<string | null>(null);
     const [fetching, setFetching] = useState(false);
     const [browser, setBrowser] = useState('chrome');
+    const [diag, setDiag] = useState<NetworkDiag | null>(null);
+    const [diagLoading, setDiagLoading] = useState(false);
 
     const fetchBrowsers = ['chrome', 'chromium', 'firefox', 'edge', 'brave', 'opera', 'vivaldi', 'whale'];
 
@@ -118,11 +143,43 @@ export default function SettingsPage() {
         }
     }
 
+    async function handleDiagnose() {
+        setDiagLoading(true);
+        setDiag(null);
+        try {
+            const res = await fetch(`${API_BASE}/settings/diagnose`);
+            if (res.ok) {
+                setDiag(await res.json());
+            }
+        } catch (err: any) {
+            setDiag({ family: 'ipv4', ipv6_routable: false, youtube_v4: 'ERR', youtube_v6: 'ERR', ytdlp_version: '' });
+        } finally {
+            setDiagLoading(false);
+        }
+    }
+
+    async function handleExtractionTest() {
+        setDiagLoading(true);
+        setDiag(null);
+        try {
+            // Runs the full yt-dlp retry chain (may take 20-60s)
+            const res = await fetch(`${API_BASE}/settings/diagnose?test=1`, { signal: AbortSignal.timeout(90000) });
+            if (res.ok) {
+                setDiag(await res.json());
+            }
+        } catch (err: any) {
+            setDiag({ family: 'ipv4', ipv6_routable: false, youtube_v4: 'ERR', youtube_v6: 'ERR', ytdlp_version: '' });
+        } finally {
+            setDiagLoading(false);
+        }
+    }
+
     const cookieLabel = (s: CookiesStatus): string => {
         switch (s.source) {
             case 'env': return 'From environment (YTDLP_COOKIES)';
             case 'browser': return 'From browser (YTDLP_COOKIES_FROM_BROWSER)';
             case 'persisted': return 'Uploaded file';
+            case 'anonymous': return 'Anonymous session (auto-refreshed)';
             default: return 'Not configured';
         }
     };
@@ -194,6 +251,100 @@ export default function SettingsPage() {
                                 )}
                             </div>
                         )}
+                    </section>
+
+                    {/* Network section */}
+                    <section style={{
+                        background: 'var(--yt-surface-1, #1a1a1a)',
+                        border: '1px solid rgba(255,255,255,0.08)',
+                        borderRadius: '12px',
+                        padding: '16px',
+                        marginTop: '16px',
+                    }}>
+                        <h2 style={{ fontSize: '16px', fontWeight: 600, color: 'var(--yt-text-primary)', margin: '0 0 12px' }}>
+                            Network
+                        </h2>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', fontSize: '13px' }}>
+                            <div style={{ color: 'var(--yt-text-primary)' }}>
+                                IPv6: <span style={{
+                                    color: status?.ipv6?.available ? '#22c55e' : '#eab308',
+                                    fontWeight: 600,
+                                }}>
+                                    {status?.ipv6?.probed
+                                        ? (status?.ipv6?.available ? 'Routable — yt-dlp prefers IPv6' : 'Not routable — using IPv4')
+                                        : 'Checking...'}
+                                </span>
+                            </div>
+                            <div style={{ fontSize: '12px', color: 'var(--yt-text-secondary)' }}>
+                                Policy: {status?.ipv6?.force === 'ipv6' ? 'forced IPv6 (FORCE_IPV6=1)' :
+                                    status?.ipv6?.force === 'ipv4' ? 'forced IPv4 (FORCE_IPV6=0)' :
+                                    'auto (probe at startup)'}
+                            </div>
+                            {status?.ipv6?.targets && Object.keys(status.ipv6.targets).length > 0 && (
+                                <div style={{ fontSize: '11px', color: 'var(--yt-text-secondary)' }}>
+                                    Probe results:
+                                    {Object.entries(status.ipv6.targets).map(([t, r]) => (
+                                        <div key={t} style={{ marginLeft: '12px' }}>
+                                            {t}: <span style={{ color: r === 'ok' ? '#22c55e' : '#ef4444' }}>{r === 'ok' ? 'reachable' : r}</span>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+                            <div style={{ fontSize: '12px', color: 'var(--yt-text-secondary)', lineHeight: 1.5 }}>
+                                YouTube often blocks residential IPv4 routes but allows the same traffic over IPv6.
+                                On network-level failures the server automatically flips to the other IP family and retries.
+                            </div>
+
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginTop: '6px', flexWrap: 'wrap' }}>
+                                <button
+                                    onClick={handleDiagnose}
+                                    disabled={diagLoading}
+                                    style={{
+                                        padding: '8px 14px',
+                                        borderRadius: '8px',
+                                        border: '1px solid rgba(255,255,255,0.2)',
+                                        background: 'transparent',
+                                        color: 'var(--yt-text-primary)',
+                                        cursor: diagLoading ? 'wait' : 'pointer',
+                                        fontSize: '12px',
+                                        fontWeight: 600,
+                                    }}
+                                >
+                                    {diagLoading ? 'Running...' : 'Run diagnostics'}
+                                </button>
+                                <button
+                                    onClick={handleExtractionTest}
+                                    disabled={diagLoading}
+                                    title="Runs a real yt-dlp extraction (same chain playback uses). May take 20-60s."
+                                    style={{
+                                        padding: '8px 14px',
+                                        borderRadius: '8px',
+                                        border: '1px solid rgba(59,130,246,0.5)',
+                                        background: 'rgba(59,130,246,0.15)',
+                                        color: 'var(--yt-text-primary)',
+                                        cursor: diagLoading ? 'wait' : 'pointer',
+                                        fontSize: '12px',
+                                        fontWeight: 600,
+                                    }}
+                                >
+                                    {diagLoading ? 'Testing...' : 'Test extraction'}
+                                </button>
+                                {diag && (
+                                    <div style={{ fontSize: '11px', color: 'var(--yt-text-secondary)', fontFamily: 'monospace', lineHeight: 1.6, maxWidth: '100%', overflowWrap: 'anywhere' }}>
+                                        <div>
+                                            family: {diag.family} · YouTube v4: {diag.youtube_v4} · YouTube v6: {diag.youtube_v6} · yt-dlp: {diag.ytdlp_version || 'unknown'}{diag.impersonate ? ' · impersonate: on' : ''}
+                                        </div>
+                                        {diag.extraction_test && (
+                                            <div style={{ color: diag.extraction_test.ok ? '#22c55e' : '#ef4444', marginTop: '4px' }}>
+                                                {diag.extraction_test.ok
+                                                    ? `Extraction OK: "${diag.extraction_test.title}" — ${diag.extraction_test.format_count} formats`
+                                                    : `Extraction FAILED: ${diag.extraction_test.error || 'unknown error'}`}
+                                            </div>
+                                        )}
+                                    </div>
+                                )}
+                            </div>
+                        </div>
                     </section>
 
                     {/* Cookies section */}
@@ -268,6 +419,12 @@ export default function SettingsPage() {
                             {status?.cookies.exists && (
                                 <div style={{ fontSize: '12px', color: 'var(--yt-text-secondary)' }}>
                                     Entries: {status.cookies.entries ?? 0} {status.cookies.valid ? '· Valid Netscape format' : '· INVALID format'}
+                                </div>
+                            )}
+                            {status?.cookies.blacklisted && (
+                                <div style={{ fontSize: '12px', color: '#eab308' }}>
+                                    Uploaded cookies were rejected by YouTube — re-export a fresh file from your browser.
+                                    The server is currently using an anonymous session.
                                 </div>
                             )}
                         </div>

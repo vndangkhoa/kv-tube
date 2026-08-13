@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { getSubscriptionsFeedClient, getVideoDatesClient, formatRelativeTime } from '../../clientActions';
 import { VideoData } from '../../constants';
+import { proxiedThumb, proxiedImageUrl } from '../../utils';
 import LoadingSpinner from '../../components/LoadingSpinner';
 
 const API_BASE = '/api';
@@ -324,7 +325,8 @@ function RecentChannelsStrip({ subs }: { subs: Subscription[] }) {
 }
 
 function VideoCard({ video }: { video: VideoData }) {
-    const [imgSrc, setImgSrc] = useState(video.thumbnail || `https://i.ytimg.com/vi/${video.id}/hqdefault.jpg`);
+    const [imgSrc, setImgSrc] = useState(() => proxiedImageUrl(video.thumbnail) || proxiedThumb(video.id));
+    const [thumbErr, setThumbErr] = useState(false);
     const relativeTime = video.publishedAt || '';
 
     const channelName = video.channelTitle || video.uploader;
@@ -339,7 +341,11 @@ function VideoCard({ video }: { video: VideoData }) {
                         alt={video.title}
                         loading="lazy"
                         style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-                        onError={() => { if (imgSrc !== DEFAULT_THUMBNAIL) setImgSrc(DEFAULT_THUMBNAIL); }}
+                        onError={() => {
+                            if (thumbErr) return;
+                            setThumbErr(true);
+                            setImgSrc(proxiedThumb(video.id, 'default'));
+                        }}
                     />
                     {video.duration && <div className="duration-badge">{video.duration}</div>}
                 </div>

@@ -28,6 +28,13 @@ func main() {
 	// Keep yt-dlp on the latest nightly build (runs on startup and every 24h)
 	services.StartYtDlpUpdater()
 
+	// Auto-fetch an anonymous YouTube session at boot when no cookies exist,
+	// so the first yt-dlp calls are not cookie-less (KB §3)
+	services.StartCookieBootstrap()
+
+	// Warm the personalized home feed in the background (refresh every 15 min)
+	services.StartHomeFeedRefresher()
+
 	// Setup Gin Engine
 	if os.Getenv("GIN_MODE") == "release" {
 		gin.SetMode(gin.ReleaseMode)
