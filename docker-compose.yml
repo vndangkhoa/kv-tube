@@ -12,11 +12,18 @@ services:
 
     volumes:
       - ./data:/app/data
-      # - ./cookies.txt:/app/data/cookies.txt  # Optional: place valid Netscape cookies.txt here
+      # Optional: mount a valid Netscape cookies.txt for YouTube. NOTE: the
+      # server stages a writable copy internally, so a read-only mount works:
+      # - ./cookies.txt:/app/data/cookies.txt:ro
 
     environment:
       - KVTUBE_DATA_DIR=/app/data
-      # - YTDLP_COOKIES=/app/data/cookies.txt  # Enable only with valid Netscape cookies.txt
+      # Public URL of the site. REQUIRED for share link previews (Facebook/
+      # Messenger, Discord, WhatsApp) to show the video thumbnail — set this to
+      # your real domain, e.g. NEXT_PUBLIC_SITE_URL=https://tube.example.com
+      - NEXT_PUBLIC_SITE_URL=${NEXT_PUBLIC_SITE_URL:-}
+      # - YTDLP_COOKIES=/app/data/cookies.txt  # Only needed if you mount a file above
+      # - FORCE_IPV6=1                         # 1=always IPv6, 0=never, unset=auto probe
       - GIN_MODE=release
       - NODE_ENV=production
       - CORS_ALLOWED_ORIGINS=http://localhost:3000,http://127.0.0.1:3000,http://localhost:5011
@@ -27,7 +34,38 @@ services:
       # - RATE_LIMIT_BURST=20       # Burst capacity (default: 20)
 
     devices:
-      - /dev/ptmx  # Required for downloads
+      - /dev/ptmx  # Required for downloads (progress parsing via pseudo-terminal)
+
+    # Docker's embedded DNS strips AAAA records; point the container at public
+    # resolvers so IPv6 lookups work on a dual-stack network.
+    dns:
+      - 8.8.8.8
+      - 1.1.1.1
+
+    networks:
+      - kvtube-net
+
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8080/api/health"]
+      interval: 60s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
 
     labels:
       - "com.centurylinklabs.watchtower.enable=true"
+
+# Dual-stack bridge network: required for the container to use IPv6 at all
+# (Docker's default network is IPv4-only). The server probes IPv6 at startup;
+# if the host has no IPv6 route it auto-falls back to IPv4, so enabling this
+# is safe on IPv4-only hosts. Requires a Docker daemon with IPv6 enabled
+# (default since Docker 20.10). If your daemon cannot create this network,
+# delete the whole `networks:` block below and remove `networks:` from the
+# service — the app still works over IPv4.
+networks:
+  kvtube-net:
+    driver: bridge
+    enable_ipv6: true
+    ipam:
+      config:
+        - subnet: fd00:1234::/64

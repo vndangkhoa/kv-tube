@@ -16,6 +16,11 @@ const roboto = Roboto({
 });
 
 export const metadata: Metadata = {
+  // Base URL for resolving relative Open Graph / canonical URLs into absolute
+  // URLs. Set NEXT_PUBLIC_SITE_URL to your public domain (e.g.
+  // https://tube.example.com) so link previews (Facebook/Messenger, Discord,
+  // WhatsApp) can resolve og:image and og:url.
+  metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000'),
   title: 'KV-Tube',
   description: 'A modern YouTube-like video streaming platform with background playback',
   manifest: '/manifest.json',
