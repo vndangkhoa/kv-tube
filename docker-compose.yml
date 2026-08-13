@@ -1,6 +1,6 @@
 services:
   kv-tube:
-    image: git.khoavo.myds.me/vndangkhoa/kv-tube:staging
+    image: git.khoavo.myds.me/vndangkhoa/kv-tube:latest
 
     container_name: kv-tube
     platform: linux/amd64
