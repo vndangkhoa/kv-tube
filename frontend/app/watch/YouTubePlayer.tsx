@@ -65,7 +65,18 @@ export default function YouTubePlayer({
     // Fullscreen change listener
     useEffect(() => {
         const handleFullscreenChange = () => {
-            setIsFullscreen(!!document.fullscreenElement);
+            const isFull = !!document.fullscreenElement;
+            setIsFullscreen(isFull);
+            const orientation = typeof screen !== 'undefined' ? (screen.orientation as any) : null;
+            if (isFull) {
+                if (orientation && typeof orientation.lock === 'function') {
+                    orientation.lock('landscape').catch(() => {});
+                }
+            } else {
+                if (orientation && typeof orientation.unlock === 'function') {
+                    try { orientation.unlock(); } catch (_) {}
+                }
+            }
         };
         document.addEventListener('fullscreenchange', handleFullscreenChange);
         return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);

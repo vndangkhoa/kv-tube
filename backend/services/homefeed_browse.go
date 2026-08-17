@@ -11,6 +11,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"kvtube-go/models"
 )
 
 // Personalized home feed via YouTube's Innertube browse API.
@@ -378,7 +380,7 @@ func browseHomeFeed() []VideoData {
 	seen := make(map[string]bool)
 	token := ""
 
-	for page := 0; page <= innertubeMaxContinuations; page++ {
+	for page := 0; page <= 1; page++ {
 		raw, err := postInnertubeBrowse("FEwhat_to_watch", token)
 		if err != nil {
 			log.Printf("[homefeed-browse] request failed (page %d): %v", page, err)
@@ -392,18 +394,18 @@ func browseHomeFeed() []VideoData {
 			seen[v.ID] = true
 			all = append(all, v)
 		}
-		if next == "" || next == token {
+		if next == "" || next == token || len(all) >= 30 {
 			break
 		}
 		token = next
-		if len(all) >= homeFeedBatchSize {
-			break
-		}
 	}
 
 	if len(all) == 0 {
 		log.Printf("[homefeed-browse] no videos extracted (check that valid logged-in cookies are configured)")
 		return nil
+	}
+	if b, err := json.Marshal(all); err == nil {
+		_ = models.SetCachedVideo(homeFeedKey, string(b), int(homeFeedCacheTTL.Seconds()))
 	}
 	log.Printf("[homefeed-browse] refreshed %d entries", len(all))
 	return all

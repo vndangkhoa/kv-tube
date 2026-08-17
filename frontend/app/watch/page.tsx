@@ -50,9 +50,11 @@ export async function generateMetadata({ searchParams }: WatchPageProps): Promis
                 description = `Watch "${title}" by ${uploader} on KV-Tube.`;
             }
         }
-    } catch (error) {
+    } catch (error: any) {
         // Metadata is best-effort; never block the page on it.
-        console.error('Failed to fetch video info for link preview:', error);
+        if (error?.name !== 'AbortError') {
+            console.warn('Failed to fetch video info for link preview:', error?.message || String(error));
+        }
     }
 
     // Prefer the high-res thumbnail; fall back to the standard i.ytimg URL

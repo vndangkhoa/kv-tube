@@ -68,12 +68,13 @@ export async function searchVideosClient(query: string, limit: number = 20): Pro
 // feed is unavailable so callers can fall back.
 export async function getHomeFeedClient(limit: number = 30, offset: number = 0): Promise<{ videos: VideoData[]; hasMore: boolean }> {
   const cacheKey = `home_${limit}_${offset}`;
-  const cached = getClientCache<{ videos: VideoData[]; hasMore: boolean }>(cacheKey);
+  // 2-minute TTL for home feed cache so recommendations stay fresh on refresh
+  const cached = getClientCache<{ videos: VideoData[]; hasMore: boolean }>(cacheKey, 2 * 60 * 1000);
   if (offset === 0 && cached && cached.videos.length > 0) return cached;
 
   try {
     const response = await fetch(`${API_BASE}/home?limit=${limit}&offset=${offset}`, {
-      signal: AbortSignal.timeout(20000),
+      signal: AbortSignal.timeout(5000),
     });
     if (response.ok) {
       const data = await response.json();

@@ -63,28 +63,28 @@ function titleKeywords(title: string, maxWords = 6): string {
     return cleaned.split(' ').filter(w => w.length > 1).slice(0, maxWords).join(' ');
 }
 
-// Run a list of candidate queries, accumulating unique videos until we reach
-// `min` results. Guarantees content by falling back to broader queries.
+// Run candidate queries concurrently, accumulating unique videos until we reach `min` results.
 async function searchWithFallback(
     queries: string[],
     min: number,
     limit: number,
     excludeIds: Set<string>,
 ): Promise<VideoData[]> {
+    const validQueries = queries.filter(q => q && q.trim()).slice(0, 4);
+    if (validQueries.length === 0) return [];
+    
+    const results = await Promise.all(
+        validQueries.map(q => searchVideosClient(q, limit).catch(() => []))
+    );
+    
     const acc: VideoData[] = [];
     const seen = new Set<string>(excludeIds);
-    for (const q of queries) {
-        if (!q || !q.trim()) continue;
-        let res: VideoData[] = [];
-        try {
-            res = await searchVideosClient(q, limit);
-        } catch {
-            res = [];
-        }
+    for (const res of results) {
         for (const v of Array.isArray(res) ? res : []) {
             if (v.id && !seen.has(v.id)) {
                 seen.add(v.id);
                 acc.push(v);
+                if (acc.length >= min) break;
             }
         }
         if (acc.length >= min) break;
@@ -809,8 +809,11 @@ export default function ClientWatchPage() {
 				const startIdx = Math.max(0, parseInt(searchParams.get('idx') || '0', 10) || 0);
 				setCurrentIndex(startIdx);
 
-				// Fetch video details first so we can build good search terms.
-				const video = await getOrFetchData(`video_${videoId}`, () => getVideoDetailsClient(videoId));
+				// Fetch video details and backend related videos concurrently
+				const [video, upNextResult] = await Promise.all([
+					getOrFetchData(`video_${videoId}`, () => getVideoDetailsClient(videoId)),
+					getOrFetchData(`related_${videoId}`, () => getRelatedVideosClient(videoId, 20)),
+				]);
 				setVideoInfo(video);
 
 				// Add to watch history (fire-and-forget)
@@ -838,18 +841,9 @@ export default function ClientWatchPage() {
 					channel ? `${channel} playlist` : '',
 					firstWords ? `${firstWords} playlist` : '',
 					keywords ? `${keywords} album` : '',
-					firstWords ? `${firstWords} full album` : '',
-					firstWords ? `${firstWords} best of` : '',
 				];
 
-				// Up Next: prefer the backend's related list, which uses
-				// YouTube's real "Up next" from the watch page (with a
-				// channel+title search fallback). Only when that is too thin
-				// do we top it up with our own search ladder.
-				const [upNextResult, mixResults] = await Promise.all([
-					getOrFetchData(`related_${videoId}`, () => getRelatedVideosClient(videoId, 20)),
-					getOrFetchData(`mix_${videoId}`, () => searchWithFallback(mixQueries, 10, 20, exclude)),
-				]);
+				const mixResults = await getOrFetchData(`mix_${videoId}`, () => searchWithFallback(mixQueries, 10, 20, exclude));
 
 				let uniqueRelated = (Array.isArray(upNextResult) ? upNextResult : [])
 					.filter((v, i, self) =>

@@ -1334,13 +1334,17 @@ func GetVideoInfo(videoID string) (*VideoData, error) {
 
 	// Deduplicate concurrent requests for the same video.
 	v, err, _ := videoInfoFlight.Do(videoID, func() (interface{}, error) {
+		// Fast path: Try direct watch page HTML parsing first (~300ms, avoids slow yt-dlp process)
+		if v, ok := FetchWatchPageVideoInfo(videoID); ok && v != nil && v.Title != "" {
+			if b, merr := json.Marshal(v); merr == nil {
+				_ = models.SetCachedVideo(videoID, string(b), 21600)
+			}
+			return v, nil
+		}
+
 		url := fmt.Sprintf("https://www.youtube.com/watch?v=%s", videoID)
 
-		// Metadata-only call: NO --format selection. Passing a format string
-		// forces yt-dlp to fully negotiate a stream, which both costs extra
-		// and trips the bot gate ("Requested format is not available" when the
-		// player response is downgraded). --skip-download + plain dump-json is
-		// enough and works even under heavy blocking.
+		// Metadata-only call: NO --format selection.
 		args := []string{
 			"--skip-download",
 			"--no-playlist",
@@ -1350,17 +1354,6 @@ func GetVideoInfo(videoID string) (*VideoData, error) {
 		out, err := RunYtDlp(args...)
 		if err != nil {
 			log.Printf("yt-dlp failed for %s: %v", videoID, err)
-			// yt-dlp full extraction is the first thing YouTube bot-blocks
-			// ("Requested format is not available" = downgraded player with
-			// zero formats), while the raw watch page still loads. Fall back
-			// to parsing metadata from the watch page before serving stale
-			// cache or failing.
-			if v, ok := FetchWatchPageVideoInfo(videoID); ok {
-				if b, merr := json.Marshal(v); merr == nil {
-					_ = models.SetCachedVideo(videoID, string(b), 21600)
-				}
-				return v, nil
-			}
 			if stale, sErr := models.GetStaleCachedVideo(videoID); sErr == nil && len(bytes.TrimSpace(stale)) > 0 {
 				var v VideoData
 				if json.Unmarshal(stale, &v) == nil && v.ID != "" {
@@ -1371,7 +1364,7 @@ func GetVideoInfo(videoID string) (*VideoData, error) {
 			return nil, err
 		}
 
-		// Log first 500 chars for debugging
+		// Log first 200 chars for debugging
 		if len(out) > 0 {
 			log.Printf("yt-dlp response for %s (first 200 chars): %s", videoID, string(out[:min(200, len(out))]))
 		}
@@ -1379,7 +1372,6 @@ func GetVideoInfo(videoID string) (*VideoData, error) {
 		var entry YtDlpEntry
 		if err := json.Unmarshal(out, &entry); err != nil {
 			log.Printf("JSON unmarshal error for %s: %v", videoID, err)
-			log.Printf("Raw response: %s", string(out[:min(500, len(out))]))
 			return nil, fmt.Errorf("failed to parse video info: %w", err)
 		}
 
@@ -1554,17 +1546,18 @@ func GetPlaybackInfo(videoID, audioPref string) (*PlaybackInfo, error) {
 			pi.AudioFormat = &best
 		}
 
-		// Deduplicate video formats by height:
+		// Deduplicate video formats by height, choosing the highest bandwidth/quality stream:
 		bestByHeight := make(map[int]PlaybackFormat)
 		for _, f := range videoFormats {
+			if f.Height <= 0 {
+				continue
+			}
 			existing, found := bestByHeight[f.Height]
 			if !found {
 				bestByHeight[f.Height] = f
 				continue
 			}
-			if f.HasAudio && !existing.HasAudio {
-				bestByHeight[f.Height] = f
-			} else if f.HasAudio == existing.HasAudio && f.FPS > existing.FPS {
+			if f.Bandwidth > existing.Bandwidth || (f.Bandwidth == existing.Bandwidth && f.FPS > existing.FPS) {
 				bestByHeight[f.Height] = f
 			}
 		}

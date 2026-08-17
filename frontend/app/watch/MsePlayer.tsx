@@ -45,7 +45,7 @@ interface MsePlayerProps {
 }
 
 function proxyUrl(raw: string): string {
-    return `/api/video/proxy?url=${encodeURIComponent(raw)}`;
+    return `/api/media-proxy?url=${encodeURIComponent(raw)}`;
 }
 
 // KB §5: YouTube serves WebM/Opus by default — plays in Chrome, Firefox, Edge
@@ -71,11 +71,11 @@ function isBotGateError(msg: string): boolean {
 // audio stream from playback-info is played in a second <audio> element and
 // kept in sync (needsSeparateAudio + syncAudio).
 function isHlsFormat(f: PlaybackFormat): boolean {
-    return /m3u8/i.test(f.url || '');
+    return /m3u8|hls_playlist/i.test(f.url || '');
 }
 function isPlayableFormat(f: PlaybackFormat): boolean {
-    if (isHlsFormat(f)) return true; // video-only is fine — audio comes separately
-    return f.has_audio && f.fragment_count === 0; // progressive
+    if (isHlsFormat(f)) return true;
+    return !!f.url; // Video-only VP9/AVC streams are played in <video> with audio synced separately
 }
 
 // Route every hls.js request (manifest, segments, keys) through the backend
@@ -87,7 +87,7 @@ class ProxyLoader extends Hls.DefaultConfig.loader {
     load(context: any, config: any, callbacks: any) {
         const url = context?.url;
         if (typeof url === 'string' && /^https?:\/\//i.test(url) && !url.startsWith(window.location.origin)) {
-            context.url = `/api/video/proxy?url=${encodeURIComponent(url)}`;
+            context.url = `/api/media-proxy?url=${encodeURIComponent(url)}`;
             super.load(context, config, callbacks);
             context.url = url;
             return;
@@ -137,8 +137,19 @@ export default function MsePlayer({
     const [selectedFormatId, setSelectedFormatId] = useState<string | null>(null);
     const [showControls, setShowControls] = useState(true);
     const [isFullscreen, setIsFullscreen] = useState(false);
-    const [playbackKey, setPlaybackKey] = useState(0);
+
     const [audioPref, setAudioPref] = useState<'opus' | 'm4a'>(OPUS_SUPPORTED ? 'opus' : 'm4a');
+
+    // Refs that mirror state — used inside effects to avoid re-running the
+    // expensive HLS setup when only volume/mute/rate change.
+    const volumeRef = useRef(volume);
+    const isMutedRef = useRef(isMuted);
+    const playbackRateRef = useRef(playbackRate);
+    const durationRef = useRef(duration);
+    volumeRef.current = volume;
+    isMutedRef.current = isMuted;
+    playbackRateRef.current = playbackRate;
+    durationRef.current = duration;
 
     const containerRef = useRef<HTMLDivElement>(null);
     const videoRef = useRef<HTMLVideoElement>(null);
@@ -260,10 +271,32 @@ export default function MsePlayer({
         }
     }, [isPlaying]);
 
+
+
+    // Fullscreen change listener with screen orientation lock
+    useEffect(() => {
+        const handleFullscreenChange = () => {
+            const isFull = !!document.fullscreenElement;
+            setIsFullscreen(isFull);
+            const orientation = typeof screen !== 'undefined' ? (screen.orientation as any) : null;
+            if (isFull) {
+                if (orientation && typeof orientation.lock === 'function') {
+                    orientation.lock('landscape').catch(() => {});
+                }
+            } else {
+                if (orientation && typeof orientation.unlock === 'function') {
+                    try { orientation.unlock(); } catch (_) {}
+                }
+            }
+        };
+        document.addEventListener('fullscreenchange', handleFullscreenChange);
+        return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
+    }, []);
+
     // KB §5: browsers/webviews cache stale JS and codec-restricted clients
     // leave the audio element in error state even when the URL is valid.
-    // Retry ladder: opus → m4a (codec switch), then one same-URL reload,
-    // then surface the failure.
+    // Retry ladder: opus → m4a (codec switch). Audio failure is non-fatal:
+    // the video keeps playing and the user can manually switch to iframe.
     const handleAudioError = useCallback(() => {
         if (audioPref === 'opus' && !audioErrorHandled.current) {
             audioErrorHandled.current = true;
@@ -285,9 +318,10 @@ export default function MsePlayer({
             }
             return;
         }
-        console.error('[MsePlayer] audio element failed after retries');
-        setFailReason('Audio stream failed after retries');
-        setFailed(true);
+        // Audio failed after retries — continue video-only instead of
+        // falling back to iframe.  User can switch manually via the
+        // HD/YouTube toggle.
+        console.warn('[MsePlayer] audio element failed after retries, continuing video-only');
     }, [audioPref]);
 
     // Synchronize media elements (video + audio)
@@ -315,7 +349,7 @@ export default function MsePlayer({
                         hls.recoverMediaError();
                     } else {
                         console.error('[MsePlayer] hls fatal error:', data.type, data.details);
-                        setFailReason(`HLS error: ${data.type} / ${data.details}`);
+                        setFailReason(`HLS error: ${data.details}`);
                         setFailed(true);
                     }
                 });
@@ -336,40 +370,66 @@ export default function MsePlayer({
             audio.removeAttribute('src');
         }
 
-        // Apply initial volume & rate
-        video.volume = volume;
-        video.muted = isMuted;
-        video.playbackRate = playbackRate;
+        // Apply initial volume & rate from refs
+        video.volume = volumeRef.current;
+        video.muted = isMutedRef.current;
+        video.playbackRate = playbackRateRef.current;
 
         if (audio) {
-            audio.volume = volume;
-            audio.muted = isMuted;
-            audio.playbackRate = playbackRate;
+            audio.volume = volumeRef.current;
+            audio.muted = isMutedRef.current;
+            audio.playbackRate = playbackRateRef.current;
         }
 
-        if (autoplay) {
-            video.play().catch(() => {});
-            if (needsSeparateAudio && audio) {
-                audio.play().catch(() => {});
-            }
-            setIsPlaying(true);
-        }
-
-        // Real-time Audio Sync with Video
+        // Audio-video lipsync: only correct drift above 300ms.  Tighter
+        // thresholds (e.g. 50ms) cause constant seeking which makes the
+        // audio sound choppy.  Sub-300ms drift is imperceptible.
+        let lastSyncTime = 0;
         const syncAudio = () => {
             if (!needsSeparateAudio || !audio) return;
+            const now = performance.now();
+            // Throttle corrections to at most once per second to avoid rapid seeking.
+            if (now - lastSyncTime < 1000) {
+                // Still ensure audio is playing if it should be.
+                if (!video.paused && audio.paused && audio.readyState >= 2) {
+                    audio.play().catch(() => {});
+                }
+                return;
+            }
             const diff = Math.abs(audio.currentTime - video.currentTime);
-            if (diff > 0.15) {
+            if (diff > 0.3) {
                 audio.currentTime = video.currentTime;
+                lastSyncTime = now;
+            }
+            if (video.playbackRate !== audio.playbackRate) {
+                audio.playbackRate = video.playbackRate;
+            }
+            if (!video.paused && audio.paused && audio.readyState >= 2) {
+                audio.play().catch(() => {});
+            }
+        };
+
+        const checkBothReady = () => {
+            const videoReady = video.readyState >= 2;
+            const audioReady = !needsSeparateAudio || (audio && audio.readyState >= 2);
+            if (videoReady && audioReady) {
+                setIsBuffering(false);
+                onVideoReady?.();
+                syncAudio();
             }
         };
 
         const onPlay = () => {
             setIsPlaying(true);
             setMediaSessionPlaybackState('playing');
-            updateMediaSessionPosition(video.duration || duration, video.playbackRate, video.currentTime);
+            updateMediaSessionPosition(video.duration || durationRef.current, video.playbackRate, video.currentTime);
             if (needsSeparateAudio && audio) {
-                audio.play().catch(() => {});
+                audio.currentTime = video.currentTime;
+                audio.volume = volumeRef.current;
+                audio.muted = isMutedRef.current;
+                if (audio.paused) {
+                    audio.play().catch(() => {});
+                }
                 syncAudio();
             }
         };
@@ -391,7 +451,7 @@ export default function MsePlayer({
             const now = Date.now();
             if (now - lastPosUpdateRef.current > 1000) {
                 lastPosUpdateRef.current = now;
-                updateMediaSessionPosition(video.duration || duration, video.playbackRate, video.currentTime);
+                updateMediaSessionPosition(video.duration || durationRef.current, video.playbackRate, video.currentTime);
             }
             syncAudio();
         };
@@ -402,24 +462,29 @@ export default function MsePlayer({
         };
 
         const onSeeked = () => {
-            setIsBuffering(false);
+            checkBothReady();
             syncAudio();
         };
 
         const onWaiting = () => {
             setIsBuffering(true);
-            if (needsSeparateAudio && audio) audio.pause();
+            // Do NOT pause audio here — audio may still be able to play and
+            // pausing it creates a deadlock when both elements wait on each
+            // other.  syncAudio will re-align once the video recovers.
+        };
+
+        const onAudioWaiting = () => {
+            // Audio is buffering.  Do NOT pause the video — that creates a
+            // deadlock.  The sync handler will re-align once audio recovers.
+            setIsBuffering(true);
         };
 
         const onCanPlay = () => {
-            setIsBuffering(false);
-            onVideoReady?.();
-            if (needsSeparateAudio && audio && !video.paused) {
-                audio.play().catch(() => {});
-            }
+            checkBothReady();
         };
 
         video.addEventListener('play', onPlay);
+        video.addEventListener('playing', syncAudio);
         video.addEventListener('pause', onPause);
         video.addEventListener('timeupdate', onTimeUpdate);
         video.addEventListener('seeking', onSeeking);
@@ -427,18 +492,55 @@ export default function MsePlayer({
         video.addEventListener('waiting', onWaiting);
         video.addEventListener('canplay', onCanPlay);
 
+        if (needsSeparateAudio && audio) {
+            audio.addEventListener('playing', syncAudio);
+            audio.addEventListener('waiting', onAudioWaiting);
+            audio.addEventListener('canplay', onCanPlay);
+        }
+
+        if (autoplay) {
+            // Wait until video has enough data before attempting play.
+            const attemptPlay = () => {
+                video.play().then(() => {
+                    setIsPlaying(true);
+                    if (needsSeparateAudio && audio) {
+                        audio.currentTime = video.currentTime;
+                        audio.volume = volumeRef.current;
+                        audio.muted = isMutedRef.current;
+                        audio.play().catch(() => {});
+                    }
+                }).catch(() => {
+                    // Autoplay blocked by browser policy — show play button.
+                    setIsPlaying(false);
+                    setIsBuffering(false);
+                });
+            };
+            if (video.readyState >= 2) {
+                attemptPlay();
+            } else {
+                video.addEventListener('canplay', attemptPlay, { once: true });
+            }
+        }
+
         return () => {
             hlsRef.current?.destroy();
             hlsRef.current = null;
             video.removeEventListener('play', onPlay);
+            video.removeEventListener('playing', syncAudio);
             video.removeEventListener('pause', onPause);
             video.removeEventListener('timeupdate', onTimeUpdate);
             video.removeEventListener('seeking', onSeeking);
             video.removeEventListener('seeked', onSeeked);
             video.removeEventListener('waiting', onWaiting);
             video.removeEventListener('canplay', onCanPlay);
+            if (audio) {
+                audio.removeEventListener('playing', syncAudio);
+                audio.removeEventListener('waiting', onAudioWaiting);
+                audio.removeEventListener('canplay', onCanPlay);
+            }
         };
-    }, [currentFormat, playbackInfo, autoplay, needsSeparateAudio]);
+    // Only re-run when the format or audio source changes, NOT on volume/mute/rate.
+    }, [currentFormat, playbackInfo, autoplay, needsSeparateAudio, onVideoReady]);
 
     // Play / Pause toggle
     const togglePlay = useCallback(() => {
@@ -447,9 +549,20 @@ export default function MsePlayer({
         const audio = audioRef.current;
 
         if (video.paused) {
-            video.play().catch(() => {});
-            if (needsSeparateAudio && audio) audio.play().catch(() => {});
-            setIsPlaying(true);
+            video.volume = volumeRef.current;
+            video.muted = isMutedRef.current;
+            video.play().then(() => {
+                setIsPlaying(true);
+                setIsBuffering(false);
+                if (needsSeparateAudio && audio) {
+                    audio.volume = volumeRef.current;
+                    audio.muted = isMutedRef.current;
+                    audio.currentTime = video.currentTime;
+                    audio.play().catch(() => {});
+                }
+            }).catch(() => {
+                // Play failed — leave state as-is, user can try again.
+            });
         } else {
             video.pause();
             if (needsSeparateAudio && audio) audio.pause();
@@ -483,6 +596,12 @@ export default function MsePlayer({
         setShowSettings(false);
     };
 
+    const handleQualitySelect = useCallback((formatId: string) => {
+        setSelectedFormatId(formatId);
+        setShowSettings(false);
+        setIsBuffering(true);
+    }, []);
+
     // Seek handler
     const handleSeek = (e: React.MouseEvent<HTMLDivElement>) => {
         if (!progressBarRef.current || !videoRef.current) return;
@@ -494,15 +613,24 @@ export default function MsePlayer({
         setCurrentTime(newTime);
     };
 
-    // Fullscreen toggle
+    // Fullscreen toggle with orientation lock
     const toggleFullscreen = () => {
         if (!containerRef.current) return;
+        const orientation = typeof screen !== 'undefined' ? (screen.orientation as any) : null;
         if (!document.fullscreenElement) {
-            containerRef.current.requestFullscreen().catch(() => {});
-            setIsFullscreen(true);
+            containerRef.current.requestFullscreen().then(() => {
+                setIsFullscreen(true);
+                if (orientation && typeof orientation.lock === 'function') {
+                    orientation.lock('landscape').catch(() => {});
+                }
+            }).catch(() => {});
         } else {
-            document.exitFullscreen().catch(() => {});
-            setIsFullscreen(false);
+            document.exitFullscreen().then(() => {
+                setIsFullscreen(false);
+                if (orientation && typeof orientation.unlock === 'function') {
+                    try { orientation.unlock(); } catch (_) {}
+                }
+            }).catch(() => {});
         }
     };
 
@@ -548,93 +676,73 @@ export default function MsePlayer({
         return () => window.removeEventListener('keydown', handleKeyDown);
     }, [togglePlay, volume, duration]);
 
-    const handleQualitySelect = useCallback((formatId: string) => {
-        setSelectedFormatId(formatId);
-        setShowSettings(false);
-        setIsBuffering(true);
-        setPlaybackKey(k => k + 1);
-    }, []);
+
 
     if (failed) {
-        const gate = failReason ? isBotGateError(failReason) : false;
         return (
             <div style={{
                 position: 'relative',
                 width: '100%',
                 aspectRatio: '16/9',
-                backgroundColor: '#000',
+                backgroundColor: '#111',
                 display: 'flex',
                 flexDirection: 'column',
                 alignItems: 'center',
                 justifyContent: 'center',
-                gap: '12px',
-                padding: '24px',
-                boxSizing: 'border-box',
+                gap: '16px',
+                borderRadius: '12px',
+                color: '#fff',
             }}>
-                <div style={{ color: '#fff', fontSize: '15px', fontWeight: 600 }}>
-                    {gate ? 'YouTube is blocking this server for this video' : 'Playback failed'}
-                </div>
-                {gate ? (
-                    <div style={{
-                        color: 'rgba(255,255,255,0.75)',
-                        fontSize: '13px',
-                        maxWidth: '520px',
-                        textAlign: 'center',
-                        lineHeight: 1.5,
-                    }}>
-                        YouTube&apos;s bot check is blocking extraction from this server&apos;s IP for this
-                        video. Fresh logged-in cookies fix this: open{' '}
-                        <a href="/settings" style={{ color: '#FF0033', fontWeight: 600 }}>Settings → YouTube Cookies</a>{' '}
-                        and upload a fresh cookies.txt exported from a browser that is logged into YouTube
-                        (e.g. the &quot;Get cookies.txt LOCALLY&quot; extension). You can also try
-                        YouTube embed below meanwhile.
-                    </div>
-                ) : (
-                    failReason && (
-                        <div style={{
-                            color: 'rgba(255,255,255,0.7)',
-                            fontSize: '12px',
-                            maxWidth: '520px',
-                            textAlign: 'center',
-                            fontFamily: 'monospace',
-                            wordBreak: 'break-word',
-                            lineHeight: 1.5,
-                        }}>
-                            {failReason}
-                        </div>
-                    )
-                )}
-                <div style={{ display: 'flex', gap: '10px', marginTop: '6px' }}>
+                <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{ opacity: 0.6 }}>
+                    <circle cx="12" cy="12" r="10" />
+                    <line x1="12" y1="8" x2="12" y2="12" />
+                    <line x1="12" y1="16" x2="12.01" y2="16" />
+                </svg>
+                <p style={{ margin: 0, fontSize: '14px', opacity: 0.7, textAlign: 'center', padding: '0 24px' }}>
+                    {failReason || 'Playback failed'}
+                </p>
+                <div style={{ display: 'flex', gap: '12px' }}>
                     <button
-                        onClick={() => setRetryKey(k => k + 1)}
+                        onClick={() => {
+                            setFailed(false);
+                            setFailReason(null);
+                            audioErrorHandled.current = false;
+                            setRetryKey(k => k + 1);
+                        }}
                         style={{
-                            padding: '9px 18px',
+                            padding: '8px 20px',
                             borderRadius: '20px',
-                            border: 'none',
-                            background: '#FF0033',
+                            border: '1px solid rgba(255,255,255,0.3)',
+                            backgroundColor: 'rgba(255,255,255,0.1)',
                             color: '#fff',
                             cursor: 'pointer',
                             fontSize: '13px',
-                            fontWeight: 600,
+                            fontWeight: 500,
+                            transition: 'background 0.2s',
                         }}
+                        onMouseOver={e => (e.currentTarget.style.backgroundColor = 'rgba(255,255,255,0.2)')}
+                        onMouseOut={e => (e.currentTarget.style.backgroundColor = 'rgba(255,255,255,0.1)')}
                     >
-                        Retry
+                        ↻ Retry
                     </button>
                     {onUseIframe && (
                         <button
-                            onClick={onUseIframe}
+                            onClick={() => onUseIframe()}
                             style={{
-                                padding: '9px 18px',
+                                padding: '8px 20px',
                                 borderRadius: '20px',
-                                border: '1px solid rgba(255,255,255,0.4)',
-                                background: 'transparent',
+                                border: 'none',
+                                backgroundColor: '#c00',
                                 color: '#fff',
                                 cursor: 'pointer',
                                 fontSize: '13px',
-                                fontWeight: 600,
+                                fontWeight: 500,
+                                transition: 'background 0.2s',
                             }}
+                            onMouseOver={e => (e.currentTarget.style.backgroundColor = '#e00')}
+                            onMouseOut={e => (e.currentTarget.style.backgroundColor = '#c00')}
                         >
-                            Use YouTube embed
+                            ▶ Use YouTube
                         </button>
                     )}
                 </div>
@@ -656,19 +764,19 @@ export default function MsePlayer({
             {/* HTML5 Video Element (Clean, no default controls) */}
             <video
                 ref={videoRef}
-                key={`${videoId}:${selectedFormatId}:${playbackKey}`}
+                key={videoId}
                 className="w-full h-full cursor-pointer"
                 onClick={togglePlay}
                 autoPlay={autoplay}
                 loop={loop}
                 playsInline
                 onError={() => {
-                    const prog = playbackInfo?.video_formats?.find(f => f.has_audio);
-                    if (prog && prog.format_id !== selectedFormatId) {
-                        setSelectedFormatId(prog.format_id);
+                    const fallback = playbackInfo?.video_formats?.find(f => f.format_id !== selectedFormatId && isPlayableFormat(f));
+                    if (fallback) {
+                        setSelectedFormatId(fallback.format_id);
                     } else {
                         console.error('[MsePlayer] video element error, current src:', videoRef.current?.src?.slice(0, 120));
-                        setFailReason('Video element failed to decode/play the selected stream');
+                        setFailReason('Video stream failed to load');
                         setFailed(true);
                     }
                 }}
