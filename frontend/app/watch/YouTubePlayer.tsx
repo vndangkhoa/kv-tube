@@ -20,6 +20,15 @@ interface YouTubePlayerProps {
     loop?: boolean;
 }
 
+// On touchscreens the YouTube embed's native controls are disabled
+// (controls: 0) and a minimal custom overlay is used instead — same
+// immersive "tap to show" behavior as the self-hosted player.
+function isTouchDevice(): boolean {
+    if (typeof window === 'undefined') return false;
+    return ('ontouchstart' in window) || (navigator.maxTouchPoints > 0) ||
+        window.matchMedia?.('(pointer: coarse)').matches === true;
+}
+
 function PlayerSkeleton() {
     return (
         <div style={{
@@ -57,6 +66,11 @@ export default function YouTubePlayer({
     const [error, setError] = useState<string | null>(null);
     const [isFullscreen, setIsFullscreen] = useState(false);
     const [isLandscape, setIsLandscape] = useState(false);
+    // Touch-only overlay state: center play/pause + fullscreen, auto-hidden
+    // while playing (tap to bring back). Desktop keeps YouTube's controls.
+    const [isPlaying, setIsPlaying] = useState(false);
+    const [showOverlay, setShowOverlay] = useState(() => !isTouchDevice());
+    const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
     const router = useRouter();
 
     // Keep loop ref in sync
@@ -108,6 +122,33 @@ export default function YouTubePlayer({
             mobileMq.removeEventListener('change', update);
         };
     }, []);
+
+    // Touch overlay follows play state: while playing, auto-hide after 2.5s;
+    // whenever paused (incl. blocked autoplay), keep the play button visible.
+    useEffect(() => {
+        if (!isTouchDevice()) return;
+        if (isPlaying) {
+            if (hideTimer.current) clearTimeout(hideTimer.current);
+            hideTimer.current = setTimeout(() => setShowOverlay(false), 2500);
+        } else {
+            setShowOverlay(true);
+        }
+    }, [isPlaying]);
+
+    // Tap on the video (touch only): play/pause + brief overlay reveal.
+    const handleTap = () => {
+        const player = playerInstanceRef.current;
+        if (!player) return;
+        if (isPlaying) {
+            try { player.pauseVideo(); } catch (_) {}
+            setShowOverlay(true); // paused → controls stay visible
+        } else {
+            try { player.playVideo(); } catch (_) {}
+            setShowOverlay(true);
+            if (hideTimer.current) clearTimeout(hideTimer.current);
+            hideTimer.current = setTimeout(() => setShowOverlay(false), 2500);
+        }
+    };
 
     // Load YouTube IFrame API
     useEffect(() => {
@@ -182,7 +223,10 @@ export default function YouTubePlayer({
                 videoId: videoId,
                 playerVars: {
                     autoplay: autoplay ? 1 : 0,
-                    controls: 1,
+                    // Touchscreens: hide YouTube's native controls entirely
+                    // (custom tap-to-show overlay renders on top instead).
+                    // Desktop keeps them.
+                    controls: isTouchDevice() ? 0 : 1,
                     rel: 0,
                     modestbranding: 0,
                     playsinline: 1,
@@ -209,6 +253,7 @@ export default function YouTubePlayer({
                         }
                     },
                     onStateChange: (event: any) => {
+                        setIsPlaying(event.data === window.YT.PlayerState.PLAYING);
                         // Video ended
                         if (event.data === window.YT.PlayerState.ENDED) {
                             if (loopRef.current) {
@@ -252,6 +297,7 @@ export default function YouTubePlayer({
     // Cleanup any leftover iframe target on unmount.
     useEffect(() => {
         return () => {
+            if (hideTimer.current) clearTimeout(hideTimer.current);
             if (playerInstanceRef.current) {
                 try {
                     playerInstanceRef.current.destroy();
@@ -345,6 +391,51 @@ export default function YouTubePlayer({
                     left: 0,
                 }}
             />
+            {/* Touchscreen tap layer + minimal overlay (YouTube's native
+                controls are disabled with controls: 0). */}
+            {isTouchDevice() && (
+                <div
+                    onClick={handleTap}
+                    style={{
+                        position: 'absolute',
+                        inset: 0,
+                        zIndex: 8,
+                        cursor: 'pointer',
+                    }}
+                >
+                    {showOverlay && isPlayerReady && (
+                        <div style={{
+                            position: 'absolute',
+                            top: '50%',
+                            left: '50%',
+                            transform: 'translate(-50%, -50%)',
+                            width: '64px',
+                            height: '64px',
+                            borderRadius: '50%',
+                            background: 'rgba(0, 0, 0, 0.6)',
+                            backdropFilter: 'blur(12px)',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            cursor: 'pointer',
+                            zIndex: 9,
+                            transition: 'opacity 0.2s ease',
+                            boxShadow: '0 8px 32px rgba(0,0,0,0.5)',
+                            border: '1px solid rgba(255,255,255,0.15)',
+                        }}>
+                            {isPlaying ? (
+                                <svg width="28" height="28" viewBox="0 0 24 24" fill="#FFFFFF">
+                                    <path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/>
+                                </svg>
+                            ) : (
+                                <svg width="28" height="28" viewBox="0 0 24 24" fill="#FFFFFF" style={{ marginLeft: '4px' }}>
+                                    <path d="M8 5v14l11-7z"/>
+                                </svg>
+                            )}
+                        </div>
+                    )}
+                </div>
+            )}
             {/* Controls */}
             <div style={{
                 position: 'absolute',
@@ -353,6 +444,11 @@ export default function YouTubePlayer({
                 display: 'flex',
                 gap: '8px',
                 zIndex: 10,
+                // Touchscreens: only while the overlay is shown (tap to
+                // reveal); desktop keeps it always visible.
+                opacity: isTouchDevice() ? (showOverlay ? 1 : 0) : 1,
+                pointerEvents: isTouchDevice() ? (showOverlay ? 'auto' : 'none') : 'auto',
+                transition: 'opacity 0.25s ease-in-out',
             }}>
                 {/* Fullscreen button */}
                 <button

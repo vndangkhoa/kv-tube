@@ -115,6 +115,16 @@ function isTouchDevice(): boolean {
         window.matchMedia?.('(pointer: coarse)').matches === true;
 }
 
+// iOS keeps playing the audio track of a <video> that is *playing* when the
+// app is backgrounded (screen lock / app switch) — pausing the video would
+// kill the sound, so no audio-element handoff is needed there for progressive
+// (sound-in-video) formats. iPads report "MacIntel" + touch, hence the check.
+function isIOS(): boolean {
+    if (typeof navigator === 'undefined') return false;
+    return /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+        (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+}
+
 export default function MsePlayer({
     videoId,
     title,
@@ -171,6 +181,13 @@ export default function MsePlayer({
     // Throttle position-state updates sent to the OS media notification.
     const lastPosUpdateRef = useRef(0);
 
+    // Callbacks reachable from media-element listeners registered inside the
+    // (deps-stable) setup effect, so they never go stale.
+    const onVideoEndRef = useRef(onVideoEnd);
+    const loopRef = useRef(loop);
+    onVideoEndRef.current = onVideoEnd;
+    loopRef.current = loop;
+
     // Background-playback state: while the tab is hidden the <audio> element
     // keeps playing and the <video> pauses (saves battery). When the page
     // becomes visible again the video resumes and re-syncs to the audio.
@@ -193,6 +210,47 @@ export default function MsePlayer({
         onPrev,
     });
 
+    // Switch playback over to the <audio> element (tab hidden / screen off):
+    // load the separate audio stream, sync it to the video position, start it,
+    // THEN pause the video. Called from both the visibilitychange handler and
+    // the video's pause event (whichever fires first — Chrome Android pauses
+    // the video itself when the screen turns off, so the event order varies).
+    const startBackgroundAudio = useCallback(() => {
+        const video = videoRef.current;
+        const audio = audioRef.current;
+        const pi = playbackInfoRef.current;
+        if (!video || !audio || !pi?.audio_format?.url) return;
+        if (bgAudioOnlyRef.current) return;
+        // Desktop browsers keep an audible <video> playing in hidden tabs —
+        // no handoff needed (and the audio element may not be unlocked there,
+        // so switching could silence playback). Mobile is where the screen
+        // turns off and the browser pauses the video.
+        if (!isTouchDevice()) return;
+        // iOS keeps the audio of a *playing* video alive in the background;
+        // pausing it here would stop the sound. Leave the video alone.
+        if (isIOS() && !needsSeparateAudioRef.current) return;
+        const aurl = proxyUrl(pi.audio_format.url);
+        if (audio.src !== aurl) {
+            audio.src = aurl;
+            audio.load();
+        }
+        audio.currentTime = video.currentTime;
+        audio.volume = volumeRef.current;
+        audio.muted = isMutedRef.current;
+        audio.playbackRate = video.playbackRate;
+        audio.loop = loopRef.current;
+        // Mark the handoff BEFORE pausing the video: the pause event handler
+        // must not pause the audio element or flip the media-session state.
+        bgAudioOnlyRef.current = true;
+        setMediaSessionPlaybackState('playing');
+        audio.play().catch(() => {
+            // Usually "not ready yet" — the canplay listener retries. If it
+            // is an autoplay-policy rejection there is nothing more to do.
+            console.warn('[MsePlayer] background audio did not start');
+        });
+        if (!video.paused) video.pause();
+    }, []);
+
     // Background playback (PWA): when the tab is hidden / the screen is off,
     // keep the AUDIO playing and pause the video element (saves battery and
     // passes Chrome's background-video rules). The lock-screen / notification
@@ -203,37 +261,32 @@ export default function MsePlayer({
             const video = videoRef.current;
             const audio = audioRef.current;
             if (!video || !audio) return;
-            const pi = playbackInfoRef.current;
 
             if (document.hidden) {
-                // Only switch if we're actually mid-playback.
-                if (!isPlayingRef.current || video.paused) return;
-                // Progressive (sound-in-video) formats: swap in the separate
-                // audio stream so sound continues with the screen off.
-                if (!needsSeparateAudioRef.current && pi?.audio_format?.url) {
-                    const aurl = proxyUrl(pi.audio_format.url);
-                    if (audio.src !== aurl) {
-                        audio.src = aurl;
+                // Hand off whenever the user expects playback — even if the
+                // browser already auto-paused the video, so we don't depend
+                // on event ordering (the pause handler is the backup path).
+                if (isPlayingRef.current) startBackgroundAudio();
+            } else if (bgAudioOnlyRef.current) {
+                // Back in the foreground: resume the video, re-synced to audio.
+                const userPaused = audio.paused;
+                bgAudioOnlyRef.current = false;
+                if (userPaused) {
+                    // Paused from the lock screen / notification — stay paused.
+                    if (!needsSeparateAudioRef.current) {
+                        audio.pause();
+                        audio.removeAttribute('src');
                         audio.load();
                     }
+                    setMediaSessionPlaybackState('paused');
+                    return;
                 }
-                if (needsSeparateAudioRef.current || pi?.audio_format?.url) {
-                    audio.currentTime = video.currentTime;
-                    audio.volume = volumeRef.current;
-                    audio.muted = isMutedRef.current;
-                    audio.playbackRate = video.playbackRate;
-                    bgAudioOnlyRef.current = true;
-                    video.pause(); // audio keeps playing
-                    setMediaSessionPlaybackState('playing');
+                if (video.paused) {
+                    video.currentTime = audio.currentTime;
+                    video.volume = volumeRef.current;
+                    video.muted = isMutedRef.current;
+                    video.play().catch(() => {});
                 }
-            } else if (bgAudioOnlyRef.current) {
-                // Back in the foreground: resume video, re-synced to audio.
-                bgAudioOnlyRef.current = false;
-                if (!video.paused) return;
-                video.currentTime = audio.currentTime;
-                video.volume = volumeRef.current;
-                video.muted = isMutedRef.current;
-                video.play().catch(() => {});
                 if (!needsSeparateAudioRef.current) {
                     // Video has its own sound — drop the background audio.
                     audio.pause();
@@ -244,6 +297,46 @@ export default function MsePlayer({
         };
         document.addEventListener('visibilitychange', onVisibility);
         return () => document.removeEventListener('visibilitychange', onVisibility);
+    }, [startBackgroundAudio]);
+
+    // iOS only lets an <audio> element play programmatically once it has been
+    // started by a real user gesture. Prime the background stream on the
+    // first tap (muted play + immediate pause) so the screen-off handoff can
+    // start it later without hitting autoplay restrictions.
+    useEffect(() => {
+        if (!isTouchDevice()) return;
+        const container = containerRef.current;
+        if (!container) return;
+        let unlocked = false;
+        const unlock = () => {
+            if (unlocked) return;
+            const audio = audioRef.current;
+            const video = videoRef.current;
+            const pi = playbackInfoRef.current;
+            if (!audio || !pi?.audio_format?.url) return;
+            if (!audio.paused) return; // already playing (DASH audio)
+            unlocked = true;
+            const aurl = proxyUrl(pi.audio_format.url);
+            if (audio.src !== aurl) {
+                audio.src = aurl;
+                audio.load();
+            }
+            audio.currentTime = video?.currentTime || 0;
+            const wasMuted = audio.muted;
+            const wasVolume = audio.volume;
+            audio.muted = true;
+            audio.volume = 0;
+            audio.play().then(() => audio.pause()).catch(() => {}).finally(() => {
+                audio.muted = wasMuted;
+                audio.volume = wasVolume;
+            });
+        };
+        container.addEventListener('pointerdown', unlock);
+        container.addEventListener('touchstart', unlock);
+        return () => {
+            container.removeEventListener('pointerdown', unlock);
+            container.removeEventListener('touchstart', unlock);
+        };
     }, []);
 
     useEffect(() => {
@@ -402,6 +495,7 @@ export default function MsePlayer({
         if (!currentFormat || !videoRef.current) return;
         const video = videoRef.current;
         const audio = audioRef.current;
+        needsSeparateAudioRef.current = needsSeparateAudio;
 
         setIsBuffering(true);
 
@@ -438,6 +532,15 @@ export default function MsePlayer({
         if (needsSeparateAudio && audio && playbackInfo?.audio_format?.url) {
             audio.src = proxyUrl(playbackInfo.audio_format.url);
             audio.load();
+        } else if (audio && bgAudioOnlyRef.current && playbackInfo?.audio_format?.url) {
+            // Background mode with a fresh stream (audio retry opus→m4a /
+            // format switch): reload the audio element without clearing it —
+            // the canplay listener resumes playback.
+            const aurl = proxyUrl(playbackInfo.audio_format.url);
+            if (audio.src !== aurl) {
+                audio.src = aurl;
+                audio.load();
+            }
         } else if (audio) {
             audio.pause();
             audio.removeAttribute('src');
@@ -528,6 +631,15 @@ export default function MsePlayer({
 
         const onPause = () => {
             setIsPlaying(false);
+            // The browser pauses the video when the page goes hidden (screen
+            // off on Android) — hand off to the audio element right away so
+            // playback continues. If startBackgroundAudio paused us itself,
+            // bgAudioOnlyRef is already set and we just stay quiet.
+            if (document.hidden) {
+                if (!bgAudioOnlyRef.current) startBackgroundAudio();
+                return;
+            }
+            if (bgAudioOnlyRef.current) return;
             setMediaSessionPlaybackState('paused');
             if (needsSeparateAudio && audio) {
                 audio.pause();
@@ -587,6 +699,21 @@ export default function MsePlayer({
             checkBothReady();
         };
 
+        const onAudioCanPlay = () => {
+            // Retry a background handoff that couldn't start (element wasn't
+            // ready yet, or the stream was reloaded while hidden).
+            if (bgAudioOnlyRef.current && audio && audio.paused && document.hidden) {
+                audio.play().catch(() => {});
+            }
+            checkBothReady();
+        };
+
+        const onAudioEnded = () => {
+            // In background mode the video is paused, so only the audio
+            // element knows the track finished — forward it for autoplay-next.
+            if (bgAudioOnlyRef.current) onVideoEndRef.current?.();
+        };
+
         video.addEventListener('play', onPlay);
         video.addEventListener('playing', syncAudio);
         video.addEventListener('pause', onPause);
@@ -601,11 +728,12 @@ export default function MsePlayer({
             // seek position keep updating during background playback (the
             // video element is paused then and emits no timeupdate).
             audio.addEventListener('timeupdate', onAudioTime);
+            audio.addEventListener('canplay', onAudioCanPlay);
+            audio.addEventListener('ended', onAudioEnded);
         }
         if (needsSeparateAudio && audio) {
             audio.addEventListener('playing', syncAudio);
             audio.addEventListener('waiting', onAudioWaiting);
-            audio.addEventListener('canplay', onCanPlay);
         }
 
         if (autoplay) {
@@ -645,9 +773,10 @@ export default function MsePlayer({
             video.removeEventListener('canplay', onCanPlay);
             if (audio) {
                 audio.removeEventListener('timeupdate', onAudioTime);
+                audio.removeEventListener('canplay', onAudioCanPlay);
+                audio.removeEventListener('ended', onAudioEnded);
                 audio.removeEventListener('playing', syncAudio);
                 audio.removeEventListener('waiting', onAudioWaiting);
-                audio.removeEventListener('canplay', onCanPlay);
             }
         };
     // Only re-run when the format or audio source changes, NOT on volume/mute/rate.
@@ -662,15 +791,18 @@ export default function MsePlayer({
         if (video.paused) {
             video.volume = volumeRef.current;
             video.muted = isMutedRef.current;
+            if (needsSeparateAudio && audio) {
+                // Start the audio element inside the user gesture: a play()
+                // called from the video.play() promise callback is no longer
+                // gesture-scoped and iOS would reject it.
+                audio.volume = volumeRef.current;
+                audio.muted = isMutedRef.current;
+                audio.currentTime = video.currentTime;
+                audio.play().catch(() => {});
+            }
             video.play().then(() => {
                 setIsPlaying(true);
                 setIsBuffering(false);
-                if (needsSeparateAudio && audio) {
-                    audio.volume = volumeRef.current;
-                    audio.muted = isMutedRef.current;
-                    audio.currentTime = video.currentTime;
-                    audio.play().catch(() => {});
-                }
             }).catch(() => {
                 // Play failed — leave state as-is, user can try again.
             });
@@ -945,8 +1077,11 @@ export default function MsePlayer({
                 </div>
             )}
 
-            {/* Center Play/Pause Splash animation button */}
-            {!isBuffering && showControls && (
+            {/* Center Play/Pause Splash animation button. On touchscreens it
+                is the ONLY thing shown while paused (the bottom bar stays
+                hidden until tapped), so a blocked-autoplay video still has a
+                visible play button without the whole control bar. */}
+            {!isBuffering && (showControls || (isTouchDevice() && !isPlaying)) && (
                 <div
                     onClick={togglePlay}
                     style={{
@@ -994,8 +1129,11 @@ export default function MsePlayer({
                     flexDirection: 'column',
                     gap: '10px',
                     zIndex: 15,
-                    opacity: showControls || !isPlaying ? 1 : 0,
-                    pointerEvents: showControls || !isPlaying ? 'auto' : 'none',
+                    // Desktop: keep the bar visible while paused (classic
+                    // player UX). Touchscreens: bar only after a tap —
+                    // a paused video shows just the center play button.
+                    opacity: showControls || (!isTouchDevice() && !isPlaying) ? 1 : 0,
+                    pointerEvents: showControls || (!isTouchDevice() && !isPlaying) ? 'auto' : 'none',
                     transition: 'opacity 0.25s ease-in-out',
                 }}
             >
