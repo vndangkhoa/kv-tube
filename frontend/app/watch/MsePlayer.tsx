@@ -107,6 +107,14 @@ function formatTime(seconds: number): string {
     return `${m}:${s < 10 ? '0' : ''}${s}`;
 }
 
+// Coarse-pointer / touchscreen detection: on phones the playback-controls
+// overlay is hidden while watching (tap to bring it back), like YouTube.
+function isTouchDevice(): boolean {
+    if (typeof window === 'undefined') return false;
+    return ('ontouchstart' in window) || (navigator.maxTouchPoints > 0) ||
+        window.matchMedia?.('(pointer: coarse)').matches === true;
+}
+
 export default function MsePlayer({
     videoId,
     title,
@@ -135,7 +143,9 @@ export default function MsePlayer({
     const [showSettings, setShowSettings] = useState(false);
     const [settingsTab, setSettingsTab] = useState<'main' | 'quality' | 'speed'>('main');
     const [selectedFormatId, setSelectedFormatId] = useState<string | null>(null);
-    const [showControls, setShowControls] = useState(true);
+    // On touchscreens the controls overlay starts hidden while playing —
+    // a tap brings it back (see handleVideoTap / onPlay auto-hide).
+    const [showControls, setShowControls] = useState(() => !isTouchDevice());
     const [isFullscreen, setIsFullscreen] = useState(false);
 
     const [audioPref, setAudioPref] = useState<'opus' | 'm4a'>(OPUS_SUPPORTED ? 'opus' : 'm4a');
@@ -161,6 +171,16 @@ export default function MsePlayer({
     // Throttle position-state updates sent to the OS media notification.
     const lastPosUpdateRef = useRef(0);
 
+    // Background-playback state: while the tab is hidden the <audio> element
+    // keeps playing and the <video> pauses (saves battery). When the page
+    // becomes visible again the video resumes and re-syncs to the audio.
+    const isPlayingRef = useRef(isPlaying);
+    const needsSeparateAudioRef = useRef(false);
+    const playbackInfoRef = useRef<PlaybackInfo | null>(null);
+    const bgAudioOnlyRef = useRef(false);
+    isPlayingRef.current = isPlaying;
+    playbackInfoRef.current = playbackInfo;
+
     // Phone lock-screen / media notification controls (Media Session API).
     useMediaSession({
         videoId,
@@ -172,6 +192,59 @@ export default function MsePlayer({
         onNext,
         onPrev,
     });
+
+    // Background playback (PWA): when the tab is hidden / the screen is off,
+    // keep the AUDIO playing and pause the video element (saves battery and
+    // passes Chrome's background-video rules). The lock-screen / notification
+    // media card keeps controlling playback via the audio element. When the
+    // page becomes visible again, the video resumes and re-syncs.
+    useEffect(() => {
+        const onVisibility = () => {
+            const video = videoRef.current;
+            const audio = audioRef.current;
+            if (!video || !audio) return;
+            const pi = playbackInfoRef.current;
+
+            if (document.hidden) {
+                // Only switch if we're actually mid-playback.
+                if (!isPlayingRef.current || video.paused) return;
+                // Progressive (sound-in-video) formats: swap in the separate
+                // audio stream so sound continues with the screen off.
+                if (!needsSeparateAudioRef.current && pi?.audio_format?.url) {
+                    const aurl = proxyUrl(pi.audio_format.url);
+                    if (audio.src !== aurl) {
+                        audio.src = aurl;
+                        audio.load();
+                    }
+                }
+                if (needsSeparateAudioRef.current || pi?.audio_format?.url) {
+                    audio.currentTime = video.currentTime;
+                    audio.volume = volumeRef.current;
+                    audio.muted = isMutedRef.current;
+                    audio.playbackRate = video.playbackRate;
+                    bgAudioOnlyRef.current = true;
+                    video.pause(); // audio keeps playing
+                    setMediaSessionPlaybackState('playing');
+                }
+            } else if (bgAudioOnlyRef.current) {
+                // Back in the foreground: resume video, re-synced to audio.
+                bgAudioOnlyRef.current = false;
+                if (!video.paused) return;
+                video.currentTime = audio.currentTime;
+                video.volume = volumeRef.current;
+                video.muted = isMutedRef.current;
+                video.play().catch(() => {});
+                if (!needsSeparateAudioRef.current) {
+                    // Video has its own sound — drop the background audio.
+                    audio.pause();
+                    audio.removeAttribute('src');
+                    audio.load();
+                }
+            }
+        };
+        document.addEventListener('visibilitychange', onVisibility);
+        return () => document.removeEventListener('visibilitychange', onVisibility);
+    }, []);
 
     useEffect(() => {
         let cancelled = false;
@@ -386,6 +459,9 @@ export default function MsePlayer({
         // audio sound choppy.  Sub-300ms drift is imperceptible.
         let lastSyncTime = 0;
         const syncAudio = () => {
+            // Background mode: the video is intentionally paused while the
+            // audio element drives playback — don't fight it.
+            if (bgAudioOnlyRef.current) return;
             if (!needsSeparateAudio || !audio) return;
             const now = performance.now();
             // Throttle corrections to at most once per second to avoid rapid seeking.
@@ -421,8 +497,15 @@ export default function MsePlayer({
 
         const onPlay = () => {
             setIsPlaying(true);
+            needsSeparateAudioRef.current = needsSeparateAudio;
             setMediaSessionPlaybackState('playing');
             updateMediaSessionPosition(video.duration || durationRef.current, video.playbackRate, video.currentTime);
+            // Touchscreens: hide the controls overlay while watching — a tap
+            // on the video brings them back (YouTube-style immersive view).
+            if (isTouchDevice()) {
+                if (hideControlsTimer.current) clearTimeout(hideControlsTimer.current);
+                hideControlsTimer.current = setTimeout(() => setShowControls(false), 2500);
+            }
             if (needsSeparateAudio && audio) {
                 audio.currentTime = video.currentTime;
                 audio.volume = volumeRef.current;
@@ -431,6 +514,15 @@ export default function MsePlayer({
                     audio.play().catch(() => {});
                 }
                 syncAudio();
+            } else if (audio && playbackInfoRef.current?.audio_format?.url) {
+                // Progressive format: preload the separate audio stream now
+                // (inside the user gesture) so background playback can start
+                // it later without hitting autoplay restrictions (iOS).
+                const aurl = proxyUrl(playbackInfoRef.current.audio_format.url);
+                if (audio.src !== aurl) {
+                    audio.src = aurl;
+                    audio.load();
+                }
             }
         };
 
@@ -454,6 +546,18 @@ export default function MsePlayer({
                 updateMediaSessionPosition(video.duration || durationRef.current, video.playbackRate, video.currentTime);
             }
             syncAudio();
+        };
+
+        // While playing in the background the video is paused, so the audio
+        // element drives the progress bar and the lock-screen seek position.
+        const onAudioTime = () => {
+            if (!bgAudioOnlyRef.current || !audio) return;
+            setCurrentTime(audio.currentTime);
+            const now = Date.now();
+            if (now - lastPosUpdateRef.current > 1000) {
+                lastPosUpdateRef.current = now;
+                updateMediaSessionPosition(audio.duration || durationRef.current, audio.playbackRate, audio.currentTime);
+            }
         };
 
         const onSeeking = () => {
@@ -492,6 +596,12 @@ export default function MsePlayer({
         video.addEventListener('waiting', onWaiting);
         video.addEventListener('canplay', onCanPlay);
 
+        if (audio) {
+            // Always track audio time so the progress bar and the lock-screen
+            // seek position keep updating during background playback (the
+            // video element is paused then and emits no timeupdate).
+            audio.addEventListener('timeupdate', onAudioTime);
+        }
         if (needsSeparateAudio && audio) {
             audio.addEventListener('playing', syncAudio);
             audio.addEventListener('waiting', onAudioWaiting);
@@ -534,6 +644,7 @@ export default function MsePlayer({
             video.removeEventListener('waiting', onWaiting);
             video.removeEventListener('canplay', onCanPlay);
             if (audio) {
+                audio.removeEventListener('timeupdate', onAudioTime);
                 audio.removeEventListener('playing', syncAudio);
                 audio.removeEventListener('waiting', onAudioWaiting);
                 audio.removeEventListener('canplay', onCanPlay);
@@ -569,6 +680,22 @@ export default function MsePlayer({
             setIsPlaying(false);
         }
     }, [needsSeparateAudio]);
+
+    // Touchscreen behavior: tapping the video toggles the controls overlay
+    // (the center button inside the overlay still plays/pauses). Desktop
+    // keeps click-to-play/pause.
+    const handleVideoTap = useCallback(() => {
+        if (!isTouchDevice()) {
+            togglePlay();
+            return;
+        }
+        const next = !showControls;
+        setShowControls(next);
+        if (hideControlsTimer.current) clearTimeout(hideControlsTimer.current);
+        if (next && isPlaying) {
+            hideControlsTimer.current = setTimeout(() => setShowControls(false), 2500);
+        }
+    }, [showControls, isPlaying, togglePlay]);
 
     // Volume change handler
     const handleVolumeChange = (newVol: number) => {
@@ -759,6 +886,7 @@ export default function MsePlayer({
             style={{ position: 'relative', backgroundColor: '#000', cursor: showControls ? 'default' : 'none' }}
             onMouseMove={resetHideControlsTimer}
             onMouseLeave={() => isPlaying && setShowControls(false)}
+            onTouchStart={() => { if (isTouchDevice()) resetHideControlsTimer(); }}
             onDoubleClick={toggleFullscreen}
         >
             {/* HTML5 Video Element (Clean, no default controls) */}
@@ -766,7 +894,7 @@ export default function MsePlayer({
                 ref={videoRef}
                 key={videoId}
                 className="w-full h-full cursor-pointer"
-                onClick={togglePlay}
+                onClick={handleVideoTap}
                 autoPlay={autoplay}
                 loop={loop}
                 playsInline

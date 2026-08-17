@@ -26,17 +26,31 @@ function mediaSessionAvailable(): boolean {
 }
 
 // Build the artwork list from the video thumbnail (the notification cover).
-// Multiple sizes let the browser pick the best one; hq720 is the large cover.
+// Only 4:3 sources are used: 16:9 artwork makes some Android skins render
+// the thumbnail full-bleed BEHIND the title text; a 4:3 cover makes the OS
+// place the thumbnail to the side (classic media-card layout, no overlap).
 function buildArtwork(videoId: string, thumbnail?: string): MediaImage[] {
     const base = thumbnail && /^https?:\/\//i.test(thumbnail)
         ? thumbnail
         : `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`;
     const artwork: MediaImage[] = [
         { src: base, sizes: '480x360', type: 'image/jpeg' },
-        { src: `https://i.ytimg.com/vi/${videoId}/hq720.jpg`, sizes: '1280x720', type: 'image/jpeg' },
+        { src: `https://i.ytimg.com/vi/${videoId}/sddefault.jpg`, sizes: '640x480', type: 'image/jpeg' },
         { src: `https://i.ytimg.com/vi/${videoId}/mqdefault.jpg`, sizes: '320x180', type: 'image/jpeg' },
     ];
     return artwork;
+}
+
+// The element that should answer media-session commands: while the page is
+// visible the <video> drives playback; when the app runs in the background
+// (screen off / another app open) the <audio> element keeps playing, so the
+// lock-screen / notification card must control THAT one.
+function activeMedia(getVideo: () => HTMLVideoElement | null, getAudio: () => HTMLAudioElement | null): HTMLVideoElement | HTMLAudioElement | null {
+    const video = getVideo();
+    const audio = getAudio();
+    const hidden = typeof document !== 'undefined' && document.hidden;
+    if (hidden && audio && !audio.paused && !audio.ended) return audio;
+    return video || audio;
 }
 
 // Attaches media-session metadata + action handlers for the given video.
@@ -69,33 +83,35 @@ export function useMediaSession(opts: UseMediaSessionOptions) {
         const ms = navigator.mediaSession;
 
         const play = () => {
-            const video = optsRef.current.getVideo();
-            if (video) video.play().catch(() => {});
-            const audio = optsRef.current.getAudio();
-            if (audio) audio.play().catch(() => {});
+            const el = activeMedia(optsRef.current.getVideo, optsRef.current.getAudio);
+            if (el) el.play().catch(() => {});
         };
         const pause = () => {
-            const video = optsRef.current.getVideo();
-            if (video) video.pause();
-            const audio = optsRef.current.getAudio();
-            if (audio) audio.pause();
+            const el = activeMedia(optsRef.current.getVideo, optsRef.current.getAudio);
+            if (el) el.pause();
         };
         const seekBy = (delta: number) => {
+            const el = activeMedia(optsRef.current.getVideo, optsRef.current.getAudio);
+            if (!el) return;
+            const dur = Number.isFinite(el.duration) ? el.duration : 0;
+            const t = Math.max(0, Math.min(dur, el.currentTime + delta));
+            el.currentTime = t;
+            // Mirror the seek onto the other element so they stay in sync
+            // when the page becomes visible again.
             const video = optsRef.current.getVideo();
-            if (!video) return;
-            const dur = Number.isFinite(video.duration) ? video.duration : 0;
-            const t = Math.max(0, Math.min(dur, video.currentTime + delta));
-            video.currentTime = t;
             const audio = optsRef.current.getAudio();
-            if (audio) audio.currentTime = t;
+            if (el !== video && video) video.currentTime = t;
+            if (el !== audio && audio) audio.currentTime = t;
         };
         const seekTo = (time: number) => {
-            const video = optsRef.current.getVideo();
-            if (!video) return;
+            const el = activeMedia(optsRef.current.getVideo, optsRef.current.getAudio);
+            if (!el) return;
             const t = Number.isFinite(time) ? Math.max(0, time) : 0;
-            video.currentTime = t;
+            el.currentTime = t;
+            const video = optsRef.current.getVideo();
             const audio = optsRef.current.getAudio();
-            if (audio) audio.currentTime = t;
+            if (el !== video && video) video.currentTime = t;
+            if (el !== audio && audio) audio.currentTime = t;
         };
         const next = () => optsRef.current.onNext?.();
         const prev = () => optsRef.current.onPrev?.();
