@@ -45,9 +45,9 @@ var (
 // processes that will inevitably time out. The flag auto-resolves after a
 // cooldown period.
 var (
-	ytDlpBlocked     bool
-	ytDlpBlockedAt   time.Time
-	ytDlpBlockedMu   sync.RWMutex
+	ytDlpBlocked       bool
+	ytDlpBlockedAt     time.Time
+	ytDlpBlockedMu     sync.RWMutex
 	ytDlpBlockCooldown = 2 * time.Minute
 )
 
@@ -265,30 +265,30 @@ type YtDlpEntry struct {
 
 // PlaybackFormat describes a single quality level for MSE playback.
 type PlaybackFormat struct {
-	FormatID   string `json:"format_id"`
-	Height     int    `json:"height"`
-	Width      int    `json:"width"`
-	VCodec     string `json:"vcodec"`
-	ACodec     string `json:"acodec"`
-	Ext        string `json:"ext"`
-	Bandwidth  int    `json:"bandwidth"`
-	FPS        int    `json:"fps"`
-	Filesize   int64  `json:"filesize"`
-	URL        string `json:"url"`
-	HasAudio   bool   `json:"has_audio"`
+	FormatID  string `json:"format_id"`
+	Height    int    `json:"height"`
+	Width     int    `json:"width"`
+	VCodec    string `json:"vcodec"`
+	ACodec    string `json:"acodec"`
+	Ext       string `json:"ext"`
+	Bandwidth int    `json:"bandwidth"`
+	FPS       int    `json:"fps"`
+	Filesize  int64  `json:"filesize"`
+	URL       string `json:"url"`
+	HasAudio  bool   `json:"has_audio"`
 
 	// DASH fragment info (0 if not DASH)
-	FragmentCount   int    `json:"fragment_count"`
-	InitURL         string `json:"init_url,omitempty"`
-	MediaURL        string `json:"media_url,omitempty"` // first media segment URL (for template extraction)
+	FragmentCount int    `json:"fragment_count"`
+	InitURL       string `json:"init_url,omitempty"`
+	MediaURL      string `json:"media_url,omitempty"` // first media segment URL (for template extraction)
 }
 
 // PlaybackInfo is returned by /api/video/:id/playback-info.
 type PlaybackInfo struct {
-	Title      string           `json:"title"`
-	Duration   float64          `json:"duration"`
+	Title        string           `json:"title"`
+	Duration     float64          `json:"duration"`
 	VideoFormats []PlaybackFormat `json:"video_formats"`
-	AudioFormat *PlaybackFormat `json:"audio_format,omitempty"`
+	AudioFormat  *PlaybackFormat  `json:"audio_format,omitempty"`
 }
 
 func sanitizeVideoData(entry YtDlpEntry) VideoData {
@@ -619,6 +619,13 @@ func SaveCookiesFile(data []byte) error {
 		return fmt.Errorf("cookies file is empty")
 	}
 
+	// Normalize common exporter quirks so the stored file is canonical
+	// Netscape format: strip a UTF-8 BOM and convert CRLF -> LF.
+	data = bytes.TrimPrefix(data, []byte("\xef\xbb\xbf"))
+	if bytes.Contains(data, []byte("\r\n")) {
+		data = bytes.ReplaceAll(data, []byte("\r\n"), []byte("\n"))
+	}
+
 	tmpPath := path + ".tmp"
 	if err := os.WriteFile(tmpPath, data, 0600); err != nil {
 		return err
@@ -665,6 +672,43 @@ func RemoveCookiesFile() error {
 // SupportedBrowserCookies lists browsers yt-dlp can export cookies from.
 var SupportedBrowserCookies = []string{"chrome", "chromium", "firefox", "edge", "brave", "opera", "vivaldi", "whale"}
 
+// browserProfileDir returns the Linux profile directory for a supported
+// browser, or "" when unknown. The container runs as a fixed user, so the
+// profile must live in that user's home (or a mounted volume) — browsers
+// installed elsewhere on the NAS are NOT visible inside the container.
+func browserProfileDir(browser string) string {
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		home = "/root"
+	}
+	dirs := map[string]string{
+		"chrome":   filepath.Join(home, ".config", "google-chrome"),
+		"chromium": filepath.Join(home, ".config", "chromium"),
+		"firefox":  filepath.Join(home, ".mozilla", "firefox"),
+		"edge":     filepath.Join(home, ".config", "microsoft-edge"),
+		"brave":    filepath.Join(home, ".config", "BraveSoftware", "Brave-Browser"),
+		"opera":    filepath.Join(home, ".config", "opera"),
+		"vivaldi":  filepath.Join(home, ".config", "vivaldi"),
+		"whale":    filepath.Join(home, ".config", "naver-whale"),
+	}
+	return dirs[browser]
+}
+
+// browserProfileExists reports whether a browser profile (with at least one
+// file) exists on this server — i.e. "Fetch from browser" can actually work.
+func browserProfileExists(browser string) bool {
+	dir := browserProfileDir(browser)
+	if dir == "" {
+		return false
+	}
+	fi, err := os.Stat(dir)
+	if err != nil || !fi.IsDir() {
+		return false
+	}
+	entries, err := os.ReadDir(dir)
+	return err == nil && len(entries) > 0
+}
+
 // FetchCookiesFromBrowser exports cookies from a local browser via yt-dlp and
 // persists them to <dataDir>/cookies.txt, replacing any existing file. This
 // automates the manual `yt-dlp --cookies-from-browser <browser> --cookies
@@ -673,6 +717,13 @@ var SupportedBrowserCookies = []string{"chrome", "chromium", "firefox", "edge", 
 func FetchCookiesFromBrowser(browser string) error {
 	if !slices.Contains(SupportedBrowserCookies, browser) {
 		return fmt.Errorf("unsupported browser %q (supported: %s)", browser, strings.Join(SupportedBrowserCookies, ", "))
+	}
+	if !browserProfileExists(browser) {
+		return fmt.Errorf(
+			"no %s browser profile found on this server (looked in %s) — "+
+				"\"Fetch from browser\" needs a browser with a logged-in YouTube session installed "+
+				"on the machine running KV Tube; upload a cookies.txt file instead",
+			browser, browserProfileDir(browser))
 	}
 
 	path := PersistedCookiesPath()
@@ -706,6 +757,13 @@ func FetchCookiesFromBrowser(browser string) error {
 	}
 	if !isValidNetscapeCookieFile(tmpPath) {
 		os.Remove(tmpPath)
+		detail := strings.TrimSpace(string(out))
+		if len(detail) > 240 {
+			detail = detail[:240] + "…"
+		}
+		if detail != "" {
+			return fmt.Errorf("cookie export failed: %s", detail)
+		}
 		return fmt.Errorf("exported cookies file is not valid Netscape format")
 	}
 	if err := copyFile(tmpPath, path); err != nil {
@@ -823,13 +881,13 @@ func copyFile(src, dst string) error {
 
 // CookiesStatus describes the current cookies configuration.
 type CookiesStatus struct {
-	Configured  bool   `json:"configured"`    // cookies will be passed to yt-dlp
-	Source      string `json:"source"`        // env | persisted | browser | anonymous | none
+	Configured  bool   `json:"configured"`     // cookies will be passed to yt-dlp
+	Source      string `json:"source"`         // env | persisted | browser | anonymous | none
 	Path        string `json:"path,omitempty"` // file path when file-based
-	Exists      bool   `json:"exists"`        // file exists on disk (as a file)
-	Valid       bool   `json:"valid"`         // parses as Netscape format
-	Entries     int    `json:"entries"`       // number of non-comment lines
-	Blacklisted bool   `json:"blacklisted"`   // user cookies rejected by YouTube this process
+	Exists      bool   `json:"exists"`         // file exists on disk (as a file)
+	Valid       bool   `json:"valid"`          // parses as Netscape format
+	Entries     int    `json:"entries"`        // number of non-comment lines
+	Blacklisted bool   `json:"blacklisted"`    // user cookies rejected by YouTube this process
 }
 
 // CookiesStatus reports how yt-dlp cookies are currently configured.
@@ -986,7 +1044,7 @@ var ytDlpTimeout = 60 * time.Second
 var ytDlpSem = make(chan struct{}, 3)
 
 func acquireYtDlp() { ytDlpSem <- struct{}{} }
-func releaseYtDlp()  { <-ytDlpSem }
+func releaseYtDlp() { <-ytDlpSem }
 
 // runYtDlpArgs runs yt-dlp with the exact given argument list, handling the
 // three distinct failure classes from the knowledge base:
