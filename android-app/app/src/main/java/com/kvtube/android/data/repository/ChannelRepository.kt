@@ -1,6 +1,7 @@
 package com.kvtube.android.data.repository
 
 import com.kvtube.android.data.api.KVApi
+import com.kvtube.android.data.bounded
 import com.kvtube.android.data.model.ChannelInfo
 import com.kvtube.android.data.model.VideoData
 import javax.inject.Inject
@@ -11,19 +12,19 @@ class ChannelRepository @Inject constructor(
     private val api: KVApi
 ) {
     suspend fun getChannelInfo(channelId: String): ChannelInfo? {
-        return api.getChannelInfo(channelId)
+        return bounded { api.getChannelInfo(channelId) }
     }
 
     suspend fun getChannelPage(channelId: String, limit: Int = 48): ChannelInfo? {
-        return api.getChannelPage(channelId, limit)
+        return bounded { api.getChannelPage(channelId, limit) }
     }
 
     suspend fun getChannelVideos(channelId: String, limit: Int = 48): List<VideoData> {
-        return api.getChannelVideos(channelId, limit)
+        return bounded { api.getChannelVideos(channelId, limit) } ?: emptyList()
     }
 
     suspend fun getChannelAvatarFallback(channelId: String): String? {
-        val map = api.getChannelAvatars(channelId)
+        val map = bounded { api.getChannelAvatars(channelId) } ?: return null
         return map[channelId]?.displayAvatar
     }
 }
