@@ -40,10 +40,11 @@ const (
 )
 
 var (
-	innertubeMu        sync.Mutex
-	innertubeKey       = defaultInnertubeKey
-	innertubeVersion   = defaultClientVersion
-	innertubeContextAt time.Time
+	innertubeMu          sync.Mutex
+	innertubeKey         = defaultInnertubeKey
+	innertubeVersion     = defaultClientVersion
+	innertubeVisitorData = "CgtKeGlJdHFIdXBnQSiLlZHUBjIKCgJWThIEGgAgUzoCCAE%3D"
+	innertubeContextAt   time.Time
 )
 
 // innertubeClient is a dedicated HTTP client for browse API calls.
@@ -106,7 +107,7 @@ func netscapeCookiesForDomain(data []byte, domainSuffix string) string {
 // innertubeContext returns the current API key + client version, refreshing
 // them from the live youtube.com page at most once an hour (they change as
 // YouTube ships releases, and stale versions occasionally get 403'd).
-func innertubeContext() (key, version string) {
+func innertubeContext() (key, version, visitorData string) {
 	innertubeMu.Lock()
 	defer innertubeMu.Unlock()
 	if innertubeContextAt.IsZero() || time.Since(innertubeContextAt) > time.Hour {
@@ -120,7 +121,7 @@ func innertubeContext() (key, version string) {
 		}
 		innertubeContextAt = time.Now()
 	}
-	return innertubeKey, innertubeVersion
+	return innertubeKey, innertubeVersion, innertubeVisitorData
 }
 
 // fetchInnertubeContext scrapes the public INNERTUBE_API_KEY and client
@@ -166,15 +167,20 @@ func extractInnertubeString(body []byte, marker string) string {
 
 // browseRequestBody builds the JSON body for an Innertube browse request.
 func browseRequestBody(browseID, continuation string) map[string]interface{} {
-	_, version := innertubeContext()
+	_, version, visitorData := innertubeContext()
+	clientObj := map[string]interface{}{
+		"clientName":    "WEB",
+		"clientVersion": version,
+		"hl":            "en",
+		"gl":            "US",
+		"timeZone":      "UTC",
+	}
+	if visitorData != "" {
+		clientObj["visitorData"] = visitorData
+	}
+
 	ctx := map[string]interface{}{
-		"client": map[string]interface{}{
-			"clientName":    "WEB",
-			"clientVersion": version,
-			"hl":            "en",
-			"gl":            "US",
-			"timeZone":      "UTC",
-		},
+		"client": clientObj,
 	}
 	body := map[string]interface{}{
 		"context": ctx,
@@ -190,7 +196,7 @@ func browseRequestBody(browseID, continuation string) map[string]interface{} {
 // postInnertubeBrowse issues a browse (or continuation) request and returns
 // the parsed JSON body. Returns error on HTTP failure.
 func postInnertubeBrowse(browseID, continuation string) ([]byte, error) {
-	key, _ := innertubeContext()
+	key, _, visitorData := innertubeContext()
 	url := fmt.Sprintf("https://www.youtube.com/youtubei/v1/browse?prettyPrint=false&key=%s", key)
 	payload, err := json.Marshal(browseRequestBody(browseID, continuation))
 	if err != nil {
@@ -205,6 +211,9 @@ func postInnertubeBrowse(browseID, continuation string) ([]byte, error) {
 	req.Header.Set("Origin", "https://www.youtube.com")
 	req.Header.Set("Referer", "https://www.youtube.com/")
 	req.Header.Set("Accept-Language", "en-US,en;q=0.9")
+	if visitorData != "" {
+		req.Header.Set("X-Goog-Visitor-Id", visitorData)
+	}
 	if ch := youtubeCookieHeader(); ch != "" {
 		req.Header.Set("Cookie", ch)
 	}
@@ -214,12 +223,41 @@ func postInnertubeBrowse(browseID, continuation string) ([]byte, error) {
 		return nil, err
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("browse API status %d", resp.StatusCode)
-	}
+
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 8<<20))
 	if err != nil {
 		return nil, err
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		// If Google returned a visitorData in responseContext on error, update and retry once
+		if vIdx := bytes.Index(body, []byte(`"visitorData":"`)); vIdx != -1 {
+			vStart := vIdx + len(`"visitorData":"`)
+			vEnd := bytes.IndexByte(body[vStart:], '"')
+			if vEnd != -1 {
+				newVisitor := string(body[vStart : vStart+vEnd])
+				innertubeMu.Lock()
+				innertubeVisitorData = newVisitor
+				innertubeMu.Unlock()
+
+				// Retry request with fresh visitorData
+				retryPayload, _ := json.Marshal(browseRequestBody(browseID, continuation))
+				retryReq, _ := http.NewRequest("POST", url, bytes.NewReader(retryPayload))
+				retryReq.Header.Set("Content-Type", "application/json")
+				retryReq.Header.Set("User-Agent", watchPageUA)
+				retryReq.Header.Set("X-Goog-Visitor-Id", newVisitor)
+				if ch := youtubeCookieHeader(); ch != "" {
+					retryReq.Header.Set("Cookie", ch)
+				}
+				if retryResp, err := innertubeClient.Do(retryReq); err == nil {
+					defer retryResp.Body.Close()
+					if retryResp.StatusCode == http.StatusOK {
+						return io.ReadAll(io.LimitReader(retryResp.Body, 8<<20))
+					}
+				}
+			}
+		}
+		return nil, fmt.Errorf("browse API status %d", resp.StatusCode)
 	}
 	return body, nil
 }

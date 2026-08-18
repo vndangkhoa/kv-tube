@@ -997,6 +997,10 @@ export default function ClientWatchPage() {
 						onNext={handleNext}
 						onPrev={handlePrevious}
 						onUseIframe={() => setPlayerMode('iframe')}
+						onError={() => {
+							console.warn('[Watch] MsePlayer error/blocked, falling back to YouTube iframe player');
+							setPlayerMode('iframe');
+						}}
 					/>
 				)}
 					</div>

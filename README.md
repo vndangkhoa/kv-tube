@@ -364,11 +364,11 @@ cd backend
 go run main.go
 
 # Android App
-cd android
+cd android-app
 # Ensure JAVA_HOME points to JDK 17
 ./gradlew assembleDebug
 # Install on emulator/device
-adb install app/build/outputs/apk/debug/app-debug.apk
+adb install -r app/build/outputs/apk/debug/app-debug.apk
 ```
 
 ---

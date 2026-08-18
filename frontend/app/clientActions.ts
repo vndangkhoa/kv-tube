@@ -201,31 +201,69 @@ export async function getVideoStatsClient(
   }
 }
 
-// Get video details using client cache + backend API
+// Get video details using client cache + backend API with YouTube oEmbed fallback
 export async function getVideoDetailsClient(videoId: string): Promise<VideoData | null> {
   if (!videoId) return null;
   const cacheKey = `vdet_${videoId}`;
   const cached = getClientCache<VideoData>(cacheKey);
   if (cached) return cached;
 
+  // 1. Try backend API
   try {
     const response = await fetch(`${API_BASE}/video/${videoId}`, {
-      signal: AbortSignal.timeout(8000),
+      signal: AbortSignal.timeout(6000),
     });
     
     if (response.ok) {
       const data = await response.json();
       const transformed = transformVideo(data);
-      if (transformed.id) {
+      if (transformed.id && transformed.title) {
         setClientCache(cacheKey, transformed);
         return transformed;
       }
     }
   } catch (error) {
-    console.warn('Backend video details failed:', error);
+    console.warn('Backend video details failed, falling back to YouTube oEmbed:', error);
   }
 
-  return null;
+  // 2. Direct Client-side YouTube oEmbed Fallback (Unblockable by Google)
+  try {
+    const oembedRes = await fetch(`https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${encodeURIComponent(videoId)}&format=json`, {
+      signal: AbortSignal.timeout(5000),
+    });
+    if (oembedRes.ok) {
+      const oembed = await oembedRes.json();
+      const fallbackVideo: VideoData = {
+        id: videoId,
+        title: oembed.title || 'YouTube Video',
+        thumbnail: oembed.thumbnail_url || `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`,
+        channelTitle: oembed.author_name || 'YouTube Creator',
+        channelId: '',
+        uploader: oembed.author_name || 'YouTube Creator',
+        viewCount: '',
+        publishedAt: '',
+        duration: '',
+        description: '',
+      };
+      setClientCache(cacheKey, fallbackVideo);
+      return fallbackVideo;
+    }
+  } catch (e) {
+    console.warn('oEmbed fallback error:', e);
+  }
+
+  return {
+    id: videoId,
+    title: 'YouTube Video',
+    thumbnail: `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`,
+    channelTitle: 'YouTube',
+    channelId: '',
+    uploader: 'YouTube',
+    viewCount: '',
+    publishedAt: '',
+    duration: '',
+    description: '',
+  };
 }
 
 // Get related videos using client cache + backend API
@@ -237,7 +275,7 @@ export async function getRelatedVideosClient(videoId: string, limit: number = 15
 
   try {
     const response = await fetch(`${API_BASE}/video/${videoId}/related?limit=${limit}`, {
-      signal: AbortSignal.timeout(20000),
+      signal: AbortSignal.timeout(8000),
     });
     
     if (response.ok) {
@@ -251,6 +289,14 @@ export async function getRelatedVideosClient(videoId: string, limit: number = 15
   } catch (error) {
     console.warn('Get related videos failed:', error);
   }
+
+  // Fallback: search recommended videos
+  try {
+    const fallbackResults = await searchVideosClient('trending recommended videos', limit);
+    if (fallbackResults.length > 0) {
+      return fallbackResults;
+    }
+  } catch (_) {}
 
   return [];
 }

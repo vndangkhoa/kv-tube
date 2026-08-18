@@ -5,7 +5,7 @@
 .env
 
 # Runtime data
-data/
+/data/
 videos/
 *.db
 logs/

@@ -1,0 +1,1688 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>KV-Tube Android App - YouTube Pixel-Perfect UI Makeover Preview</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --yt-bg: #0F0F0F;
+            --yt-surface: #212121;
+            --yt-surface-hover: #272727;
+            --yt-border: #272727;
+            --yt-text-primary: #F1F1F1;
+            --yt-text-secondary: #AAAAAA;
+            --yt-red: #FF0000;
+            --yt-pill-bg: #272727;
+            --yt-pill-active-bg: #FFFFFF;
+            --yt-pill-active-text: #0F0F0F;
+            --yt-nav-height: 48px;
+            --yt-header-height: 48px;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            font-family: 'Roboto', -apple-system, BlinkMacSystemFont, sans-serif;
+            -webkit-tap-highlight-color: transparent;
+            user-select: none;
+        }
+
+        body {
+            background: #000000;
+            color: var(--yt-text-primary);
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 20px 10px;
+        }
+
+        /* Top control bar outside phone frame */
+        .controls-bar {
+            display: flex;
+            gap: 12px;
+            margin-bottom: 16px;
+            background: #181818;
+            padding: 10px 20px;
+            border-radius: 30px;
+            border: 1px solid #333;
+            align-items: center;
+            flex-wrap: wrap;
+            justify-content: center;
+        }
+
+        .controls-bar span {
+            font-size: 13px;
+            color: #aaa;
+            font-weight: 500;
+        }
+
+        .btn-tag {
+            background: #2a2a2a;
+            color: #fff;
+            border: 1px solid #444;
+            padding: 6px 14px;
+            border-radius: 16px;
+            font-size: 12px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .btn-tag:hover, .btn-tag.active {
+            background: var(--yt-red);
+            border-color: var(--yt-red);
+        }
+
+        /* Mobile Device Frame */
+        .phone-frame {
+            width: 390px;
+            height: 844px;
+            background: var(--yt-bg);
+            border-radius: 44px;
+            border: 10px solid #2d2d2d;
+            box-shadow: 0 25px 60px rgba(0,0,0,0.8), 0 0 0 2px #444;
+            position: relative;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* Phone Status Bar */
+        .status-bar {
+            height: 40px;
+            padding: 0 24px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 13px;
+            font-weight: 500;
+            color: #fff;
+            z-index: 50;
+            background: var(--yt-bg);
+        }
+
+        .status-bar .notch {
+            width: 120px;
+            height: 24px;
+            background: #000;
+            border-radius: 0 0 14px 14px;
+            position: absolute;
+            top: 0;
+            left: 50%;
+            transform: translateX(-50%);
+        }
+
+        /* App Top Bar */
+        .app-header {
+            height: var(--yt-header-height);
+            padding: 0 14px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            background: var(--yt-bg);
+            z-index: 40;
+        }
+
+        .app-logo {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            cursor: pointer;
+        }
+
+        .app-logo svg {
+            width: 28px;
+            height: 28px;
+        }
+
+        .app-logo-text {
+            font-size: 19px;
+            font-weight: 700;
+            letter-spacing: -0.5px;
+            display: flex;
+            align-items: center;
+        }
+
+        .header-actions {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+        }
+
+        .header-icon {
+            width: 24px;
+            height: 24px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: var(--yt-text-primary);
+        }
+
+        /* Main Viewport Container */
+        .app-content {
+            flex: 1;
+            overflow-y: auto;
+            position: relative;
+            scroll-behavior: smooth;
+        }
+
+        .app-content::-webkit-scrollbar {
+            display: none;
+        }
+
+        /* Screen Sections */
+        .screen-section {
+            display: none;
+            padding-bottom: 20px;
+        }
+
+        .screen-section.active {
+            display: block;
+        }
+
+        /* Category Filter Pills */
+        .category-pills {
+            display: flex;
+            gap: 8px;
+            padding: 8px 12px;
+            overflow-x: auto;
+            position: sticky;
+            top: 0;
+            background: var(--yt-bg);
+            z-index: 30;
+            border-bottom: 1px solid var(--yt-border);
+        }
+
+        .category-pills::-webkit-scrollbar {
+            display: none;
+        }
+
+        .pill {
+            padding: 6px 12px;
+            border-radius: 8px;
+            font-size: 13px;
+            font-weight: 500;
+            background: var(--yt-pill-bg);
+            color: var(--yt-text-primary);
+            white-space: nowrap;
+            cursor: pointer;
+            transition: all 0.15s ease;
+        }
+
+        .pill.active {
+            background: var(--yt-pill-active-bg);
+            color: var(--yt-pill-active-text);
+        }
+
+        /* Video Card */
+        .video-card {
+            margin-bottom: 20px;
+            cursor: pointer;
+        }
+
+        .thumbnail-container {
+            position: relative;
+            width: 100%;
+            aspect-ratio: 16 / 9;
+            background: #272727;
+            overflow: hidden;
+        }
+
+        .thumbnail-container img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+
+        .duration-badge {
+            position: absolute;
+            bottom: 6px;
+            right: 6px;
+            background: rgba(0, 0, 0, 0.85);
+            color: #fff;
+            font-size: 11px;
+            font-weight: 500;
+            padding: 2px 4px;
+            border-radius: 4px;
+        }
+
+        .video-info-row {
+            display: flex;
+            padding: 10px 12px 0 12px;
+            gap: 12px;
+        }
+
+        .channel-avatar {
+            width: 36px;
+            height: 36px;
+            border-radius: 50%;
+            background: #333;
+            flex-shrink: 0;
+            overflow: hidden;
+        }
+
+        .channel-avatar img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+
+        .video-meta {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .video-title {
+            font-size: 14px;
+            font-weight: 500;
+            line-height: 1.35;
+            color: var(--yt-text-primary);
+            display: -webkit-box;
+            -webkit-line-clamp: 2;
+            -webkit-box-orient: vertical;
+            overflow: hidden;
+            margin-bottom: 3px;
+        }
+
+        .video-subtitle {
+            font-size: 12px;
+            color: var(--yt-text-secondary);
+            line-height: 1.3;
+        }
+
+        .video-menu-btn {
+            width: 20px;
+            height: 20px;
+            color: var(--yt-text-secondary);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+        }
+
+        /* YouTube Shorts Screen */
+        .shorts-container {
+            height: 100%;
+            position: relative;
+            background: #000;
+            overflow: hidden;
+        }
+
+        .short-slide {
+            height: calc(844px - 40px - var(--yt-nav-height));
+            position: relative;
+            background: #111;
+        }
+
+        .short-slide img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+
+        .short-overlay-top {
+            position: absolute;
+            top: 12px;
+            left: 14px;
+            right: 14px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            z-index: 10;
+        }
+
+        .short-title-badge {
+            font-size: 18px;
+            font-weight: 700;
+            color: #fff;
+            text-shadow: 0 1px 4px rgba(0,0,0,0.8);
+        }
+
+        .short-actions-right {
+            position: absolute;
+            right: 12px;
+            bottom: 30px;
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+            align-items: center;
+            z-index: 10;
+        }
+
+        .short-action-item {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 4px;
+            cursor: pointer;
+        }
+
+        .short-action-icon {
+            width: 44px;
+            height: 44px;
+            border-radius: 50%;
+            background: rgba(0, 0, 0, 0.4);
+            backdrop-filter: blur(10px);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #fff;
+        }
+
+        .short-action-label {
+            font-size: 11px;
+            font-weight: 500;
+            color: #fff;
+            text-shadow: 0 1px 3px rgba(0,0,0,0.9);
+        }
+
+        .short-sound-disc {
+            width: 38px;
+            height: 38px;
+            border-radius: 8px;
+            border: 2px solid #fff;
+            overflow: hidden;
+            animation: rotateDisc 4s linear infinite;
+        }
+
+        @keyframes rotateDisc {
+            100% { transform: rotate(360deg); }
+        }
+
+        .short-bottom-info {
+            position: absolute;
+            left: 14px;
+            bottom: 24px;
+            right: 80px;
+            z-index: 10;
+            color: #fff;
+        }
+
+        .short-channel-row {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 8px;
+        }
+
+        .short-channel-name {
+            font-size: 14px;
+            font-weight: 700;
+        }
+
+        .short-sub-btn {
+            background: #fff;
+            color: #000;
+            font-size: 12px;
+            font-weight: 700;
+            padding: 4px 12px;
+            border-radius: 16px;
+            border: none;
+            cursor: pointer;
+        }
+
+        .short-desc {
+            font-size: 13px;
+            line-height: 1.35;
+            margin-bottom: 8px;
+            text-shadow: 0 1px 3px rgba(0,0,0,0.8);
+        }
+
+        .short-audio-tag {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 12px;
+            opacity: 0.9;
+        }
+
+        /* Subscriptions Screen */
+        .subs-avatars-row {
+            display: flex;
+            gap: 14px;
+            padding: 12px 14px;
+            overflow-x: auto;
+            border-bottom: 1px solid var(--yt-border);
+        }
+
+        .sub-avatar-item {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 6px;
+            width: 58px;
+            flex-shrink: 0;
+            cursor: pointer;
+        }
+
+        .sub-avatar-circle {
+            width: 52px;
+            height: 52px;
+            border-radius: 50%;
+            background: #333;
+            position: relative;
+            overflow: visible;
+        }
+
+        .sub-avatar-circle img {
+            width: 100%;
+            height: 100%;
+            border-radius: 50%;
+            object-fit: cover;
+        }
+
+        .sub-badge-dot {
+            width: 10px;
+            height: 10px;
+            background: #3EA6FF;
+            border: 2px solid var(--yt-bg);
+            border-radius: 50%;
+            position: absolute;
+            bottom: 0;
+            right: 2px;
+        }
+
+        .sub-avatar-name {
+            font-size: 11px;
+            color: var(--yt-text-secondary);
+            text-align: center;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            width: 100%;
+        }
+
+        /* Downloads Screen */
+        .downloads-storage-card {
+            margin: 12px 14px;
+            padding: 14px;
+            background: var(--yt-surface);
+            border-radius: 12px;
+        }
+
+        .storage-text-row {
+            display: flex;
+            justify-content: space-between;
+            font-size: 12px;
+            color: var(--yt-text-secondary);
+            margin-bottom: 8px;
+        }
+
+        .storage-bar-track {
+            height: 6px;
+            background: #333;
+            border-radius: 3px;
+            overflow: hidden;
+            display: flex;
+        }
+
+        .storage-bar-fill {
+            background: var(--yt-red);
+            height: 100%;
+            width: 38%;
+        }
+
+        .download-item {
+            display: flex;
+            gap: 12px;
+            padding: 10px 14px;
+            cursor: pointer;
+        }
+
+        .download-thumb {
+            width: 120px;
+            aspect-ratio: 16/9;
+            background: #272727;
+            border-radius: 8px;
+            position: relative;
+            overflow: hidden;
+            flex-shrink: 0;
+        }
+
+        .download-thumb img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+
+        .download-meta {
+            flex: 1;
+            min-width: 0;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+        }
+
+        .download-badge {
+            display: inline-block;
+            font-size: 10px;
+            font-weight: 500;
+            background: #272727;
+            color: #3EA6FF;
+            padding: 2px 6px;
+            border-radius: 4px;
+            margin-top: 4px;
+            align-self: flex-start;
+        }
+
+        /* You / Library Screen */
+        .you-profile-row {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            padding: 16px 14px;
+        }
+
+        .you-avatar {
+            width: 64px;
+            height: 64px;
+            border-radius: 50%;
+            background: #444;
+            overflow: hidden;
+        }
+
+        .you-avatar img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+
+        .you-name {
+            font-size: 18px;
+            font-weight: 700;
+        }
+
+        .you-handle {
+            font-size: 12px;
+            color: var(--yt-text-secondary);
+        }
+
+        .you-section-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 12px 14px 6px 14px;
+        }
+
+        .you-section-title {
+            font-size: 16px;
+            font-weight: 700;
+        }
+
+        .you-view-all {
+            font-size: 13px;
+            color: #3EA6FF;
+            font-weight: 500;
+            cursor: pointer;
+        }
+
+        .horizontal-history-row {
+            display: flex;
+            gap: 12px;
+            padding: 6px 14px 14px 14px;
+            overflow-x: auto;
+        }
+
+        .history-card {
+            width: 140px;
+            flex-shrink: 0;
+            cursor: pointer;
+        }
+
+        .history-thumb {
+            width: 100%;
+            aspect-ratio: 16/9;
+            border-radius: 8px;
+            background: #272727;
+            position: relative;
+            overflow: hidden;
+            margin-bottom: 6px;
+        }
+
+        .history-thumb img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+
+        .history-progress {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            height: 3px;
+            background: rgba(255,255,255,0.3);
+        }
+
+        .history-progress-fill {
+            height: 100%;
+            background: var(--yt-red);
+            width: 65%;
+        }
+
+        .history-title {
+            font-size: 12px;
+            font-weight: 500;
+            line-height: 1.3;
+            display: -webkit-box;
+            -webkit-line-clamp: 2;
+            -webkit-box-orient: vertical;
+            overflow: hidden;
+        }
+
+        .library-action-item {
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            padding: 12px 14px;
+            cursor: pointer;
+        }
+
+        .library-action-item:hover {
+            background: var(--yt-surface);
+        }
+
+        .library-action-icon {
+            color: var(--yt-text-primary);
+        }
+
+        .library-action-text {
+            flex: 1;
+            font-size: 14px;
+            font-weight: 500;
+        }
+
+        .library-action-sub {
+            font-size: 12px;
+            color: var(--yt-text-secondary);
+        }
+
+        /* Video Player Screen (Watch View) */
+        .watch-screen {
+            display: none;
+            position: absolute;
+            inset: 0;
+            background: var(--yt-bg);
+            z-index: 100;
+            overflow-y: auto;
+        }
+
+        .watch-screen.active {
+            display: block;
+        }
+
+        .watch-player-box {
+            position: sticky;
+            top: 0;
+            width: 100%;
+            aspect-ratio: 16 / 9;
+            background: #000;
+            z-index: 60;
+        }
+
+        .watch-player-box img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+
+        .player-controls-overlay {
+            position: absolute;
+            inset: 0;
+            background: rgba(0,0,0,0.5);
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            padding: 10px;
+        }
+
+        .player-top-controls {
+            display: flex;
+            justify-content: space-between;
+            color: #fff;
+        }
+
+        .player-center-controls {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 40px;
+            color: #fff;
+        }
+
+        .player-bottom-controls {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            color: #fff;
+            font-size: 11px;
+        }
+
+        .player-scrubber {
+            flex: 1;
+            height: 3px;
+            background: rgba(255,255,255,0.4);
+            border-radius: 2px;
+            position: relative;
+        }
+
+        .player-scrubber-fill {
+            position: absolute;
+            top: 0;
+            left: 0;
+            height: 100%;
+            width: 42%;
+            background: var(--yt-red);
+            border-radius: 2px;
+        }
+
+        .player-scrubber-dot {
+            width: 10px;
+            height: 10px;
+            background: var(--yt-red);
+            border-radius: 50%;
+            position: absolute;
+            top: 50%;
+            left: 42%;
+            transform: translate(-50%, -50%);
+        }
+
+        .watch-details-container {
+            padding: 12px 14px;
+        }
+
+        .watch-title {
+            font-size: 16px;
+            font-weight: 700;
+            line-height: 1.35;
+            margin-bottom: 6px;
+        }
+
+        .watch-views-time {
+            font-size: 12px;
+            color: var(--yt-text-secondary);
+            margin-bottom: 12px;
+        }
+
+        .watch-channel-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 8px 0 14px 0;
+            border-bottom: 1px solid var(--yt-border);
+        }
+
+        .watch-channel-info {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .watch-channel-avatar {
+            width: 38px;
+            height: 38px;
+            border-radius: 50%;
+            background: #333;
+            overflow: hidden;
+        }
+
+        .watch-channel-avatar img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+
+        .watch-channel-name {
+            font-size: 14px;
+            font-weight: 700;
+        }
+
+        .watch-channel-subs {
+            font-size: 11px;
+            color: var(--yt-text-secondary);
+        }
+
+        .watch-subscribe-btn {
+            background: #fff;
+            color: #000;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 18px;
+            font-size: 13px;
+            font-weight: 700;
+            cursor: pointer;
+        }
+
+        /* Watch Action Bar (Like, Dislike, Share, Download) */
+        .watch-actions-scroll {
+            display: flex;
+            gap: 8px;
+            padding: 12px 0;
+            overflow-x: auto;
+        }
+
+        .watch-action-pill {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding: 6px 14px;
+            background: var(--yt-surface);
+            border-radius: 18px;
+            font-size: 13px;
+            font-weight: 500;
+            cursor: pointer;
+            white-space: nowrap;
+        }
+
+        .like-dislike-pill {
+            display: flex;
+            align-items: center;
+            background: var(--yt-surface);
+            border-radius: 18px;
+            padding: 0 4px;
+        }
+
+        .like-btn, .dislike-btn {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding: 6px 10px;
+            font-size: 13px;
+            font-weight: 500;
+            cursor: pointer;
+        }
+
+        .pill-divider {
+            width: 1px;
+            height: 16px;
+            background: #444;
+        }
+
+        /* Comments Preview Box */
+        .comments-preview-card {
+            background: var(--yt-surface);
+            border-radius: 12px;
+            padding: 12px;
+            margin: 10px 0 16px 0;
+            cursor: pointer;
+        }
+
+        .comments-header-row {
+            display: flex;
+            justify-content: space-between;
+            font-size: 13px;
+            font-weight: 700;
+            margin-bottom: 6px;
+        }
+
+        .comment-user-preview {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .comment-user-avatar {
+            width: 22px;
+            height: 22px;
+            border-radius: 50%;
+            background: #555;
+        }
+
+        .comment-user-text {
+            font-size: 12px;
+            color: var(--yt-text-primary);
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        /* Pixel-Perfect Compact YouTube Bottom Navigation Bar */
+        .bottom-nav-bar {
+            height: var(--yt-nav-height);
+            background: var(--yt-bg);
+            border-top: 0.8px solid var(--yt-border);
+            display: flex;
+            justify-content: space-around;
+            align-items: center;
+            z-index: 50;
+            padding-bottom: 2px;
+        }
+
+        .nav-tab-item {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 2px;
+            cursor: pointer;
+            color: var(--yt-text-secondary);
+            transition: color 0.1s ease;
+        }
+
+        .nav-tab-item.active {
+            color: var(--yt-text-primary);
+        }
+
+        .nav-tab-icon {
+            width: 22px;
+            height: 22px;
+            position: relative;
+        }
+
+        .nav-tab-icon svg {
+            width: 100%;
+            height: 100%;
+            fill: currentColor;
+        }
+
+        .nav-tab-label {
+            font-size: 10px;
+            font-weight: 400;
+        }
+
+        .nav-tab-item.active .nav-tab-label {
+            font-weight: 500;
+        }
+
+        .nav-badge-pill {
+            position: absolute;
+            top: -2px;
+            right: -6px;
+            background: var(--yt-red);
+            color: #fff;
+            font-size: 8px;
+            font-weight: 700;
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        /* Bottom Sheet Modal for Download Options */
+        .modal-sheet {
+            display: none;
+            position: absolute;
+            inset: 0;
+            background: rgba(0,0,0,0.6);
+            z-index: 120;
+            justify-content: flex-end;
+        }
+
+        .modal-sheet.active {
+            display: flex;
+        }
+
+        .sheet-container {
+            background: #212121;
+            width: 100%;
+            border-radius: 16px 16px 0 0;
+            padding: 16px 20px 30px 20px;
+            animation: slideUp 0.25s ease-out;
+        }
+
+        @keyframes slideUp {
+            from { transform: translateY(100%); }
+            to { transform: translateY(0); }
+        }
+
+        .sheet-header {
+            font-size: 16px;
+            font-weight: 700;
+            margin-bottom: 14px;
+            display: flex;
+            justify-content: space-between;
+        }
+
+        .quality-option {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 12px 0;
+            border-bottom: 1px solid #333;
+            cursor: pointer;
+        }
+
+        .quality-btn {
+            background: var(--yt-red);
+            color: #fff;
+            border: none;
+            width: 100%;
+            padding: 12px;
+            border-radius: 24px;
+            font-size: 14px;
+            font-weight: 700;
+            margin-top: 16px;
+            cursor: pointer;
+        }
+    </style>
+</head>
+<body>
+
+    <!-- Outer Controls to test the preview -->
+    <div class="controls-bar">
+        <span>🎬 KV-Tube UI Preview:</span>
+        <button class="btn-tag active" onclick="switchTab('home')">Home</button>
+        <button class="btn-tag" onclick="switchTab('shorts')">Shorts</button>
+        <button class="btn-tag" onclick="switchTab('subs')">Subscriptions</button>
+        <button class="btn-tag" onclick="switchTab('downloads')">Downloads</button>
+        <button class="btn-tag" onclick="switchTab('you')">You (Library)</button>
+        <button class="btn-tag" onclick="openWatchPlayer()">Watch Player Demo</button>
+        <button class="btn-tag" onclick="toggleDownloadModal()">Download Modal Demo</button>
+    </div>
+
+    <!-- Mobile Device Simulator -->
+    <div class="phone-frame">
+        
+        <!-- Status Bar -->
+        <div class="status-bar">
+            <span>9:41</span>
+            <div class="notch"></div>
+            <div style="display:flex; gap:6px; align-items:center;">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="#fff"><path d="M12 3c-4.97 0-9 4.03-9 9 0 2.12.74 4.07 1.97 5.61L4.35 18.25C3.51 16.71 3 14.93 3 13c0-4.97 4.03-9 9-9s9 4.03 9 9c0 1.93-.51 3.71-1.35 5.25l-.62-.64C20.26 16.07 21 14.12 21 12c0-4.97-4.03-9-9-9z"/></svg>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="#fff"><path d="M15.67 4H14V2h-4v2H8.33C7.6 4 7 4.6 7 5.33v15.33C7 21.4 7.6 22 8.33 22h7.33c.74 0 1.34-.6 1.34-1.33V5.33C17 4.6 16.4 4 15.67 4z"/></svg>
+            </div>
+        </div>
+
+        <!-- Top App Bar -->
+        <div class="app-header">
+            <div class="app-logo" onclick="switchTab('home')">
+                <svg viewBox="0 0 24 24">
+                    <path fill="#FF0000" d="M21.58 7.19c-.23-.86-.91-1.54-1.77-1.77C18.25 5 12 5 12 5s-6.25 0-7.81.42c-.86.23-1.54.91-1.77 1.77C2 8.75 2 12 2 12s0 3.25.42 4.81c.23.86.91 1.54 1.77 1.77C5.75 19 12 19 12 19s6.25 0 7.81-.42c.86-.23 1.54-.91 1.77-1.77C22 15.25 22 12 22 12s0-3.25-.42-4.81z"/>
+                    <path fill="#FFFFFF" d="M10 15l5-3-5-3v6z"/>
+                </svg>
+                <span class="app-logo-text">KV-Tube</span>
+            </div>
+
+            <div class="header-actions">
+                <div class="header-icon" title="Cast">
+                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 16.1A5 5 0 0 1 5.9 20M2 12.05A9 9 0 0 1 9.95 20M2 8V6a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2h-6"/></svg>
+                </div>
+                <div class="header-icon" title="Notifications">
+                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+                </div>
+                <div class="header-icon" title="Search" onclick="alert('Search activated')">
+                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                </div>
+                <div class="header-icon" title="Settings" onclick="switchTab('you')">
+                    <div style="width:24px;height:24px;border-radius:50%;background:#555;overflow:hidden;">
+                        <img src="https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=100&auto=format&fit=crop&q=80" style="width:100%;height:100%;object-fit:cover;">
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Scrollable App Content -->
+        <div class="app-content" id="appContent">
+
+            <!-- 1. HOME SCREEN -->
+            <div class="screen-section active" id="screen-home">
+                <!-- Category Pills -->
+                <div class="category-pills">
+                    <div class="pill active" onclick="setCategoryPill(this)">All</div>
+                    <div class="pill" onclick="setCategoryPill(this)">Trending</div>
+                    <div class="pill" onclick="setCategoryPill(this)">Music</div>
+                    <div class="pill" onclick="setCategoryPill(this)">Gaming</div>
+                    <div class="pill" onclick="setCategoryPill(this)">News</div>
+                    <div class="pill" onclick="setCategoryPill(this)">Tech</div>
+                    <div class="pill" onclick="setCategoryPill(this)">Live</div>
+                </div>
+
+                <!-- Video Cards Feed -->
+                <div class="video-card" onclick="openWatchPlayer()">
+                    <div class="thumbnail-container">
+                        <img src="https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=800&auto=format&fit=crop&q=80" alt="Video thumbnail">
+                        <div class="duration-badge">14:28</div>
+                    </div>
+                    <div class="video-info-row">
+                        <div class="channel-avatar">
+                            <img src="https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&auto=format&fit=crop&q=80" alt="Avatar">
+                        </div>
+                        <div class="video-meta">
+                            <div class="video-title">Building a Fast Native Mobile Experience with Jetpack Compose & Clean Architecture</div>
+                            <div class="video-subtitle">Android Masterclass • 428K views • 2 days ago</div>
+                        </div>
+                        <div class="video-menu-btn">⋮</div>
+                    </div>
+                </div>
+
+                <div class="video-card" onclick="openWatchPlayer()">
+                    <div class="thumbnail-container">
+                        <img src="https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=800&auto=format&fit=crop&q=80" alt="Video thumbnail">
+                        <div class="duration-badge">3:45</div>
+                    </div>
+                    <div class="video-info-row">
+                        <div class="channel-avatar">
+                            <img src="https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=100&auto=format&fit=crop&q=80" alt="Avatar">
+                        </div>
+                        <div class="video-meta">
+                            <div class="video-title">Lofi Chill Beats to Relax / Study / Code 2026 [Live 4K Stream]</div>
+                            <div class="video-subtitle">Chill Vibes Music • 1.2M views • 1 week ago</div>
+                        </div>
+                        <div class="video-menu-btn">⋮</div>
+                    </div>
+                </div>
+
+                <div class="video-card" onclick="openWatchPlayer()">
+                    <div class="thumbnail-container">
+                        <img src="https://images.unsplash.com/photo-1550745165-9bc0b252726f?w=800&auto=format&fit=crop&q=80" alt="Video thumbnail">
+                        <div class="duration-badge">21:10</div>
+                    </div>
+                    <div class="video-info-row">
+                        <div class="channel-avatar">
+                            <img src="https://images.unsplash.com/photo-1517841905240-472988babdf9?w=100&auto=format&fit=crop&q=80" alt="Avatar">
+                        </div>
+                        <div class="video-meta">
+                            <div class="video-title">Top 10 Breakthrough Technologies Coming in 2026 Revealed</div>
+                            <div class="video-subtitle">Tech Universe • 890K views • 3 days ago</div>
+                        </div>
+                        <div class="video-menu-btn">⋮</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 2. SHORTS SCREEN -->
+            <div class="screen-section" id="screen-shorts">
+                <div class="shorts-container">
+                    <div class="short-slide">
+                        <img src="https://images.unsplash.com/photo-1534447677768-be436bb09401?w=800&auto=format&fit=crop&q=80" alt="Short Reel">
+                        
+                        <div class="short-overlay-top">
+                            <span class="short-title-badge">Shorts</span>
+                            <svg width="22" height="22" viewBox="0 0 24 24" fill="#fff"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+                        </div>
+
+                        <div class="short-actions-right">
+                            <div class="short-action-item" onclick="toggleLike(this)">
+                                <div class="short-action-icon">
+                                    <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M1 21h4V9H1v12zm22-11c0-1.1-.9-2-2-2h-6.31l.95-4.57.03-.32c0-.41-.17-.79-.44-1.06L14.17 1 7.59 7.59C7.22 7.95 7 8.45 7 9v10c0 1.1.9 2 2 2h9c.83 0 1.54-.5 1.84-1.22l3.02-7.05c.09-.23.14-.47.14-.73v-2z"/></svg>
+                                </div>
+                                <span class="short-action-label">245K</span>
+                            </div>
+                            <div class="short-action-item">
+                                <div class="short-action-icon">
+                                    <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M15 3H6c-.83 0-1.54.5-1.84 1.22l-3.02 7.05c-.09.23-.14.47-.14.73v2c0 1.1.9 2 2 2h6.31l-.95 4.57-.03.32c0 .41.17.79.44 1.06L9.83 23l6.59-6.59c.36-.36.58-.86.58-1.41V5c0-1.1-.9-2-2-2zm4 0v12h4V3h-4z"/></svg>
+                                </div>
+                                <span class="short-action-label">Dislike</span>
+                            </div>
+                            <div class="short-action-item" onclick="alert('Comments: 3,420')">
+                                <div class="short-action-icon">
+                                    <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M20 2H4c-1.1 0-1.99.9-1.99 2L2 22l4-4h14c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zM6 9h12v2H6V9zm8 5H6v-2h8v2zm4-6H6V6h12v2z"/></svg>
+                                </div>
+                                <span class="short-action-label">3.4K</span>
+                            </div>
+                            <div class="short-action-item">
+                                <div class="short-action-icon">
+                                    <svg width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M18 16.08c-.76 0-1.44.3-1.96.77L8.91 12.7c.05-.23.09-.46.09-.7s-.04-.47-.09-.7l7.05-4.11c.54.5 1.25.81 2.04.81 1.66 0 3-1.34 3-3s-1.34-3-3-3-3 1.34-3 3c0 .24.04.47.09.7L8.04 9.81C7.5 9.31 6.79 9 6 9c-1.66 0-3 1.34-3 3s1.34 3 3 3c.79 0 1.5-.31 2.04-.81l7.12 4.16c-.05.21-.08.43-.08.65 0 1.61 1.31 2.92 2.92 2.92 1.61 0 2.92-1.31 2.92-2.92s-1.31-2.92-2.92-2.92z"/></svg>
+                                </div>
+                                <span class="short-action-label">Share</span>
+                            </div>
+                            <div class="short-action-item">
+                                <div class="short-sound-disc">
+                                    <img src="https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=100&auto=format&fit=crop&q=80" style="width:100%;height:100%;object-fit:cover;">
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="short-bottom-info">
+                            <div class="short-channel-row">
+                                <div style="width:32px;height:32px;border-radius:50%;overflow:hidden;background:#333;">
+                                    <img src="https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&auto=format&fit=crop&q=80" style="width:100%;height:100%;object-fit:cover;">
+                                </div>
+                                <span class="short-channel-name">@CreativeCoder</span>
+                                <button class="short-sub-btn">Subscribe</button>
+                            </div>
+                            <div class="short-desc">Incredible 60-second animated UI trick using Jetpack Compose Canvas! 🚀✨ #shorts #android</div>
+                            <div class="short-audio-tag">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="#fff"><path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"/></svg>
+                                <span>Original Audio - @CreativeCoder</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 3. SUBSCRIPTIONS SCREEN -->
+            <div class="screen-section" id="screen-subs">
+                <div class="subs-avatars-row">
+                    <div class="sub-avatar-item">
+                        <div class="sub-avatar-circle">
+                            <img src="https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&auto=format&fit=crop&q=80">
+                            <div class="sub-badge-dot"></div>
+                        </div>
+                        <span class="sub-avatar-name">Android</span>
+                    </div>
+                    <div class="sub-avatar-item">
+                        <div class="sub-avatar-circle">
+                            <img src="https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=100&auto=format&fit=crop&q=80">
+                            <div class="sub-badge-dot"></div>
+                        </div>
+                        <span class="sub-avatar-name">Lofi Hub</span>
+                    </div>
+                    <div class="sub-avatar-item">
+                        <div class="sub-avatar-circle">
+                            <img src="https://images.unsplash.com/photo-1517841905240-472988babdf9?w=100&auto=format&fit=crop&q=80">
+                            <div class="sub-badge-dot"></div>
+                        </div>
+                        <span class="sub-avatar-name">Tech Lab</span>
+                    </div>
+                    <div class="sub-avatar-item">
+                        <div class="sub-avatar-circle">
+                            <img src="https://images.unsplash.com/photo-1539571696357-5a69c17a67c6?w=100&auto=format&fit=crop&q=80">
+                        </div>
+                        <span class="sub-avatar-name">DevTips</span>
+                    </div>
+                </div>
+
+                <div style="padding: 12px 14px 4px 14px; font-size: 16px; font-weight: 700;">Latest from subscriptions</div>
+
+                <div class="video-card" onclick="openWatchPlayer()">
+                    <div class="thumbnail-container">
+                        <img src="https://images.unsplash.com/photo-1526374965328-7f61d4dc18c5?w=800&auto=format&fit=crop&q=80" alt="Video thumbnail">
+                        <div class="duration-badge">8:15</div>
+                    </div>
+                    <div class="video-info-row">
+                        <div class="channel-avatar">
+                            <img src="https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&auto=format&fit=crop&q=80" alt="Avatar">
+                        </div>
+                        <div class="video-meta">
+                            <div class="video-title">Next-Gen Kotlin 2.1 Compiler Features You Should Use Today</div>
+                            <div class="video-subtitle">Android Masterclass • 112K views • 4 hours ago</div>
+                        </div>
+                        <div class="video-menu-btn">⋮</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 4. DOWNLOADS SCREEN -->
+            <div class="screen-section" id="screen-downloads">
+                <div class="downloads-storage-card">
+                    <div class="storage-text-row">
+                        <span>Device Storage</span>
+                        <span>42.5 GB / 128 GB (KV-Tube: 1.8 GB)</span>
+                    </div>
+                    <div class="storage-bar-track">
+                        <div class="storage-bar-fill"></div>
+                    </div>
+                </div>
+
+                <div style="padding: 6px 14px 10px 14px; display:flex; justify-content:space-between; align-items:center;">
+                    <span style="font-size:16px; font-weight:700;">Downloaded Videos (3)</span>
+                    <span style="font-size:12px; color:#3EA6FF; cursor:pointer;">Sort by Date ▼</span>
+                </div>
+
+                <div class="download-item" onclick="openWatchPlayer()">
+                    <div class="download-thumb">
+                        <img src="https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=400&auto=format&fit=crop&q=80">
+                        <div class="duration-badge">14:28</div>
+                    </div>
+                    <div class="download-meta">
+                        <div class="video-title" style="font-size:13px;">Building a Fast Native Mobile Experience with Jetpack Compose</div>
+                        <div class="video-subtitle">Android Masterclass • 142 MB</div>
+                        <span class="download-badge">✓ 1080p FHD</span>
+                    </div>
+                    <div class="video-menu-btn">⋮</div>
+                </div>
+
+                <div class="download-item" onclick="openWatchPlayer()">
+                    <div class="download-thumb">
+                        <img src="https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=400&auto=format&fit=crop&q=80">
+                        <div class="duration-badge">3:45</div>
+                    </div>
+                    <div class="download-meta">
+                        <div class="video-title" style="font-size:13px;">Lofi Chill Beats to Relax / Study / Code 2026</div>
+                        <div class="video-subtitle">Chill Vibes Music • 38 MB</div>
+                        <span class="download-badge">✓ 720p HD</span>
+                    </div>
+                    <div class="video-menu-btn">⋮</div>
+                </div>
+            </div>
+
+            <!-- 5. YOU / LIBRARY SCREEN -->
+            <div class="screen-section" id="screen-you">
+                <div class="you-profile-row">
+                    <div class="you-avatar">
+                        <img src="https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150&auto=format&fit=crop&q=80">
+                    </div>
+                    <div>
+                        <div class="you-name">Khoa Vo</div>
+                        <div class="you-handle">@khoavo • Server: ut.khoavo.myds.me</div>
+                    </div>
+                </div>
+
+                <div class="you-section-header">
+                    <span class="you-section-title">History</span>
+                    <span class="you-view-all">View all</span>
+                </div>
+
+                <div class="horizontal-history-row">
+                    <div class="history-card" onclick="openWatchPlayer()">
+                        <div class="history-thumb">
+                            <img src="https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=400&auto=format&fit=crop&q=80">
+                            <div class="history-progress"><div class="history-progress-fill"></div></div>
+                        </div>
+                        <div class="history-title">Building a Fast Native Mobile Experience with Jetpack Compose</div>
+                    </div>
+
+                    <div class="history-card" onclick="openWatchPlayer()">
+                        <div class="history-thumb">
+                            <img src="https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=400&auto=format&fit=crop&q=80">
+                            <div class="history-progress"><div class="history-progress-fill" style="width:30%;"></div></div>
+                        </div>
+                        <div class="history-title">Lofi Chill Beats to Relax / Study</div>
+                    </div>
+
+                    <div class="history-card" onclick="openWatchPlayer()">
+                        <div class="history-thumb">
+                            <img src="https://images.unsplash.com/photo-1550745165-9bc0b252726f?w=400&auto=format&fit=crop&q=80">
+                            <div class="history-progress"><div class="history-progress-fill" style="width:90%;"></div></div>
+                        </div>
+                        <div class="history-title">Top 10 Breakthrough Technologies</div>
+                    </div>
+                </div>
+
+                <div class="library-action-item" onclick="switchTab('downloads')">
+                    <svg class="library-action-icon" width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M19.35 10.04C18.67 6.59 15.64 4 12 4 9.11 4 6.6 5.64 5.35 8.04 2.34 8.36 0 10.91 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96zM17 13l-5 5-5-5h3V9h4v4h3z"/></svg>
+                    <div>
+                        <div class="library-action-text">Downloads</div>
+                        <div class="library-action-sub">3 videos available offline</div>
+                    </div>
+                </div>
+
+                <div class="library-action-item" onclick="alert('Liked videos: 48')">
+                    <svg class="library-action-icon" width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M1 21h4V9H1v12zm22-11c0-1.1-.9-2-2-2h-6.31l.95-4.57.03-.32c0-.41-.17-.79-.44-1.06L14.17 1 7.59 7.59C7.22 7.95 7 8.45 7 9v10c0 1.1.9 2 2 2h9c.83 0 1.54-.5 1.84-1.22l3.02-7.05c.09-.23.14-.47.14-.73v-2z"/></svg>
+                    <div>
+                        <div class="library-action-text">Liked videos</div>
+                        <div class="library-action-sub">48 videos</div>
+                    </div>
+                </div>
+
+                <div class="library-action-item" onclick="alert('Server Settings: https://ut.khoavo.myds.me')">
+                    <svg class="library-action-icon" width="24" height="24" viewBox="0 0 24 24" fill="currentColor"><path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58c.18-.14.23-.41.12-.61l-1.92-3.32c-.12-.22-.37-.29-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54c-.04-.24-.24-.41-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58c-.18.14-.23.41-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/></svg>
+                    <div>
+                        <div class="library-action-text">Settings & Backend</div>
+                        <div class="library-action-sub">Video quality, server URL, theme, region</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- WATCH / VIDEO PLAYER FULL SCREEN -->
+            <div class="watch-screen" id="watchScreen">
+                <div class="watch-player-box">
+                    <img src="https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=800&auto=format&fit=crop&q=80" alt="Player video">
+                    
+                    <div class="player-controls-overlay">
+                        <div class="player-top-controls">
+                            <div onclick="closeWatchPlayer()" style="cursor:pointer; display:flex; align-items:center; gap:4px;">
+                                <svg width="22" height="22" viewBox="0 0 24 24" fill="#fff"><path d="M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6 1.41-1.41z"/></svg>
+                            </div>
+                            <div style="display:flex; gap:16px;">
+                                <svg width="20" height="20" viewBox="0 0 24 24" fill="#fff"><path d="M19 4H5c-1.11 0-2 .9-2 2v12c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V6c0-1.1-.89-2-2-2zm0 14H5V8h14v10z"/></svg>
+                                <svg width="20" height="20" viewBox="0 0 24 24" fill="#fff"><path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58c.18-.14.23-.41.12-.61l-1.92-3.32c-.12-.22-.37-.29-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54c-.04-.24-.24-.41-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96c-.22-.08-.47 0-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58c-.18.14-.23.41-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/></svg>
+                            </div>
+                        </div>
+
+                        <div class="player-center-controls">
+                            <!-- -10s Seek -->
+                            <svg width="28" height="28" viewBox="0 0 24 24" fill="#fff"><path d="M11 18V6l-8.5 6 8.5 6zm.5-6l8.5 6V6l-8.5 6z"/></svg>
+                            <!-- Play/Pause -->
+                            <div style="width:48px;height:48px;border-radius:50%;background:rgba(0,0,0,0.6);display:flex;align-items:center;justify-content:center;">
+                                <svg width="28" height="28" viewBox="0 0 24 24" fill="#fff"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>
+                            </div>
+                            <!-- +10s Seek -->
+                            <svg width="28" height="28" viewBox="0 0 24 24" fill="#fff"><path d="M4 18l8.5-6L4 6v12zm9-12v12l8.5-6L13 6z"/></svg>
+                        </div>
+
+                        <div class="player-bottom-controls">
+                            <span>05:32</span>
+                            <div class="player-scrubber">
+                                <div class="player-scrubber-fill"></div>
+                                <div class="player-scrubber-dot"></div>
+                            </div>
+                            <span>14:28</span>
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="#fff"><path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/></svg>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="watch-details-container">
+                    <div class="watch-title">Building a Fast Native Mobile Experience with Jetpack Compose & Clean Architecture</div>
+                    <div class="watch-views-time">428K views • 2 days ago • #Android #Kotlin #JetpackCompose</div>
+
+                    <div class="watch-channel-row">
+                        <div class="watch-channel-info">
+                            <div class="watch-channel-avatar">
+                                <img src="https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=100&auto=format&fit=crop&q=80">
+                            </div>
+                            <div>
+                                <div class="watch-channel-name">Android Masterclass</div>
+                                <div class="watch-channel-subs">1.45M subscribers</div>
+                            </div>
+                        </div>
+                        <button class="watch-subscribe-btn">Subscribe</button>
+                    </div>
+
+                    <!-- Action pills: Like, Dislike, Share, Download -->
+                    <div class="watch-actions-scroll">
+                        <div class="like-dislike-pill">
+                            <div class="like-btn" onclick="toggleWatchLike(this)">
+                                <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M1 21h4V9H1v12zm22-11c0-1.1-.9-2-2-2h-6.31l.95-4.57.03-.32c0-.41-.17-.79-.44-1.06L14.17 1 7.59 7.59C7.22 7.95 7 8.45 7 9v10c0 1.1.9 2 2 2h9c.83 0 1.54-.5 1.84-1.22l3.02-7.05c.09-.23.14-.47.14-.73v-2z"/></svg>
+                                <span>34K</span>
+                            </div>
+                            <div class="pill-divider"></div>
+                            <div class="dislike-btn">
+                                <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M15 3H6c-.83 0-1.54.5-1.84 1.22l-3.02 7.05c-.09.23-.14.47-.14.73v2c0 1.1.9 2 2 2h6.31l-.95 4.57-.03.32c0 .41.17.79.44 1.06L9.83 23l6.59-6.59c.36-.36.58-.86.58-1.41V5c0-1.1-.9-2-2-2zm4 0v12h4V3h-4z"/></svg>
+                            </div>
+                        </div>
+
+                        <div class="watch-action-pill">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M18 16.08c-.76 0-1.44.3-1.96.77L8.91 12.7c.05-.23.09-.46.09-.7s-.04-.47-.09-.7l7.05-4.11c.54.5 1.25.81 2.04.81 1.66 0 3-1.34 3-3s-1.34-3-3-3-3 1.34-3 3c0 .24.04.47.09.7L8.04 9.81C7.5 9.31 6.79 9 6 9c-1.66 0-3 1.34-3 3s1.34 3 3 3c.79 0 1.5-.31 2.04-.81l7.12 4.16c-.05.21-.08.43-.08.65 0 1.61 1.31 2.92 2.92 2.92 1.61 0 2.92-1.31 2.92-2.92s-1.31-2.92-2.92-2.92z"/></svg>
+                            <span>Share</span>
+                        </div>
+
+                        <div class="watch-action-pill" onclick="toggleDownloadModal()">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M19.35 10.04C18.67 6.59 15.64 4 12 4 9.11 4 6.6 5.64 5.35 8.04 2.34 8.36 0 10.91 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96zM17 13l-5 5-5-5h3V9h4v4h3z"/></svg>
+                            <span>Download</span>
+                        </div>
+
+                        <div class="watch-action-pill">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M14 10H2v2h12v-2zm0-4H2v2h12V6zm4 8v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zM2 16h8v-2H2v2z"/></svg>
+                            <span>Save</span>
+                        </div>
+                    </div>
+
+                    <!-- Comments Preview -->
+                    <div class="comments-preview-card" onclick="alert('Viewing 842 comments')">
+                        <div class="comments-header-row">
+                            <span>Comments <span style="font-weight:400; color:var(--yt-text-secondary);">842</span></span>
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="#aaa"><path d="M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6 1.41-1.41z"/></svg>
+                        </div>
+                        <div class="comment-user-preview">
+                            <div class="comment-user-avatar"></div>
+                            <div class="comment-user-text">This is by far the cleanest YouTube clone architecture I have ever seen. Double tap seek works like magic! 🔥</div>
+                        </div>
+                    </div>
+
+                    <!-- Related Videos -->
+                    <div style="font-size:15px; font-weight:700; margin:16px 0 10px 0;">Related Videos</div>
+
+                    <div class="video-card" onclick="alert('Switching video')">
+                        <div class="thumbnail-container">
+                            <img src="https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?w=800&auto=format&fit=crop&q=80">
+                            <div class="duration-badge">3:45</div>
+                        </div>
+                        <div class="video-info-row">
+                            <div class="channel-avatar">
+                                <img src="https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=100&auto=format&fit=crop&q=80">
+                            </div>
+                            <div class="video-meta">
+                                <div class="video-title">Lofi Chill Beats to Relax / Study / Code 2026</div>
+                                <div class="video-subtitle">Chill Vibes Music • 1.2M views • 1 week ago</div>
+                            </div>
+                            <div class="video-menu-btn">⋮</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+
+        <!-- Pixel-Perfect Compact YouTube 5-Tab Navigation Bar -->
+        <div class="bottom-nav-bar">
+            <!-- Home -->
+            <div class="nav-tab-item active" id="tab-home" onclick="switchTab('home')">
+                <div class="nav-tab-icon">
+                    <svg viewBox="0 0 24 24"><path d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z"/></svg>
+                </div>
+                <span class="nav-tab-label">Home</span>
+            </div>
+
+            <!-- Shorts -->
+            <div class="nav-tab-item" id="tab-shorts" onclick="switchTab('shorts')">
+                <div class="nav-tab-icon">
+                    <svg viewBox="0 0 24 24"><path d="M10 14.65l5-2.65-5-2.65v5.3zM17.77 10.32c-.77-.32-1.2-.59-1.2-.59s.7-.37.99-.57c1.19-.83 1.6-2.43.95-3.71-.64-1.29-2.15-1.82-3.47-1.23L7.94 7.38C6.87 7.82 6.27 8.87 6.34 10c.07 1.13.77 2.08 1.84 2.47.77.32 1.2.59 1.2.59s-.7.37-.99.57c-1.19.83-1.6 2.43-.95 3.71.64 1.29 2.15 1.82 3.47 1.23l7.1-3.16c1.07-.47 1.67-1.52 1.6-2.65-.07-1.13-.77-2.08-1.84-2.44z"/></svg>
+                </div>
+                <span class="nav-tab-label">Shorts</span>
+            </div>
+
+            <!-- Subscriptions -->
+            <div class="nav-tab-item" id="tab-subs" onclick="switchTab('subs')">
+                <div class="nav-tab-icon">
+                    <svg viewBox="0 0 24 24"><path d="M20 8H4V6h16v2zm-2-6H6v2h12V2zm4 10v8c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2v-8c0-1.1.9-2 2-2h16c1.1 0 2 .9 2 2zm-6 4l-6-3.27v6.53L16 16z"/></svg>
+                </div>
+                <span class="nav-tab-label">Subscriptions</span>
+            </div>
+
+            <!-- Downloads -->
+            <div class="nav-tab-item" id="tab-downloads" onclick="switchTab('downloads')">
+                <div class="nav-tab-icon">
+                    <svg viewBox="0 0 24 24"><path d="M19.35 10.04C18.67 6.59 15.64 4 12 4 9.11 4 6.6 5.64 5.35 8.04 2.34 8.36 0 10.91 0 14c0 3.31 2.69 6 6 6h13c2.76 0 5-2.24 5-5 0-2.64-2.05-4.78-4.65-4.96zM17 13l-5 5-5-5h3V9h4v4h3z"/></svg>
+                    <div class="nav-badge-pill">3</div>
+                </div>
+                <span class="nav-tab-label">Downloads</span>
+            </div>
+
+            <!-- You (Library) -->
+            <div class="nav-tab-item" id="tab-you" onclick="switchTab('you')">
+                <div class="nav-tab-icon">
+                    <svg viewBox="0 0 24 24"><path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg>
+                </div>
+                <span class="nav-tab-label">You</span>
+            </div>
+        </div>
+
+        <!-- Download Modal Sheet -->
+        <div class="modal-sheet" id="downloadModal">
+            <div class="sheet-container">
+                <div class="sheet-header">
+                    <span>Download quality</span>
+                    <span style="cursor:pointer;" onclick="toggleDownloadModal()">✕</span>
+                </div>
+                <div class="quality-option">
+                    <div>
+                        <div style="font-size:14px; font-weight:700;">Full HD (1080p)</div>
+                        <div style="font-size:11px; color:#aaa;">Best quality • ~145 MB</div>
+                    </div>
+                    <input type="radio" name="qual" checked>
+                </div>
+                <div class="quality-option">
+                    <div>
+                        <div style="font-size:14px; font-weight:700;">High (720p)</div>
+                        <div style="font-size:11px; color:#aaa;">Standard HD • ~68 MB</div>
+                    </div>
+                    <input type="radio" name="qual">
+                </div>
+                <div class="quality-option">
+                    <div>
+                        <div style="font-size:14px; font-weight:700;">Medium (360p)</div>
+                        <div style="font-size:11px; color:#aaa;">Data saver • ~24 MB</div>
+                    </div>
+                    <input type="radio" name="qual">
+                </div>
+                <button class="quality-btn" onclick="triggerDownload()">Download (1080p)</button>
+            </div>
+        </div>
+
+    </div>
+
+    <script>
+        function switchTab(tabId) {
+            // Hide watch screen if open
+            closeWatchPlayer();
+
+            // Hide all screens
+            const screens = document.querySelectorAll('.screen-section');
+            screens.forEach(s => s.classList.remove('active'));
+
+            // Remove active from all tabs & control buttons
+            const navTabs = document.querySelectorAll('.nav-tab-item');
+            navTabs.forEach(t => t.classList.remove('active'));
+            const controlBtns = document.querySelectorAll('.controls-bar .btn-tag');
+            controlBtns.forEach(b => b.classList.remove('active'));
+
+            // Activate chosen screen
+            const targetScreen = document.getElementById('screen-' + tabId);
+            if (targetScreen) targetScreen.classList.add('active');
+
+            const targetTab = document.getElementById('tab-' + tabId);
+            if (targetTab) targetTab.classList.add('active');
+
+            // Scroll content to top
+            document.getElementById('appContent').scrollTop = 0;
+        }
+
+        function setCategoryPill(el) {
+            const pills = document.querySelectorAll('.category-pills .pill');
+            pills.forEach(p => p.classList.remove('active'));
+            el.classList.add('active');
+        }
+
+        function openWatchPlayer() {
+            document.getElementById('watchScreen').classList.add('active');
+        }
+
+        function closeWatchPlayer() {
+            document.getElementById('watchScreen').classList.remove('active');
+        }
+
+        function toggleDownloadModal() {
+            const modal = document.getElementById('downloadModal');
+            modal.classList.toggle('active');
+        }
+
+        function triggerDownload() {
+            toggleDownloadModal();
+            alert('Video download started in background! Progress tracked in Downloads tab.');
+            switchTab('downloads');
+        }
+
+        function toggleLike(el) {
+            el.classList.toggle('active');
+            const icon = el.querySelector('.short-action-icon');
+            if (el.classList.contains('active')) {
+                icon.style.background = '#FF0000';
+            } else {
+                icon.style.background = 'rgba(0,0,0,0.4)';
+            }
+        }
+
+        function toggleWatchLike(el) {
+            el.classList.toggle('active');
+            if (el.classList.contains('active')) {
+                el.style.color = '#3EA6FF';
+            } else {
+                el.style.color = 'inherit';
+            }
+        }
+    </script>
+</body>
+</html>
