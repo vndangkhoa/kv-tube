@@ -50,13 +50,17 @@ class ShortsViewModel @Inject constructor(
 
     suspend fun getStreamUrl(videoId: String): String {
         return try {
-            val playback = videoRepository.getPlaybackInfo(videoId)
-            val progressive = playback.videoFormats.firstOrNull { it.hasAudio && it.url.isNotEmpty() }
-            if (progressive != null) {
-                return progressive.url
-            }
+            // 1. Fast on-device extraction first (~300ms)
             val extracted = extractorHelper.extractStreamUrl(videoId, Quality.RECOMMENDED)
-            extracted.videoUrl
+            if (extracted.videoUrl.isNotBlank()) {
+                return extracted.videoUrl
+            }
+            // 2. Server playback fallback with 2s timeout
+            val playback = kotlinx.coroutines.withTimeoutOrNull(2000L) {
+                runCatching { videoRepository.getPlaybackInfo(videoId) }.getOrNull()
+            }
+            val progressive = playback?.videoFormats?.firstOrNull { it.hasAudio && it.url.isNotEmpty() }
+            progressive?.url ?: ""
         } catch (e: Exception) {
             Log.w(TAG, "Failed to resolve stream for short $videoId: ${e.message}")
             ""

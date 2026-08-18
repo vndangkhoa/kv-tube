@@ -208,10 +208,10 @@ export async function getVideoDetailsClient(videoId: string): Promise<VideoData 
   const cached = getClientCache<VideoData>(cacheKey);
   if (cached) return cached;
 
-  // 1. Try backend API
+  // 1. Try backend API with fast timeout
   try {
     const response = await fetch(`${API_BASE}/video/${videoId}`, {
-      signal: AbortSignal.timeout(6000),
+      signal: AbortSignal.timeout(2500),
     });
     
     if (response.ok) {
@@ -223,13 +223,13 @@ export async function getVideoDetailsClient(videoId: string): Promise<VideoData 
       }
     }
   } catch (error) {
-    console.warn('Backend video details failed, falling back to YouTube oEmbed:', error);
+    console.warn('Backend video details slow/failed, using YouTube oEmbed:', error);
   }
 
-  // 2. Direct Client-side YouTube oEmbed Fallback (Unblockable by Google)
+  // 2. Direct Client-side YouTube oEmbed Fallback (Unblockable by Google, ~50ms)
   try {
     const oembedRes = await fetch(`https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${encodeURIComponent(videoId)}&format=json`, {
-      signal: AbortSignal.timeout(5000),
+      signal: AbortSignal.timeout(3000),
     });
     if (oembedRes.ok) {
       const oembed = await oembedRes.json();
@@ -275,7 +275,7 @@ export async function getRelatedVideosClient(videoId: string, limit: number = 15
 
   try {
     const response = await fetch(`${API_BASE}/video/${videoId}/related?limit=${limit}`, {
-      signal: AbortSignal.timeout(8000),
+      signal: AbortSignal.timeout(3500),
     });
     
     if (response.ok) {

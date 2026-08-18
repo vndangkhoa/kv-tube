@@ -737,24 +737,16 @@ export default function ClientWatchPage() {
     // background audio. Mobile defaults to 'hd' (background listening is the main
     // mobile use case) unless the user has explicitly chosen a mode before.
     // The choice is persisted in localStorage so it sticks across visits.
-    // SSR-safe default. `window` is unavailable during server rendering, so we
-    // start at 'iframe' and resolve the real mode (saved choice, else device
-    // based) on the client after mount to avoid a hydration crash.
+    // Player source: 'iframe' (YouTube embed, instant + always works) is the
+    // fast, reliable default for all devices; 'hd' swaps to the self-hosted MSE player.
     const [playerMode, setPlayerMode] = useState<'iframe' | 'hd'>('iframe');
     useEffect(() => {
-        let mode: 'iframe' | 'hd' = 'iframe';
         try {
             const saved = window.localStorage.getItem('kv-player-mode');
             if (saved === 'iframe' || saved === 'hd') {
-                mode = saved;
-            } else {
-                const mobile =
-                    window.matchMedia('(pointer: coarse)').matches ||
-                    window.matchMedia('(max-width: 820px)').matches;
-                mode = mobile ? 'hd' : 'iframe';
+                setPlayerMode(saved);
             }
         } catch {}
-        setPlayerMode(mode);
     }, []);
     const togglePlayerMode = useCallback(() => {
         setPlayerMode((prev) => {
@@ -949,10 +941,6 @@ export default function ClientWatchPage() {
 
     if (!videoId) {
         return <div style={{ padding: '2rem', color: 'var(--yt-text-primary)' }}>No video ID provided</div>;
-    }
-
-    if (loading) {
-        return <LoadingSpinner fullScreen size="large" text="Loading video..." />;
     }
 
     const currentPlaylist = activeTab === 'mix' ? mixPlaylist : relatedVideos;

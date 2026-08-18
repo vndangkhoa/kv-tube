@@ -349,9 +349,17 @@ export default function MsePlayer({
         audioErrorHandled.current = false;
 
         const controller = new AbortController();
+        const timeoutId = setTimeout(() => {
+            controller.abort();
+            if (!cancelled) {
+                console.warn('[MsePlayer] playback-info timed out after 3.5s, auto-falling back to YouTube iframe');
+                onUseIframe?.();
+            }
+        }, 3500);
 
         fetch(`/api/video/${videoId}/playback-info?audio=${audioPref}`, { signal: controller.signal })
             .then(async (r) => {
+                clearTimeout(timeoutId);
                 const d = await r.json();
                 if (cancelled) return;
                 if (!r.ok) {
@@ -360,6 +368,7 @@ export default function MsePlayer({
                     setFailReason(msg);
                     setFailed(true);
                     onError?.();
+                    onUseIframe?.();
                     return;
                 }
                 setPlaybackInfo(d);
@@ -377,18 +386,22 @@ export default function MsePlayer({
                     setFailReason('No playable formats returned');
                     setFailed(true);
                     onError?.();
+                    onUseIframe?.();
                 }
             })
             .catch((err: any) => {
-                if (cancelled || err?.name === 'AbortError') return;
-                console.error('[MsePlayer] playback-info fetch failed:', err);
+                clearTimeout(timeoutId);
+                if (cancelled) return;
+                console.error('[MsePlayer] playback-info fetch failed or timed out:', err);
                 setFailReason(err?.message || String(err));
                 setFailed(true);
                 onError?.();
+                onUseIframe?.();
             });
 
         return () => {
             cancelled = true;
+            clearTimeout(timeoutId);
             controller.abort();
         };
     }, [videoId, audioPref, retryKey]);

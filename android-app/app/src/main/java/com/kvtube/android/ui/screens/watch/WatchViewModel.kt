@@ -128,25 +128,32 @@ class WatchViewModel @Inject constructor(
             try {
                 _uiState.value = _uiState.value.copy(isLoading = true)
 
-                // Try server playback info first
-                val playback = runCatching { videoRepository.getPlaybackInfo(videoId) }.getOrNull()
+                // 1. Fast path: extract stream URL on-device using NewPipe (~300-600ms, completely immune to server delays)
                 var videoUrl: String? = null
                 var audioUrl: String? = null
+                var playback: PlaybackInfo? = null
 
-                if (playback != null && playback.videoFormats.isNotEmpty()) {
-                    val bestFormat = playback.videoFormats.firstOrNull { it.hasAudio }
-                        ?: playback.videoFormats.firstOrNull()
-                    videoUrl = bestFormat?.url
-                    audioUrl = if (bestFormat?.hasAudio == true) null else playback.audioFormat?.url
-                }
-
-                // If server playback-info returned empty or failed, extract on device with NewPipe
-                if (videoUrl.isNullOrBlank()) {
-                    Log.d(TAG, "Server playback-info empty/failed for $videoId, using on-device stream extractor")
+                try {
                     val extracted = extractorHelper.extractStreamUrl(videoId, Quality.RECOMMENDED)
                     if (extracted.videoUrl.isNotBlank()) {
                         videoUrl = extracted.videoUrl
                         audioUrl = extracted.audioUrl
+                        Log.d(TAG, "Fast on-device stream extraction succeeded for $videoId")
+                    }
+                } catch (e: Exception) {
+                    Log.w(TAG, "On-device stream extraction failed, falling back to server: ${e.message}")
+                }
+
+                // 2. Fallback path: server playback-info with bounded 2.5s timeout
+                if (videoUrl.isNullOrBlank()) {
+                    playback = kotlinx.coroutines.withTimeoutOrNull(2500L) {
+                        runCatching { videoRepository.getPlaybackInfo(videoId) }.getOrNull()
+                    }
+                    if (playback != null && playback.videoFormats.isNotEmpty()) {
+                        val bestFormat = playback.videoFormats.firstOrNull { it.hasAudio }
+                            ?: playback.videoFormats.firstOrNull()
+                        videoUrl = bestFormat?.url
+                        audioUrl = if (bestFormat?.hasAudio == true) null else playback.audioFormat?.url
                     }
                 }
 
