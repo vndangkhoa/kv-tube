@@ -101,6 +101,8 @@ fun ExoPlayerView(
     onFullscreenToggle: () -> Unit = {},
     onEnterPip: (() -> Unit)? = null,
     onBackClick: (() -> Unit)? = null,
+    /** Invoked when playback fails (lets the caller switch to the iframe fallback). */
+    onError: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val context = LocalContext.current
@@ -219,6 +221,7 @@ fun ExoPlayerView(
                 hasError = true
                 errorMessage = error.message ?: "Playback failed"
                 Log.e(TAG, "Playback error", error)
+                onError?.invoke()
             }
         }
         exoPlayer.addListener(listener)

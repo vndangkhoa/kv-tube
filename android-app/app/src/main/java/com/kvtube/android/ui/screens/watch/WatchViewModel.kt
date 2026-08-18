@@ -34,7 +34,10 @@ data class WatchUiState(
     val selectedUrl: String? = null,
     val audioUrl: String? = null,
     val showComments: Boolean = false,
-    val isSubscribed: Boolean = false
+    val isSubscribed: Boolean = false,
+    /** True when stream extraction failed and the UI should render the
+     *  YouTube embed iframe instead of ExoPlayer. */
+    val useIframeFallback: Boolean = false
 )
 
 @HiltViewModel
@@ -76,6 +79,16 @@ class WatchViewModel @Inject constructor(
             selectedUrl = format.url,
             audioUrl = audioUrl
         )
+    }
+
+    /** Called when ExoPlayer fails mid-playback: switch to the YouTube embed. */
+    fun fallbackToIframe() {
+        if (!_uiState.value.useIframeFallback) {
+            _uiState.value = _uiState.value.copy(
+                useIframeFallback = true,
+                error = "Playback error — switched to embedded player"
+            )
+        }
     }
 
     fun startDownload(
@@ -134,8 +147,12 @@ class WatchViewModel @Inject constructor(
                 var playback: PlaybackInfo? = null
 
                 try {
-                    val extracted = extractorHelper.extractStreamUrl(videoId, Quality.RECOMMENDED)
-                    if (extracted.videoUrl.isNotBlank()) {
+                    // Bounded: a blocked YouTube/server must not stall the
+                    // iframe fallback for long.
+                    val extracted = kotlinx.coroutines.withTimeoutOrNull(10_000L) {
+                        extractorHelper.extractStreamUrl(videoId, Quality.RECOMMENDED)
+                    }
+                    if (extracted != null && extracted.videoUrl.isNotBlank()) {
                         videoUrl = extracted.videoUrl
                         audioUrl = extracted.audioUrl
                         Log.d(TAG, "Fast on-device stream extraction succeeded for $videoId")
@@ -158,9 +175,13 @@ class WatchViewModel @Inject constructor(
                 }
 
                 if (videoUrl.isNullOrBlank()) {
+                    // No stream could be extracted (NewPipe + server both
+                    // failed/blocked) -> fall back to the YouTube embed iframe
+                    // so the video still plays.
                     _uiState.value = _uiState.value.copy(
                         isLoading = false,
-                        error = "Failed to load video stream"
+                        useIframeFallback = true,
+                        error = "Direct playback unavailable — using embedded player"
                     )
                     return@launch
                 }

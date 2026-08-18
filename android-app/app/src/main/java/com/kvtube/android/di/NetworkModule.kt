@@ -64,8 +64,8 @@ object NetworkModule {
         val cache = Cache(cacheDir, 50L * 1024 * 1024)
         return OkHttpClient.Builder()
             .cache(cache)
-            .connectTimeout(15, TimeUnit.SECONDS)
-            .readTimeout(30, TimeUnit.SECONDS)
+            .connectTimeout(8, TimeUnit.SECONDS)
+            .readTimeout(12, TimeUnit.SECONDS)
             .followRedirects(true)
             .build()
     }

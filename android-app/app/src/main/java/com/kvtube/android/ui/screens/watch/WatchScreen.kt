@@ -4,6 +4,9 @@ import android.app.Activity
 import android.app.PictureInPictureParams
 import android.content.Intent
 import android.util.Rational
+import android.view.ViewGroup
+import android.webkit.WebChromeClient
+import android.webkit.WebView
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -12,6 +15,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -53,6 +57,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
@@ -101,7 +106,7 @@ fun WatchScreen(
         return
     }
 
-    if (uiState.error != null && uiState.selectedUrl.isNullOrBlank()) {
+    if (uiState.error != null && uiState.selectedUrl.isNullOrBlank() && !uiState.useIframeFallback) {
         Box(
             modifier = Modifier.fillMaxSize(),
             contentAlignment = Alignment.Center
@@ -116,54 +121,76 @@ fun WatchScreen(
 
     if (isFullscreen) {
         // Fullscreen: player covers everything
-        uiState.selectedUrl?.let { url ->
+        if (uiState.useIframeFallback) {
             Box(modifier = Modifier.fillMaxSize()) {
-                ExoPlayerView(
-                    videoUrl = url,
-                    audioUrl = uiState.audioUrl,
-                    isFullscreen = true,
-                    onFullscreenToggle = { isFullscreen = false },
-                    onEnterPip = {
-                        activity?.let { act ->
-                            (act as? com.kvtube.android.MainActivity)?.setPipVideo(
-                                videoUrl = url,
-                                audioUrl = uiState.audioUrl
-                            )
-                            val params = PictureInPictureParams.Builder()
-                                .setAspectRatio(Rational(16, 9))
-                                .build()
-                            act.enterPictureInPictureMode(params)
-                        }
-                    },
-                    onBackClick = { isFullscreen = false },
-                    modifier = Modifier.fillMaxSize()
+                YouTubeIframePlayer(
+                    videoId = videoId,
+                    modifier = Modifier.fillMaxSize(),
+                    onBackClick = { isFullscreen = false }
                 )
+            }
+        } else {
+            uiState.selectedUrl?.let { url ->
+                Box(modifier = Modifier.fillMaxSize()) {
+                    ExoPlayerView(
+                        videoUrl = url,
+                        audioUrl = uiState.audioUrl,
+                        isFullscreen = true,
+                        onFullscreenToggle = { isFullscreen = false },
+                        onError = { viewModel.fallbackToIframe() },
+                        onEnterPip = {
+                            activity?.let { act ->
+                                (act as? com.kvtube.android.MainActivity)?.setPipVideo(
+                                    videoUrl = url,
+                                    audioUrl = uiState.audioUrl
+                                )
+                                val params = PictureInPictureParams.Builder()
+                                    .setAspectRatio(Rational(16, 9))
+                                    .build()
+                                act.enterPictureInPictureMode(params)
+                            }
+                        },
+                        onBackClick = { isFullscreen = false },
+                        modifier = Modifier.fillMaxSize()
+                    )
+                }
             }
         }
     } else {
         // Normal portrait layout
         Column(modifier = Modifier.fillMaxSize()) {
-            uiState.selectedUrl?.let { url ->
-                ExoPlayerView(
-                    videoUrl = url,
-                    audioUrl = uiState.audioUrl,
-                    isFullscreen = false,
-                    onFullscreenToggle = { isFullscreen = true },
-                    onEnterPip = {
-                        activity?.let { act ->
-                            (act as? com.kvtube.android.MainActivity)?.setPipVideo(
-                                videoUrl = url,
-                                audioUrl = uiState.audioUrl
-                            )
-                            val params = PictureInPictureParams.Builder()
-                                .setAspectRatio(Rational(16, 9))
-                                .build()
-                            act.enterPictureInPictureMode(params)
-                        }
-                    },
-                    onBackClick = { navController.popBackStack() },
-                    modifier = Modifier.fillMaxWidth()
+            if (uiState.useIframeFallback) {
+                YouTubeIframePlayer(
+                    videoId = videoId,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .aspectRatio(16f / 9f),
+                    onBackClick = { navController.popBackStack() }
                 )
+            } else {
+                uiState.selectedUrl?.let { url ->
+                    ExoPlayerView(
+                        videoUrl = url,
+                        audioUrl = uiState.audioUrl,
+                        isFullscreen = false,
+                        onFullscreenToggle = { isFullscreen = true },
+                        onError = { viewModel.fallbackToIframe() },
+                        onEnterPip = {
+                            activity?.let { act ->
+                                (act as? com.kvtube.android.MainActivity)?.setPipVideo(
+                                    videoUrl = url,
+                                    audioUrl = uiState.audioUrl
+                                )
+                                val params = PictureInPictureParams.Builder()
+                                    .setAspectRatio(Rational(16, 9))
+                                    .build()
+                                act.enterPictureInPictureMode(params)
+                            }
+                        },
+                        onBackClick = { navController.popBackStack() },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
             }
 
             LazyColumn(
@@ -661,4 +688,50 @@ private fun CommentItem(
             }
         }
     }
+}
+
+/**
+ * Always-works fallback player: the official YouTube embed iframe rendered in a
+ * WebView. Used when on-device extraction and the server playback-info path
+ * both fail (YouTube blocking, server yt-dlp down, etc.).
+ */
+@Composable
+fun YouTubeIframePlayer(
+    videoId: String,
+    modifier: Modifier = Modifier,
+    onBackClick: () -> Unit = {}
+) {
+    val context = LocalContext.current
+    val embedUrl = remember(videoId) {
+        "https://www.youtube.com/embed/$videoId?autoplay=1&playsinline=1"
+    }
+
+    AndroidView(
+        factory = { ctx ->
+            WebView(ctx).apply {
+                layoutParams = ViewGroup.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.MATCH_PARENT
+                )
+                settings.javaScriptEnabled = true
+                settings.domStorageEnabled = true
+                settings.mediaPlaybackRequiresUserGesture = false
+                settings.loadWithOverviewMode = true
+                settings.useWideViewPort = true
+                webChromeClient = WebChromeClient()
+                setOnKeyListener { _, keyCode, _ ->
+                    if (keyCode == android.view.KeyEvent.KEYCODE_BACK) {
+                        if (canGoBack()) {
+                            goBack()
+                        } else {
+                            onBackClick()
+                        }
+                        true
+                    } else false
+                }
+                loadUrl(embedUrl)
+            }
+        },
+        modifier = modifier
+    )
 }

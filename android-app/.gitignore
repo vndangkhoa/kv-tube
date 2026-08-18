@@ -1,5 +1,7 @@
 *.iml
 .gradle
+.gradle-home
+.kotlin
 /local.properties
 /.idea/caches
 /.idea/libraries
@@ -14,3 +16,5 @@
 .cxx
 local.properties
 app/build
+*.keystore
+!app/release-key.jks

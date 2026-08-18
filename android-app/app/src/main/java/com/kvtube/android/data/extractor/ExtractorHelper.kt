@@ -46,8 +46,8 @@ class ExtractorHelper @Inject constructor(
             try {
                 NewPipe.init(object : Downloader() {
                     private val client = okHttpClient.newBuilder()
-                        .connectTimeout(15, TimeUnit.SECONDS)
-                        .readTimeout(30, TimeUnit.SECONDS)
+                        .connectTimeout(8, TimeUnit.SECONDS)
+                        .readTimeout(12, TimeUnit.SECONDS)
                         .build()
 
                     @Throws(IOException::class)
@@ -132,38 +132,43 @@ class ExtractorHelper @Inject constructor(
             Log.w(TAG, "NewPipe on-device stream extraction error for $videoId: ${e.message}, trying server fallback")
         }
 
-        // Fallback to server's playback-info if available
+        // Fallback to server's playback-info if available (bounded - a hung
+        // backend must never delay the iframe fallback for long)
         try {
-            val playback = api.getPlaybackInfo(videoId)
-            val maxHeight = when (quality) {
-                Quality.LOW -> 360
-                Quality.RECOMMENDED -> 1080
-                Quality.BEST -> Int.MAX_VALUE
+            val playback = kotlinx.coroutines.withTimeoutOrNull(5_000L) {
+                api.getPlaybackInfo(videoId)
             }
+            if (playback != null) {
+                val maxHeight = when (quality) {
+                    Quality.LOW -> 360
+                    Quality.RECOMMENDED -> 1080
+                    Quality.BEST -> Int.MAX_VALUE
+                }
 
-            val progressive = playback.videoFormats.filter { it.hasAudio && it.url.isNotEmpty() }
-            val bestProgressive = progressive.filter { it.height <= maxHeight }
-                .maxByOrNull { it.height } ?: progressive.minByOrNull { it.height }
+                val progressive = playback.videoFormats.filter { it.hasAudio && it.url.isNotEmpty() }
+                val bestProgressive = progressive.filter { it.height <= maxHeight }
+                    .maxByOrNull { it.height } ?: progressive.minByOrNull { it.height }
 
-            if (bestProgressive != null) {
-                return@withContext ExtractedStream(
-                    videoUrl = bestProgressive.url,
-                    height = bestProgressive.height,
-                    isDash = false
-                )
-            }
+                if (bestProgressive != null) {
+                    return@withContext ExtractedStream(
+                        videoUrl = bestProgressive.url,
+                        height = bestProgressive.height,
+                        isDash = false
+                    )
+                }
 
-            val videoOnly = playback.videoFormats.filter { !it.hasAudio && it.url.isNotEmpty() }
-            val bestVideoOnly = videoOnly.filter { it.height <= maxHeight }
-                .maxByOrNull { it.height } ?: videoOnly.minByOrNull { it.height }
+                val videoOnly = playback.videoFormats.filter { !it.hasAudio && it.url.isNotEmpty() }
+                val bestVideoOnly = videoOnly.filter { it.height <= maxHeight }
+                    .maxByOrNull { it.height } ?: videoOnly.minByOrNull { it.height }
 
-            if (bestVideoOnly != null) {
-                return@withContext ExtractedStream(
-                    videoUrl = bestVideoOnly.url,
-                    audioUrl = playback.audioFormat?.url,
-                    height = bestVideoOnly.height,
-                    isDash = true
-                )
+                if (bestVideoOnly != null) {
+                    return@withContext ExtractedStream(
+                        videoUrl = bestVideoOnly.url,
+                        audioUrl = playback.audioFormat?.url,
+                        height = bestVideoOnly.height,
+                        isDash = true
+                    )
+                }
             }
         } catch (e: Exception) {
             Log.e(TAG, "Server playback-info fallback also failed for $videoId: ${e.message}")
