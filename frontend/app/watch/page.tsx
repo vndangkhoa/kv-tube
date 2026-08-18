@@ -28,34 +28,23 @@ export async function generateMetadata({ searchParams }: WatchPageProps): Promis
     let uploader = '';
 
     try {
-        // Server-side fetch needs an absolute URL (Node fetch rejects relative
-        // URLs). The backend is always reachable on this origin — same default
-        // the Next.js rewrite in next.config uses.
-        const backendBase = process.env.BACKEND_URL || 'http://localhost:8080';
+        // Direct YouTube oEmbed is unblockable, fast (~50ms), and returns title/uploader without waiting for backend
         const controller = new AbortController();
-        const timer = setTimeout(() => controller.abort(), 8000);
-        const res = await fetch(`${backendBase}/api/video/${videoId}`, {
+        const timer = setTimeout(() => controller.abort(), 1500);
+        const res = await fetch(`https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${encodeURIComponent(videoId)}&format=json`, {
             signal: controller.signal,
-            cache: 'no-store',
+            next: { revalidate: 3600 },
         });
         clearTimeout(timer);
 
         if (res.ok) {
             const data = await res.json();
             if (data?.title) title = data.title;
-            if (data?.thumbnail) thumbnail = data.thumbnail;
-            if (data?.uploader) uploader = data.uploader;
-            if (data?.description) description = data.description;
-            if (!data?.description && uploader) {
-                description = `Watch "${title}" by ${uploader} on KV-Tube.`;
-            }
+            if (data?.thumbnail_url) thumbnail = data.thumbnail_url;
+            if (data?.author_name) uploader = data.author_name;
+            description = `Watch "${title}" by ${uploader || 'creator'} on KV-Tube.`;
         }
-    } catch (error: any) {
-        // Metadata is best-effort; never block the page on it.
-        if (error?.name !== 'AbortError') {
-            console.warn('Failed to fetch video info for link preview:', error?.message || String(error));
-        }
-    }
+    } catch (_) {}
 
     // Prefer the high-res thumbnail; fall back to the standard i.ytimg URL
     // built from the video ID so the preview still has an image.
