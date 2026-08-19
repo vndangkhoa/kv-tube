@@ -7,7 +7,7 @@ export default function MainContent({ children }: { children: ReactNode }) {
     const { isSidebarOpen } = useSidebar();
     
     return (
-        <main className={`yt-main-content ${isSidebarOpen ? 'sidebar-open' : ''}`}>
+        <main className={`yt-main-content ${isSidebarOpen ? 'sidebar-expanded' : 'sidebar-collapsed'}`}>
             {children}
         </main>
     );

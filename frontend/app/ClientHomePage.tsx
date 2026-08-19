@@ -1,664 +1,425 @@
 'use client';
 
-import { useEffect, useState, useRef, useCallback, memo } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { useSearchParams } from 'next/navigation';
-import Link from 'next/link';
-import { searchVideosClient, getHomeFeedClient, getVideoDatesClient, formatRelativeTime } from './clientActions';
-import { VideoData } from './constants';
-import { getRegionContent, categoryQuery } from './regionContent';
-import { proxiedThumb, proxiedImageUrl } from './utils';
+import VideoCard from './components/VideoCard';
 import LoadingSpinner from './components/LoadingSpinner';
+import { VideoData } from './constants';
+import { invidious } from './services/invidious';
+import { getHomeFeedClient, searchVideosClient } from './clientActions';
+import { categoryQuery, getRegionContent } from './regionContent';
+import {
+  IoFlameOutline,
+  IoMusicalNotesOutline,
+  IoGameControllerOutline,
+  IoFilmOutline,
+  IoSparklesOutline,
+  IoRadioOutline,
+  IoNewspaperOutline,
+  IoHardwareChipOutline,
+  IoFootballOutline,
+  IoMicOutline,
+  IoHappyOutline,
+  IoFastFoodOutline,
+  IoAirplaneOutline,
+  IoCodeSlashOutline,
+} from 'react-icons/io5';
 
-// Format view count
-function formatViews(views: number): string {
-    if (views >= 1000000) return (views / 1000000).toFixed(1) + 'M views';
-    if (views >= 1000) return (views / 1000).toFixed(0) + 'K views';
-    return views === 0 ? '' : `${views} views`;
+interface CategoryConfig {
+  id: string;
+  label: string;
+  icon?: React.ReactNode;
+  trendingType?: string;
+  searchQuery?: string;
 }
 
-// Get fallback thumbnail URL (always works)
-function getFallbackThumbnail(videoId: string): string {
-    return `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`;
-}
+const CATEGORIES: CategoryConfig[] = [
+  { id: 'All', label: 'All', icon: <IoSparklesOutline size={16} /> },
+  { id: 'Trending', label: 'Trending', icon: <IoFlameOutline size={16} />, trendingType: 'default' },
+  { id: 'Music', label: 'Music', icon: <IoMusicalNotesOutline size={16} />, searchQuery: 'official music video top hits' },
+  { id: 'Gaming', label: 'Gaming', icon: <IoGameControllerOutline size={16} />, searchQuery: 'gaming gameplay walkthrough' },
+  { id: 'Movies', label: 'Movies & Trailers', icon: <IoFilmOutline size={16} />, searchQuery: 'official movie trailer teaser' },
+  { id: 'News', label: 'News', icon: <IoNewspaperOutline size={16} />, searchQuery: 'daily news world news breaking' },
+  { id: 'Tech', label: 'Tech & Gadgets', icon: <IoHardwareChipOutline size={16} />, searchQuery: 'technology gadgets smartphone review tech' },
+  { id: 'Coding', label: 'Coding & Dev', icon: <IoCodeSlashOutline size={16} />, searchQuery: 'software programming web development tutorial' },
+  { id: 'Sports', label: 'Sports', icon: <IoFootballOutline size={16} />, searchQuery: 'sports match highlights top plays' },
+  { id: 'Podcasts', label: 'Podcasts', icon: <IoMicOutline size={16} />, searchQuery: 'podcast full episode interview show' },
+  { id: 'Live', label: 'Live Streams', icon: <IoRadioOutline size={16} />, searchQuery: 'live stream 24/7' },
+  { id: 'Comedy', label: 'Comedy', icon: <IoHappyOutline size={16} />, searchQuery: 'stand up comedy sketches funny' },
+  { id: 'Food', label: 'Food & Cooking', icon: <IoFastFoodOutline size={16} />, searchQuery: 'cooking recipe street food delicious dish' },
+  { id: 'Travel', label: 'Travel', icon: <IoAirplaneOutline size={16} />, searchQuery: 'travel vlog guide city explore' },
+];
 
-// Video Card Component (React.memo - prevents re-renders from scroll/resize, TypeType pattern)
-const VideoCard = memo(function VideoCard({ video }: { video: VideoData }) {
-    const thumbSizes = ['hqdefault', 'mqdefault', 'default'];
-    const [thumbIdx, setThumbIdx] = useState(0);
-    const [imgSrc, setImgSrc] = useState(() => proxiedImageUrl(video.thumbnail) || proxiedThumb(video.id));
-    const [imgLoaded, setImgLoaded] = useState(false);
+function mapInvidiousVideo(v: any): VideoData {
+  const vidId = v.videoId || v.id || '';
+  // Low-resolution 320x180 thumbnail for ultra-fast grid rendering (~10KB vs 300KB+)
+  const thumbUrl = `https://i.ytimg.com/vi/${vidId}/mqdefault.jpg`;
 
-    const handleError = () => {
-        const next = thumbIdx + 1;
-        if (next >= thumbSizes.length) return; // give up: keep the dark cover
-        setThumbIdx(next);
-        setImgSrc(proxiedThumb(video.id, thumbSizes[next] as any));
-    };
-    
-    return (
-        <Link href={`/watch?v=${video.id}`} style={{ textDecoration: 'none', color: 'inherit' }}>
-            <div style={{ marginBottom: '32px' }}>
-                {/* Thumbnail */}
-                <div style={{ 
-                    position: 'relative', 
-                    aspectRatio: '16/9', 
-                    marginBottom: '12px', 
-                    backgroundColor: '#272727', 
-                    borderRadius: '12px', 
-                    overflow: 'hidden',
-                }}>
-                    <img 
-                        src={imgSrc}
-                        alt={video.title}
-                        loading="eager"
-                        decoding="async"
-                        onError={handleError}
-                        onLoad={() => setImgLoaded(true)}
-                        style={{ 
-                            width: '100%', 
-                            height: '100%', 
-                            objectFit: 'cover',
-                        }}
-                    />
-                    
-                    {!imgLoaded && (
-                        <div style={{
-                            position: 'absolute',
-                            inset: 0,
-                            backgroundColor: '#272727',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                        }}>
-                            <LoadingSpinner size="small" color="white" />
-                        </div>
-                    )}
-                    
-                    {/* Duration badge */}
-                    {video.duration && (
-                        <div style={{
-                            position: 'absolute',
-                            bottom: '8px',
-                            right: '8px',
-                            backgroundColor: 'rgba(0,0,0,0.8)',
-                            color: '#fff',
-                            padding: '3px 6px',
-                            borderRadius: '4px',
-                            fontSize: '12px',
-                            fontWeight: '500',
-                        }}>
-                            {video.duration}
-                        </div>
-                    )}
-                    
-                    {/* Hover overlay */}
-                    <div style={{
-                        position: 'absolute',
-                        inset: 0,
-                        backgroundColor: 'rgba(0,0,0,0)',
-                        transition: 'background-color 0.2s',
-                        cursor: 'pointer',
-                    }} />
-                </div>
-                
-                {/* Video Info */}
-                <div style={{ flex: 1, minWidth: 0 }}>
-                    {/* Title - max 2 lines */}
-                    <h3 style={{ 
-                        fontSize: '14px', 
-                        fontWeight: '500', 
-                        margin: '0 0 4px 0',
-                        lineHeight: '1.4',
-                        display: '-webkit-box',
-                        WebkitLineClamp: 2,
-                        WebkitBoxOrient: 'vertical',
-                        overflow: 'hidden',
-                        color: 'var(--yt-text-primary)',
-                    }}>
-                        {video.title}
-                    </h3>
-                    
-                    {/* Channel name */}
-                    <div style={{ 
-                        fontSize: '12px', 
-                        color: 'var(--yt-text-secondary)',
-                        marginBottom: '2px',
-                    }}>
-                        {video.uploader}
-                    </div>
-                    
-                    {/* Views and time */}
-                    <div style={{ 
-                        fontSize: '12px', 
-                        color: 'var(--yt-text-secondary)',
-                        display: 'flex',
-                        gap: '4px',
-                    }}>
-                        {(video.view_count ?? 0) > 0 && <span>{formatViews(video.view_count ?? 0)}</span>}
-                        {(video.view_count ?? 0) > 0 && video.publishedAt && <span>•</span>}
-                        {video.publishedAt && <span>{video.publishedAt}</span>}
-                    </div>
-                </div>
-            </div>
-        </Link>
-    );
-});
+  let dur = '';
+  if (typeof v.lengthSeconds === 'number' && v.lengthSeconds > 0) {
+    const mins = Math.floor(v.lengthSeconds / 60);
+    const secs = v.lengthSeconds % 60;
+    dur = `${mins}:${secs.toString().padStart(2, '0')}`;
+  } else if (v.duration) {
+    dur = String(v.duration);
+  }
 
-// Category Pills Component
-function CategoryPills({ 
-    categories, 
-    currentCategory, 
-    onCategoryChange 
-}: { 
-    categories: string[]; 
-    currentCategory: string; 
-    onCategoryChange: (category: string) => void;
-}) {
-    return (
-        <div style={{ 
-            position: 'sticky',
-            top: 'var(--yt-header-height)',
-            zIndex: 400,
-            display: 'flex', 
-            gap: '12px', 
-            overflowX: 'auto',
-            padding: '16px 24px',
-            margin: '0 -24px 24px',
-            backgroundColor: 'var(--yt-background)',
-            borderBottom: '1px solid var(--yt-border)',
-            msOverflowStyle: 'none',
-            scrollbarWidth: 'none',
-        }}>
-            {categories.map((category) => (
-                <button
-                    key={category}
-                    onClick={() => onCategoryChange(category)}
-                    style={{
-                        padding: '8px 16px',
-                        backgroundColor: currentCategory === category ? 'var(--yt-text-primary)' : 'var(--yt-hover)',
-                        color: currentCategory === category ? 'var(--yt-background)' : 'var(--yt-text-primary)',
-                        border: 'none',
-                        borderRadius: '8px',
-                        cursor: 'pointer',
-                        fontWeight: '500',
-                        fontSize: '14px',
-                        whiteSpace: 'nowrap',
-                        transition: 'all 0.2s',
-                    }}
-                    onMouseEnter={(e) => {
-                        if (currentCategory !== category) {
-                            (e.target as HTMLElement).style.backgroundColor = 'var(--yt-active)';
-                        }
-                    }}
-                    onMouseLeave={(e) => {
-                        if (currentCategory !== category) {
-                            (e.target as HTMLElement).style.backgroundColor = 'var(--yt-hover)';
-                        }
-                    }}
-                >
-                    {category}
-                </button>
-            ))}
-        </div>
-    );
-}
+  const avatar =
+    v.authorThumbnails?.[0]?.url ||
+    v.authorThumbnails?.[v.authorThumbnails.length - 1]?.url ||
+    v.authorThumbnail ||
+    v.avatar_url ||
+    (v.authorId || v.channel_id ? `/api/channel-avatar?id=${encodeURIComponent(v.authorId || v.channel_id)}` : '');
 
-// Loading Skeleton
-function VideoSkeleton() {
-    return (
-        <div style={{ marginBottom: '32px' }}>
-            <div style={{ 
-                aspectRatio: '16/9', 
-                backgroundColor: '#272727', 
-                borderRadius: '12px',
-                marginBottom: '12px',
-                animation: 'pulse 1.5s ease-in-out infinite',
-            }} />
-            <div style={{ display: 'flex', gap: '12px' }}>
-                <div style={{ 
-                    width: '36px', 
-                    height: '36px', 
-                    borderRadius: '50%', 
-                    backgroundColor: '#272727',
-                    animation: 'pulse 1.5s ease-in-out infinite',
-                }} />
-                <div style={{ flex: 1 }}>
-                    <div style={{ 
-                        height: '14px', 
-                        backgroundColor: '#272727', 
-                        borderRadius: '4px',
-                        marginBottom: '8px',
-                        width: '90%',
-                        animation: 'pulse 1.5s ease-in-out infinite',
-                    }} />
-                    <div style={{ 
-                        height: '12px', 
-                        backgroundColor: '#272727', 
-                        borderRadius: '4px',
-                        width: '60%',
-                        animation: 'pulse 1.5s ease-in-out infinite',
-                    }} />
-                </div>
-            </div>
-        </div>
-    );
-}
-
-// Get region from cookie
-function getRegionFromCookie(): string {
-    if (typeof document === 'undefined') return 'VN';
-    const match = document.cookie.match(/(?:^|; )region=([^;]*)/);
-    return match ? decodeURIComponent(match[1]) : 'VN';
-}
-
-// Check if thumbnail URL is valid (not a 404 placeholder)
-function isValidThumbnail(thumbnail: string | undefined): boolean {
-    if (!thumbnail) return false;
-    // YouTube default thumbnails that are usually available
-    const validPatterns = [
-        'i.ytimg.com/vi/',
-        'i.ytimg.com/vi_webp/',
-    ];
-    return validPatterns.some(pattern => thumbnail.includes(pattern));
+  return {
+    id: vidId,
+    title: v.title || 'Untitled',
+    uploader: v.author || v.uploader || v.channelTitle || 'Unknown Creator',
+    channel_id: v.authorId || v.channel_id || '',
+    thumbnail: thumbUrl,
+    duration: dur,
+    view_count: v.viewCount ?? v.view_count ?? 0,
+    upload_date: v.publishedText || v.upload_date || '',
+    publishedAt: v.publishedText || '',
+    avatar_url: avatar,
+  };
 }
 
 export default function ClientHomePage() {
-    const searchParams = useSearchParams();
-    const categoryParam = searchParams.get('category') || 'All';
-    const [videos, setVideos] = useState<VideoData[]>([]);
-    const [loading, setLoading] = useState(true);
-    const [loadingMore, setLoadingMore] = useState(false);
-    const [currentCategory, setCurrentCategory] = useState(categoryParam);
-    const [page, setPage] = useState(1);
-    const [regionCode, setRegionCode] = useState('VN');
-    const [hasMore, setHasMore] = useState(true);
-    
-    // Use refs to track state for the observer callback
-    const loadingMoreRef = useRef(false);
-    const loadingRef = useRef(true);
-    const hasMoreRef = useRef(true);
-    const pageRef = useRef(1);
-    const emptyStreakRef = useRef(0);
-    // Whether "All" is serving the real personalized feed (offset pagination)
-    // or the search-based fallback (topic rotation).
-    const usingHomeFeedRef = useRef(false);
-    
-    useEffect(() => { loadingMoreRef.current = loadingMore; }, [loadingMore]);
-    useEffect(() => { loadingRef.current = loading; }, [loading]);
-    useEffect(() => { hasMoreRef.current = hasMore; }, [hasMore]);
-    useEffect(() => { pageRef.current = page; }, [page]);
+  const searchParams = useSearchParams();
+  const categoryParam = searchParams.get('category') || 'All';
+  const [videos, setVideos] = useState<VideoData[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [currentCategory, setCurrentCategory] = useState(categoryParam);
+  const [regionCode, setRegionCode] = useState('VN');
+  const [page, setPage] = useState(1);
+  const [hasMore, setHasMore] = useState(true);
 
-    const categories = ['All', 'Trending', 'Music', 'Gaming', 'News', 'Sports', 'Live', 'Education', 'Comedy', 'Tech', 'Food', 'Travel', 'Fashion', 'Science'];
+  // Sync state with URL parameter
+  useEffect(() => {
+    if (categoryParam) {
+      setCurrentCategory(categoryParam);
+    }
+  }, [categoryParam]);
 
-    // Initialize region from cookie
-    useEffect(() => {
-        const region = getRegionFromCookie();
-        setRegionCode(region);
-    }, []);
+  // Initialize and listen to region changes
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem('kv_region');
+      if (saved) setRegionCode(saved);
+    } catch {}
 
-    // Load videos when category or region changes
-    useEffect(() => {
-        loadVideos(currentCategory, 1);
-    }, [currentCategory, regionCode]);
-
-    // Listen for region changes
-    useEffect(() => {
-        const checkRegionChange = () => {
-            const newRegion = getRegionFromCookie();
-            setRegionCode(prev => {
-                if (newRegion !== prev) {
-                    return newRegion;
-                }
-                return prev;
-            });
-        };
-
-        // Listen for custom event from RegionSelector
-        const handleRegionChange = (e: CustomEvent) => {
-            if (e.detail?.region) {
-                setRegionCode(e.detail.region);
-            }
-        };
-
-        // Check when tab becomes visible
-        const handleVisibilityChange = () => {
-            if (document.visibilityState === 'visible') {
-                checkRegionChange();
-            }
-        };
-
-        // Check when window gets focus
-        const handleFocus = () => {
-            checkRegionChange();
-        };
-
-        window.addEventListener('regionchange', handleRegionChange as EventListener);
-        document.addEventListener('visibilitychange', handleVisibilityChange);
-        window.addEventListener('focus', handleFocus);
-        
-        // Also poll every 3 seconds as backup
-        const interval = setInterval(checkRegionChange, 3000);
-
-        return () => {
-            window.removeEventListener('regionchange', handleRegionChange as EventListener);
-            document.removeEventListener('visibilitychange', handleVisibilityChange);
-            window.removeEventListener('focus', handleFocus);
-            clearInterval(interval);
-        };
-    }, []); // Run once on mount
-
-    // Resolve real publish dates in the background and merge them into the feed.
-    const enrichDates = useCallback(async (list: VideoData[]) => {
-        const ids = list.filter(v => v.id && !v.upload_date).map(v => v.id);
-        if (ids.length === 0) return;
-        const dates = await getVideoDatesClient(ids.slice(0, 60));
-        if (!dates || Object.keys(dates).length === 0) return;
-        setVideos(prev => prev.map(v => {
-            const d = dates[v.id];
-            if (d && !v.upload_date) {
-                return { ...v, upload_date: d, publishedAt: formatRelativeTime(d) };
-            }
-            return v;
-        }));
-    }, []);
-
-    // Search-based "All" fallback: region-localized topics + light history
-    // personalization, used when the real personalized feed is unavailable.
-    const loadSearchAllFallback = useCallback(async (): Promise<VideoData[]> => {
-        const rc = getRegionContent(regionCode);
-        const trendingPromise = searchVideosClient(rc.trending, 15);
-
-        const historyRes = await fetch('/api/history?limit=10', { cache: 'no-store' });
-        const history = historyRes.ok ? await historyRes.json() : [];
-
-        const historyQueries: string[] = [];
-        if (Array.isArray(history) && history.length > 0) {
-            const channels = [...new Set(history.map((h: any) => h.uploader || h.channelTitle || '').filter(Boolean))]
-                .filter(c => c !== 'History')
-                .slice(0, 1);
-            historyQueries.push(...channels);
-        }
-
-        const shuffled = [...rc.topics].sort(() => Math.random() - 0.5);
-        const queries = [...historyQueries];
-        for (const topic of shuffled) {
-            if (queries.length >= 2) break;
-            queries.push(topic);
-        }
-
-        const searchResults = await Promise.all(queries.map(q => searchVideosClient(q, 10)));
-        const trending = await trendingPromise;
-        return [...trending, ...searchResults.flat()].sort(() => Math.random() - 0.5);
-    }, [regionCode]);
-
-    const loadVideos = async (category: string, pageNum: number) => {
-        try {
-            setLoading(true);
-            let results: VideoData[] = [];
-            const rc = getRegionContent(regionCode);
-
-            if (category === 'All') {
-                // The real personalized YouTube feed (server fetches it with
-                // its cookie session). Falls back to search-based content
-                // when the feed is unavailable.
-                const feed = await getHomeFeedClient(30, 0);
-                if (feed.videos.length > 0) {
-                    usingHomeFeedRef.current = true;
-                    results = feed.videos;
-                } else {
-                    usingHomeFeedRef.current = false;
-                    results = await loadSearchAllFallback();
-                }
-            } else if (category === 'Trending') {
-                results = await searchVideosClient(rc.trending, 30);
-            } else {
-                results = await searchVideosClient(categoryQuery(regionCode, category), 30);
-            }
-
-            // Remove duplicates and filter out videos without thumbnails
-            let uniqueResults = results.filter((video, index, self) => {
-                const isUnique = index === self.findIndex(v => v.id === video.id);
-                const hasThumbnail = isValidThumbnail(video.thumbnail);
-                return isUnique && hasThumbnail;
-            });
-
-            // If empty, attempt fallback to general trending content so the feed is never blank
-            if (uniqueResults.length === 0 && category !== 'Trending') {
-                const fallback = await searchVideosClient(rc.trending || 'popular music trending', 20);
-                uniqueResults = fallback.filter(v => isValidThumbnail(v.thumbnail));
-            }
-
-            setVideos(uniqueResults);
-            setPage(pageNum);
-            setHasMore(true);
-            hasMoreRef.current = true;
-            emptyStreakRef.current = 0;
-            enrichDates(uniqueResults);
-        } catch (error) {
-            console.error('Failed to load videos:', error);
-        } finally {
-            setLoading(false);
-        }
+    const handleRegionChange = (e: any) => {
+      if (e.detail?.region) {
+        setRegionCode(e.detail.region);
+      }
     };
+    window.addEventListener('regionchange', handleRegionChange);
+    return () => window.removeEventListener('regionchange', handleRegionChange);
+  }, []);
 
-    const handleCategoryChange = (category: string) => {
-        setCurrentCategory(category);
-        const url = new URL(window.location.href);
-        url.searchParams.set('category', category);
-        window.history.pushState({}, '', url);
-    };
+  // Fetch videos for selected category directly via Invidious backend matching selected region
+  const fetchFeed = useCallback(async (categoryId: string, pageNum: number): Promise<VideoData[]> => {
+    const cat = CATEGORIES.find((c) => c.id === categoryId) || CATEGORIES[0];
+    const rc = getRegionContent(regionCode);
 
-    const loadMore = useCallback(async () => {
-        if (loadingMoreRef.current || loadingRef.current || !hasMoreRef.current) return;
-        
-        setLoadingMore(true);
-        const nextPage = pageRef.current + 1;
-        
-        try {
-            let moreVideos: VideoData[] = [];
-            const rc = getRegionContent(regionCode);
+    try {
+      let items: any[] = [];
 
-            if (currentCategory === 'All') {
-                if (usingHomeFeedRef.current) {
-                    // Real feed: paginate through the server-cached list.
-                    const nextOffset = (nextPage - 1) * 30;
-                    const feed = await getHomeFeedClient(30, nextOffset);
-                    moreVideos = feed.videos;
-                    if (!feed.hasMore || moreVideos.length === 0) {
-                        setHasMore(false);
-                        hasMoreRef.current = false;
-                    }
-                } else {
-                    // Search fallback: rotate through localized topics; go
-                    // deeper (larger limit) on each full cycle so results
-                    // keep coming instead of repeating.
-                    const topics = getRegionContent(regionCode).topics;
-                    const cycle = Math.floor(((nextPage - 1) * 3) / topics.length);
-                    const perTopicLimit = 12 + cycle * 10;
-                    const startIdx = ((nextPage - 1) * 3) % topics.length;
-                    const batch = [0, 1, 2].map(i => topics[(startIdx + i) % topics.length]);
-
-                    const results = await Promise.all(batch.map(q => searchVideosClient(q, perTopicLimit)));
-                    moreVideos = results.flat().sort(() => Math.random() - 0.5);
-                }
-            } else if (currentCategory === 'Trending') {
-                const limit = 30 + (nextPage - 1) * 20;
-                moreVideos = await searchVideosClient(rc.trending, limit);
-            } else {
-                // Cycle through localized topics; increase depth each full cycle.
-                const pool = [categoryQuery(regionCode, currentCategory), ...rc.topics];
-                const queryIndex = (nextPage - 1) % pool.length;
-                const cycle = Math.floor((nextPage - 1) / pool.length);
-                const limit = 30 + cycle * 20;
-                moreVideos = await searchVideosClient(pool[queryIndex], limit);
-            }
-
-            // Remove duplicates and filter out videos without thumbnails
-            setVideos(prev => {
-                const existingIds = new Set(prev.map(v => v.id));
-                const uniqueNewVideos = moreVideos.filter(v =>
-                    !existingIds.has(v.id) && isValidThumbnail(v.thumbnail)
-                );
-
-                // Only give up after several consecutive pages yield nothing new,
-                // so a single repeated query doesn't kill infinite scroll.
-                if (uniqueNewVideos.length === 0) {
-                    emptyStreakRef.current += 1;
-                    if (emptyStreakRef.current >= 5) {
-                        setHasMore(false);
-                        hasMoreRef.current = false;
-                    }
-                } else {
-                    emptyStreakRef.current = 0;
-                }
-
-                return [...prev, ...uniqueNewVideos];
-            });
-            
-            setPage(nextPage);
-            enrichDates(moreVideos);
-        } catch (error) {
-            console.error('Failed to load more videos:', error);
-            // Don't stop infinite scroll on error - allow retry on next scroll
-        } finally {
-            setLoadingMore(false);
+      if (cat.id === 'All') {
+        // Home shows the most recent videos in the selected region.
+        items = await invidious.search(rc.trending, {
+          page: pageNum,
+          type: 'video',
+          region: regionCode,
+          sort_by: 'upload_date',
+        });
+      } else if (cat.id === 'Trending') {
+        // Trending is the collection of the most viewed videos.
+        items = await invidious.getTrending(regionCode);
+        if (!items || items.length === 0) {
+          items = await invidious.search(rc.trending, {
+            page: pageNum,
+            type: 'video',
+            region: regionCode,
+            sort_by: 'view_count',
+          });
         }
-    }, [currentCategory, regionCode, enrichDates]);
+      } else {
+        // Most recent videos for the selected category in the region.
+        const localizedQuery = categoryQuery(regionCode, cat.id);
+        items = await invidious.search(localizedQuery, {
+          page: pageNum,
+          type: 'video',
+          region: regionCode,
+          sort_by: 'upload_date',
+        });
+        if (!items || items.length === 0) {
+          items = await invidious.search(localizedQuery, {
+            page: pageNum,
+            type: 'video',
+            region: regionCode,
+            sort_by: 'relevance',
+          });
+        }
+      }
 
-    // Ref for the loadMore function to avoid stale closures
-    const loadMoreCallbackRef = useRef(loadMore);
-    useEffect(() => {
-        loadMoreCallbackRef.current = loadMore;
-    }, [loadMore]);
+      if (Array.isArray(items) && items.length > 0) {
+        return items.filter((v) => (v.videoId || v.id) && v.title).map(mapInvidiousVideo);
+      }
+    } catch (invidiousErr) {
+      console.warn(`[Feed] Invidious fetch failed for ${categoryId} (${regionCode}):`, invidiousErr);
+    }
 
-    // Infinite scroll using Intersection Observer
-    useEffect(() => {
-        // Don't set up observer while loading or if no videos
-        if (loading || videos.length === 0) return;
+    // Fallback search
+    try {
+      const q = categoryQuery(regionCode, cat.id);
+      const searchRes = await searchVideosClient(q, 30);
+      if (Array.isArray(searchRes) && searchRes.length > 0) {
+        return searchRes.filter((v) => v.id && v.title);
+      }
+    } catch (fallbackErr) {
+      console.warn('[Feed] Fallback search failed:', fallbackErr);
+    }
 
-        const observer = new IntersectionObserver(
-            (entries) => {
-                const entry = entries[0];
-                if (entry.isIntersecting && !loadingMoreRef.current && !loadingRef.current && hasMoreRef.current) {
-                    loadMoreCallbackRef.current();
-                }
-            },
-            { 
-                rootMargin: '600px',
-                threshold: 0
-            }
-        );
+    return [];
+  }, [regionCode]);
 
-        // Small delay to ensure DOM is ready
-        const timer = setTimeout(() => {
-            const sentinel = document.getElementById('scroll-sentinel');
-            if (sentinel) {
-                observer.observe(sentinel);
-            }
-        }, 50);
+  // Load initial videos
+  useEffect(() => {
+    let active = true;
+    async function load() {
+      setLoading(true);
+      const list = await fetchFeed(currentCategory, 1);
+      if (active) {
+        setVideos(list);
+        setPage(1);
+        setHasMore(list.length > 0);
+        setLoading(false);
+      }
+    }
+    load();
+    return () => {
+      active = false;
+    };
+  }, [currentCategory, regionCode, fetchFeed]);
 
-        return () => {
-            clearTimeout(timer);
-            observer.disconnect();
-        };
-    }, [loading, videos.length]); // Re-run when loading finishes or videos change
+  // Load more on button click
+  const handleLoadMore = async () => {
+    if (loadingMore || !hasMore) return;
+    setLoadingMore(true);
+    const nextPage = page + 1;
+    const more = await fetchFeed(currentCategory, nextPage);
+    if (more.length > 0) {
+      const existingIds = new Set(videos.map((v) => v.id));
+      const filtered = more.filter((v) => !existingIds.has(v.id));
+      setVideos((prev) => [...prev, ...filtered]);
+      setPage(nextPage);
+      if (filtered.length === 0) setHasMore(false);
+    } else {
+      setHasMore(false);
+    }
+    setLoadingMore(false);
+  };
 
-    return (
-        <div style={{ 
-            backgroundColor: 'var(--yt-background)', 
-            color: 'var(--yt-text-primary)', 
-            minHeight: '100vh',
-            padding: '0 24px 24px',
-        }}>
-            <div style={{ maxWidth: '1400px', margin: '0 auto' }}>
-                {/* Category Pills */}
-                <CategoryPills 
-                    categories={categories}
-                    currentCategory={currentCategory}
-                    onCategoryChange={handleCategoryChange}
+  const handleCategoryClick = (catId: string) => {
+    setCurrentCategory(catId);
+    const url = new URL(window.location.href);
+    url.searchParams.set('category', catId);
+    window.history.pushState({}, '', url);
+  };
+
+  return (
+    <div className="home-page-container" style={{ maxWidth: '1750px', margin: '0 auto', padding: '16px 24px 60px' }}>
+      {/* Category Pills (Material 3 Filter Chips) */}
+      <div
+        className="home-chips-row"
+        style={{
+          position: 'sticky',
+          top: 'var(--yt-header-height)',
+          zIndex: 300,
+          backgroundColor: 'var(--yt-background)',
+          display: 'flex',
+          gap: '8px',
+          overflowX: 'auto',
+          padding: '10px 0 14px',
+          marginBottom: '14px',
+          scrollbarWidth: 'none',
+          msOverflowStyle: 'none',
+          WebkitOverflowScrolling: 'touch',
+        }}
+      >
+        {CATEGORIES.map((cat) => {
+          const isActive = currentCategory === cat.id;
+          return (
+            <button
+              key={cat.id}
+              type="button"
+              onClick={() => handleCategoryClick(cat.id)}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '6px',
+                padding: '8px 16px',
+                borderRadius: '20px',
+                border: isActive ? 'none' : '1px solid var(--yt-border)',
+                backgroundColor: isActive
+                  ? 'var(--md-sys-color-primary, var(--yt-text-primary))'
+                  : 'var(--yt-surface)',
+                color: isActive
+                  ? 'var(--md-sys-color-on-primary, var(--yt-background))'
+                  : 'var(--yt-text-primary)',
+                fontSize: '13px',
+                fontWeight: 600,
+                cursor: 'pointer',
+                whiteSpace: 'nowrap',
+                transition: 'all 0.2s cubic-bezier(0.16, 1, 0.3, 1)',
+                flexShrink: 0,
+              }}
+            >
+              {cat.icon && <span>{cat.icon}</span>}
+              <span>{cat.label}</span>
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Videos Grid */}
+      {loading ? (
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))',
+            gap: '20px',
+          }}
+        >
+          {Array.from({ length: 12 }).map((_, i) => (
+            <div key={i} style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+              <div
+                style={{
+                  width: '100%',
+                  aspectRatio: '16/9',
+                  borderRadius: '16px',
+                  backgroundColor: 'var(--yt-hover)',
+                  animation: 'skeletonPulse 1.5s ease-in-out infinite',
+                }}
+              />
+              <div style={{ display: 'flex', gap: '10px' }}>
+                <div
+                  style={{
+                    width: '36px',
+                    height: '36px',
+                    borderRadius: '50%',
+                    backgroundColor: 'var(--yt-hover)',
+                    flexShrink: 0,
+                  }}
                 />
-
-                {/* Video Grid */}
-                {loading ? (
-                    <div style={{ 
-                        display: 'grid', 
-                        gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))',
-                        gap: '0 24px',
-                    }}>
-                        {[...Array(12)].map((_, i) => (
-                            <VideoSkeleton key={i} />
-                        ))}
-                    </div>
-                ) : (
-                    <>
-                        <div style={{ 
-                            display: 'grid', 
-                            gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))',
-                            gap: '0 24px',
-                        }}>
-                            {videos.map((video) => (
-                                <VideoCard key={video.id} video={video} />
-                            ))}
-                        </div>
-
-                        {/* Scroll Sentinel for Infinite Scroll */}
-                        <div id="scroll-sentinel" style={{ height: '100px', width: '100%' }} />
-
-                        {/* Loading More Indicator */}
-                        {loadingMore && (
-                            <div style={{ 
-                                display: 'flex', 
-                                justifyContent: 'center', 
-                                padding: '48px 0',
-                            }}>
-                                <LoadingSpinner />
-                            </div>
-                        )}
-
-                        {/* End of Results */}
-                        {!hasMore && videos.length > 0 && (
-                            <div style={{ 
-                                textAlign: 'center', 
-                                padding: '48px 0',
-                                color: 'var(--yt-text-secondary)',
-                                fontSize: '14px',
-                            }}>
-                                You've reached the end
-                            </div>
-                        )}
-
-                        {/* Empty State */}
-                        {videos.length === 0 && !loading && (
-                            <div style={{ 
-                                display: 'flex', 
-                                flexDirection: 'column',
-                                justifyContent: 'center', 
-                                alignItems: 'center', 
-                                height: '400px',
-                                color: 'var(--yt-text-secondary)',
-                            }}>
-                                <svg width="64" height="64" viewBox="0 0 24 24" fill="currentColor" style={{ marginBottom: '16px', opacity: 0.5 }}>
-                                    <path d="M21 19V5c0-1.1-.9-2-2-2H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2zM8.5 13.5l2.5 3.01L14.5 12l4.5 6H5l3.5-4.5z"/>
-                                </svg>
-                                <h3 style={{ fontSize: '16px', marginBottom: '8px' }}>No videos found</h3>
-                                <p style={{ fontSize: '14px' }}>Try selecting a different category</p>
-                            </div>
-                        )}
-                    </>
-                )}
+                <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                  <div
+                    style={{
+                      height: '14px',
+                      borderRadius: '6px',
+                      backgroundColor: 'var(--yt-hover)',
+                      width: '80%',
+                    }}
+                  />
+                  <div
+                    style={{
+                      height: '12px',
+                      borderRadius: '6px',
+                      backgroundColor: 'var(--yt-hover)',
+                      width: '50%',
+                    }}
+                  />
+                </div>
+              </div>
             </div>
-
-            {/* Animations */}
-            <style jsx>{`
-                @keyframes pulse {
-                    0%, 100% { opacity: 0.4; }
-                    50% { opacity: 0.6; }
-                }
-                ::-webkit-scrollbar {
-                    height: 0;
-                    width: 0;
-                }
-            `}</style>
+          ))}
         </div>
-    );
+      ) : videos.length === 0 ? (
+        <div style={{ textAlign: 'center', padding: '60px 20px', color: 'var(--yt-text-secondary)' }}>
+          <h3 style={{ fontSize: '18px', color: 'var(--yt-text-primary)', marginBottom: '8px' }}>No videos found</h3>
+          <p style={{ fontSize: '14px', marginBottom: '20px' }}>Select another category or refresh.</p>
+          <button
+            onClick={() => handleCategoryClick('Trending')}
+            style={{
+              padding: '10px 20px',
+              borderRadius: '20px',
+              backgroundColor: 'var(--md-sys-color-primary, var(--yt-blue))',
+              color: '#ffffff',
+              border: 'none',
+              fontWeight: 600,
+              cursor: 'pointer',
+            }}
+          >
+            Load Trending
+          </button>
+        </div>
+      ) : (
+        <>
+          <div
+            className="home-video-grid"
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))',
+              gap: '16px',
+            }}
+          >
+            {videos.map((v) => (
+              <VideoCard key={v.id} video={v} />
+            ))}
+          </div>
+
+          {/* Load More Button */}
+          {hasMore && (
+            <div style={{ display: 'flex', justifyContent: 'center', marginTop: '40px' }}>
+              <button
+                type="button"
+                onClick={handleLoadMore}
+                disabled={loadingMore}
+                style={{
+                  padding: '12px 32px',
+                  borderRadius: '24px',
+                  border: '1px solid var(--yt-border)',
+                  backgroundColor: 'var(--yt-surface)',
+                  color: 'var(--yt-text-primary)',
+                  fontWeight: 600,
+                  fontSize: '14px',
+                  cursor: loadingMore ? 'wait' : 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  transition: 'background-color 0.2s',
+                }}
+              >
+                {loadingMore ? <LoadingSpinner size="small" color="white" /> : 'Load More Videos'}
+              </button>
+            </div>
+          )}
+        </>
+      )}
+
+      <style jsx global>{`
+        @media (max-width: 600px) {
+          .home-page-container {
+            padding: 8px 12px 60px !important;
+          }
+          .home-chips-row {
+            margin-left: -12px !important;
+            margin-right: -12px !important;
+            padding-left: 12px !important;
+            padding-right: 12px !important;
+          }
+          .home-video-grid {
+            grid-template-columns: 1fr !important;
+            gap: 12px !important;
+          }
+        }
+        .home-chips-row::-webkit-scrollbar {
+          display: none;
+        }
+      `}</style>
+    </div>
+  );
 }

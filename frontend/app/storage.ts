@@ -10,6 +10,11 @@ export interface HistoryItem {
   title: string;
   thumbnail: string;
   channelTitle: string;
+  channelId?: string;
+  channelAvatar?: string;
+  duration?: string;
+  viewCount?: number;
+  uploadDate?: string;
   watchedAt: number;
 }
 
@@ -51,29 +56,44 @@ function saveToStorage<T>(key: string, items: T[]): void {
 
 // ==================== HISTORY ====================
 
-export function getHistory(limit: number = 50): HistoryItem[] {
+export function getHistory(limit: number = 100): HistoryItem[] {
   const history = getFromStorage<HistoryItem>(HISTORY_KEY);
   // Sort by most recent first
   return history.sort((a, b) => b.watchedAt - a.watchedAt).slice(0, limit);
 }
 
-export function addToHistory(video: { videoId: string; title: string; thumbnail: string; channelTitle?: string }): void {
+export function addToHistory(video: {
+  videoId: string;
+  title: string;
+  thumbnail?: string;
+  channelTitle?: string;
+  channelId?: string;
+  channelAvatar?: string;
+  duration?: string;
+  viewCount?: number;
+  uploadDate?: string;
+}): void {
   const history = getFromStorage<HistoryItem>(HISTORY_KEY);
-  
+
   // Remove duplicate if exists
-  const filtered = history.filter(h => h.videoId !== video.videoId);
-  
+  const filtered = history.filter((h) => h.videoId !== video.videoId);
+
   // Add new entry at the beginning
   const newItem: HistoryItem = {
     videoId: video.videoId,
-    title: video.title,
-    thumbnail: video.thumbnail,
-    channelTitle: video.channelTitle || 'Unknown',
+    title: video.title || 'Untitled Video',
+    thumbnail: video.thumbnail || `https://i.ytimg.com/vi/${video.videoId}/mqdefault.jpg`,
+    channelTitle: video.channelTitle || 'Creator',
+    channelId: video.channelId || '',
+    channelAvatar: video.channelAvatar || '',
+    duration: video.duration || '',
+    viewCount: video.viewCount ?? 0,
+    uploadDate: video.uploadDate || '',
     watchedAt: Date.now(),
   };
-  
-  // Keep only last 100 items
-  const updated = [newItem, ...filtered].slice(0, 100);
+
+  // Keep only last 150 items
+  const updated = [newItem, ...filtered].slice(0, 150);
   saveToStorage(HISTORY_KEY, updated);
 }
 

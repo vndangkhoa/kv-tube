@@ -1,71 +1,122 @@
+version: '3.8'
+
 services:
-  kv-tube:
-    image: git.khoavo.myds.me/vndangkhoa/kv-tube:latest
-
-    container_name: kv-tube
-    platform: linux/amd64
-    restart: unless-stopped
-
-    ports:
-      - "5011:3000"   # Frontend (Next.js)
-      - "8981:8080"   # Backend API (Go)
-
-    volumes:
-      - ./data:/app/data
-      # Optional: mount a valid Netscape cookies.txt for YouTube. NOTE: the
-      # server stages a writable copy internally, so a read-only mount works:
-      # - ./cookies.txt:/app/data/cookies.txt:ro
-
-    environment:
-      - KVTUBE_DATA_DIR=/app/data
-      # Public URL of the site. REQUIRED for share link previews (Facebook/
-      # Messenger, Discord, WhatsApp) to show the video thumbnail — set this to
-      # your real domain, e.g. NEXT_PUBLIC_SITE_URL=https://tube.example.com
-      - NEXT_PUBLIC_SITE_URL=${NEXT_PUBLIC_SITE_URL:-}
-      # - YTDLP_COOKIES=/app/data/cookies.txt  # Only needed if you mount a file above
-      # - FORCE_IPV6=1                         # 1=always IPv6, 0=never, unset=auto probe
-      - GIN_MODE=release
-      - NODE_ENV=production
-      - CORS_ALLOWED_ORIGINS=http://localhost:3000,http://127.0.0.1:3000,http://localhost:5011
-      # - YTDLP_PROXY=socks5://user:pass@host:port  # Uncomment to route yt-dlp through proxy
-      # - YTDLP_AUTO_UPDATE=false   # Disable yt-dlp nightly auto-update (default: enabled)
-      # - RATE_LIMIT_RATE=60        # Requests per interval (default: 60)
-      # - RATE_LIMIT_INTERVAL=1m    # Interval window (default: 1m)
-      # - RATE_LIMIT_BURST=20       # Burst capacity (default: 20)
-
-    devices:
-      - /dev/ptmx  # Required for downloads (progress parsing via pseudo-terminal)
-
-    # Docker's embedded DNS strips AAAA records; point the container at public
-    # resolvers so IPv6 lookups work on a dual-stack network.
-    dns:
-      - 8.8.8.8
-      - 1.1.1.1
-
-    networks:
-      - kvtube-net
-
+  # 1. Invidious PostgreSQL Database
+  invidious-db:
+    image: postgres:16-alpine
+    container_name: Invidious-DB
+    hostname: invidious-db
+    security_opt:
+      - no-new-privileges:true
     healthcheck:
-      test: ["CMD", "curl", "-fsS", "http://localhost:8080/api/health"]
-      interval: 60s
-      timeout: 10s
+      test: ["CMD", "pg_isready", "-q", "-d", "invidious", "-U", "kemal"]
+      timeout: 45s
+      interval: 10s
+      retries: 10
+    volumes:
+      - ./data/invidious/db:/var/lib/postgresql/data:rw
+    environment:
+      POSTGRES_DB: invidious
+      POSTGRES_USER: kemal
+      POSTGRES_PASSWORD: kemalpw
+    restart: unless-stopped
+    networks:
+      - invidious-net
+
+  # 2. Invidious Companion (YouTube Token Decryptor)
+  companion:
+    image: quay.io/invidious/invidious-companion:latest
+    container_name: Invidious-COMPANION
+    hostname: companion
+    environment:
+      SERVER_SECRET_KEY: KXyzWwrtQlgMiJZA
+    cap_drop:
+      - ALL
+    read_only: true
+    volumes:
+      - ./data/invidious/companion:/var/tmp/youtubei.js:rw
+    security_opt:
+      - no-new-privileges:true
+    restart: unless-stopped
+    networks:
+      - invidious-net
+
+  # 3. Invidious Core Backend Service
+  invidious:
+    image: quay.io/invidious/invidious:master
+    container_name: Invidious
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:3000 || exit 1"]
+      interval: 10s
+      timeout: 5s
       retries: 3
-      start_period: 30s
+      start_period: 90s
+    hostname: invidious
+    user: 1026:100
+    security_opt:
+      - no-new-privileges:true
+    ports:
+      - "7601:3000"
+    environment:
+      INVIDIOUS_CONFIG: |
+        db:
+          dbname: invidious
+          user: kemal
+          password: kemalpw
+          host: invidious-db
+          port: 5432
+        check_tables: true
+        captcha_enabled: false
+        default_user_preferences:
+          locale: vn
+          region: VN
+        external_port: 443
+        check_tables: true
+        invidious_companion:
+          - private_url: "http://companion:8282/companion"
+        invidious_companion_key: KXyzWwrtQlgMiJZA
+        hmac_key: e216a52a6d3f8ee752a0bbb4f6a4981b7287c4b39425d510ac86fe499fb8ec6f
+        domain: yt.khoavo.myds.me
+        https_only: true
+    restart: unless-stopped
+    depends_on:
+      invidious-db:
+        condition: service_healthy
+      companion:
+        condition: service_started
+    networks:
+      - invidious-net
 
-    labels:
-      - "com.centurylinklabs.watchtower.enable=true"
+  # 4. KV-Tube Materialious-Inspired Frontend WebApp
+  kv-tube:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    image: kv-tube-ui:latest
+    container_name: Invidious-Materialious-UI
+    restart: unless-stopped
+    ports:
+      - "3241:3000"
+    environment:
+      # Internal Invidious docker network URL (fast direct server-to-server)
+      - INVIDIOUS_URL=http://invidious:3000
+      # Public Invidious instance domain for client-side playback/thumbnails
+      - NEXT_PUBLIC_INVIDIOUS_URL=https://yt.khoavo.myds.me
+      - NEXT_PUBLIC_SITE_URL=https://youtube.khoavo.myds.me
+      - NEXT_PUBLIC_SPONSORBLOCK_URL=https://sponsor.ajay.app
+      - NEXT_PUBLIC_RYD_URL=https://returnyoutubedislikeapi.com
+      - NEXT_PUBLIC_DEFAULT_REGION=VN
+      - NODE_ENV=production
+    depends_on:
+      - invidious
+    networks:
+      - invidious-net
 
-# Dual-stack bridge network: required for the container to use IPv6 at all
-# (Docker's default network is IPv4-only). The server probes IPv6 at startup;
-# if the host has no IPv6 route it auto-falls back to IPv4, so enabling this
-# is safe on IPv4-only hosts. Requires a Docker daemon with IPv6 enabled
-# (default since Docker 20.10). If your daemon cannot create this network,
-# delete the whole `networks:` block below and remove `networks:` from the
-# service — the app still works over IPv4.
+# Bridge network with custom subnet to avoid IPAM conflicts
 networks:
-  kvtube-net:
+  invidious-net:
     driver: bridge
-    enable_ipv6: true
     ipam:
       config:
-        - subnet: fd00:1234::/64
+        - subnet: 172.42.0.0/24
+          gateway: 172.42.0.1

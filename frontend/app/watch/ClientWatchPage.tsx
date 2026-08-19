@@ -2,15 +2,16 @@
 
 import { useEffect, useState, useCallback, lazy, Suspense, useRef } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
-import MsePlayer from './MsePlayer';
 import YouTubePlayer from './YouTubePlayer';
 import DownloadSheet from './DownloadSheet';
 import { getVideoDetailsClient, getRelatedVideosClient, getCommentsClient, searchVideosClient } from '../clientActions';
 import { VideoData } from '../constants';
 import { proxiedThumb, proxiedImageUrl } from '../utils';
-import { isVideoSaved, toggleSaveVideo } from '../storage';
+import { isVideoSaved, toggleSaveVideo, addToHistory, isSubscribed, toggleSubscription } from '../storage';
+import { invidious } from '../services/invidious';
 import LoadingSpinner from '../components/LoadingSpinner';
 import Link from 'next/link';
+import { usePlayer } from '../context/PlayerContext';
 
 // Stale-while-revalidate cache (like React Query staleTime + gcTime)
 const apiCache = new Map<string, { data: any; timestamp: number }>();
@@ -104,61 +105,112 @@ function mixArrFilter(mix: VideoData[], videoId: string, related: VideoData[]): 
         );
 }
 
-// Video Info Section
-function VideoInfo({ video }: { video: any }) {
+import { fetchDislikes, RYDData } from '../services/ryd';
+import { useTheme } from '../context/ThemeContext';
+import {
+    IoThumbsUpOutline,
+    IoThumbsDownOutline,
+    IoShareSocialOutline,
+    IoBookmarkOutline,
+    IoBookmark,
+    IoDownloadOutline,
+    IoPlaySkipBack,
+    IoPlaySkipForward,
+    IoRepeat,
+    IoExpandOutline,
+    IoLogoYoutube,
+} from 'react-icons/io5';
+
+// Video Info Section with Material 3 & Return YouTube Dislike (RYD)
+function VideoInfo({
+    video,
+    onOpenDownload,
+    onPrevious,
+    onNext,
+    hasPrevious,
+    hasNext,
+    loopMode,
+    onToggleLoop,
+    wideMode,
+    onToggleWide,
+    playerMode,
+    onTogglePlayerMode,
+}: {
+    video: any;
+    onOpenDownload?: () => void;
+    onPrevious?: () => void;
+    onNext?: () => void;
+    hasPrevious?: boolean;
+    hasNext?: boolean;
+    loopMode?: boolean;
+    onToggleLoop?: () => void;
+    wideMode?: boolean;
+    onToggleWide?: () => void;
+    playerMode?: 'iframe' | 'hd';
+    onTogglePlayerMode?: () => void;
+}) {
     const [expanded, setExpanded] = useState(false);
     const [subscribed, setSubscribed] = useState(false);
     const [isSaved, setIsSaved] = useState(false);
     const [subscribing, setSubscribing] = useState(false);
+    const [ryd, setRyd] = useState<RYDData | null>(null);
+    const [userLiked, setUserLiked] = useState<boolean | null>(null);
+    const { adaptToThumbnail } = useTheme();
 
-    // Check subscription status via API and save status on mount
+    // Fetch subscription, saved state, RYD dislikes, record history, and adapt theme to thumbnail
     useEffect(() => {
         if (video?.channelId) {
-            fetch(`/api/subscribe?channel_id=${encodeURIComponent(video.channelId)}`)
-                .then(r => r.json())
-                .then(data => setSubscribed(data.subscribed))
-                .catch(() => setSubscribed(false));
+            setSubscribed(isSubscribed(video.channelId));
         }
         if (video?.id) {
             setIsSaved(isVideoSaved(video.id));
+            fetchDislikes(video.id).then(data => setRyd(data)).catch(() => {});
+            addToHistory({
+                videoId: video.id,
+                title: video.title || 'Untitled Video',
+                thumbnail: video.thumbnail || `https://i.ytimg.com/vi/${video.id}/mqdefault.jpg`,
+                channelTitle: video.channelTitle || video.uploader || 'Creator',
+                channelId: video.channelId || video.authorId || '',
+                channelAvatar: video.channelAvatar || video.authorThumbnails?.[0]?.url || video.authorThumbnail || '',
+                duration: video.duration || '',
+                viewCount: typeof video.viewCount === 'number' ? video.viewCount : (parseInt(String(video.viewCount || '0').replace(/[^0-9]/g, '')) || 0),
+                uploadDate: video.uploadDate || video.publishedText || '',
+            });
+            invidious.addAuthHistory(video.id).catch(() => {});
         }
-    }, [video?.channelId, video?.id]);
+        if (video?.thumbnail) {
+            adaptToThumbnail(video.thumbnail);
+        }
+    }, [video?.channelId, video?.id, video?.title, video?.thumbnail, video?.channelTitle, adaptToThumbnail]);
 
     const handleSubscribe = useCallback(async () => {
         if (!video?.channelId || subscribing) return;
         setSubscribing(true);
         try {
-            if (subscribed) {
-                const res = await fetch(`/api/subscribe?channel_id=${encodeURIComponent(video.channelId)}`, { method: 'DELETE' });
-                if (res.ok) setSubscribed(false);
-            } else {
-                const res = await fetch('/api/subscribe', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        channel_id: video.channelId,
-                        channel_name: video.channelTitle || video.channelId,
-                        channel_avatar: '',
-                    }),
-                });
-                if (res.ok) setSubscribed(true);
+            const next = toggleSubscription({
+                channelId: video.channelId,
+                channelName: video.channelTitle || video.channelId,
+                channelAvatar: video.channelAvatar || '',
+            });
+            setSubscribed(next);
+            if (next) {
+                invidious.pushSubscriptionToInvidious(video.channelId).catch(() => {});
             }
         } catch (error) {
             console.error('Subscribe error:', error);
         } finally {
             setSubscribing(false);
         }
-    }, [video?.channelId, video?.channelTitle, subscribed, subscribing]);
+    }, [video?.channelId, video?.channelTitle, video?.channelAvatar, subscribing]);
 
     const handleSave = useCallback(() => {
         if (!video?.id) return;
-        
         try {
             const nowSaved = toggleSaveVideo({
                 videoId: video.id,
                 title: video.title,
-                thumbnail: video.thumbnail,
-                channelTitle: video.channelTitle,
+                channelTitle: video.channelTitle || '',
+                thumbnail: video.thumbnail || '',
             });
             setIsSaved(nowSaved);
         } catch (error) {
@@ -173,116 +225,172 @@ function VideoInfo({ video }: { video: any }) {
     const shouldTruncate = description.length > 300;
     const displayDescription = expanded ? description : description.slice(0, 300) + (shouldTruncate ? '...' : '');
     
-    // Format date
-    const formatDate = (dateStr: string) => {
-        if (!dateStr || dateStr === 'Invalid Date') return '';
-        try {
-            const date = new Date(dateStr);
-            if (isNaN(date.getTime())) return '';
-            return date.toLocaleDateString('en-US', { 
-                year: 'numeric', 
-                month: 'short', 
-                day: 'numeric' 
-            });
-        } catch {
-            return '';
-        }
-    };
-    
     // Format view count
-    const formatViews = (views: string) => {
-        if (!views || views === '0') return 'No views';
-        const num = parseInt(views.replace(/[^0-9]/g, '') || '0');
+    const formatViews = (views: string | number) => {
+        if (!views || views === '0' || views === 0) return 'No views';
+        const num = typeof views === 'number' ? views : parseInt(String(views).replace(/[^0-9]/g, '') || '0');
         if (num >= 1000000) return (num / 1000000).toFixed(1) + 'M views';
         if (num >= 1000) return (num / 1000).toFixed(0) + 'K views';
         return num.toLocaleString() + ' views';
     };
+
+    const formatCount = (n: number) => {
+        if (n >= 1000000) return (n / 1000000).toFixed(1) + 'M';
+        if (n >= 1000) return (n / 1000).toFixed(1) + 'K';
+        return n.toString();
+    };
+
+    const likesDisplay = ryd ? formatCount(ryd.likes + (userLiked === true ? 1 : 0)) : (video.likeCount || 'Like');
+    const dislikesDisplay = ryd ? formatCount(ryd.dislikes + (userLiked === false ? 1 : 0)) : 'Dislike';
+    const likeRatio = ryd && (ryd.likes + ryd.dislikes > 0) ? (ryd.likes / (ryd.likes + ryd.dislikes)) * 100 : 95;
+    const channelAvatarUrl =
+        video.channelAvatar ||
+        video.authorThumbnails?.[0]?.url ||
+        video.authorThumbnail ||
+        (video.channelId ? `/api/channel-avatar?id=${encodeURIComponent(video.channelId)}` : '');
     
     return (
-        <div style={{ padding: '12px 0' }}>
-            {/* Title */}
+        <div style={{ padding: '8px 0 16px' }}>
+            {/* 1. Title */}
             <h1 style={{ 
-                fontSize: '18px', 
-                fontWeight: '600', 
-                marginBottom: '8px', 
+                fontSize: '20px', 
+                fontWeight: '700', 
+                margin: '8px 0 14px', 
                 color: 'var(--yt-text-primary)',
-                lineHeight: '1.3',
+                lineHeight: '1.35',
             }}>
                 {video.title || 'Untitled Video'}
             </h1>
             
-            {/* Channel Info & Actions Row */}
-            <div style={{ 
-                display: 'flex', 
-                justifyContent: 'space-between', 
-                alignItems: 'center',
-                flexWrap: 'wrap',
-                gap: '12px',
-                paddingBottom: '12px',
-                borderBottom: '1px solid var(--yt-border)',
-            }}>
-                {/* Channel - clickable, leads to channel page */}
-                {video.channelId ? (
+            {/* 2. Unified Channel & Actions Row */}
+            <div className="watch-meta-container">
+                {/* Left: Channel Info & Subscribe */}
+                <div className="watch-channel-group">
                     <Link
-                        href={`/channel/${video.channelId}`}
-                        style={{
-                            color: 'var(--yt-text-primary)',
-                            fontWeight: '500',
-                            fontSize: '14px',
-                            textDecoration: 'none',
-                            cursor: 'pointer',
-                        }}
-                        onMouseEnter={(e) => { (e.currentTarget as HTMLElement).style.textDecoration = 'underline'; }}
-                        onMouseLeave={(e) => { (e.currentTarget as HTMLElement).style.textDecoration = 'none'; }}
+                        href={video.channelId ? `/channel/${video.channelId}` : `/watch?v=${video.id}`}
+                        className="watch-channel-link"
                     >
-                        {video.channelTitle || 'Unknown Channel'}
+                        <div
+                            style={{
+                                width: '40px',
+                                height: '40px',
+                                borderRadius: '50%',
+                                backgroundColor: 'var(--yt-hover)',
+                                color: 'var(--yt-text-primary)',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                fontWeight: 700,
+                                fontSize: '16px',
+                                overflow: 'hidden',
+                                position: 'relative',
+                                flexShrink: 0,
+                            }}
+                        >
+                            <span>{(video.channelTitle || video.uploader || 'C').charAt(0).toUpperCase()}</span>
+                            {channelAvatarUrl && (
+                                <img
+                                    src={channelAvatarUrl.startsWith('http') ? `/api/proxy?url=${encodeURIComponent(channelAvatarUrl)}` : channelAvatarUrl}
+                                    alt={video.channelTitle}
+                                    loading="lazy"
+                                    decoding="async"
+                                    onError={(e) => {
+                                        const img = e.currentTarget as HTMLImageElement;
+                                        if (video.channelId && !img.src.includes('/api/channel-avatar?id=')) {
+                                            img.src = `/api/channel-avatar?id=${encodeURIComponent(video.channelId)}`;
+                                        } else {
+                                            img.style.display = 'none';
+                                        }
+                                    }}
+                                    style={{
+                                        position: 'absolute',
+                                        inset: 0,
+                                        width: '100%',
+                                        height: '100%',
+                                        objectFit: 'cover',
+                                        borderRadius: '50%',
+                                    }}
+                                />
+                            )}
+                        </div>
+                        <div style={{ minWidth: 0, overflow: 'hidden' }}>
+                            <div style={{ color: 'var(--yt-text-primary)', fontWeight: 600, fontSize: '15px', lineHeight: '1.2', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                {video.channelTitle || video.uploader || 'Unknown Channel'}
+                            </div>
+                            <div style={{ color: 'var(--yt-text-secondary)', fontSize: '12px', marginTop: '2px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                                {video.subCountText || (video.subscriberCount ? `${formatViews(video.subscriberCount)} subscribers` : '')}
+                            </div>
+                        </div>
                     </Link>
-                ) : (
-                    <div style={{
-                        color: 'var(--yt-text-primary)',
-                        fontWeight: '500',
-                        fontSize: '14px',
-                    }}>
-                        {video.channelTitle || 'Unknown Channel'}
-                    </div>
-                )}
-                
-                {/* Action Buttons - Subscribe, Share, Save */}
-                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
-                    {/* Subscribe Button with Toggle State */}
+
+                    {/* Subscribe Button */}
                     <button 
                         onClick={handleSubscribe}
                         disabled={subscribing}
-                        style={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '6px',
-                            padding: '8px 16px',
-                            backgroundColor: subscribed ? 'var(--yt-hover)' : '#cc0000',
-                            color: subscribed ? 'var(--yt-text-primary)' : '#fff',
-                            border: subscribed ? '1px solid var(--yt-border)' : 'none',
-                            borderRadius: '18px',
-                            cursor: subscribing ? 'wait' : 'pointer',
-                            fontWeight: '500',
-                            fontSize: '13px',
-                            transition: 'all 0.2s',
-                            opacity: subscribing ? 0.7 : 1,
-                        }}
+                        className={`watch-sub-btn ${subscribed ? 'subscribed' : 'unsubscribed'}`}
                     >
-                        {subscribing ? (
-                            '...'
-                        ) : subscribed ? (
-                            <>
-                                <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
-                                    <path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41L9 16.17z"/>
-                                </svg>
-                                Subscribed
-                            </>
-                        ) : (
-                            'Subscribe'
-                        )}
+                        {subscribing ? '...' : subscribed ? 'Subscribed' : 'Subscribe'}
                     </button>
-                    
+                </div>
+                
+                {/* Right: Unified Action Buttons Strip */}
+                <div className="watch-actions-scroll-strip">
+                    {/* Material 3 Like/Dislike Combo Pill (RYD Integrated) */}
+                    <div className="watch-like-dislike-pill">
+                        {/* Like Section */}
+                        <button
+                            type="button"
+                            onClick={() => setUserLiked(userLiked === true ? null : true)}
+                            className={`watch-like-btn ${userLiked === true ? 'active' : ''}`}
+                            title="I like this"
+                        >
+                            <IoThumbsUpOutline size={16} />
+                            <span className="watch-like-count">{likesDisplay}</span>
+                        </button>
+
+                        {/* Divider */}
+                        <div className="watch-pill-divider" />
+
+                        {/* Dislike Section (RYD) */}
+                        <button
+                            type="button"
+                            onClick={() => setUserLiked(userLiked === false ? null : false)}
+                            className={`watch-dislike-btn ${userLiked === false ? 'active' : ''}`}
+                            title="I dislike this"
+                        >
+                            <IoThumbsDownOutline size={16} />
+                            <span className="watch-dislike-count">{dislikesDisplay}</span>
+                        </button>
+                    </div>
+
+                    {/* Previous Button */}
+                    {onPrevious && (
+                        <button
+                            onClick={onPrevious}
+                            disabled={!hasPrevious}
+                            className="watch-action-pill"
+                            style={{ opacity: hasPrevious ? 1 : 0.4, cursor: hasPrevious ? 'pointer' : 'not-allowed' }}
+                            title="Previous video"
+                        >
+                            <IoPlaySkipBack size={15} />
+                            <span className="watch-btn-text">Prev</span>
+                        </button>
+                    )}
+
+                    {/* Next Button */}
+                    {onNext && (
+                        <button
+                            onClick={onNext}
+                            disabled={!hasNext}
+                            className={`watch-action-pill ${hasNext ? 'active' : ''}`}
+                            style={{ opacity: hasNext ? 1 : 0.4, cursor: hasNext ? 'pointer' : 'not-allowed' }}
+                            title="Next video"
+                        >
+                            <IoPlaySkipForward size={15} />
+                            <span className="watch-btn-text">Next</span>
+                        </button>
+                    )}
+
                     {/* Share Button */}
                     <button 
                         onClick={async () => {
@@ -295,9 +403,7 @@ function VideoInfo({ video }: { video: any }) {
                                         });
                                         return;
                                     } catch (shareErr: any) {
-                                        if (shareErr.name === 'AbortError') {
-                                            return;
-                                        }
+                                        if (shareErr.name === 'AbortError') return;
                                     }
                                 }
                                 await navigator.clipboard.writeText(window.location.href);
@@ -306,61 +412,75 @@ function VideoInfo({ video }: { video: any }) {
                                 alert('Could not share or copy link');
                             }
                         }}
-                        style={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '6px',
-                            padding: '8px 16px',
-                            backgroundColor: 'var(--yt-hover)',
-                            color: 'var(--yt-text-primary)',
-                            border: 'none',
-                            borderRadius: '18px',
-                            cursor: 'pointer',
-                            fontSize: '13px',
-                            fontWeight: '500',
-                            transition: 'background-color 0.2s',
-                        }}
+                        className="watch-action-pill"
+                        title="Share"
                     >
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
-                            <path d="M21 3H3c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h18c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H3V5h18v14zM9.41 15.95L12 13.36l2.59 2.59L16 14.54l-2.59-2.59L16 9.36l-1.41-1.41L12 10.54 9.41 7.95 8 9.36l2.59 2.59L8 14.54z"/>
-                        </svg>
-                        Share
+                        <IoShareSocialOutline size={16} />
+                        <span className="watch-btn-text">Share</span>
                     </button>
+
+                    {/* Download Button */}
+                    {onOpenDownload && (
+                        <button
+                            onClick={onOpenDownload}
+                            className="watch-action-pill"
+                            title="Download Video / Audio"
+                        >
+                            <IoDownloadOutline size={16} />
+                            <span className="watch-btn-text">Download</span>
+                        </button>
+                    )}
                     
                     {/* Save Button with Toggle State */}
                     <button 
                         onClick={handleSave}
-                        style={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            gap: '6px',
-                            padding: '8px 16px',
-                            backgroundColor: isSaved ? 'var(--yt-blue)' : 'var(--yt-hover)',
-                            color: isSaved ? '#fff' : 'var(--yt-text-primary)',
-                            border: 'none',
-                            borderRadius: '18px',
-                            cursor: 'pointer',
-                            fontSize: '13px',
-                            fontWeight: '500',
-                            transition: 'all 0.2s',
-                        }}
+                        className={`watch-action-pill ${isSaved ? 'active' : ''}`}
+                        title={isSaved ? 'Remove from saved' : 'Save to playlist'}
                     >
-                        {isSaved ? (
-                            <>
-                                <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
-                                    <path d="M17 3H7c-1.1 0-2 .9-2 2v16l7-3 7 3V5c0-1.1-.9-2-2-2z"/>
-                                </svg>
-                                Saved
-                            </>
-                        ) : (
-                            <>
-                                <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
-                                    <path d="M14 10H2v2h12v-2zm0-4H2v2h12V6zm4 8v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zM2 16h8v-2H2v2z"/>
-                                </svg>
-                                Save
-                            </>
-                        )}
+                        {isSaved ? <IoBookmark size={16} /> : <IoBookmarkOutline size={16} />}
+                        <span className="watch-btn-text">{isSaved ? 'Saved' : 'Save'}</span>
                     </button>
+
+                    {/* Loop Toggle */}
+                    {onToggleLoop && (
+                        <button
+                            onClick={onToggleLoop}
+                            title={loopMode ? 'Disable loop' : 'Enable loop'}
+                            className={`watch-action-pill ${loopMode ? 'active' : ''}`}
+                        >
+                            <IoRepeat size={16} />
+                            <span className="watch-btn-text">{loopMode ? 'Looping' : 'Loop'}</span>
+                        </button>
+                    )}
+
+                    {/* Wide Mode Toggle */}
+                    {onToggleWide && (
+                        <button
+                            onClick={onToggleWide}
+                            title={wideMode ? 'Exit wide mode' : 'Enter wide mode'}
+                            className={`watch-action-pill watch-action-wide ${wideMode ? 'active' : ''}`}
+                        >
+                            <IoExpandOutline size={16} />
+                            <span className="watch-btn-text">Wide</span>
+                        </button>
+                    )}
+
+                    {/* Player Source Toggle */}
+                    {onTogglePlayerMode && (
+                        <button
+                            onClick={onTogglePlayerMode}
+                            title={playerMode === 'iframe' ? 'Switch to self-hosted HD player' : 'Switch to YouTube embed player'}
+                            className="watch-action-pill watch-action-playermode"
+                            style={{
+                                backgroundColor: playerMode === 'iframe' ? 'var(--yt-brand-red, #ff0000)' : undefined,
+                                color: playerMode === 'iframe' ? '#ffffff' : undefined,
+                                borderColor: playerMode === 'iframe' ? 'transparent' : undefined,
+                            }}
+                        >
+                            <IoLogoYoutube size={16} />
+                            <span className="watch-btn-text">{playerMode === 'iframe' ? 'YouTube' : 'HD'}</span>
+                        </button>
+                    )}
                 </div>
             </div>
             
@@ -446,52 +566,84 @@ function MixPlaylist({ videos, currentIndex, onVideoSelect, title }: {
     onVideoSelect: (index: number) => void;
     title?: string;
 }) {
+    const [expanded, setExpanded] = useState(false);
+    const [isMobile, setIsMobile] = useState(false);
+
+    useEffect(() => {
+        const check = () => setIsMobile(window.innerWidth <= 900);
+        check();
+        window.addEventListener('resize', check);
+        return () => window.removeEventListener('resize', check);
+    }, []);
+
+    const visibleVideos = isMobile && !expanded ? videos.slice(0, 3) : videos;
+    const hasMore = isMobile && !expanded && videos.length > 3;
+
     return (
-        <div style={{
+        <div className="mix-playlist-container" style={{
             backgroundColor: 'var(--yt-hover)',
             borderRadius: '12px',
             overflow: 'hidden',
         }}>
             {/* Header */}
             <div style={{
-                padding: '12px 16px',
+                padding: '10px 14px',
                 borderBottom: '1px solid var(--yt-border)',
                 display: 'flex',
                 justifyContent: 'space-between',
                 alignItems: 'center',
             }}>
-                <div>
-                    <h3 style={{ fontSize: '14px', fontWeight: '600', margin: 0, color: 'var(--yt-text-primary)' }}>
+                <div style={{ minWidth: 0 }}>
+                    <h3 style={{ fontSize: '13px', fontWeight: '600', margin: 0, color: 'var(--yt-text-primary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                         {title || 'Mix Playlist'}
                     </h3>
                     <p style={{ fontSize: '11px', color: 'var(--yt-text-secondary)', margin: '2px 0 0 0' }}>
                         {videos.length} videos • Auto-play is on
                     </p>
                 </div>
+                {isMobile && videos.length > 3 && (
+                    <button
+                        onClick={() => setExpanded(!expanded)}
+                        style={{
+                            background: 'none',
+                            border: 'none',
+                            color: 'var(--yt-blue)',
+                            fontSize: '12px',
+                            fontWeight: 600,
+                            cursor: 'pointer',
+                            padding: '4px 8px',
+                            flexShrink: 0,
+                        }}
+                    >
+                        {expanded ? 'Show less' : `Show all`}
+                    </button>
+                )}
             </div>
             
             {/* Video List */}
-            <div style={{ maxHeight: '360px', overflowY: 'auto' }}>
-                {videos.map((video, index) => (
+            <div className="mix-playlist-list" style={{ maxHeight: isMobile ? 'none' : '360px', overflowY: isMobile ? 'visible' : 'auto' }}>
+                {visibleVideos.map((video, index) => {
+                    const actualIndex = isMobile && !expanded ? videos.findIndex(v => v.id === video.id) : index;
+                    return (
                     <div 
                         key={video.id}
-                        onClick={() => onVideoSelect(index)}
+                        onClick={() => onVideoSelect(actualIndex)}
                         style={{
                             display: 'flex',
                             gap: '10px',
-                            padding: '8px 12px',
+                            padding: '6px 12px',
                             cursor: 'pointer',
-                            backgroundColor: index === currentIndex ? 'var(--yt-active)' : 'transparent',
-                            borderLeft: index === currentIndex ? '3px solid var(--yt-blue)' : '3px solid transparent',
+                            backgroundColor: actualIndex === currentIndex ? 'var(--yt-active)' : 'transparent',
+                            borderLeft: actualIndex === currentIndex ? '3px solid var(--yt-blue)' : '3px solid transparent',
                             transition: 'background-color 0.2s',
                         }}
                         onMouseEnter={(e) => {
-                            if (index !== currentIndex) {
+                            if (actualIndex !== currentIndex) {
                                 (e.currentTarget as HTMLElement).style.backgroundColor = 'rgba(255,255,255,0.05)';
                             }
                         }}
                         onMouseLeave={(e) => {
-                            if (index !== currentIndex) {
+                            if (actualIndex !== currentIndex) {
                                 (e.currentTarget as HTMLElement).style.backgroundColor = 'transparent';
                             }
                         }}
@@ -504,8 +656,8 @@ function MixPlaylist({ videos, currentIndex, onVideoSelect, title }: {
                                 loading="lazy"
                                 decoding="async"
                                 style={{ 
-                                    width: '100px', 
-                                    height: '56px', 
+                                    width: '90px', 
+                                    height: '50px', 
                                     objectFit: 'cover',
                                     borderRadius: '6px',
                                 }}
@@ -515,17 +667,17 @@ function MixPlaylist({ videos, currentIndex, onVideoSelect, title }: {
                             />
                             <div style={{
                                 position: 'absolute',
-                                bottom: '3px',
-                                left: '3px',
+                                bottom: '2px',
+                                left: '2px',
                                 backgroundColor: 'rgba(0,0,0,0.8)',
                                 color: '#fff',
-                                padding: '1px 4px',
+                                padding: '1px 3px',
                                 borderRadius: '3px',
-                                fontSize: '10px',
+                                fontSize: '9px',
                             }}>
-                                {index + 1}/{videos.length}
+                                {actualIndex + 1}/{videos.length}
                             </div>
-                            {index === currentIndex && (
+                            {actualIndex === currentIndex && (
                                 <div style={{
                                     position: 'absolute',
                                     top: '50%',
@@ -533,9 +685,9 @@ function MixPlaylist({ videos, currentIndex, onVideoSelect, title }: {
                                     transform: 'translate(-50%, -50%)',
                                     backgroundColor: 'rgba(0,0,0,0.8)',
                                     borderRadius: '50%',
-                                    padding: '6px',
+                                    padding: '5px',
                                 }}>
-                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="white">
+                                    <svg width="12" height="12" viewBox="0 0 24 24" fill="white">
                                         <path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/>
                                     </svg>
                                 </div>
@@ -546,7 +698,7 @@ function MixPlaylist({ videos, currentIndex, onVideoSelect, title }: {
                         <div style={{ flex: 1, minWidth: 0 }}>
                             <div style={{ 
                                 fontSize: '12px', 
-                                fontWeight: index === currentIndex ? '600' : '500',
+                                fontWeight: actualIndex === currentIndex ? '600' : '500',
                                 color: 'var(--yt-text-primary)',
                                 lineHeight: '1.2',
                                 display: '-webkit-box',
@@ -566,8 +718,29 @@ function MixPlaylist({ videos, currentIndex, onVideoSelect, title }: {
                             )}
                         </div>
                     </div>
-                ))}
+                    );
+                })}
             </div>
+
+            {/* Show more indicator */}
+            {hasMore && (
+                <button
+                    onClick={() => setExpanded(true)}
+                    style={{
+                        width: '100%',
+                        padding: '8px',
+                        background: 'none',
+                        border: 'none',
+                        borderTop: '1px solid var(--yt-border)',
+                        color: 'var(--yt-text-secondary)',
+                        fontSize: '12px',
+                        cursor: 'pointer',
+                        textAlign: 'center',
+                    }}
+                >
+                    +{videos.length - 3} more videos
+                </button>
+            )}
         </div>
     );
 }
@@ -722,6 +895,7 @@ export default function ClientWatchPage() {
     const searchParams = useSearchParams();
     const router = useRouter();
     const videoId = searchParams.get('v');
+    const { setPlayingVideo, setIsPlaying, playerMode, setPlayerMode, loopMode, setLoopMode, watchHandlersRef } = usePlayer();
     const [videoInfo, setVideoInfo] = useState<any>(null);
     const [relatedVideos, setRelatedVideos] = useState<VideoData[]>([]);
     const [mixPlaylist, setMixPlaylist] = useState<VideoData[]>([]);
@@ -730,24 +904,11 @@ export default function ClientWatchPage() {
     const [activeTab, setActiveTab] = useState<'upnext' | 'mix'>('upnext');
     const [apiError, setApiError] = useState<string | null>(null);
 	const [wideMode, setWideMode] = useState(false);
-	const [loopMode, setLoopMode] = useState(false);
 	const [showDownload, setShowDownload] = useState(false);
-    // Player source: 'iframe' (YouTube embed, instant + always works) is the
-    // fast desktop default; 'hd' swaps to the self-hosted player for 4K + mobile
-    // background audio. Mobile defaults to 'hd' (background listening is the main
-    // mobile use case) unless the user has explicitly chosen a mode before.
-    // The choice is persisted in localStorage so it sticks across visits.
-    // Player source: 'iframe' (YouTube embed, instant + always works) is the
-    // fast, reliable default for all devices; 'hd' swaps to the self-hosted MSE player.
-    const [playerMode, setPlayerMode] = useState<'iframe' | 'hd'>('iframe');
-    useEffect(() => {
-        try {
-            const saved = window.localStorage.getItem('kv-player-mode');
-            if (saved === 'iframe' || saved === 'hd') {
-                setPlayerMode(saved);
-            }
-        } catch {}
-    }, []);
+    // Player source: 'iframe' (YouTube embed, instant + always works) vs 'hd'
+    // (self-hosted Materialious player with Shaka DASH, quality & subtitle menus,
+    // SponsorBlock). Lives in PlayerContext so the persistent player in the layout
+    // can render the correct engine. Persisted in localStorage.
     const togglePlayerMode = useCallback(() => {
         setPlayerMode((prev) => {
             const next = prev === 'iframe' ? 'hd' : 'iframe';
@@ -756,7 +917,7 @@ export default function ClientWatchPage() {
             } catch {}
             return next;
         });
-    }, []);
+    }, [setPlayerMode]);
 
     // Hover prefetch: debounce 220ms, prefetch Next.js route for instant navigation
     const prefetchTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
@@ -795,6 +956,16 @@ export default function ClientWatchPage() {
 				setLoading(true);
 				setApiError(null);
 
+				// Mount the persistent player immediately with just the ID so the
+				// stream starts loading before the metadata fetch completes.
+				setPlayingVideo({
+					id: videoId,
+					title: '',
+					uploader: '',
+					thumbnail: '',
+					duration: '',
+				});
+
 				// Continue from the clicked position when navigating between
 				// videos (?idx=N), so Next/Prev follow the list order instead
 				// of always restarting at the top.
@@ -808,18 +979,27 @@ export default function ClientWatchPage() {
 				]);
 				setVideoInfo(video);
 
-				// Add to watch history (fire-and-forget)
+				// Add to watch history (storage & Invidious) and sync Global Player
 				if (video) {
-					fetch('/api/history', {
-						method: 'POST',
-						headers: { 'Content-Type': 'application/json' },
-						body: JSON.stringify({
-							video_id: videoId,
-							title: video.title,
-							thumbnail: video.thumbnail,
-							uploader: video.uploader || video.channelTitle || '',
-						}),
-					}).catch(() => {});
+					setPlayingVideo({
+						id: videoId,
+						title: video.title || 'Untitled Video',
+						uploader: video.uploader || video.channelTitle || '',
+						thumbnail: video.thumbnail || '',
+						duration: video.duration || '',
+					});
+					setIsPlaying(true);
+					addToHistory({
+						videoId: videoId,
+						title: video.title || 'Untitled Video',
+						thumbnail: video.thumbnail || `https://i.ytimg.com/vi/${videoId}/mqdefault.jpg`,
+						channelTitle: video.uploader || video.channelTitle || 'Creator',
+						channelId: (video as any).channelId || video.channel_id || '',
+						duration: video.duration || '',
+						viewCount: typeof video.view_count === 'number' ? video.view_count : (parseInt(String(video.view_count || video.viewCount || '0').replace(/[^0-9]/g, '')) || 0),
+						uploadDate: video.upload_date || video.publishedAt || '',
+					});
+					invidious.addAuthHistory(videoId).catch(() => {});
 				}
 
 				keywords = titleKeywords(video?.title || '');
@@ -939,6 +1119,20 @@ export default function ClientWatchPage() {
         }
     };
 
+    // Publish the watch-page handlers to the persistent player (layout), which
+    // drives next/prev/loop/fallback for both the full player and the miniplayer.
+    watchHandlersRef.current = {
+        onNext: handleNext,
+        onPrev: handlePrevious,
+        onVideoEnd: handleVideoEnd,
+        onUseIframe: () => setPlayerMode('iframe'),
+        onError: () => {
+            console.warn('[Watch] MaterialiousPlayer error, falling back to YouTube iframe player');
+            setPlayerMode('iframe');
+        },
+        loopMode,
+    };
+
     if (!videoId) {
         return <div style={{ padding: '2rem', color: 'var(--yt-text-primary)' }}>No video ID provided</div>;
     }
@@ -974,193 +1168,33 @@ export default function ClientWatchPage() {
 						onVideoEnd={handleVideoEnd}
 					/>
 				) : (
-					<MsePlayer
-						videoId={videoId}
-						title={videoInfo?.title}
-						uploader={videoInfo?.channelTitle || videoInfo?.uploader}
-						thumbnail={videoInfo?.thumbnail}
-						autoplay={true}
-						loop={loopMode}
-						onVideoEnd={handleVideoEnd}
-						onNext={handleNext}
-						onPrev={handlePrevious}
-						onUseIframe={() => setPlayerMode('iframe')}
-						onError={() => {
-							console.warn('[Watch] MsePlayer error/blocked, falling back to YouTube iframe player');
-							setPlayerMode('iframe');
-						}}
-					/>
+					// The persistent player (in the layout) portals the MaterialiousPlayer
+					// engine into this mount, keeping the <video> element alive across
+					// route changes so switching full <-> mini never re-buffers.
+					<div id="watch-player-mount" style={{ width: '100%' }} />
 				)}
 					</div>
+ 
+                    {/* Video Info and Comments Body */}
+                    <div className="watch-main-body" style={{ width: '100%' }}>
+                        <VideoInfo
+                            video={videoInfo}
+                            onOpenDownload={() => setShowDownload(true)}
+                            onPrevious={handlePrevious}
+                            onNext={handleNext}
+                            hasPrevious={currentIndex > 0}
+                            hasNext={currentIndex < currentPlaylist.length - 1}
+                            loopMode={loopMode}
+                            onToggleLoop={() => setLoopMode(!loopMode)}
+                            wideMode={wideMode}
+                            onToggleWide={() => setWideMode(!wideMode)}
+                            playerMode={playerMode}
+                            onTogglePlayerMode={togglePlayerMode}
+                        />
 
-                    {/* Player Controls */}
-                    <div style={{ 
-                        display: 'flex', 
-                        justifyContent: 'space-between', 
-                        alignItems: 'center',
-                        padding: '8px 0',
-                        gap: '8px',
-                        flexWrap: 'wrap',
-                    }}>
-                        <div style={{ display: 'flex', gap: '8px' }}>
-                            <button
-                                onClick={handlePrevious}
-                                disabled={currentIndex <= 0}
-                                className="watch-ctrl-btn"
-                                style={{
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    gap: '6px',
-                                    padding: '8px 16px',
-                                    backgroundColor: currentIndex > 0 ? 'var(--yt-hover)' : 'transparent',
-                                    color: currentIndex > 0 ? 'var(--yt-text-primary)' : 'var(--yt-text-secondary)',
-                                    border: '1px solid var(--yt-border)',
-                                    borderRadius: '18px',
-                                    cursor: currentIndex > 0 ? 'pointer' : 'not-allowed',
-                                    fontSize: '13px',
-                                    fontWeight: '500',
-                                    opacity: currentIndex > 0 ? 1 : 0.5,
-                                }}
-                            >
-                                <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
-                                    <path d="M6 6h2v12H6zm3.5 6l8.5 6V6z"/>
-                                </svg>
-                                <span className="watch-ctrl-label">Previous</span>
-                            </button>
-                            
-                            <button
-                                onClick={handleNext}
-                                disabled={currentIndex >= currentPlaylist.length - 1}
-                                className="watch-ctrl-btn"
-                                style={{
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    gap: '6px',
-                                    padding: '8px 16px',
-                                    backgroundColor: currentIndex < currentPlaylist.length - 1 ? 'var(--yt-blue)' : 'var(--yt-hover)',
-                                    color: '#fff',
-                                    border: 'none',
-                                    borderRadius: '18px',
-                                    cursor: currentIndex < currentPlaylist.length - 1 ? 'pointer' : 'not-allowed',
-                                    fontSize: '13px',
-                                    fontWeight: '500',
-                                }}
-                            >
-                                <span className="watch-ctrl-label">Next</span>
-                                <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
-                                    <path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/>
-                                </svg>
-                            </button>
-                        </div>
-                        
-                        <div style={{ display: 'flex', gap: '8px' }}>
-                            {/* Loop Toggle */}
-                            <button
-                                onClick={() => setLoopMode(!loopMode)}
-                                title={loopMode ? 'Disable loop' : 'Enable loop'}
-                                className="watch-ctrl-btn"
-                                style={{
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    gap: '6px',
-                                    padding: '8px 16px',
-                                    backgroundColor: loopMode ? 'var(--yt-blue)' : 'var(--yt-hover)',
-                                    color: loopMode ? '#fff' : 'var(--yt-text-primary)',
-                                    border: 'none',
-                                    borderRadius: '18px',
-                                    cursor: 'pointer',
-                                    fontSize: '13px',
-                                    fontWeight: '500',
-                                    transition: 'all 0.2s',
-                                }}
-                            >
-                                <svg width="18" height="18" viewBox="0 0 24 24" fill={loopMode ? '#fff' : 'currentColor'}>
-                                    <path d="M12 4V1L8 5l4 4V6c3.31 0 6 2.69 6 6 0 1.01-.25 1.97-.7 2.8l1.46 1.46C19.54 15.03 20 13.57 20 12c0-4.42-3.58-8-8-8zm0 14c-3.31 0-6-2.69-6-6 0-1.01.25-1.97.7-2.8L5.24 7.74C4.46 8.97 4 10.43 4 12c0 4.42 3.58 8 8 8v3l4-4-4-4v3z"/>
-                                </svg>
-                                <span className="watch-ctrl-label">Loop</span>
-                            </button>
-                            
-                            {/* Wide Mode Toggle */}
-                            <button
-                                onClick={() => setWideMode(!wideMode)}
-                                title={wideMode ? 'Exit wide mode' : 'Enter wide mode'}
-                                className="watch-ctrl-btn"
-                                style={{
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    gap: '6px',
-                                    padding: '8px 16px',
-                                    backgroundColor: wideMode ? 'var(--yt-blue)' : 'var(--yt-hover)',
-                                    color: wideMode ? '#fff' : 'var(--yt-text-primary)',
-                                    border: 'none',
-                                    borderRadius: '18px',
-                                    cursor: 'pointer',
-                                    fontSize: '13px',
-                                    fontWeight: '500',
-                                    transition: 'all 0.2s',
-                                }}
-                            >
-                                <svg width="18" height="18" viewBox="0 0 24 24" fill={wideMode ? '#fff' : 'currentColor'}>
-                                    <path d="M19 4H5c-1.11 0-2 .9-2 2v12c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2V6c0-1.1-.9-2-2-2zm0 14H5V8h14v10z"/>
-                                </svg>
-                                <span className="watch-ctrl-label">Wide</span>
-                            </button>
-
-                            {/* Player source toggle: YouTube embed (fast) <-> self-hosted HD (4K + background) */}
-                            <button
-                                onClick={togglePlayerMode}
-                                title={playerMode === 'iframe' ? 'Switch to self-hosted HD (4K + lock-screen controls)' : 'Switch to YouTube embed (instant)'}
-                                className="watch-ctrl-btn"
-                                style={{
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    gap: '6px',
-                                    padding: '8px 16px',
-                                    backgroundColor: playerMode === 'hd' ? 'var(--yt-blue)' : 'var(--yt-hover)',
-                                    color: playerMode === 'hd' ? '#fff' : 'var(--yt-text-primary)',
-                                    border: 'none',
-                                    borderRadius: '18px',
-                                    cursor: 'pointer',
-                                    fontSize: '13px',
-                                    fontWeight: '500',
-                                    transition: 'all 0.2s',
-                                }}
-                            >
-                                {playerMode === 'iframe' ? 'HD' : 'YouTube'}
-                            </button>
-
-                            {/* Download (TypeType-style sheet) */}
-                            <button
-                                onClick={() => setShowDownload(true)}
-                                title="Download video or audio"
-                                className="watch-ctrl-btn"
-                                style={{
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    gap: '6px',
-                                    padding: '8px 16px',
-                                    backgroundColor: 'var(--yt-hover)',
-                                    color: 'var(--yt-text-primary)',
-                                    border: 'none',
-                                    borderRadius: '18px',
-                                    cursor: 'pointer',
-                                    fontSize: '13px',
-                                    fontWeight: '500',
-                                }}
-                            >
-                                <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor">
-                                    <path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z" />
-                                </svg>
-                                <span className="watch-ctrl-label">Download</span>
-                            </button>
-                        </div>
+                        {/* Comments */}
+                        <CommentSection videoId={videoId} />
                     </div>
-
-                    {/* Video Info */}
-                    <VideoInfo video={videoInfo} />
-
-                    {/* Comments */}
-                    <CommentSection videoId={videoId} />
                 </div>
 
                 {/* Sidebar — in wide mode it flows below the main content
@@ -1344,12 +1378,6 @@ export default function ClientWatchPage() {
                         flex: none !important;
                         min-height: auto !important;
                         overflow-y: visible !important;
-                    }
-                }
-                
-                @media (max-width: 768px) {
-                    .watch-page-container {
-                        padding: 8px !important;
                     }
                 }
             `}</style>

@@ -4,6 +4,8 @@ import { useEffect, useMemo, useState, useCallback, useRef } from 'react';
 import Hls from 'hls.js';
 import YouTubePlayer from './YouTubePlayer';
 import { useMediaSession, setMediaSessionPlaybackState, updateMediaSessionPosition } from '../hooks/useMediaSession';
+import { fetchSponsorSegments, SponsorSegment, SPONSOR_CATEGORY_COLORS } from '../services/sponsorblock';
+import { invidious } from '../services/invidious';
 
 interface PlaybackFormat {
     format_id: string;
@@ -27,6 +29,7 @@ interface PlaybackInfo {
     duration: number;
     video_formats: PlaybackFormat[];
     audio_format?: PlaybackFormat;
+    source?: string;
 }
 
 interface MsePlayerProps {
@@ -45,7 +48,8 @@ interface MsePlayerProps {
 }
 
 function proxyUrl(raw: string): string {
-    return `/api/media-proxy?url=${encodeURIComponent(raw)}`;
+    if (!raw) return '';
+    return raw;
 }
 
 // KB §5: YouTube serves WebM/Opus by default — plays in Chrome, Firefox, Edge
@@ -85,13 +89,6 @@ function isPlayableFormat(f: PlaybackFormat): boolean {
 // directly with its own IP/referrer and often fail.
 class ProxyLoader extends Hls.DefaultConfig.loader {
     load(context: any, config: any, callbacks: any) {
-        const url = context?.url;
-        if (typeof url === 'string' && /^https?:\/\//i.test(url) && !url.startsWith(window.location.origin)) {
-            context.url = `/api/media-proxy?url=${encodeURIComponent(url)}`;
-            super.load(context, config, callbacks);
-            context.url = url;
-            return;
-        }
         super.load(context, config, callbacks);
     }
 }
@@ -159,6 +156,17 @@ export default function MsePlayer({
     const [isFullscreen, setIsFullscreen] = useState(false);
 
     const [audioPref, setAudioPref] = useState<'opus' | 'm4a'>(OPUS_SUPPORTED ? 'opus' : 'm4a');
+    const [sponsorSegments, setSponsorSegments] = useState<SponsorSegment[]>([]);
+    const [skipToast, setSkipToast] = useState<string | null>(null);
+    const skipToastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+    // Fetch SponsorBlock skip segments
+    useEffect(() => {
+        if (!videoId) return;
+        fetchSponsorSegments(videoId)
+            .then(segs => setSponsorSegments(segs || []))
+            .catch(() => setSponsorSegments([]));
+    }, [videoId]);
 
     // Refs that mirror state — used inside effects to avoid re-running the
     // expensive HLS setup when only volume/mute/rate change.
@@ -348,61 +356,157 @@ export default function MsePlayer({
         setSelectedFormatId(null);
         audioErrorHandled.current = false;
 
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => {
-            controller.abort();
+        const loadFormats = async () => {
+            // 1. Try Invidious Video Streams
+            try {
+                const inv = await invidious.getVideo(videoId);
+                if (cancelled) return;
+                if (inv && (
+                    (Array.isArray(inv.formatStreams) && inv.formatStreams.length > 0) ||
+                    (Array.isArray(inv.adaptiveFormats) && inv.adaptiveFormats.length > 0) ||
+                    inv.hlsUrl
+                )) {
+                    const formats: PlaybackFormat[] = [];
+                    const instance = invidious.getInstanceUrl();
+
+                    (inv.formatStreams || []).forEach((fs, i) => {
+                        const h = parseInt(fs.qualityLabel?.replace(/[^0-9]/g, '') || fs.resolution?.split('x')[1] || '720') || 720;
+                        const itag = fs.itag || (h >= 720 ? '22' : '18');
+                        const streamUrl = `${instance}/latest_version?id=${videoId}&itag=${itag}`;
+                        formats.push({
+                            format_id: itag,
+                            height: h,
+                            width: Math.round(h * 16 / 9),
+                            vcodec: fs.encoding || 'h264',
+                            acodec: 'aac',
+                            ext: fs.container || 'mp4',
+                            bandwidth: 2000000,
+                            fps: fs.fps || 30,
+                            filesize: 0,
+                            url: streamUrl,
+                            has_audio: true,
+                            fragment_count: 0,
+                        });
+                    });
+
+                    // Ensure standard 720p and 360p streams are always available
+                    if (formats.length === 0) {
+                        formats.push(
+                            {
+                                format_id: '22',
+                                height: 720,
+                                width: 1280,
+                                vcodec: 'h264',
+                                acodec: 'aac',
+                                ext: 'mp4',
+                                bandwidth: 2500000,
+                                fps: 30,
+                                filesize: 0,
+                                url: `${instance}/latest_version?id=${videoId}&itag=22`,
+                                has_audio: true,
+                                fragment_count: 0,
+                            },
+                            {
+                                format_id: '18',
+                                height: 360,
+                                width: 640,
+                                vcodec: 'h264',
+                                acodec: 'aac',
+                                ext: 'mp4',
+                                bandwidth: 800000,
+                                fps: 30,
+                                filesize: 0,
+                                url: `${instance}/latest_version?id=${videoId}&itag=18`,
+                                has_audio: true,
+                                fragment_count: 0,
+                            }
+                        );
+                    }
+
+                    let audioFmt: PlaybackFormat | undefined = {
+                        format_id: '140',
+                        height: 0,
+                        width: 0,
+                        vcodec: 'none',
+                        acodec: 'aac',
+                        ext: 'm4a',
+                        bandwidth: 128000,
+                        fps: 0,
+                        filesize: 0,
+                        url: `${instance}/latest_version?id=${videoId}&itag=140`,
+                        has_audio: true,
+                        fragment_count: 0,
+                    };
+
+                    (inv.adaptiveFormats || []).forEach((af, i) => {
+                        if (af.type?.includes('video')) {
+                            const h = parseInt(af.qualityLabel?.replace(/[^0-9]/g, '') || af.resolution?.split('x')[1] || '1080') || 1080;
+                            formats.push({
+                                format_id: af.itag || `adapt_${i}`,
+                                height: h,
+                                width: Math.round(h * 16 / 9),
+                                vcodec: af.encoding || 'h264',
+                                acodec: 'none',
+                                ext: af.container || 'mp4',
+                                bandwidth: parseInt(af.bitrate || '2500000') || 2500000,
+                                fps: af.fps || 30,
+                                filesize: 0,
+                                url: `${instance}/latest_version?id=${videoId}&itag=${af.itag || '137'}`,
+                                has_audio: false,
+                                fragment_count: 0,
+                            });
+                        }
+                    });
+
+                    if (inv.hlsUrl) {
+                        const hls = inv.hlsUrl.startsWith('http') ? inv.hlsUrl : `${instance}${inv.hlsUrl}`;
+                        formats.push({
+                            format_id: 'hls_auto',
+                            height: 1080,
+                            width: 1920,
+                            vcodec: 'h264',
+                            acodec: 'aac',
+                            ext: 'm3u8',
+                            bandwidth: 3000000,
+                            fps: 30,
+                            filesize: 0,
+                            url: hls,
+                            has_audio: true,
+                            fragment_count: 0,
+                        });
+                    }
+
+                    if (formats.length > 0) {
+                        const d: PlaybackInfo = {
+                            title: inv.title,
+                            duration: inv.lengthSeconds || 0,
+                            video_formats: formats,
+                            audio_format: audioFmt,
+                            source: 'invidious',
+                        };
+                        setPlaybackInfo(d);
+                        if (d.duration > 0) setDuration(d.duration);
+                        const playable = formats.filter(f => f.has_audio || isPlayableFormat(f));
+                        const pool = playable.length > 0 ? playable : formats;
+                        const sorted = [...pool].sort((a, b) => b.height - a.height);
+                        setSelectedFormatId(sorted[0].format_id);
+                        return;
+                    }
+                }
+            } catch (err) {
+                console.warn('[MsePlayer] Invidious format lookup notice:', err);
+            }
+
+            // Fallback to YouTube embed
             if (!cancelled) {
-                console.warn('[MsePlayer] playback-info timed out after 3.5s, auto-falling back to YouTube iframe');
                 onUseIframe?.();
             }
-        }, 3500);
+        };
 
-        fetch(`/api/video/${videoId}/playback-info?audio=${audioPref}`, { signal: controller.signal })
-            .then(async (r) => {
-                clearTimeout(timeoutId);
-                const d = await r.json();
-                if (cancelled) return;
-                if (!r.ok) {
-                    const msg = d?.error || `playback-info failed (HTTP ${r.status})`;
-                    console.error('[MsePlayer] playback-info error:', msg);
-                    setFailReason(msg);
-                    setFailed(true);
-                    onError?.();
-                    onUseIframe?.();
-                    return;
-                }
-                setPlaybackInfo(d);
-                if (d.duration > 0) setDuration(d.duration);
-                if (d.video_formats && d.video_formats.length > 0) {
-                    // This player uses a plain <video> (progressive) or hls.js
-                    // (HLS manifest); DASH-only formats (fragment_count>0)
-                    // need full MSE and are skipped. Pick the best playable
-                    // format up front instead of waiting for an error fallback.
-                    const playable = d.video_formats.filter(isPlayableFormat);
-                    const pool = playable.length > 0 ? playable : d.video_formats;
-                    const sorted = [...pool].sort((a, b) => b.height - a.height);
-                    setSelectedFormatId(sorted[0].format_id);
-                } else {
-                    setFailReason('No playable formats returned');
-                    setFailed(true);
-                    onError?.();
-                    onUseIframe?.();
-                }
-            })
-            .catch((err: any) => {
-                clearTimeout(timeoutId);
-                if (cancelled) return;
-                console.error('[MsePlayer] playback-info fetch failed or timed out:', err);
-                setFailReason(err?.message || String(err));
-                setFailed(true);
-                onError?.();
-                onUseIframe?.();
-            });
+        loadFormats();
 
         return () => {
             cancelled = true;
-            clearTimeout(timeoutId);
-            controller.abort();
         };
     }, [videoId, audioPref, retryKey]);
 
@@ -660,10 +764,27 @@ export default function MsePlayer({
         };
 
         const onTimeUpdate = () => {
-            setCurrentTime(video.currentTime);
+            const t = video.currentTime;
+            setCurrentTime(t);
             if (video.duration && !isNaN(video.duration)) {
                 setDuration(video.duration);
             }
+
+            // SponsorBlock automatic segment skipping
+            if (sponsorSegments.length > 0) {
+                for (const seg of sponsorSegments) {
+                    if (seg.segment && t >= seg.segment[0] && t < seg.segment[1] - 0.5) {
+                        video.currentTime = seg.segment[1];
+                        if (audio) audio.currentTime = seg.segment[1];
+                        const catLabel = SPONSOR_CATEGORY_COLORS[seg.category]?.label || 'Sponsor';
+                        setSkipToast(`Skipped ${catLabel}`);
+                        if (skipToastTimer.current) clearTimeout(skipToastTimer.current);
+                        skipToastTimer.current = setTimeout(() => setSkipToast(null), 3000);
+                        break;
+                    }
+                }
+            }
+
             // Keep the notification seek bar fresh, throttled to ~1s.
             const now = Date.now();
             if (now - lastPosUpdateRef.current > 1000) {
@@ -1028,7 +1149,14 @@ export default function MsePlayer({
         <div
             ref={containerRef}
             className="relative w-full aspect-video bg-black overflow-hidden group select-none"
-            style={{ position: 'relative', backgroundColor: '#000', cursor: showControls ? 'default' : 'none' }}
+            style={{
+                position: 'relative',
+                backgroundColor: '#000',
+                borderRadius: '16px',
+                boxShadow: '0 8px 32px rgba(0, 0, 0, 0.5), 0 0 60px var(--ambient-glow, rgba(56, 128, 255, 0.15))',
+                cursor: showControls ? 'default' : 'none',
+                transition: 'box-shadow 0.4s ease',
+            }}
             onMouseMove={resetHideControlsTimer}
             onMouseLeave={() => isPlaying && setShowControls(false)}
             onTouchStart={() => { if (isTouchDevice()) resetHideControlsTimer(); }}
@@ -1150,7 +1278,33 @@ export default function MsePlayer({
                     transition: 'opacity 0.25s ease-in-out',
                 }}
             >
-                {/* PROGRESS / SEEK BAR */}
+                {/* Skip Notification Toast */}
+                {skipToast && (
+                    <div style={{
+                        position: 'absolute',
+                        bottom: '56px',
+                        left: '16px',
+                        backgroundColor: 'rgba(0, 0, 0, 0.85)',
+                        backdropFilter: 'blur(8px)',
+                        color: '#00d66c',
+                        padding: '6px 14px',
+                        borderRadius: '20px',
+                        fontSize: '12px',
+                        fontWeight: 600,
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                        zIndex: 20,
+                        border: '1px solid rgba(0, 214, 108, 0.4)',
+                        boxShadow: '0 4px 16px rgba(0,0,0,0.5)',
+                        animation: 'fadeIn 0.2s ease-out',
+                    }}>
+                        <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: '#00d66c' }} />
+                        {skipToast}
+                    </div>
+                )}
+
+                {/* PROGRESS / SEEK BAR (With SponsorBlock Segments) */}
                 <div
                     ref={progressBarRef}
                     onClick={handleSeek}
@@ -1166,6 +1320,31 @@ export default function MsePlayer({
                     onMouseEnter={(e) => e.currentTarget.style.height = '8px'}
                     onMouseLeave={(e) => e.currentTarget.style.height = '6px'}
                 >
+                    {/* SponsorBlock Segment Markers */}
+                    {duration > 0 && sponsorSegments.map((seg, idx) => {
+                        const startPct = Math.max(0, Math.min(100, (seg.segment[0] / duration) * 100));
+                        const endPct = Math.max(0, Math.min(100, (seg.segment[1] / duration) * 100));
+                        const widthPct = Math.max(0.5, endPct - startPct);
+                        const color = SPONSOR_CATEGORY_COLORS[seg.category]?.color || '#00d66c';
+                        return (
+                            <div
+                                key={idx}
+                                style={{
+                                    position: 'absolute',
+                                    left: `${startPct}%`,
+                                    width: `${widthPct}%`,
+                                    top: 0,
+                                    bottom: 0,
+                                    backgroundColor: color,
+                                    borderRadius: '2px',
+                                    opacity: 0.85,
+                                    zIndex: 2,
+                                }}
+                                title={SPONSOR_CATEGORY_COLORS[seg.category]?.label || 'Sponsor segment'}
+                            />
+                        );
+                    })}
+
                     <div
                         style={{
                             position: 'absolute',
@@ -1173,9 +1352,10 @@ export default function MsePlayer({
                             top: 0,
                             bottom: 0,
                             width: `${progressPct}%`,
-                            backgroundColor: '#FF0033',
+                            backgroundColor: 'var(--md-sys-color-primary, #FF0033)',
                             borderRadius: '3px',
-                            boxShadow: '0 0 10px rgba(255, 0, 51, 0.8)',
+                            boxShadow: '0 0 10px rgba(255, 0, 51, 0.6)',
+                            zIndex: 3,
                         }}
                     />
                     <div
@@ -1187,9 +1367,10 @@ export default function MsePlayer({
                             width: '14px',
                             height: '14px',
                             borderRadius: '50%',
-                            backgroundColor: '#FF0033',
+                            backgroundColor: 'var(--md-sys-color-primary, #FF0033)',
                             boxShadow: '0 0 8px rgba(0,0,0,0.6)',
                             transition: 'scale 0.15s ease',
+                            zIndex: 4,
                         }}
                     />
                 </div>

@@ -1,23 +1,37 @@
 {
-  "name": "KV-Tube - Video Streaming",
+  "name": "KV-Tube",
   "short_name": "KV-Tube",
-  "description": "A modern YouTube-like video streaming platform with background playback",
+  "description": "Ad-free lightweight video streaming platform with background playback",
   "start_url": "/",
   "display": "standalone",
   "display_override": ["window-controls-overlay", "standalone", "minimal-ui"],
   "orientation": "any",
-  "background_color": "#000000",
-  "theme_color": "#ff0000",
+  "background_color": "#0f0f0f",
+  "theme_color": "#0f0f0f",
   "scope": "/",
   "lang": "en",
   "categories": ["entertainment", "music", "video"],
   "prefer_related_applications": false,
   "shortcuts": [
     {
-      "name": "Trending Videos",
+      "name": "Trending",
       "short_name": "Trending",
       "description": "View trending videos",
-      "url": "/?trending=true",
+      "url": "/feed/trending",
+      "icons": [{ "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml" }]
+    },
+    {
+      "name": "Subscriptions",
+      "short_name": "Subscriptions",
+      "description": "View channel subscriptions",
+      "url": "/feed/subscriptions",
+      "icons": [{ "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml" }]
+    },
+    {
+      "name": "History",
+      "short_name": "History",
+      "description": "View watch history",
+      "url": "/feed/history",
       "icons": [{ "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml" }]
     },
     {
@@ -48,10 +62,22 @@
       "purpose": "any"
     },
     {
+      "src": "/icons/icon-maskable-192x192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
       "src": "/icons/icon-512x512.png",
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "any"
+    },
+    {
+      "src": "/icons/icon-maskable-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
     }
   ]
 }

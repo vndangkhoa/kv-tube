@@ -2,19 +2,15 @@
 const nextConfig = {
     output: "standalone",
     reactStrictMode: true,
-    eslint: { ignoreDuringBuilds: true },
+    devIndicators: false,
     typescript: { ignoreBuildErrors: false },
     images: {
         remotePatterns: [
             { protocol: 'https', hostname: 'i.ytimg.com' },
             { protocol: 'https', hostname: 'yt3.ggpht.com' },
+            { protocol: 'https', hostname: '*.ggpht.com' },
+            { protocol: 'https', hostname: '*.googleusercontent.com' },
         ],
-    },
-    async rewrites() {
-        const apiBase = 'http://localhost:8080';
-        return [
-            { source: '/api/:path*', destination: `${apiBase}/api/:path*` },
-        ];
     },
 };
 

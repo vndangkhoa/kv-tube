@@ -26,19 +26,28 @@ function mediaSessionAvailable(): boolean {
 }
 
 // Build the artwork list from the video thumbnail (the notification cover).
-// Only 4:3 sources are used: 16:9 artwork makes some Android skins render
-// the thumbnail full-bleed BEHIND the title text; a 4:3 cover makes the OS
-// place the thumbnail to the side (classic media-card layout, no overlap).
+// We supply standard square sizes (96x96 up to 512x512) alongside 4:3 and 16:9
+// so the OS Media Card (Android 11+ & iOS Lock Screen) reliably places the thumbnail
+// ASIDE in the album art slot, avoiding text overlaying the artwork.
 function buildArtwork(videoId: string, thumbnail?: string): MediaImage[] {
     const base = thumbnail && /^https?:\/\//i.test(thumbnail)
         ? thumbnail
         : `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`;
-    const artwork: MediaImage[] = [
-        { src: base, sizes: '480x360', type: 'image/jpeg' },
-        { src: `https://i.ytimg.com/vi/${videoId}/sddefault.jpg`, sizes: '640x480', type: 'image/jpeg' },
-        { src: `https://i.ytimg.com/vi/${videoId}/mqdefault.jpg`, sizes: '320x180', type: 'image/jpeg' },
+    
+    const hq = `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`;
+    const mq = `https://i.ytimg.com/vi/${videoId}/mqdefault.jpg`;
+    const sd = `https://i.ytimg.com/vi/${videoId}/sddefault.jpg`;
+
+    return [
+        { src: base, sizes: '96x96', type: 'image/jpeg' },
+        { src: base, sizes: '128x128', type: 'image/jpeg' },
+        { src: base, sizes: '192x192', type: 'image/jpeg' },
+        { src: hq, sizes: '256x256', type: 'image/jpeg' },
+        { src: hq, sizes: '384x384', type: 'image/jpeg' },
+        { src: sd, sizes: '512x512', type: 'image/jpeg' },
+        { src: hq, sizes: '480x360', type: 'image/jpeg' },
+        { src: mq, sizes: '320x180', type: 'image/jpeg' },
     ];
-    return artwork;
 }
 
 // The element that should answer media-session commands: while the page is
@@ -58,7 +67,9 @@ function activeMedia(getVideo: () => HTMLVideoElement | null, getAudio: () => HT
 // separate-audio mode, video changes).
 export function useMediaSession(opts: UseMediaSessionOptions) {
     const optsRef = useRef(opts);
-    optsRef.current = opts;
+    useEffect(() => {
+        optsRef.current = opts;
+    });
 
     // Metadata (notification cover + title/artist) — refreshed whenever the
     // video or its info changes (title/thumbnail arrive async after mount).
@@ -128,6 +139,23 @@ export function useMediaSession(opts: UseMediaSessionOptions) {
         } catch {
             // Older browsers throw for unsupported actions — ignore.
         }
+
+        // Remove the handlers on unmount so a later owner of the media session
+        // (e.g. the MiniPlayer) can take over instead of hitting dead refs.
+        return () => {
+            try {
+                ms.setActionHandler('play', null);
+                ms.setActionHandler('pause', null);
+                ms.setActionHandler('seekbackward', null);
+                ms.setActionHandler('seekforward', null);
+                ms.setActionHandler('seekto', null);
+                ms.setActionHandler('previoustrack', null);
+                ms.setActionHandler('nexttrack', null);
+                ms.setActionHandler('stop', null);
+            } catch {
+                // ignore
+            }
+        };
     }, []);
 }
 

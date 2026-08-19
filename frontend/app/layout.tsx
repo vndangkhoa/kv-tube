@@ -1,5 +1,7 @@
 import type { Metadata } from 'next';
-import { Roboto } from 'next/font/google';
+import '@fontsource/roboto/400.css';
+import '@fontsource/roboto/500.css';
+import '@fontsource/roboto/700.css';
 import './globals.css';
 
 import Header from './components/Header';
@@ -8,29 +10,26 @@ import MobileNav from './components/MobileNav';
 import HamburgerMenu from './components/HamburgerMenu';
 import MainContent from './components/MainContent';
 import OrientationGuard from './components/OrientationGuard';
-
-const roboto = Roboto({
-  weight: ['400', '500', '700'],
-  subsets: ['latin'],
-  display: 'swap',
-});
+import PersistentPlayer from './components/PersistentPlayer';
+import { PlayerProvider } from './context/PlayerContext';
 
 export const metadata: Metadata = {
-  // Base URL for resolving relative Open Graph / canonical URLs into absolute
-  // URLs. Set NEXT_PUBLIC_SITE_URL to your public domain (e.g.
-  // https://tube.example.com) so link previews (Facebook/Messenger, Discord,
-  // WhatsApp) can resolve og:image and og:url.
   metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL || 'http://localhost:3000'),
   title: 'KV-Tube',
-  description: 'A modern YouTube-like video streaming platform with background playback',
+  description: 'Ad-free lightweight video streaming platform with background playback',
   manifest: '/manifest.json',
   icons: {
     icon: [
       { url: '/favicon.ico', sizes: 'any' },
       { url: '/icon.svg', type: 'image/svg+xml' },
+      { url: '/icons/icon-192x192.png', sizes: '192x192', type: 'image/png' },
+      { url: '/icons/icon-512x512.png', sizes: '512x512', type: 'image/png' },
     ],
     shortcut: ['/favicon.ico'],
-    apple: [{ url: '/apple-touch-icon.png' }],
+    apple: [
+      { url: '/apple-touch-icon.png', sizes: '180x180', type: 'image/png' },
+      { url: '/icons/icon-192x192.png', sizes: '192x192', type: 'image/png' },
+    ],
   },
   appleWebApp: {
     capable: true,
@@ -47,12 +46,15 @@ export const metadata: Metadata = {
     'mobile-web-app-capable': 'yes',
     'apple-mobile-web-app-capable': 'yes',
     'apple-mobile-web-app-status-bar-style': 'black-translucent',
-    'theme-color': '#ff0000',
+    'apple-mobile-web-app-title': 'KV-Tube',
+    'application-name': 'KV-Tube',
+    'theme-color': '#0f0f0f',
+    'msapplication-TileColor': '#ff0033',
   },
 };
 
 export const viewport = {
-  themeColor: '#000000',
+  themeColor: '#0f0f0f',
 };
 
 import { ThemeProvider } from './context/ThemeContext';
@@ -64,7 +66,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en" className={roboto.className} suppressHydrationWarning>
+    <html lang="en" suppressHydrationWarning>
       <head>
         <script
           dangerouslySetInnerHTML={{
@@ -93,14 +95,18 @@ export default function RootLayout({
       <body>
         <ThemeProvider>
           <SidebarProvider>
-            <Header />
-            <Sidebar />
-            <HamburgerMenu />
-            <MainContent>
-              {children}
-            </MainContent>
-            <MobileNav />
-            <OrientationGuard />
+            <PlayerProvider>
+              <Header />
+              <Sidebar />
+              <HamburgerMenu />
+              <MainContent>
+                {children}
+              </MainContent>
+              <div id="mini-player-mount" />
+              <PersistentPlayer />
+              <MobileNav />
+              <OrientationGuard />
+            </PlayerProvider>
           </SidebarProvider>
         </ThemeProvider>
       </body>

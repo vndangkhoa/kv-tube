@@ -1,8 +1,8 @@
-'use client';
-
 import { useEffect, useRef, useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
+import { usePlayer } from '../context/PlayerContext';
 import LoadingSpinner from '../components/LoadingSpinner';
+import { invidious } from '../services/invidious';
 
 declare global {
     interface Window {
@@ -20,9 +20,6 @@ interface YouTubePlayerProps {
     loop?: boolean;
 }
 
-// On touchscreens the YouTube embed's native controls are disabled
-// (controls: 0) and a minimal custom overlay is used instead — same
-// immersive "tap to show" behavior as the self-hosted player.
 function isTouchDevice(): boolean {
     if (typeof window === 'undefined') return false;
     return ('ontouchstart' in window) || (navigator.maxTouchPoints > 0) ||
@@ -53,6 +50,10 @@ export default function YouTubePlayer({
     onVideoReady,
     loop = false 
 }: YouTubePlayerProps) {
+    const searchParams = useSearchParams();
+    const initialT = parseFloat(searchParams.get('t') || '0');
+    const { setPlayingVideo, setIsPlaying: setGlobalIsPlaying, setCurrentTime: setGlobalCurrentTime, currentTime: contextCurrentTime } = usePlayer();
+
     const playerRef = useRef<HTMLDivElement>(null);
     const playerContainerRef = useRef<HTMLDivElement>(null);
     const playerInstanceRef = useRef<any>(null);
@@ -63,6 +64,7 @@ export default function YouTubePlayer({
     const loopRef = useRef(loop);
     const [isApiReady, setIsApiReady] = useState(false);
     const [isPlayerReady, setIsPlayerReady] = useState(false);
+    const [useInvidiousEmbed, setUseInvidiousEmbed] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [isFullscreen, setIsFullscreen] = useState(false);
     const [isLandscape, setIsLandscape] = useState(false);
@@ -75,6 +77,22 @@ export default function YouTubePlayer({
 
     // Keep loop ref in sync
     loopRef.current = loop;
+
+    // Live timestamp synchronization for MiniPlayer continuity
+    useEffect(() => {
+        if (!isPlaying) return;
+        const interval = setInterval(() => {
+            if (playerInstanceRef.current && typeof playerInstanceRef.current.getCurrentTime === 'function') {
+                try {
+                    const t = playerInstanceRef.current.getCurrentTime();
+                    if (typeof t === 'number' && t >= 0) {
+                        setGlobalCurrentTime(t);
+                    }
+                } catch {}
+            }
+        }, 500);
+        return () => clearInterval(interval);
+    }, [isPlaying, setGlobalCurrentTime]);
 
     // Fullscreen change listener
     useEffect(() => {
@@ -243,6 +261,13 @@ export default function YouTubePlayer({
                         setIsPlayerReady(true);
                         if (onVideoReady) onVideoReady();
                         
+                        const startT = initialT > 0 ? initialT : 0;
+                        if (startT > 0 && event.target?.seekTo) {
+                            try {
+                                event.target.seekTo(startT, true);
+                            } catch {}
+                        }
+
                         // Auto-play if enabled
                         if (autoplay) {
                             try {
@@ -253,7 +278,15 @@ export default function YouTubePlayer({
                         }
                     },
                     onStateChange: (event: any) => {
-                        setIsPlaying(event.data === window.YT.PlayerState.PLAYING);
+                        const playing = event.data === window.YT.PlayerState.PLAYING;
+                        setIsPlaying(playing);
+                        setGlobalIsPlaying(playing);
+                        if (playing && videoId) {
+                            setPlayingVideo({
+                                id: videoId,
+                                title: title || 'Video',
+                            });
+                        }
                         // Video ended
                         if (event.data === window.YT.PlayerState.ENDED) {
                             if (loopRef.current) {
@@ -266,16 +299,16 @@ export default function YouTubePlayer({
                         }
                     },
                     onError: (event: any) => {
-                        console.error('YouTube Player Error:', event.data);
-                        setError(`Failed to load video (Error ${event.data})`);
+                        console.warn('[YouTubePlayer] Embed blocked or error code:', event.data, '— auto-switching to Invidious embed player');
+                        setUseInvidiousEmbed(true);
                     },
                 },
             });
 
             playerInstanceRef.current = player;
         } catch (error) {
-            console.error('Failed to create YouTube player:', error);
-            setError('Failed to initialize video player');
+            console.warn('[YouTubePlayer] Failed to create YouTube player, switching to Invidious player:', error);
+            setUseInvidiousEmbed(true);
         }
 
         return () => {
@@ -345,31 +378,46 @@ export default function YouTubePlayer({
               overflow: 'hidden',
           };
 
-    if (error) {
+    if (useInvidiousEmbed) {
+        const instance = invidious.getInstanceUrl();
         return (
-            <div style={{
-                ...containerStyle,
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                color: '#fff',
-                flexDirection: 'column',
-                gap: '16px',
-            }}>
-                <div>{error}</div>
-                <button 
-                    onClick={() => window.open(`https://www.youtube.com/watch?v=${videoId}`, '_blank')}
+            <div ref={playerContainerRef} style={containerStyle}>
+                <iframe
+                    src={`${instance}/embed/${videoId}?autoplay=${autoplay ? 1 : 0}&playsinline=1`}
+                    title={title || 'Video Player'}
+                    allow="autoplay; fullscreen; encrypted-media; picture-in-picture"
+                    allowFullScreen
                     style={{
-                        padding: '8px 16px',
-                        backgroundColor: '#ff0000',
-                        color: '#fff',
+                        width: '100%',
+                        height: '100%',
                         border: 'none',
-                        borderRadius: '4px',
-                        cursor: 'pointer',
+                        position: 'absolute',
+                        top: 0,
+                        left: 0,
                     }}
-                >
-                    Watch on YouTube
-                </button>
+                />
+            </div>
+        );
+    }
+
+    if (error) {
+        const instance = invidious.getInstanceUrl();
+        return (
+            <div ref={playerContainerRef} style={containerStyle}>
+                <iframe
+                    src={`${instance}/embed/${videoId}?autoplay=${autoplay ? 1 : 0}&playsinline=1`}
+                    title={title || 'Video Player'}
+                    allow="autoplay; fullscreen; encrypted-media; picture-in-picture"
+                    allowFullScreen
+                    style={{
+                        width: '100%',
+                        height: '100%',
+                        border: 'none',
+                        position: 'absolute',
+                        top: 0,
+                        left: 0,
+                    }}
+                />
             </div>
         );
     }

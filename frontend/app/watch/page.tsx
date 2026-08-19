@@ -2,6 +2,7 @@ import { Suspense } from 'react';
 import type { Metadata } from 'next';
 import ClientWatchPage from './ClientWatchPage';
 import LoadingSpinner from '../components/LoadingSpinner';
+import { invidious } from '../services/invidious';
 
 type WatchPageProps = {
     searchParams: Promise<{ v?: string }>;
@@ -28,20 +29,11 @@ export async function generateMetadata({ searchParams }: WatchPageProps): Promis
     let uploader = '';
 
     try {
-        // Direct YouTube oEmbed is unblockable, fast (~50ms), and returns title/uploader without waiting for backend
-        const controller = new AbortController();
-        const timer = setTimeout(() => controller.abort(), 1500);
-        const res = await fetch(`https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${encodeURIComponent(videoId)}&format=json`, {
-            signal: controller.signal,
-            next: { revalidate: 3600 },
-        });
-        clearTimeout(timer);
-
-        if (res.ok) {
-            const data = await res.json();
-            if (data?.title) title = data.title;
-            if (data?.thumbnail_url) thumbnail = data.thumbnail_url;
-            if (data?.author_name) uploader = data.author_name;
+        const invVideo = await invidious.getVideo(videoId);
+        if (invVideo) {
+            if (invVideo.title) title = invVideo.title;
+            if (invVideo.author) uploader = invVideo.author;
+            if (invVideo.videoThumbnails?.[0]?.url) thumbnail = invVideo.videoThumbnails[0].url;
             description = `Watch "${title}" by ${uploader || 'creator'} on KV-Tube.`;
         }
     } catch (_) {}

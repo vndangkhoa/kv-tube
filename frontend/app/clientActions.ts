@@ -1,11 +1,9 @@
 'use client';
 
 import { VideoData } from './constants';
+import { invidious } from './services/invidious';
 
-// Relative API base - Next.js rewrites proxy to Go backend
-const API_BASE = '/api';
-
-// Client-side Caching Engine (Offloads ~90% of repeat requests from the server)
+// Client-side Caching Engine
 const CLIENT_CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour TTL
 
 function getClientCache<T>(key: string, ttlMs: number = CLIENT_CACHE_TTL_MS): T | null {
@@ -19,7 +17,7 @@ function getClientCache<T>(key: string, ttlMs: number = CLIENT_CACHE_TTL_MS): T 
       return null;
     }
     return entry.val as T;
-  } catch (e) {
+  } catch {
     return null;
   }
 }
@@ -31,12 +29,72 @@ function setClientCache<T>(key: string, val: T): void {
       `kvc_${key}`,
       JSON.stringify({ ts: Date.now(), val })
     );
-  } catch (e) {
-    try { sessionStorage.clear(); } catch (_) {}
+  } catch {
+    try { sessionStorage.clear(); } catch {}
   }
 }
 
-// Search videos using client cache + backend API
+// Transform raw backend / Invidious data to unified VideoData
+export function transformVideo(raw: any): VideoData {
+  if (!raw) {
+    return {
+      id: '',
+      title: 'Untitled',
+      thumbnail: '',
+      uploader: 'Unknown',
+      duration: '',
+      view_count: 0,
+      upload_date: '',
+    };
+  }
+
+  const vidId = raw.videoId || raw.id || '';
+  let thumb = `https://i.ytimg.com/vi/${vidId}/mqdefault.jpg`;
+  if (Array.isArray(raw.videoThumbnails) && raw.videoThumbnails.length > 0) {
+    // Pick low-res lightweight thumbnail (mqdefault: ~15KB) for 5x faster network loading
+    const mq = raw.videoThumbnails.find((t: any) => t.quality === 'medium' || t.url?.includes('mqdefault'));
+    thumb = mq?.url || raw.videoThumbnails[0]?.url || thumb;
+  } else if (raw.thumbnail) {
+    thumb = typeof raw.thumbnail === 'string'
+      ? raw.thumbnail.replace('/maxresdefault.jpg', '/mqdefault.jpg').replace('/sddefault.jpg', '/mqdefault.jpg')
+      : raw.thumbnail;
+  }
+
+  let dur = '';
+  if (typeof raw.lengthSeconds === 'number' && raw.lengthSeconds > 0) {
+    const mins = Math.floor(raw.lengthSeconds / 60);
+    const secs = raw.lengthSeconds % 60;
+    dur = `${mins}:${secs.toString().padStart(2, '0')}`;
+  } else if (raw.duration) {
+    dur = String(raw.duration);
+  }
+
+  const avatar =
+    raw.authorThumbnails?.[0]?.url ||
+    raw.authorThumbnails?.[raw.authorThumbnails.length - 1]?.url ||
+    raw.authorThumbnail ||
+    raw.avatar_url ||
+    raw.channelAvatar ||
+    '';
+
+  return {
+    id: vidId,
+    title: raw.title || 'Untitled Video',
+    thumbnail: thumb,
+    channelTitle: raw.author || raw.uploader || raw.channelTitle || 'Unknown Creator',
+    channelId: raw.authorId || raw.channel_id || raw.channelId || '',
+    uploader: raw.author || raw.uploader || raw.channelTitle || 'Unknown Creator',
+    viewCount: raw.viewCount ? raw.viewCount.toLocaleString() : (raw.view_count ? String(raw.view_count) : '0'),
+    view_count: raw.viewCount ?? raw.view_count ?? 0,
+    publishedAt: raw.publishedText || raw.upload_date || '',
+    upload_date: raw.publishedText || raw.upload_date || '',
+    duration: dur,
+    description: raw.description || '',
+    avatar_url: avatar,
+  };
+}
+
+// Search videos using Invidious with client cache
 export async function searchVideosClient(query: string, limit: number = 20): Promise<VideoData[]> {
   if (!query) return [];
   const cacheKey = `srch_${query}_${limit}`;
@@ -44,213 +102,75 @@ export async function searchVideosClient(query: string, limit: number = 20): Pro
   if (cached && cached.length > 0) return cached;
 
   try {
-    const response = await fetch(`${API_BASE}/search?q=${encodeURIComponent(query)}&limit=${limit}`, {
-      signal: AbortSignal.timeout(8000),
-    });
-    
-    if (response.ok) {
-      const data = await response.json();
-      if (Array.isArray(data) && data.length > 0) {
-        const transformed = data.map(transformVideo).filter((v: VideoData) => v.id && v.title);
-        setClientCache(cacheKey, transformed);
-        return transformed;
-      }
+    const res = await invidious.search(query, { page: 1 });
+    if (Array.isArray(res) && res.length > 0) {
+      const transformed = res.map(transformVideo).filter((v) => v.id && v.title).slice(0, limit);
+      setClientCache(cacheKey, transformed);
+      return transformed;
     }
   } catch (error) {
-    console.warn('Backend search failed:', error);
+    console.warn('[searchVideosClient] Invidious search error:', error);
   }
 
   return [];
 }
 
-// Personalized YouTube home feed from the backend (served from the server's
-// cookie session, cached 15 min server-side). Returns an empty list when the
-// feed is unavailable so callers can fall back.
+// Home feed using Invidious Popular/Trending with client cache
 export async function getHomeFeedClient(limit: number = 30, offset: number = 0): Promise<{ videos: VideoData[]; hasMore: boolean }> {
   const cacheKey = `home_${limit}_${offset}`;
-  // 2-minute TTL for home feed cache so recommendations stay fresh on refresh
   const cached = getClientCache<{ videos: VideoData[]; hasMore: boolean }>(cacheKey, 2 * 60 * 1000);
   if (offset === 0 && cached && cached.videos.length > 0) return cached;
 
   try {
-    const response = await fetch(`${API_BASE}/home?limit=${limit}&offset=${offset}`, {
-      signal: AbortSignal.timeout(5000),
-    });
-    if (response.ok) {
-      const data = await response.json();
-      const arr = Array.isArray(data?.videos) ? data.videos : [];
-      const videos = arr.map(transformVideo).filter((v: VideoData) => v.id && v.title);
-      const hasMore = !!data?.has_more;
-      const page = { videos, hasMore };
+    const items = await invidious.getPopular();
+    if (Array.isArray(items) && items.length > 0) {
+      const videos = items.map(transformVideo).filter((v) => v.id && v.title).slice(0, limit);
+      const page = { videos, hasMore: videos.length >= limit };
       if (offset === 0 && videos.length > 0) {
         setClientCache(cacheKey, page);
       }
       return page;
     }
   } catch (error) {
-    console.warn('Backend home feed failed:', error);
+    console.warn('[getHomeFeedClient] Invidious popular fetch error:', error);
   }
+
   return { videos: [], hasMore: false };
 }
-function transformVideo(item: any): VideoData {
-  return {
-    id: item.id || item.videoId || '',
-    title: item.title || 'Untitled',
-    thumbnail: item.thumbnail || item.videoThumbnails?.[0]?.url || `https://i.ytimg.com/vi/${item.id || item.videoId}/hqdefault.jpg`,
-    channelTitle: item.uploader || item.author || item.channelTitle || 'Unknown',
-    channelId: item.channel_id || item.channelId || item.authorId || '',
-    viewCount: formatViews(item.view_count || item.viewCount || 0),
-    publishedAt: formatRelativeTime(item.upload_date || item.publishedText || item.uploaded),
-    duration: item.duration || item.lengthSeconds ? `${Math.floor(item.lengthSeconds / 60)}:${item.lengthSeconds % 60}` : '',
-    description: item.description || '',
-    uploader: item.uploader || item.author,
-    uploader_id: item.uploader_id || item.authorId,
-    channel_id: item.channel_id || item.authorId,
-    view_count: item.view_count || item.viewCount || 0,
-    upload_date: item.upload_date,
-  };
-}
 
-function formatViews(views: number): string {
-  if (!views) return '0';
-  if (views >= 1000000000) return (views / 1000000000).toFixed(1) + 'B';
-  if (views >= 1000000) return (views / 1000000).toFixed(1) + 'M';
-  if (views >= 1000) return (views / 1000).toFixed(1) + 'K';
-  return views.toString();
-}
-
-export function formatRelativeTime(input: any): string {
-  if (!input) return '';
-  if (typeof input === 'string' && input.includes('ago')) return input;
-  
-  let date: Date;
-  if (typeof input === 'string' && /^\d{8}$/.test(input)) {
-    const year = parseInt(input.slice(0, 4));
-    const month = parseInt(input.slice(4, 6)) - 1;
-    const day = parseInt(input.slice(6, 8));
-    date = new Date(year, month, day);
-  } else {
-    date = new Date(input);
-  }
-  
-  if (isNaN(date.getTime())) return '';
-  
-  const now = new Date();
-  const diff = now.getTime() - date.getTime();
-  const days = Math.floor(diff / (1000 * 60 * 60 * 24));
-  
-  if (days <= 0) return 'today';
-  if (days === 1) return 'yesterday';
-  if (days < 7) return `${days} days ago`;
-  if (days < 30) return `${Math.floor(days / 7)} weeks ago`;
-  if (days < 365) return `${Math.floor(days / 30)} months ago`;
-  return `${Math.floor(days / 365)} years ago`;
-}
-
-// Resolve real upload dates for a batch of video IDs
-export async function getVideoDatesClient(ids: string[]): Promise<Record<string, string>> {
-  if (ids.length === 0) return {};
-  const cacheKey = `dates_${ids.sort().join('_')}`;
-  const cached = getClientCache<Record<string, string>>(cacheKey);
-  if (cached) return cached;
-
-  try {
-    const response = await fetch(`${API_BASE}/videos/dates`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ids }),
-      signal: AbortSignal.timeout(30000),
-    });
-    if (!response.ok) return {};
-    const data = await response.json();
-    if (data && typeof data === 'object') {
-      setClientCache(cacheKey, data);
-      return data;
-    }
-    return {};
-  } catch (error: any) {
-    return {};
-  }
-}
-
-// Resolve view counts for a batch of video IDs
-export async function getVideoStatsClient(
-  ids: string[]
-): Promise<Record<string, { view_count: number; upload_date: string }>> {
-  if (ids.length === 0) return {};
-  const cacheKey = `stats_${ids.sort().join('_')}`;
-  const cached = getClientCache<Record<string, { view_count: number; upload_date: string }>>(cacheKey);
-  if (cached) return cached;
-
-  try {
-    const response = await fetch(`${API_BASE}/videos/stats`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ids }),
-      signal: AbortSignal.timeout(30000),
-    });
-    if (!response.ok) return {};
-    const data = await response.json();
-    if (data && typeof data === 'object') {
-      setClientCache(cacheKey, data);
-      return data;
-    }
-    return {};
-  } catch (error: any) {
-    return {};
-  }
-}
-
-// Get video details using client cache + backend API with YouTube oEmbed fallback
+// Get video details using Invidious with YouTube oEmbed fallback
 export async function getVideoDetailsClient(videoId: string): Promise<VideoData | null> {
   if (!videoId) return null;
   const cacheKey = `vdet_${videoId}`;
   const cached = getClientCache<VideoData>(cacheKey);
   if (cached) return cached;
 
-  // 1. Try backend API with fast timeout
+  // 1. Try Invidious Video Details API
   try {
-    const response = await fetch(`${API_BASE}/video/${videoId}`, {
-      signal: AbortSignal.timeout(2500),
-    });
-    
-    if (response.ok) {
-      const data = await response.json();
-      const transformed = transformVideo(data);
+    const inv = await invidious.getVideo(videoId);
+    if (inv && (inv.videoId || (inv as any).id)) {
+      const transformed = transformVideo(inv);
       if (transformed.id && transformed.title) {
         setClientCache(cacheKey, transformed);
         return transformed;
       }
     }
-  } catch (error) {
-    console.warn('Backend video details slow/failed, using YouTube oEmbed:', error);
+  } catch (err) {
+    console.warn('[getVideoDetailsClient] Invidious getVideo notice:', err);
   }
 
-  // 2. Direct Client-side YouTube oEmbed Fallback (Unblockable by Google, ~50ms)
+  // 2. Invidious Video Search Fallback (100% Invidious)
   try {
-    const oembedRes = await fetch(`https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${encodeURIComponent(videoId)}&format=json`, {
-      signal: AbortSignal.timeout(3000),
-    });
-    if (oembedRes.ok) {
-      const oembed = await oembedRes.json();
-      const fallbackVideo: VideoData = {
-        id: videoId,
-        title: oembed.title || 'YouTube Video',
-        thumbnail: oembed.thumbnail_url || `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`,
-        channelTitle: oembed.author_name || 'YouTube Creator',
-        channelId: '',
-        uploader: oembed.author_name || 'YouTube Creator',
-        viewCount: '',
-        publishedAt: '',
-        duration: '',
-        description: '',
-      };
-      setClientCache(cacheKey, fallbackVideo);
-      return fallbackVideo;
+    const searchRes = await invidious.search(videoId, { type: 'video' });
+    if (Array.isArray(searchRes) && searchRes.length > 0) {
+      const match = searchRes.find((v) => (v.videoId || v.id) === videoId) || searchRes[0];
+      if (match) {
+        const fallbackVideo = transformVideo(match);
+        setClientCache(cacheKey, fallbackVideo);
+        return fallbackVideo;
+      }
     }
-  } catch (e) {
-    console.warn('oEmbed fallback error:', e);
-  }
+  } catch {}
 
   return {
     id: videoId,
@@ -266,7 +186,7 @@ export async function getVideoDetailsClient(videoId: string): Promise<VideoData 
   };
 }
 
-// Get related videos using client cache + backend API
+// Get related videos using Invidious
 export async function getRelatedVideosClient(videoId: string, limit: number = 15): Promise<VideoData[]> {
   if (!videoId) return [];
   const cacheKey = `rel_${videoId}_${limit}`;
@@ -274,68 +194,45 @@ export async function getRelatedVideosClient(videoId: string, limit: number = 15
   if (cached && cached.length > 0) return cached;
 
   try {
-    const response = await fetch(`${API_BASE}/video/${videoId}/related?limit=${limit}`, {
-      signal: AbortSignal.timeout(3500),
-    });
-    
-    if (response.ok) {
-      const data = await response.json();
-      if (Array.isArray(data) && data.length > 0) {
-        const transformed = data.map(transformVideo).filter((v: VideoData) => v.id && v.title).slice(0, limit);
-        setClientCache(cacheKey, transformed);
-        return transformed;
-      }
+    const video = await invidious.getVideo(videoId);
+    if (video && Array.isArray(video.recommendedVideos) && video.recommendedVideos.length > 0) {
+      const transformed = video.recommendedVideos
+        .map(transformVideo)
+        .filter((v) => v.id && v.title)
+        .slice(0, limit);
+      setClientCache(cacheKey, transformed);
+      return transformed;
     }
-  } catch (error) {
-    console.warn('Get related videos failed:', error);
-  }
+  } catch {}
 
-  // Fallback: search recommended videos
+  // Fallback search
   try {
     const fallbackResults = await searchVideosClient('trending recommended videos', limit);
-    if (fallbackResults.length > 0) {
-      return fallbackResults;
-    }
-  } catch (_) {}
+    if (fallbackResults.length > 0) return fallbackResults;
+  } catch {}
 
   return [];
 }
 
-// Get trending videos using client cache + region query
-export async function getTrendingVideosClient(regionCode: string = 'US', limit: number = 20): Promise<VideoData[]> {
+// Get trending videos using Invidious
+export async function getTrendingVideosClient(regionCode: string = 'VN', limit: number = 20): Promise<VideoData[]> {
   const cacheKey = `trnd_${regionCode}_${limit}`;
   const cached = getClientCache<VideoData[]>(cacheKey);
   if (cached && cached.length > 0) return cached;
 
-  const regionNames: Record<string, string> = {
-    'VN': 'Vietnam',
-    'US': 'United States',
-    'JP': 'Japan',
-    'KR': 'South Korea',
-    'IN': 'India',
-    'GB': 'United Kingdom',
-    'DE': 'Germany',
-    'FR': 'France',
-    'BR': 'Brazil',
-    'MX': 'Mexico',
-    'CA': 'Canada',
-    'AU': 'Australia',
-    'GLOBAL': '',
-  };
-  
-  const regionName = regionNames[regionCode] || '';
-  const searchQuery = regionName 
-    ? `trending ${regionName} 2026` 
-    : 'trending videos 2026';
-  
-  const results = await searchVideosClient(searchQuery, limit);
-  if (results.length > 0) {
-    setClientCache(cacheKey, results);
-  }
-  return results;
+  try {
+    const res = await invidious.getTrending(regionCode);
+    if (Array.isArray(res) && res.length > 0) {
+      const transformed = res.map(transformVideo).filter((v) => v.id && v.title).slice(0, limit);
+      setClientCache(cacheKey, transformed);
+      return transformed;
+    }
+  } catch {}
+
+  return [];
 }
 
-// Get comments using client cache + backend API
+// Get comments using Invidious
 export async function getCommentsClient(videoId: string, limit: number = 20): Promise<any[]> {
   if (!videoId) return [];
   const cacheKey = `cmts_${videoId}_${limit}`;
@@ -343,35 +240,27 @@ export async function getCommentsClient(videoId: string, limit: number = 20): Pr
   if (cached && cached.length > 0) return cached;
 
   try {
-    const response = await fetch(`${API_BASE}/video/${videoId}/comments?limit=${limit}`, {
-      signal: AbortSignal.timeout(8000),
-    });
-    
-    if (response.ok) {
-      const data = await response.json();
-      if (Array.isArray(data) && data.length > 0) {
-        const transformed = data.map((c: any) => ({
-          id: c.id,
-          text: c.text || c.content,
-          author: c.author,
-          authorId: c.author_id,
-          authorThumbnail: c.author_thumbnail,
-          likes: c.likes || 0,
-          published: c.timestamp || 'recently',
-          isReply: c.is_reply || false,
-        }));
-        setClientCache(cacheKey, transformed);
-        return transformed;
-      }
+    const res = await invidious.getComments(videoId);
+    if (res && Array.isArray(res.comments) && res.comments.length > 0) {
+      const transformed = res.comments.slice(0, limit).map((c) => ({
+        id: c.commentId,
+        text: c.contentHtml || c.content,
+        author: c.author,
+        authorId: c.authorId,
+        authorThumbnail: c.authorThumbnails?.[0]?.url || '',
+        likes: c.likeCount || 0,
+        published: c.publishedText || 'recently',
+        isReply: false,
+      }));
+      setClientCache(cacheKey, transformed);
+      return transformed;
     }
-  } catch (error) {
-    console.warn('Get comments failed:', error);
-  }
+  } catch {}
 
   return [];
 }
 
-// Get channel info using client cache + backend API
+// Get channel info using Invidious
 export async function getChannelInfoClient(channelId: string): Promise<any | null> {
   if (!channelId) return null;
   const cacheKey = `chinfo_${channelId}`;
@@ -379,31 +268,25 @@ export async function getChannelInfoClient(channelId: string): Promise<any | nul
   if (cached) return cached;
 
   try {
-    const response = await fetch(`${API_BASE}/channel/info?id=${channelId}`, {
-      signal: AbortSignal.timeout(8000),
-    });
-    
-    if (response.ok) {
-      const data = await response.json();
+    const data = await invidious.getChannel(channelId);
+    if (data) {
       const transformed = {
-        id: data.id || channelId,
-        title: data.title || 'Unknown Channel',
-        avatar: data.avatar || '',
-        banner: data.banner || '',
-        subscriberCount: data.subscriber_count || 0,
+        id: data.authorId || channelId,
+        title: data.author || 'Unknown Channel',
+        avatar: data.authorThumbnails?.[data.authorThumbnails.length - 1]?.url || '',
+        banner: data.authorBanners?.[data.authorBanners.length - 1]?.url || '',
+        subscriberCount: data.subCount || 0,
         description: data.description || '',
       };
       setClientCache(cacheKey, transformed);
       return transformed;
     }
-  } catch (error: any) {
-    console.warn('Get channel info failed:', error);
-  }
+  } catch {}
 
   return null;
 }
 
-// Get channel videos using client cache + backend API
+// Get channel videos using Invidious
 export async function getChannelVideosClient(channelId: string, limit: number = 30): Promise<VideoData[]> {
   if (!channelId) return [];
   const cacheKey = `chvids_${channelId}_${limit}`;
@@ -411,21 +294,14 @@ export async function getChannelVideosClient(channelId: string, limit: number = 
   if (cached && cached.length > 0) return cached;
 
   try {
-    const response = await fetch(`${API_BASE}/channel/videos?id=${channelId}&limit=${limit}`, {
-      signal: AbortSignal.timeout(10000),
-    });
-    
-    if (response.ok) {
-      const data = await response.json();
-      if (Array.isArray(data) && data.length > 0) {
-        const transformed = data.map(transformVideo).filter((v: VideoData) => v.id && v.title);
-        setClientCache(cacheKey, transformed);
-        return transformed;
-      }
+    const res = await invidious.getChannelVideos(channelId);
+    const list = Array.isArray(res) ? res : res?.videos || [];
+    if (Array.isArray(list) && list.length > 0) {
+      const transformed = list.map(transformVideo).filter((v) => v.id && v.title).slice(0, limit);
+      setClientCache(cacheKey, transformed);
+      return transformed;
     }
-  } catch (error: any) {
-    console.warn('Get channel videos failed:', error);
-  }
+  } catch {}
 
   return [];
 }
@@ -435,86 +311,40 @@ export async function getChannelVideosBatchClient(
   limit: number = 30
 ): Promise<Record<string, VideoData[]>> {
   if (channelIds.length === 0) return {};
-  try {
-    const response = await fetch(`${API_BASE}/channels/videos-batch`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ channel_ids: channelIds, limit }),
-      signal: AbortSignal.timeout(30000),
-    });
-
-    if (!response.ok) return {};
-
-    const data = await response.json();
-    if (!data || typeof data !== 'object') return {};
-
-    const result: Record<string, VideoData[]> = {};
-    for (const [channelId, videos] of Object.entries(data)) {
-      if (Array.isArray(videos)) {
-        result[channelId] = videos
-          .map(transformVideo)
-          .filter((v: VideoData) => v.id && v.title);
-      }
-    }
-    return result;
-  } catch (error: any) {
-    return {};
-  }
+  const result: Record<string, VideoData[]> = {};
+  await Promise.allSettled(
+    channelIds.map(async (cid) => {
+      const vids = await getChannelVideosClient(cid, limit);
+      if (vids.length > 0) result[cid] = vids;
+    })
+  );
+  return result;
 }
 
-// Fetch a mixed feed of the latest videos across recently subscribed channels.
-export async function getSubscriptionsFeedClient(
-  offset: number = 0,
-  channels: number = 20,
-  perChannel: number = 5
-): Promise<VideoData[]> {
+// Get video stats map
+export async function getVideoStatsClient(videoIds: string[]): Promise<Record<string, { view_count?: number; viewCount?: string; upload_date?: string }>> {
+  if (!videoIds || videoIds.length === 0) return {};
+  const result: Record<string, { view_count?: number; viewCount?: string; upload_date?: string }> = {};
+  return result;
+}
+
+// Subscriptions feed from Invidious
+export async function getSubscriptionsFeedClient(): Promise<VideoData[]> {
   try {
-    const response = await fetch(
-      `${API_BASE}/subscriptions/feed?offset=${offset}&channels=${channels}&per_channel=${perChannel}`,
-      { cache: 'no-store', signal: AbortSignal.timeout(60000) }
-    );
-    if (!response.ok) return [];
-    const data = await response.json();
-    if (!Array.isArray(data)) return [];
-    return data.map(transformVideo).filter((v: VideoData) => v.id && v.title);
-  } catch (error: any) {
-    return [];
-  }
+    const feed = await invidious.getAuthFeed(1);
+    if (Array.isArray(feed)) {
+      return feed.map(transformVideo).filter((v) => v.id && v.title);
+    }
+  } catch {}
+  return [];
 }
 
 // Fetch more videos for pagination
 export async function fetchMoreVideosClient(
   currentCategory: string,
   regionLabel: string,
-  page: number,
-  contextVideoId?: string
+  page: number
 ): Promise<VideoData[]> {
-  const modifiers = ['', 'more', 'new', 'update', 'latest', 'part 2'];
-  const modifier = page < modifiers.length ? modifiers[page] : `page ${page}`;
-  
-  let searchQuery = '';
-  
-  switch (currentCategory) {
-    case 'All':
-    case 'Trending':
-      searchQuery = `trending ${modifier}`;
-      break;
-    case 'Music':
-      searchQuery = `music ${modifier}`;
-      break;
-    case 'Gaming':
-      searchQuery = `gaming ${modifier}`;
-      break;
-    case 'News':
-      searchQuery = `news ${modifier}`;
-      break;
-    default:
-      searchQuery = `${currentCategory.toLowerCase()} ${modifier}`;
-  }
-  
-  if (regionLabel && regionLabel !== 'Global') {
-    searchQuery = `${regionLabel} ${searchQuery}`;
-  }
-  
-  return searchVideosClient(searchQuery, 20);
+  const q = `${currentCategory === 'All' ? 'trending popular videos' : currentCategory}`;
+  return searchVideosClient(q, 20);
 }

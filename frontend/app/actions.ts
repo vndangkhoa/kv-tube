@@ -1,60 +1,102 @@
 "use server";
 
-import { VideoData, CATEGORY_MAP, ALL_CATEGORY_SECTIONS, API_BASE } from './constants';
+import { VideoData, CATEGORY_MAP, ALL_CATEGORY_SECTIONS } from './constants';
 import { addRegion } from './utils';
+import { invidious } from './services/invidious';
 
 export async function getSearchVideos(query: string, limit: number = 20): Promise<VideoData[]> {
     try {
-        const res = await fetch(`${API_BASE}/api/search?q=${encodeURIComponent(query)}&limit=${limit}`, { cache: 'no-store' });
-        if (!res.ok) return [];
-        return res.json() as Promise<VideoData[]>;
+        const results = await invidious.search(query, { type: 'video' });
+        if (!Array.isArray(results)) return [];
+        return results.slice(0, limit).map((v: any) => ({
+            id: v.videoId || v.id,
+            title: v.title || '',
+            uploader: v.author || v.uploader || 'Creator',
+            channel_id: v.authorId || '',
+            thumbnail: v.videoThumbnails?.[0]?.url || `https://i.ytimg.com/vi/${v.videoId || v.id}/mqdefault.jpg`,
+            duration: v.lengthSeconds ? `${Math.floor(v.lengthSeconds / 60)}:${(v.lengthSeconds % 60).toString().padStart(2, '0')}` : '',
+            view_count: v.viewCount ?? 0,
+            upload_date: v.publishedText || '',
+            publishedAt: v.publishedText || '',
+            avatar_url: v.authorThumbnails?.[0]?.url || v.authorThumbnail || '',
+        }));
     } catch (e) {
-        console.error(e);
+        console.error('[actions] Search error:', e);
         return [];
     }
 }
 
 export async function getHistoryVideos(limit: number = 20): Promise<VideoData[]> {
     try {
-        const res = await fetch(`${API_BASE}/api/history?limit=${limit}`, { cache: 'no-store' });
-        if (!res.ok) return [];
-        return res.json() as Promise<VideoData[]>;
+        const history = await invidious.getAuthHistory();
+        if (!Array.isArray(history)) return [];
+        return history.slice(0, limit).map((v: any) => ({
+            id: v.videoId || v.id,
+            title: v.title || '',
+            uploader: v.author || v.uploader || 'Creator',
+            channel_id: v.authorId || '',
+            thumbnail: v.videoThumbnails?.[0]?.url || `https://i.ytimg.com/vi/${v.videoId || v.id}/mqdefault.jpg`,
+            duration: v.lengthSeconds ? `${Math.floor(v.lengthSeconds / 60)}:${(v.lengthSeconds % 60).toString().padStart(2, '0')}` : '',
+            view_count: v.viewCount ?? 0,
+            upload_date: v.publishedText || '',
+            publishedAt: v.publishedText || '',
+            avatar_url: v.authorThumbnails?.[0]?.url || v.authorThumbnail || '',
+        }));
     } catch (e) {
-        console.error("Failed to get history:", e);
+        console.error('[actions] History error:', e);
         return [];
     }
 }
 
 export async function getSuggestedVideos(limit: number = 20): Promise<VideoData[]> {
     try {
-        const res = await fetch(`${API_BASE}/api/suggestions?limit=${limit}`, { cache: 'no-store' });
-        if (!res.ok) return [];
-        return res.json() as Promise<VideoData[]>;
+        const trending = await invidious.getTrending();
+        if (!Array.isArray(trending)) return [];
+        return trending.slice(0, limit).map((v: any) => ({
+            id: v.videoId || v.id,
+            title: v.title || '',
+            uploader: v.author || v.uploader || 'Creator',
+            channel_id: v.authorId || '',
+            thumbnail: v.videoThumbnails?.[0]?.url || `https://i.ytimg.com/vi/${v.videoId || v.id}/mqdefault.jpg`,
+            duration: v.lengthSeconds ? `${Math.floor(v.lengthSeconds / 60)}:${(v.lengthSeconds % 60).toString().padStart(2, '0')}` : '',
+            view_count: v.viewCount ?? 0,
+            upload_date: v.publishedText || '',
+            publishedAt: v.publishedText || '',
+            avatar_url: v.authorThumbnails?.[0]?.url || v.authorThumbnail || '',
+        }));
     } catch (e) {
-        console.error("Failed to get suggestions:", e);
+        console.error('[actions] Suggested error:', e);
         return [];
     }
 }
 
 export async function getRelatedVideos(videoId: string, limit: number = 10): Promise<VideoData[]> {
     try {
-        const res = await fetch(`${API_BASE}/api/related?video_id=${encodeURIComponent(videoId)}&limit=${limit}`, { cache: 'no-store' });
-        if (!res.ok) return [];
-        return res.json() as Promise<VideoData[]>;
+        const video = await invidious.getVideo(videoId);
+        if (!video || !Array.isArray(video.recommendedVideos)) return [];
+        return video.recommendedVideos.slice(0, limit).map((v: any) => ({
+            id: v.videoId || v.id,
+            title: v.title || '',
+            uploader: v.author || v.uploader || 'Creator',
+            channel_id: v.authorId || '',
+            thumbnail: v.videoThumbnails?.[0]?.url || `https://i.ytimg.com/vi/${v.videoId || v.id}/mqdefault.jpg`,
+            duration: v.lengthSeconds ? `${Math.floor(v.lengthSeconds / 60)}:${(v.lengthSeconds % 60).toString().padStart(2, '0')}` : '',
+            view_count: v.viewCount ?? 0,
+            upload_date: '',
+            publishedAt: '',
+            avatar_url: v.authorThumbnails?.[0]?.url || v.authorThumbnail || '',
+        }));
     } catch (e) {
-        console.error("Failed to get related videos:", e);
+        console.error('[actions] Related videos error:', e);
         return [];
     }
 }
 
 export async function getRecentHistory(): Promise<VideoData | null> {
     try {
-        const res = await fetch(`${API_BASE}/api/history?limit=1`, { cache: 'no-store' });
-        if (!res.ok) return null;
-        const history: VideoData[] = await res.json();
+        const history = await getHistoryVideos(1);
         return history.length > 0 ? history[0] : null;
-    } catch (e) {
-        console.error("Failed to get recent history:", e);
+    } catch {
         return null;
     }
 }
@@ -63,112 +105,46 @@ export async function fetchMoreVideos(currentCategory: string, regionLabel: stri
     const isAllCategory = currentCategory === 'All';
     let newVideos: VideoData[] = [];
 
-    // Modify query slightly to simulate getting more pages
     const pageModifiers = ["", "", "more", "new", "update", "latest", "part 2", "HD", "review"];
     const modifier = page < pageModifiers.length ? pageModifiers[page] : `page ${page}`;
 
     if (isAllCategory) {
-        const recentVideo = await getRecentHistory();
-        if (recentVideo) {
-            const promises = [
-                getSearchVideos(addRegion("recommended for you", regionLabel) + " " + modifier, 8),
-                getSearchVideos(addRegion(recentVideo.title, regionLabel) + " " + modifier, 8),
-                getSearchVideos(addRegion("trending", regionLabel) + " " + modifier, 4)
-            ];
-            const results = await Promise.all(promises);
+        const promises = ALL_CATEGORY_SECTIONS.map(async (sec) => {
+            const q = addRegion(sec.query, regionLabel) + " " + modifier;
+            return await getSearchVideos(q, 5);
+        });
+        const results = await Promise.all(promises);
 
-            const interleavedList: VideoData[] = [];
-            const seenIds = new Set<string>();
-            let sIdx = 0, rIdx = 0, tIdx = 0;
-            const suggestedRes = results[0];
-            const relatedRes = results[1];
-            const trendingRes = results[2];
+        const maxLen = Math.max(...results.map(arr => arr.length));
+        const interleavedList: VideoData[] = [];
+        const seenIds = new Set<string>();
 
-            while (sIdx < suggestedRes.length || rIdx < relatedRes.length || tIdx < trendingRes.length) {
-                for (let i = 0; i < 2 && sIdx < suggestedRes.length; i++) {
-                    const v = suggestedRes[sIdx++];
-                    if (!seenIds.has(v.id)) { interleavedList.push(v); seenIds.add(v.id); }
-                }
-                for (let i = 0; i < 2 && rIdx < relatedRes.length; i++) {
-                    const v = relatedRes[rIdx++];
-                    if (!seenIds.has(v.id)) { interleavedList.push(v); seenIds.add(v.id); }
-                }
-                for (let i = 0; i < 1 && tIdx < trendingRes.length; i++) {
-                    const v = trendingRes[tIdx++];
-                    if (!seenIds.has(v.id)) { interleavedList.push(v); seenIds.add(v.id); }
-                }
-            }
-            newVideos = interleavedList;
-        } else {
-            const promises = ALL_CATEGORY_SECTIONS.map(async (sec) => {
-                const q = addRegion(sec.query, regionLabel) + " " + modifier;
-                return await getSearchVideos(q, 5);
-            });
-            const results = await Promise.all(promises);
-
-            const maxLen = Math.max(...results.map(arr => arr.length));
-            const interleavedList: VideoData[] = [];
-            const seenIds = new Set<string>();
-
-            for (let i = 0; i < maxLen; i++) {
-                for (const categoryResult of results) {
-                    if (i < categoryResult.length) {
-                        const video = categoryResult[i];
-                        if (!seenIds.has(video.id)) {
-                            interleavedList.push(video);
-                            seenIds.add(video.id);
-                        }
+        for (let i = 0; i < maxLen; i++) {
+            for (const categoryResult of results) {
+                if (i < categoryResult.length) {
+                    const video = categoryResult[i];
+                    if (!seenIds.has(video.id)) {
+                        interleavedList.push(video);
+                        seenIds.add(video.id);
                     }
                 }
             }
-            newVideos = interleavedList;
         }
+        newVideos = interleavedList;
     } else if (currentCategory === 'WatchRelated' && contextVideoId) {
-        // Mock infinite pagination for related
-        const q = addRegion("related to " + contextVideoId, regionLabel) + " " + modifier;
-        newVideos = await getSearchVideos(q, 20);
+        newVideos = await getRelatedVideos(contextVideoId, 20);
+        if (newVideos.length === 0) {
+            const q = addRegion("related to " + contextVideoId, regionLabel) + " " + modifier;
+            newVideos = await getSearchVideos(q, 20);
+        }
     } else if (currentCategory === 'WatchForYou') {
         const q = addRegion("recommended for you", regionLabel) + " " + modifier;
         newVideos = await getSearchVideos(q, 20);
-    } else if (currentCategory === 'WatchAll' && contextVideoId) {
-        // Implement 40:40:20 mix logic for watch page
-        const promises = [
-            getSearchVideos(addRegion("recommended for you", regionLabel) + " " + modifier, 8),
-            getSearchVideos(addRegion("related to " + contextVideoId, regionLabel) + " " + modifier, 8),
-            getSearchVideos(addRegion("trending", regionLabel) + " " + modifier, 4)
-        ];
-        const results = await Promise.all(promises);
-
-        const interleavedList: VideoData[] = [];
-        const seenIds = new Set<string>();
-        let sIdx = 0, rIdx = 0, tIdx = 0;
-        const suggestedRes = results[0];
-        const relatedRes = results[1];
-        const trendingRes = results[2];
-
-        while (sIdx < suggestedRes.length || rIdx < relatedRes.length || tIdx < trendingRes.length) {
-            for (let i = 0; i < 2 && sIdx < suggestedRes.length; i++) {
-                const v = suggestedRes[sIdx++];
-                if (!seenIds.has(v.id)) { interleavedList.push(v); seenIds.add(v.id); }
-            }
-            for (let i = 0; i < 2 && rIdx < relatedRes.length; i++) {
-                const v = relatedRes[rIdx++];
-                if (!seenIds.has(v.id)) { interleavedList.push(v); seenIds.add(v.id); }
-            }
-            for (let i = 0; i < 1 && tIdx < trendingRes.length; i++) {
-                const v = trendingRes[tIdx++];
-                if (!seenIds.has(v.id)) { interleavedList.push(v); seenIds.add(v.id); }
-            }
-        }
-        newVideos = interleavedList;
     } else if (currentCategory === 'Watched') {
-        // Fetch from history, offset by page if desired (backend doesn't support offset yet, so just increase limit)
-        // If the backend returned all items, we'd normally paginate here. For now just mock it or return empty array to prevent infinite duplicating history scroll
-        if (page > 1) return []; // History is just 1 page for now
+        if (page > 1) return [];
         newVideos = await getHistoryVideos(50);
     } else if (currentCategory === 'Suggested') {
-        const q = addRegion("popular videos", regionLabel) + " " + modifier;
-        newVideos = await getSearchVideos(q, 10); // Or we could make suggestions return more things
+        newVideos = await getSuggestedVideos(20);
     } else {
         const baseQuery = CATEGORY_MAP[currentCategory] || CATEGORY_MAP['All'];
         const q = addRegion(baseQuery, regionLabel) + " " + modifier;
@@ -192,19 +168,21 @@ export interface CommentData {
 
 export async function getVideoComments(videoId: string, limit: number = 30): Promise<CommentData[]> {
     try {
-        const res = await fetch(`${API_BASE}/api/comments?v=${videoId}&limit=${limit}`, { cache: 'no-store' });
-        if (!res.ok) {
-            console.error('Comments API error:', res.status, res.statusText);
-            return [];
-        }
-        const data = await res.json();
-        if (!Array.isArray(data)) {
-            console.error('Comments API returned non-array:', data);
-            return [];
-        }
-        return data;
+        const res = await invidious.getComments(videoId);
+        if (!res || !Array.isArray(res.comments)) return [];
+        return res.comments.slice(0, limit).map((c: any) => ({
+            id: c.commentId || '',
+            text: c.contentHtml || c.content || '',
+            author: c.author || '',
+            author_id: c.authorId || '',
+            author_thumbnail: c.authorThumbnails?.[0]?.url || '',
+            likes: c.likeCount || 0,
+            is_reply: !!c.isReply,
+            parent: '',
+            timestamp: c.publishedText || '',
+        }));
     } catch (err) {
-        console.error('Failed to fetch comments:', err);
+        console.error('[actions] Comments error:', err);
         return [];
     }
 }

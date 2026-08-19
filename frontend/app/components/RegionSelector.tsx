@@ -47,6 +47,9 @@ export default function RegionSelector() {
     const handleSelect = (code: string) => {
         setSelected(code);
         setRegionCookie(code);
+        try {
+            localStorage.setItem('kv_region', code);
+        } catch {}
         setIsOpen(false);
         // Dispatch custom event for immediate notification
         window.dispatchEvent(new CustomEvent('regionchange', { detail: { region: code } }));

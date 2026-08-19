@@ -1,450 +1,864 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
-import { IoHeart, IoHeartOutline, IoChatbubbleOutline, IoShareOutline, IoEllipsisHorizontal, IoMusicalNote, IoRefresh, IoPlay, IoVolumeMute, IoVolumeHigh } from 'react-icons/io5';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import Link from 'next/link';
+import {
+  IoHeart,
+  IoHeartOutline,
+  IoShareOutline,
+  IoVolumeMute,
+  IoVolumeHigh,
+  IoArrowUp,
+  IoArrowDown,
+  IoMusicalNotes,
+  IoPlay,
+  IoExpand,
+  IoContract,
+} from 'react-icons/io5';
 import LoadingSpinner from '../components/LoadingSpinner';
+import { invidious } from '../services/invidious';
+import { isSubscribed, toggleSubscription } from '../storage';
 
 interface ShortVideo {
-    id: string;
-    title: string;
-    uploader: string;
-    thumbnail: string;
-    view_count: number;
-    duration?: string;
+  id: string;
+  title: string;
+  uploader: string;
+  channelId?: string;
+  channelAvatar?: string;
+  thumbnail: string;
+  view_count?: number;
+  lengthSeconds?: number;
 }
 
-interface StreamInfo {
-    title?: string;
-    duration?: number;
-    video_formats?: { url: string; height: number; format_id: string; has_audio: boolean; fragment_count: number; vcodec: string; acodec: string }[];
+const REGION_SHORTS_TERMS: Record<string, string[]> = {
+  VN: [
+    '#shorts việt nam',
+    'shorts hài hước triệu view',
+    'shorts xu hướng việt nam',
+    'shorts tiktok việt nam',
+    'shorts ẩm thực việt nam',
+    'shorts giải trí việt nam',
+    'reels việt nam trending',
+    'shorts gái xinh việt nam',
+  ],
+  US: [
+    '#shorts',
+    'trending shorts',
+    'viral shorts',
+    'funny shorts',
+    'shorts comedy',
+    'shorts gaming',
+    'tiktok viral shorts',
+    'reels shorts',
+  ],
+  JP: [
+    '#shorts 日本',
+    'shorts 面白い',
+    'shorts トレンド',
+    'shorts バズる',
+    'shorts アニメ',
+    'shorts ゲーム',
+  ],
+  KR: [
+    '#shorts 한국',
+    'shorts 쇼츠 인기',
+    'shorts 재미있는',
+    'shorts 케이팝',
+    'shorts 유행',
+  ],
+  GLOBAL: [
+    '#shorts',
+    'trending shorts',
+    'viral shorts',
+    'funny shorts',
+    'shorts comedy',
+    'shorts gaming',
+  ],
+};
+
+function getTermsForRegion(region: string): string[] {
+  return REGION_SHORTS_TERMS[region.toUpperCase()] || REGION_SHORTS_TERMS.VN || REGION_SHORTS_TERMS.US;
 }
 
-const SHORTS_QUERIES = ['#shorts', 'youtube shorts viral', 'tiktok short', 'shorts funny', 'shorts music'];
-const RANDOM_MODIFIERS = ['viral', 'popular', 'new', 'best', 'trending', 'hot', 'fresh', '2025'];
-
-function getRandomModifier(): string {
-    return RANDOM_MODIFIERS[Math.floor(Math.random() * RANDOM_MODIFIERS.length)];
+function formatViews(views?: number): string {
+  if (!views) return '35K';
+  if (views >= 1000000) return (views / 1000000).toFixed(1) + 'M';
+  if (views >= 1000) return (views / 1000).toFixed(0) + 'K';
+  return views.toString();
 }
 
-function parseDuration(duration: string): number {
-    if (!duration) return 0;
-    const parts = duration.split(':').map(Number);
-    if (parts.length === 2) return parts[0] * 60 + parts[1];
-    if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2];
-    return 0;
-}
+// Global Set to prevent duplicate shorts from appearing in the feed
+const globalSeenIds = new Set<string>();
 
-function formatViews(views: number): string {
-    if (views >= 1000000) return (views / 1000000).toFixed(1) + 'M';
-    if (views >= 1000) return (views / 1000).toFixed(1) + 'K';
-    return views.toString();
-}
+async function fetchUniqueShorts(page: number, region: string = 'VN'): Promise<ShortVideo[]> {
+  const terms = getTermsForRegion(region);
+  const queryIndex = (page - 1) % terms.length;
+  const query = terms[queryIndex];
 
-async function fetchShorts(page: number): Promise<ShortVideo[]> {
-    try {
-        const query = SHORTS_QUERIES[page % SHORTS_QUERIES.length] + ' ' + getRandomModifier();
-        const res = await fetch(`/api/search?q=${encodeURIComponent(query)}&limit=20`, { cache: 'no-store' });
-        if (!res.ok) return [];
-        const data = await res.json();
-        return data.filter((v: ShortVideo) => parseDuration(v.duration || '') <= 90);
-    } catch {
-        return [];
+  try {
+    const results = await invidious.search(query, {
+      page: Math.floor((page - 1) / terms.length) + 1,
+      type: 'video',
+      duration: 'short',
+      sort_by: 'upload_date',
+      region: region,
+    });
+
+    if (Array.isArray(results) && results.length > 0) {
+      const filtered: ShortVideo[] = [];
+
+      for (const v of results) {
+        const vidId = v.videoId || v.id;
+        if (!vidId || globalSeenIds.has(vidId)) continue;
+
+        // Ensure duration is short (under 95 seconds)
+        if (v.lengthSeconds && v.lengthSeconds > 95) continue;
+
+        globalSeenIds.add(vidId);
+        filtered.push({
+          id: vidId,
+          title: v.title || 'Short Video',
+          uploader: v.author || v.uploader || 'Creator',
+          channelId: v.authorId || v.channel_id || '',
+          channelAvatar: v.authorThumbnails?.[v.authorThumbnails.length - 1]?.url,
+          thumbnail:
+            v.videoThumbnails?.[0]?.url ||
+            (typeof v.thumbnail === 'string' ? v.thumbnail.replace('/maxresdefault.jpg', '/mqdefault.jpg') : v.thumbnail) ||
+            `https://i.ytimg.com/vi/${vidId}/mqdefault.jpg`,
+          view_count: v.viewCount ?? v.view_count ?? 38000,
+          lengthSeconds: v.lengthSeconds || 30,
+        });
+      }
+
+      if (filtered.length > 0) return filtered;
     }
+  } catch (e) {
+    console.warn('[Shorts] Invidious search failed for query:', query, e);
+  }
+
+  // Secondary fallback with generic shorts query
+  try {
+    const backupResults = await invidious.search(`#shorts ${region}`, {
+      page: page + 1,
+      type: 'video',
+      duration: 'short',
+      sort_by: 'relevance',
+      region: region,
+    });
+
+    if (Array.isArray(backupResults)) {
+      const filteredBackup: ShortVideo[] = [];
+      for (const v of backupResults) {
+        const vidId = v.videoId || v.id;
+        if (!vidId || globalSeenIds.has(vidId)) continue;
+        globalSeenIds.add(vidId);
+        filteredBackup.push({
+          id: vidId,
+          title: v.title || 'Shorts',
+          uploader: v.author || 'Creator',
+          channelId: v.authorId || '',
+          channelAvatar: v.authorThumbnails?.[0]?.url,
+          thumbnail: v.videoThumbnails?.[0]?.url || `https://i.ytimg.com/vi/${vidId}/mqdefault.jpg`,
+          view_count: v.viewCount ?? 45000,
+          lengthSeconds: v.lengthSeconds || 30,
+        });
+      }
+      return filteredBackup;
+    }
+  } catch {}
+
+  return [];
 }
 
-function ShortCard({ video, isActive }: { video: ShortVideo; isActive: boolean }) {
-    const [liked, setLiked] = useState(false);
-    const [likeCount, setLikeCount] = useState(Math.floor(Math.random() * 50000) + 1000);
-    const [commentCount] = useState(Math.floor(Math.random() * 1000) + 50);
-    const [muted, setMuted] = useState(true);
-    const [loading, setLoading] = useState(false);
-    const [error, setError] = useState(false);
-    const [useFallback, setUseFallback] = useState(false);
-    const videoRef = useRef<HTMLVideoElement>(null);
-    const [showControls, setShowControls] = useState(false);
+function ShortCard({
+  video,
+  isActive,
+  muted,
+  toggleMute,
+}: {
+  video: ShortVideo;
+  isActive: boolean;
+  muted: boolean;
+  toggleMute: () => void;
+}) {
+  const [liked, setLiked] = useState(false);
+  const [likeCount, setLikeCount] = useState(
+    video.view_count ? Math.floor(video.view_count * 0.08) : 5200
+  );
+  const [heartAnim, setHeartAnim] = useState(false);
+  const [isSub, setIsSub] = useState(false);
+  const lastClickRef = useRef<number>(0);
 
-    useEffect(() => {
-        if (!isActive) {
-            if (videoRef.current) {
-                videoRef.current.pause();
-                videoRef.current.removeAttribute('src');
-                videoRef.current.load();
-            }
-            return;
-        }
+  useEffect(() => {
+    if (video.channelId) {
+      setIsSub(isSubscribed(video.channelId));
+    }
+  }, [video.channelId]);
 
-		if (useFallback) return;
+  const handleCardClick = () => {
+    const now = Date.now();
+    if (now - lastClickRef.current < 320) {
+      // Double tap to like
+      if (!liked) {
+        setLiked(true);
+        setLikeCount((prev) => prev + 1);
+      }
+      setHeartAnim(true);
+      setTimeout(() => setHeartAnim(false), 700);
+    }
+    lastClickRef.current = now;
+  };
 
-        const loadStream = async () => {
-            setLoading(true);
-            setError(false);
+  const handleToggleSub = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!video.channelId) return;
+    const next = toggleSubscription({
+      channelId: video.channelId,
+      channelName: video.uploader,
+      channelAvatar: video.channelAvatar,
+    });
+    setIsSub(next);
+  };
 
-            try {
-                const res = await fetch(`/api/video/${video.id}/playback-info`);
-                const data: StreamInfo = await res.json();
+  const handleShare = async (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    try {
+      if (typeof navigator !== 'undefined' && navigator.share) {
+        await navigator.share({
+          title: video.title,
+          url: `${window.location.origin}/watch?v=${video.id}`,
+        });
+      } else {
+        await navigator.clipboard.writeText(`${window.location.origin}/watch?v=${video.id}`);
+        alert('Shorts video link copied!');
+      }
+    } catch {}
+  };
 
-                if (!data.video_formats?.length) {
-                    throw new Error('No stream URL');
-                }
+  // Embed URL for flawless vertical video playback with audio
+  const embedUrl = `https://www.youtube-nocookie.com/embed/${video.id}?autoplay=1&mute=${muted ? 1 : 0}&controls=0&loop=1&playlist=${video.id}&playsinline=1&rel=0&modestbranding=1&iv_load_policy=3&disablekb=1`;
 
-                const videoEl = videoRef.current;
-                if (!videoEl) return;
+  return (
+    <div
+      className="short-card-container"
+      style={{
+        position: 'relative',
+        width: '100%',
+        height: '100%',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        scrollSnapAlign: 'start',
+      }}
+    >
+      {/* Responsive Full-View / Frame Container */}
+      <div
+        onClick={handleCardClick}
+        className="short-video-wrapper"
+        style={{
+          position: 'relative',
+          width: '100%',
+          height: '100%',
+          overflow: 'hidden',
+          backgroundColor: '#000000',
+          userSelect: 'none',
+        }}
+      >
+        {/* Active Iframe Video Player with Full Viewport Coverage */}
+        {isActive ? (
+          <iframe
+            src={embedUrl}
+            title={video.title}
+            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+            allowFullScreen
+            style={{
+              position: 'absolute',
+              top: 0,
+              left: 0,
+              width: '100%',
+              height: '100%',
+              border: 'none',
+              pointerEvents: 'none',
+            }}
+          />
+        ) : (
+          <img
+            src={video.thumbnail}
+            alt={video.title}
+            style={{
+              width: '100%',
+              height: '100%',
+              objectFit: 'cover',
+              display: 'block',
+            }}
+          />
+        )}
 
-                // Pick a progressive (combined audio+video) format for native playback
-                const progressive = data.video_formats.find(f => f.has_audio && f.fragment_count === 0);
-                const format = progressive || data.video_formats[0];
-                const streamUrl = format.url;
+        {/* Double-Tap Heart Animation */}
+        {heartAnim && (
+          <div
+            style={{
+              position: 'absolute',
+              top: '50%',
+              left: '50%',
+              transform: 'translate(-50%, -50%) scale(1.3)',
+              color: '#ff2d55',
+              zIndex: 25,
+              animation: 'bounce 0.6s ease',
+              filter: 'drop-shadow(0 4px 16px rgba(0,0,0,0.6))',
+              pointerEvents: 'none',
+            }}
+          >
+            <IoHeart size={84} />
+          </div>
+        )}
 
-                videoEl.src = streamUrl;
-                videoEl.muted = muted;
-                videoEl.addEventListener('error', () => {
-                    setError(true);
-                    setUseFallback(true);
-                }, { once: true });
-                videoEl.addEventListener('loadeddata', () => {
-                    setLoading(false);
-                    videoEl.play().catch(() => {});
-                }, { once: true });
-            } catch (err) {
-                console.error('Stream load error:', err);
-                setError(true);
-                setUseFallback(true);
-            }
-        };
-
-        loadStream();
-
-        return () => {
-            if (videoRef.current) {
-                videoRef.current.pause();
-                videoRef.current.removeAttribute('src');
-                videoRef.current.load();
-            }
-        };
-    }, [isActive, video.id, useFallback, muted]);
-
-    const toggleMute = () => {
-        if (videoRef.current) {
-            videoRef.current.muted = !videoRef.current.muted;
-            setMuted(videoRef.current.muted);
-        }
-    };
-
-    const handleShare = async () => {
-        try {
-            if (navigator.share) {
-                await navigator.share({
-                    title: video.title,
-                    url: `${window.location.origin}/watch?v=${video.id}`,
-                });
-            } else {
-                await navigator.clipboard.writeText(`${window.location.origin}/watch?v=${video.id}`);
-            }
-        } catch {}
-    };
-
-    const handleRetry = () => {
-        setUseFallback(false);
-        setError(false);
-        setLoading(false);
-    };
-
-    return (
-        <div
-            style={cardWrapperStyle}
-            onMouseEnter={() => setShowControls(true)}
-            onMouseLeave={() => setShowControls(false)}
+        {/* Top Sound Toggle */}
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            toggleMute();
+          }}
+          style={{
+            position: 'absolute',
+            top: '16px',
+            right: '16px',
+            width: '42px',
+            height: '42px',
+            borderRadius: '50%',
+            backgroundColor: 'rgba(0, 0, 0, 0.65)',
+            color: '#ffffff',
+            border: 'none',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            cursor: 'pointer',
+            zIndex: 30,
+            backdropFilter: 'blur(8px)',
+          }}
+          title={muted ? 'Unmute' : 'Mute'}
         >
-            <div style={cardContainerStyle}>
-                {useFallback ? (
-                    <iframe
-                        src={isActive ? `https://www.youtube.com/embed/${video.id}?autoplay=1&loop=1&playlist=${video.id}&mute=${muted ? 1 : 0}&rel=0&modestbranding=1&playsinline=1&controls=1` : ''}
-                        style={iframeStyle}
-                        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                        allowFullScreen
-                        title={video.title}
-                    />
+          {muted ? <IoVolumeMute size={22} /> : <IoVolumeHigh size={22} />}
+        </button>
+
+        {/* Full-Width Seamless Bottom Gradient */}
+        <div
+          style={{
+            position: 'absolute',
+            bottom: 0,
+            left: 0,
+            right: 0,
+            height: '240px',
+            background: 'linear-gradient(to top, rgba(0,0,0,0.82) 0%, rgba(0,0,0,0.45) 45%, rgba(0,0,0,0.1) 75%, transparent 100%)',
+            pointerEvents: 'none',
+            zIndex: 15,
+          }}
+        />
+
+        {/* Bottom Info Overlay */}
+        <div
+          onClick={(e) => e.stopPropagation()}
+          className="short-bottom-info"
+          style={{
+            position: 'absolute',
+            bottom: 0,
+            left: 0,
+            right: 0,
+            paddingLeft: '16px',
+            paddingRight: '76px',
+            color: '#ffffff',
+            zIndex: 20,
+          }}
+        >
+          {/* Channel Author & Subscribe Button */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '10px' }}>
+            <Link
+              href={video.channelId ? `/channel/${video.channelId}` : `/watch?v=${video.id}`}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+                color: '#ffffff',
+                textDecoration: 'none',
+              }}
+            >
+              <div
+                style={{
+                  width: '36px',
+                  height: '36px',
+                  borderRadius: '50%',
+                  backgroundColor: 'var(--md-sys-color-primary, #ff0033)',
+                  color: '#ffffff',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  fontWeight: 700,
+                  fontSize: '14px',
+                  overflow: 'hidden',
+                  flexShrink: 0,
+                  boxShadow: '0 2px 8px rgba(0,0,0,0.5)',
+                }}
+              >
+                {video.channelAvatar ? (
+                  <img src={video.channelAvatar} alt={video.uploader} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                 ) : (
-                    <>
-                        <video
-                            ref={videoRef}
-                            style={videoStyle}
-                            loop
-                            playsInline
-                            poster={video.thumbnail}
-                            onClick={() => videoRef.current?.paused ? videoRef.current?.play() : videoRef.current?.pause()}
-                        />
-                        {loading && (
-                            <div style={loadingOverlayStyle}>
-                                <LoadingSpinner color="white" />
-                            </div>
-                        )}
-                        {error && !useFallback && (
-                            <div style={errorOverlayStyle}>
-                                <button onClick={handleRetry} style={retryBtnStyle}>
-                                    Retry
-                                </button>
-                                <button onClick={() => setUseFallback(true)} style={retryBtnStyle}>
-                                    YouTube Player
-                                </button>
-                            </div>
-                        )}
-                    </>
+                  video.uploader?.[0]?.toUpperCase() || 'C'
                 )}
+              </div>
+              <span
+                style={{
+                  fontWeight: 600,
+                  fontSize: '15px',
+                  textShadow: '0 1px 4px rgba(0,0,0,0.8)',
+                  maxWidth: '140px',
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                @{video.uploader}
+              </span>
+            </Link>
 
-                <div style={gradientStyle} />
+            {video.channelId && (
+              <button
+                type="button"
+                onClick={handleToggleSub}
+                style={{
+                  padding: '5px 14px',
+                  borderRadius: '18px',
+                  border: 'none',
+                  backgroundColor: isSub ? 'rgba(255,255,255,0.25)' : '#ffffff',
+                  color: isSub ? '#ffffff' : '#000000',
+                  fontSize: '12px',
+                  fontWeight: 700,
+                  cursor: 'pointer',
+                  backdropFilter: 'blur(6px)',
+                  transition: 'all 0.2s',
+                }}
+              >
+                {isSub ? 'Subscribed' : 'Subscribe'}
+              </button>
+            )}
+          </div>
 
-                <div style={infoStyle}>
-                    <div style={channelStyle}>
-                        <div style={avatarStyle}>{video.uploader?.[0]?.toUpperCase() || '?'}</div>
-                        <span style={{ fontWeight: '600', fontSize: '13px' }}>@{video.uploader || 'Unknown'}</span>
-                    </div>
-                    <p style={titleStyle}>{video.title}</p>
-                    <div style={musicStyle}><IoMusicalNote size={12} /><span>Original Sound</span></div>
-                </div>
+          {/* Title */}
+          <h3
+            style={{
+              fontSize: '14px',
+              fontWeight: 500,
+              lineHeight: '1.4',
+              margin: '0 0 8px',
+              display: '-webkit-box',
+              WebkitLineClamp: 2,
+              WebkitBoxOrient: 'vertical',
+              overflow: 'hidden',
+              textShadow: '0 1px 4px rgba(0,0,0,0.8)',
+            }}
+          >
+            {video.title}
+          </h3>
 
-                <div style={actionsStyle}>
-                    <button onClick={() => { setLiked(!liked); setLikeCount(p => liked ? p - 1 : p + 1); }} style={actionBtnStyle}>
-                        {liked ? <IoHeart size={26} color="#ff0050" /> : <IoHeartOutline size={26} />}
-                        <span style={actionLabelStyle}>{formatViews(likeCount)}</span>
-                    </button>
-                    <button style={actionBtnStyle}>
-                        <IoChatbubbleOutline size={24} />
-                        <span style={actionLabelStyle}>{formatViews(commentCount)}</span>
-                    </button>
-                    <button onClick={handleShare} style={actionBtnStyle}>
-                        <IoShareOutline size={24} />
-                        <span style={actionLabelStyle}>Share</span>
-                    </button>
-                    <button onClick={toggleMute} style={actionBtnStyle}>
-                        {muted ? <IoVolumeMute size={24} /> : <IoVolumeHigh size={24} />}
-                        <span style={actionLabelStyle}>{muted ? 'Unmute' : 'Mute'}</span>
-                    </button>
-                    <a
-                        href={`https://www.youtube.com/watch?v=${video.id}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        style={actionBtnStyle}
-                    >
-                        <IoEllipsisHorizontal size={22} />
-                    </a>
-                </div>
-
-                {showControls && (
-                    <a
-                        href={`https://www.youtube.com/watch?v=${video.id}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        style={openBtnStyle}
-                    >
-                        Open ↗
-                    </a>
-                )}
-            </div>
+          {/* Audio Track */}
+          <div
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+              fontSize: '12px',
+              opacity: 0.85,
+            }}
+          >
+            <IoMusicalNotes size={14} />
+            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+              Original Sound · {video.uploader}
+            </span>
+          </div>
         </div>
-    );
+
+        {/* Right Floating Actions Toolbar */}
+        <div
+          onClick={(e) => e.stopPropagation()}
+          className="short-actions-toolbar"
+          style={{
+            position: 'absolute',
+            bottom: '24px',
+            right: '12px',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '18px',
+            alignItems: 'center',
+            zIndex: 30,
+          }}
+        >
+          {/* Like Button */}
+          <button
+            type="button"
+            onClick={() => {
+              setLiked(!liked);
+              setLikeCount((prev) => (liked ? prev - 1 : prev + 1));
+            }}
+            style={{
+              background: 'none',
+              border: 'none',
+              color: liked ? '#ff2d55' : '#ffffff',
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              gap: '4px',
+              cursor: 'pointer',
+            }}
+            title="Like"
+          >
+            <div
+              style={{
+                width: '46px',
+                height: '46px',
+                borderRadius: '50%',
+                backgroundColor: 'rgba(0, 0, 0, 0.65)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                backdropFilter: 'blur(8px)',
+                transition: 'transform 0.15s ease',
+              }}
+            >
+              {liked ? <IoHeart size={26} /> : <IoHeartOutline size={26} />}
+            </div>
+            <span style={{ fontSize: '11px', fontWeight: 700 }}>{formatViews(likeCount)}</span>
+          </button>
+
+          {/* Watch Full Video Player */}
+          <Link
+            href={`/watch?v=${video.id}`}
+            style={{
+              color: '#ffffff',
+              textDecoration: 'none',
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              gap: '4px',
+            }}
+            title="Watch in full player"
+          >
+            <div
+              style={{
+                width: '46px',
+                height: '46px',
+                borderRadius: '50%',
+                backgroundColor: 'rgba(0, 0, 0, 0.65)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                backdropFilter: 'blur(8px)',
+              }}
+            >
+              <IoPlay size={22} style={{ marginLeft: '2px' }} />
+            </div>
+            <span style={{ fontSize: '11px', fontWeight: 700 }}>Watch</span>
+          </Link>
+
+          {/* Share Button */}
+          <button
+            type="button"
+            onClick={handleShare}
+            style={{
+              background: 'none',
+              border: 'none',
+              color: '#ffffff',
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              gap: '4px',
+              cursor: 'pointer',
+            }}
+            title="Share"
+          >
+            <div
+              style={{
+                width: '46px',
+                height: '46px',
+                borderRadius: '50%',
+                backgroundColor: 'rgba(0, 0, 0, 0.65)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                backdropFilter: 'blur(8px)',
+              }}
+            >
+              <IoShareOutline size={22} />
+            </div>
+            <span style={{ fontSize: '11px', fontWeight: 700 }}>Share</span>
+          </button>
+        </div>
+      </div>
+    </div>
+  );
 }
-
-const cardWrapperStyle: React.CSSProperties = {
-    position: 'relative',
-    width: '100%',
-    height: '100%',
-    scrollSnapAlign: 'start',
-    scrollSnapStop: 'always',
-    background: '#000',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-};
-
-const cardContainerStyle: React.CSSProperties = {
-    position: 'relative',
-    width: '100%',
-    maxWidth: '400px',
-    height: '100%',
-    maxHeight: 'calc(100vh - 120px)',
-    borderRadius: '12px',
-    overflow: 'hidden',
-    background: '#0f0f0f',
-};
-
-const videoStyle: React.CSSProperties = {
-    width: '100%',
-    height: '100%',
-    objectFit: 'cover',
-    background: '#000',
-    cursor: 'pointer',
-};
-
-const iframeStyle: React.CSSProperties = { width: '100%', height: '100%', border: 'none' };
-
-const loadingOverlayStyle: React.CSSProperties = {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    background: 'rgba(0,0,0,0.5)',
-};
-
-const errorOverlayStyle: React.CSSProperties = {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    display: 'flex',
-    flexDirection: 'column',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: '10px',
-    background: 'rgba(0,0,0,0.8)',
-};
-
-const retryBtnStyle: React.CSSProperties = {
-    padding: '8px 16px',
-    background: '#ff0050',
-    color: '#fff',
-    border: 'none',
-    borderRadius: '6px',
-    cursor: 'pointer',
-    fontSize: '13px',
-};
-
-const gradientStyle: React.CSSProperties = {
-    position: 'absolute', bottom: 0, left: 0, right: 0, height: '50%',
-    background: 'linear-gradient(transparent, rgba(0,0,0,0.85))', pointerEvents: 'none',
-};
-
-const infoStyle: React.CSSProperties = {
-    position: 'absolute', bottom: '16px', left: '16px', right: '70px', color: '#fff', pointerEvents: 'none',
-};
-
-const channelStyle: React.CSSProperties = { display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px' };
-
-const avatarStyle: React.CSSProperties = {
-    width: '32px', height: '32px', borderRadius: '50%',
-    background: 'linear-gradient(135deg, #ff0050, #ff4081)',
-    display: 'flex', alignItems: 'center', justifyContent: 'center',
-    fontSize: '13px', fontWeight: '700', color: '#fff', flexShrink: 0,
-};
-
-const titleStyle: React.CSSProperties = {
-    fontSize: '13px', lineHeight: '18px', margin: '0 0 6px 0',
-    display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden',
-};
-
-const musicStyle: React.CSSProperties = { display: 'flex', alignItems: 'center', gap: '4px', fontSize: '11px', opacity: 0.7 };
-
-const actionsStyle: React.CSSProperties = {
-    position: 'absolute', right: '10px', bottom: '80px',
-    display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '16px',
-};
-
-const actionBtnStyle: React.CSSProperties = {
-    background: 'none', border: 'none', color: '#fff', cursor: 'pointer',
-    display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '2px',
-};
-
-const actionLabelStyle: React.CSSProperties = { fontSize: '10px', fontWeight: '500' };
-
-const openBtnStyle: React.CSSProperties = {
-    position: 'absolute',
-    top: '10px',
-    right: '10px',
-    padding: '6px 10px',
-    background: 'rgba(0,0,0,0.8)',
-    color: '#fff',
-    borderRadius: '4px',
-    textDecoration: 'none',
-    fontSize: '11px',
-    zIndex: 10,
-};
 
 export default function ShortsPage() {
-    const [shorts, setShorts] = useState<ShortVideo[]>([]);
-    const [activeIndex, setActiveIndex] = useState(0);
-    const [loading, setLoading] = useState(true);
-    const [loadingMore, setLoadingMore] = useState(false);
-    const [page, setPage] = useState(0);
-    const containerRef = useRef<HTMLDivElement>(null);
-    const activeRef = useRef(0);
+  const [shorts, setShorts] = useState<ShortVideo[]>([]);
+  const [currentIndex, setCurrentIndex] = useState(0);
+  const [loading, setLoading] = useState(true);
+  const [page, setPage] = useState(1);
+  const [muted, setMuted] = useState(false);
+  const [currentRegion, setCurrentRegion] = useState('VN');
+  const containerRef = useRef<HTMLDivElement>(null);
 
-    useEffect(() => {
-        const script = document.createElement('script');
-        script.src = 'https://cdn.jsdelivr.net/npm/hls.js@latest';
-        script.async = true;
-        if (!document.querySelector('script[src*="hls.js"]')) {
-            document.head.appendChild(script);
-        }
-    }, []);
+  // Read active region and listen to region changes
+  useEffect(() => {
+    const saved = (typeof window !== 'undefined' ? localStorage.getItem('kv_region') : null) || 'VN';
+    setCurrentRegion(saved);
 
-    useEffect(() => { activeRef.current = activeIndex; }, [activeIndex]);
-    useEffect(() => { fetchShorts(0).then(d => { setShorts(d); setLoading(false); }); }, []);
+    const handleRegionChange = (e: any) => {
+      if (e.detail?.region) {
+        setCurrentRegion(e.detail.region);
+      }
+    };
+    window.addEventListener('regionchange', handleRegionChange);
+    return () => window.removeEventListener('regionchange', handleRegionChange);
+  }, []);
 
-    useEffect(() => {
-        const c = containerRef.current;
-        if (!c || !shorts.length) return;
-        const onScroll = () => {
-            const idx = Math.round(c.scrollTop / c.clientHeight);
-            if (idx !== activeRef.current && idx >= 0 && idx < shorts.length) setActiveIndex(idx);
-        };
-        c.addEventListener('scroll', onScroll, { passive: true });
-        return () => c.removeEventListener('scroll', onScroll);
-    }, [shorts.length]);
+  const loadInitialShorts = useCallback(async (region: string) => {
+    setLoading(true);
+    globalSeenIds.clear();
+    const batch1 = await fetchUniqueShorts(1, region);
+    const batch2 = await fetchUniqueShorts(2, region);
+    const combined = [...batch1, ...batch2];
+    setShorts(combined);
+    setPage(3);
+    setLoading(false);
+  }, []);
 
-    useEffect(() => {
-        if (activeIndex >= shorts.length - 2 && !loadingMore) {
-            setLoadingMore(true);
-            fetchShorts(page + 1).then(d => {
-                if (d.length) {
-                    const exist = new Set(shorts.map(v => v.id));
-                    setShorts(p => [...p, ...d.filter(v => !exist.has(v.id))]);
-                    setPage(p => p + 1);
-                }
-                setLoadingMore(false);
-            });
-        }
-    }, [activeIndex, shorts.length, loadingMore, page]);
+  useEffect(() => {
+    loadInitialShorts(currentRegion);
+  }, [currentRegion, loadInitialShorts]);
 
-    const refresh = () => { setLoading(true); setPage(0); setActiveIndex(0); fetchShorts(0).then(d => { setShorts(d); setLoading(false); }); };
+  const loadMore = useCallback(async () => {
+    const nextPage = page + 1;
+    const more = await fetchUniqueShorts(nextPage, currentRegion);
+    if (more.length > 0) {
+      setShorts((prev) => [...prev, ...more]);
+      setPage(nextPage);
+    }
+  }, [page, currentRegion]);
 
-    if (loading) return (
-        <div style={pageStyle}>
-            <div style={{ ...spinnerContainerStyle, width: '300px', height: '500px' }}>
-                <LoadingSpinner color="white" />
-            </div>
-        </div>
-    );
+  const handleScroll = () => {
+    if (!containerRef.current) return;
+    const { scrollTop, clientHeight, scrollHeight } = containerRef.current;
+    const index = Math.round(scrollTop / clientHeight);
+    if (index !== currentIndex && index < shorts.length) {
+      setCurrentIndex(index);
+    }
+    // Pre-fetch next shorts when reaching within 2 videos of the end
+    if (scrollHeight - scrollTop - clientHeight < 1000) {
+      loadMore();
+    }
+  };
 
-    if (!shorts.length) return (
-        <div style={{ ...pageStyle, color: '#fff' }}>
-            <div style={{ textAlign: 'center' }}>
-                <p style={{ marginBottom: '16px' }}>No shorts found</p>
-                <button onClick={refresh} style={{ padding: '10px 20px', background: '#ff0050', color: '#fff', border: 'none', borderRadius: '8px', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px', margin: '0 auto' }}>
-                    <IoRefresh size={18} /> Refresh
-                </button>
-            </div>
-        </div>
-    );
+  const scrollTo = (dir: 'next' | 'prev') => {
+    if (!containerRef.current) return;
+    const h = containerRef.current.clientHeight;
+    if (dir === 'next' && currentIndex < shorts.length - 1) {
+      containerRef.current.scrollBy({ top: h, behavior: 'smooth' });
+    } else if (dir === 'prev' && currentIndex > 0) {
+      containerRef.current.scrollBy({ top: -h, behavior: 'smooth' });
+    }
+  };
 
+  // Keyboard Navigation
+  useEffect(() => {
+    const handleKey = (e: KeyboardEvent) => {
+      if (['INPUT', 'TEXTAREA'].includes((e.target as HTMLElement)?.tagName)) return;
+      if (e.key === 'ArrowDown' || e.key === 'j') {
+        e.preventDefault();
+        scrollTo('next');
+      }
+      if (e.key === 'ArrowUp' || e.key === 'k') {
+        e.preventDefault();
+        scrollTo('prev');
+      }
+      if (e.key === 'm') {
+        e.preventDefault();
+        setMuted((m) => !m);
+      }
+    };
+    window.addEventListener('keydown', handleKey);
+    return () => window.removeEventListener('keydown', handleKey);
+  }, [currentIndex, shorts.length]);
+
+  if (loading && shorts.length === 0) {
     return (
-        <div ref={containerRef} style={scrollContainerStyle}>
-            <style>{hideScrollbarCss}</style>
-            {shorts.map((v, i) => <ShortCard key={v.id} video={v} isActive={i === activeIndex} />)}
-            {loadingMore && (
-                <div style={{ ...pageStyle, height: '100vh' }}>
-                    <LoadingSpinner color="white" />
-                </div>
-            )}
-        </div>
+      <div
+        style={{
+          height: 'calc(100vh - var(--yt-header-height))',
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'center',
+          justifyContent: 'center',
+          gap: '12px',
+        }}
+      >
+        <LoadingSpinner text="" fullScreen={false} size="large" />
+        <p style={{ color: 'var(--yt-text-secondary)', fontSize: '14px', margin: 0 }}>
+          Loading {currentRegion} Shorts...
+        </p>
+      </div>
     );
-}
+  }
 
-const pageStyle: React.CSSProperties = { height: 'calc(100vh - 56px)', display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#0f0f0f' };
-const scrollContainerStyle: React.CSSProperties = { height: 'calc(100vh - 56px)', overflowY: 'scroll', scrollSnapType: 'y mandatory', background: '#0f0f0f', scrollbarWidth: 'none' };
-const spinnerContainerStyle: React.CSSProperties = { borderRadius: '12px', background: 'linear-gradient(180deg, #1a1a1a 0%, #0f0f0f 100%)', display: 'flex', alignItems: 'center', justifyContent: 'center' };
-const hideScrollbarCss = 'div::-webkit-scrollbar { display: none; }';
+  return (
+    <div
+      className="shorts-page-container"
+      style={{
+        position: 'relative',
+        width: '100%',
+        height: 'calc(100vh - var(--yt-header-height))',
+        backgroundColor: '#000000',
+      }}
+    >
+      <style jsx global>{`
+        /* Mobile Full Viewport Coverage */
+        @media (max-width: 768px) {
+          .short-card-container {
+            height: calc(100vh - var(--yt-header-height) - 56px) !important;
+          }
+          .short-video-wrapper {
+            max-width: 100% !important;
+            height: 100% !important;
+            max-height: 100% !important;
+            border-radius: 0 !important;
+            box-shadow: none !important;
+          }
+          .short-bottom-info {
+            bottom: 0 !important;
+            padding-bottom: 74px !important;
+            padding-left: 16px !important;
+            padding-right: 76px !important;
+          }
+          .short-actions-toolbar {
+            bottom: 74px !important;
+          }
+          .shorts-desktop-nav {
+            display: none !important;
+          }
+        }
+
+        /* Desktop Clean Center 9:16 View */
+        @media (min-width: 769px) {
+          .short-card-container {
+            height: calc(100vh - var(--yt-header-height)) !important;
+            padding: 16px 0;
+          }
+          .short-video-wrapper {
+            max-width: 440px !important;
+            height: calc(100vh - var(--yt-header-height) - 32px) !important;
+            max-height: 860px !important;
+            border-radius: 20px !important;
+            box-shadow: 0 16px 48px rgba(0, 0, 0, 0.8) !important;
+          }
+          .short-bottom-info {
+            bottom: 0 !important;
+            padding-bottom: 24px !important;
+            padding-left: 16px !important;
+            padding-right: 76px !important;
+          }
+          .short-actions-toolbar {
+            bottom: 24px !important;
+          }
+          .shorts-desktop-nav {
+            display: flex !important;
+          }
+        }
+      `}</style>
+
+      {/* Scrollable Shorts Feed */}
+      <div
+        ref={containerRef}
+        onScroll={handleScroll}
+        style={{
+          width: '100%',
+          height: '100%',
+          overflowY: 'auto',
+          scrollSnapType: 'y mandatory',
+          scrollbarWidth: 'none',
+        }}
+      >
+        {shorts.map((video, idx) => (
+          <ShortCard
+            key={video.id}
+            video={video}
+            isActive={idx === currentIndex}
+            muted={muted}
+            toggleMute={() => setMuted((m) => !m)}
+          />
+        ))}
+      </div>
+
+      {/* Desktop Floating Navigation Controls (Previous / Next) - Hidden on Mobile */}
+      <div
+        className="shorts-desktop-nav"
+        style={{
+          position: 'fixed',
+          right: '32px',
+          top: '50%',
+          transform: 'translateY(-50%)',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: '12px',
+          zIndex: 40,
+        }}
+      >
+        <button
+          type="button"
+          onClick={() => scrollTo('prev')}
+          disabled={currentIndex === 0}
+          style={{
+            width: '46px',
+            height: '46px',
+            borderRadius: '50%',
+            backgroundColor: 'var(--yt-surface)',
+            border: '1px solid var(--yt-border)',
+            color: 'var(--yt-text-primary)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            cursor: currentIndex === 0 ? 'not-allowed' : 'pointer',
+            opacity: currentIndex === 0 ? 0.35 : 1,
+            boxShadow: '0 4px 16px rgba(0,0,0,0.5)',
+            transition: 'all 0.2s',
+          }}
+          title="Previous short (Arrow Up / k)"
+        >
+          <IoArrowUp size={22} />
+        </button>
+        <button
+          type="button"
+          onClick={() => scrollTo('next')}
+          disabled={currentIndex >= shorts.length - 1}
+          style={{
+            width: '46px',
+            height: '46px',
+            borderRadius: '50%',
+            backgroundColor: 'var(--yt-surface)',
+            border: '1px solid var(--yt-border)',
+            color: 'var(--yt-text-primary)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            cursor: currentIndex >= shorts.length - 1 ? 'not-allowed' : 'pointer',
+            opacity: currentIndex >= shorts.length - 1 ? 0.35 : 1,
+            boxShadow: '0 4px 16px rgba(0,0,0,0.5)',
+            transition: 'all 0.2s',
+          }}
+          title="Next short (Arrow Down / j)"
+        >
+          <IoArrowDown size={22} />
+        </button>
+      </div>
+    </div>
+  );
+}

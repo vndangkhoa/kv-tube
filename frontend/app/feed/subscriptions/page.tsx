@@ -2,542 +2,729 @@
 
 import Link from 'next/link';
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { getSubscriptionsFeedClient, getVideoDatesClient, formatRelativeTime } from '../../clientActions';
-import { VideoData } from '../../constants';
-import { proxiedThumb, proxiedImageUrl } from '../../utils';
+import VideoCard from '../../components/VideoCard';
 import LoadingSpinner from '../../components/LoadingSpinner';
+import { VideoData } from '../../constants';
+import { invidious } from '../../services/invidious';
+import { getSubscriptions, subscribe, isSubscribed } from '../../storage';
+import {
+  IoCloudUploadOutline,
+  IoCloudDownloadOutline,
+  IoSearchOutline,
+  IoCheckmarkCircle,
+  IoLayersOutline,
+} from 'react-icons/io5';
 
-const API_BASE = '/api';
-
-interface Subscription {
-    channel_id: string;
-    channel_name: string;
-    channel_avatar: string;
+interface ChannelItem {
+  channelId: string;
+  channelName: string;
+  channelAvatar?: string;
 }
 
-const DEFAULT_THUMBNAIL = 'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="320" height="180" viewBox="0 0 320 180"%3E%3Crect fill="%23222" width="320" height="180"/%3E%3Cpath fill="%23555" d="M140 65v50l40-25z"/%3E%3C/svg%3E';
+const CHANNELS_PER_BATCH = 24;
+const VIDEOS_PER_CHANNEL = 12;
+const AUTH_FEED_PAGES = 3;
 
-const CHANNELS_PER_PAGE = 20;
-const PER_CHANNEL = 5;
-
-// Sort newest first by upload_date ("YYYYMMDD"); undated videos go last.
-// Array.prototype.sort is stable, so relative order is preserved within ties.
-function sortByLatest(list: VideoData[]): VideoData[] {
-    return [...list].sort((a, b) => {
-        const da = a.upload_date || '';
-        const db = b.upload_date || '';
-        if (da && db) return db.localeCompare(da);
-        if (da) return -1;
-        if (db) return 1;
-        return 0;
-    });
-}
-
-async function fetchSubscriptions(): Promise<Subscription[]> {
-    try {
-        const res = await fetch(`${API_BASE}/subscriptions`, { cache: 'no-store' });
-        if (!res.ok) return [];
-        const data = await res.json();
-        return Array.isArray(data) ? data : [];
-    } catch (e) {
-        console.error('Failed to fetch subscriptions:', e);
-        return [];
-    }
-}
-
-// A subscription's stored "avatar" is often just a letter, so only treat it as
-// an image when it's an actual URL; otherwise fall back to the initial.
-function isImageUrl(v?: string): boolean {
-    return !!v && (/^https?:\/\//.test(v) || v.startsWith('data:'));
-}
-
-// ---- Lazy avatar hydration ----
-// Avatars aren't stored with subscriptions, so we lazily fetch real avatar URLs
-// for channels as they scroll into view. Results are cached in memory + in
-// localStorage (avatars rarely change) and requests are batched + de-duplicated.
-const AVATAR_LS_KEY = 'kvtube_channel_avatars';
-const avatarMemCache = new Map<string, string>();
-let avatarLsLoaded = false;
-
-function loadAvatarCache() {
-    if (avatarLsLoaded || typeof window === 'undefined') return;
-    avatarLsLoaded = true;
-    try {
-        const raw = window.localStorage.getItem(AVATAR_LS_KEY);
-        if (raw) {
-            const obj = JSON.parse(raw) as Record<string, string>;
-            for (const [k, v] of Object.entries(obj)) {
-                if (isImageUrl(v)) avatarMemCache.set(k, v);
-            }
-        }
-    } catch { /* ignore */ }
-}
-
-function persistAvatarCache() {
-    if (typeof window === 'undefined') return;
-    try {
-        const obj: Record<string, string> = {};
-        avatarMemCache.forEach((v, k) => { obj[k] = v; });
-        window.localStorage.setItem(AVATAR_LS_KEY, JSON.stringify(obj));
-    } catch { /* ignore */ }
-}
-
-const avatarPending = new Set<string>();
-let avatarQueue: string[] = [];
-let avatarFlushTimer: ReturnType<typeof setTimeout> | null = null;
-const avatarSubscribers = new Set<() => void>();
-
-function notifyAvatarSubscribers() {
-    avatarSubscribers.forEach((fn) => fn());
-}
-
-async function flushAvatarQueue() {
-    avatarFlushTimer = null;
-    const batch = avatarQueue.splice(0, 20);
-    if (batch.length === 0) return;
-    try {
-        const res = await fetch(`${API_BASE}/channel/avatars?ids=${batch.map(encodeURIComponent).join(',')}`);
-        if (res.ok) {
-            const data = await res.json() as Record<string, { avatar_url?: string }>;
-            let changed = false;
-            for (const id of batch) {
-                const url = data[id]?.avatar_url;
-                if (url && isImageUrl(url)) {
-                    avatarMemCache.set(id, url);
-                    changed = true;
-                }
-            }
-            if (changed) {
-                persistAvatarCache();
-                notifyAvatarSubscribers();
-            }
-        }
-    } catch { /* ignore */ }
-    finally {
-        batch.forEach((id) => avatarPending.delete(id));
-        if (avatarQueue.length > 0 && !avatarFlushTimer) {
-            avatarFlushTimer = setTimeout(flushAvatarQueue, 150);
-        }
-    }
-}
-
-function requestAvatar(channelId: string) {
-    if (!channelId || avatarMemCache.has(channelId) || avatarPending.has(channelId)) return;
-    avatarPending.add(channelId);
-    avatarQueue.push(channelId);
-    if (!avatarFlushTimer) avatarFlushTimer = setTimeout(flushAvatarQueue, 150);
-}
-
-// Hook: returns a resolved avatar URL for a channel once it's been requested and fetched.
-function useLazyAvatar(channelId: string, inView: boolean, fallback?: string): string | undefined {
-    loadAvatarCache();
-    const [url, setUrl] = useState<string | undefined>(() => avatarMemCache.get(channelId));
-
-    useEffect(() => {
-        if (!inView) return;
-        if (avatarMemCache.has(channelId)) {
-            setUrl(avatarMemCache.get(channelId));
-            return;
-        }
-        requestAvatar(channelId);
-        const sub = () => {
-            const v = avatarMemCache.get(channelId);
-            if (v) setUrl(v);
-        };
-        avatarSubscribers.add(sub);
-        return () => { avatarSubscribers.delete(sub); };
-    }, [channelId, inView]);
-
-    return url || (isImageUrl(fallback) ? fallback : undefined);
-}
-
-function ChannelAvatar({ name, avatar, size = 40 }: { name: string; avatar?: string; size?: number }) {
-    const showImg = isImageUrl(avatar);
-    return (
-        <div style={{
-            width: `${size}px`,
-            height: `${size}px`,
-            borderRadius: '50%',
-            background: 'var(--yt-avatar-bg)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            fontSize: `${size * 0.45}px`,
-            color: '#fff',
-            fontWeight: '600',
-            overflow: 'hidden',
-            flexShrink: 0,
-        }}>
-            {showImg ? (
-                <img src={avatar} alt="" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-            ) : (
-                name ? name[0].toUpperCase() : '?'
-            )}
-        </div>
-    );
-}
-
-function ChannelChip({ sub }: { sub: Subscription }) {
-    const ref = useRef<HTMLAnchorElement>(null);
-    const [inView, setInView] = useState(false);
-
-    useEffect(() => {
-        const el = ref.current;
-        if (!el) return;
-        const observer = new IntersectionObserver(
-            ([entry]) => { if (entry.isIntersecting) { setInView(true); observer.disconnect(); } },
-            { rootMargin: '200px' }
-        );
-        observer.observe(el);
-        return () => observer.disconnect();
-    }, []);
-
-    const avatarUrl = useLazyAvatar(sub.channel_id, inView, sub.channel_avatar);
-
-    return (
-        <Link
-            ref={ref}
-            key={sub.channel_id}
-            href={`/channel/${sub.channel_id}`}
-            style={{
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'center',
-                gap: '6px',
-                width: '72px',
-                minWidth: '72px',
-                flexShrink: 0,
-                textDecoration: 'none',
-            }}
-            title={sub.channel_name}
-        >
-            <ChannelAvatar name={sub.channel_name} avatar={avatarUrl} size={56} />
-            <span style={{
-                fontSize: '12px',
-                color: 'var(--yt-text-secondary)',
-                maxWidth: '72px',
-                overflow: 'hidden',
-                textOverflow: 'ellipsis',
-                whiteSpace: 'nowrap',
-                textAlign: 'center',
-            }}>
-                {sub.channel_name || '...'}
-            </span>
-        </Link>
-    );
-}
-
-function RecentChannelsStrip({ subs }: { subs: Subscription[] }) {
-    const scrollRef = useRef<HTMLDivElement>(null);
-    const [expanded, setExpanded] = useState(false);
-
-    if (subs.length === 0) return null;
-
-    const scrollBy = (dir: number) => {
-        const el = scrollRef.current;
-        if (el) el.scrollBy({ left: dir * el.clientWidth * 0.8, behavior: 'smooth' });
-    };
-
-    return (
-        <div style={{ marginBottom: '20px' }}>
-            {/* Header row with count + expand toggle */}
-            <div style={{
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'space-between',
-                marginBottom: '12px',
-            }}>
-                <h2 style={{ fontSize: '16px', fontWeight: '600', color: 'var(--yt-text-primary)', margin: 0 }}>
-                    All channels <span style={{ color: 'var(--yt-text-secondary)', fontWeight: 400 }}>({subs.length})</span>
-                </h2>
-                <button
-                    onClick={() => setExpanded((e) => !e)}
-                    style={{
-                        background: 'var(--yt-hover)',
-                        border: '1px solid var(--yt-border)',
-                        color: 'var(--yt-text-primary)',
-                        borderRadius: '18px',
-                        padding: '6px 14px',
-                        fontSize: '13px',
-                        fontWeight: 500,
-                        cursor: 'pointer',
-                    }}
-                >
-                    {expanded ? 'Collapse' : 'Expand'}
-                </button>
-            </div>
-
-            {expanded ? (
-                /* Expanded: wrapping grid, scrollable if very tall */
-                <div style={{
-                    display: 'flex',
-                    flexWrap: 'wrap',
-                    gap: '16px',
-                    maxHeight: '340px',
-                    overflowY: 'auto',
-                    padding: '4px',
-                }}>
-                    {subs.map((sub) => <ChannelChip key={sub.channel_id} sub={sub} />)}
-                </div>
-            ) : (
-                /* Collapsed: horizontal scroll with arrow controls */
-                <div style={{ position: 'relative' }}>
-                    {subs.length > 6 && (
-                        <button
-                            aria-label="Scroll left"
-                            onClick={() => scrollBy(-1)}
-                            className="channel-scroll-arrow"
-                            style={{ left: '-6px' }}
-                        >
-                            <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><path d="M15.41 7.41L14 6l-6 6 6 6 1.41-1.41L10.83 12z" /></svg>
-                        </button>
-                    )}
-                    <div
-                        ref={scrollRef}
-                        style={{
-                            display: 'flex',
-                            gap: '16px',
-                            overflowX: 'auto',
-                            overflowY: 'hidden',
-                            scrollbarWidth: 'none',
-                            msOverflowStyle: 'none',
-                            padding: '4px 0',
-                            scrollBehavior: 'smooth',
-                        }}
-                        className="hide-scrollbox"
-                    >
-                        {subs.map((sub) => <ChannelChip key={sub.channel_id} sub={sub} />)}
-                    </div>
-                    {subs.length > 6 && (
-                        <button
-                            aria-label="Scroll right"
-                            onClick={() => scrollBy(1)}
-                            className="channel-scroll-arrow"
-                            style={{ right: '-6px' }}
-                        >
-                            <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><path d="M10 6L8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z" /></svg>
-                        </button>
-                    )}
-                </div>
-            )}
-        </div>
-    );
-}
-
-function VideoCard({ video }: { video: VideoData }) {
-    const [imgSrc, setImgSrc] = useState(() => proxiedImageUrl(video.thumbnail) || proxiedThumb(video.id));
-    const [thumbErr, setThumbErr] = useState(false);
-    const relativeTime = video.publishedAt || '';
-
-    const channelName = video.channelTitle || video.uploader;
-    const channelId = video.channelId || video.uploader_id;
-
-    return (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }} className="card-hover-lift">
-            <Link href={`/watch?v=${video.id}`} style={{ textDecoration: 'none' }}>
-                <div style={{ position: 'relative', aspectRatio: '16/9', borderRadius: '12px', overflow: 'hidden', background: '#272727' }}>
-                    <img
-                        src={imgSrc}
-                        alt={video.title}
-                        loading="lazy"
-                        style={{ width: '100%', height: '100%', objectFit: 'cover' }}
-                        onError={() => {
-                            if (thumbErr) return;
-                            setThumbErr(true);
-                            setImgSrc(proxiedThumb(video.id, 'default'));
-                        }}
-                    />
-                    {video.duration && <div className="duration-badge">{video.duration}</div>}
-                </div>
-            </Link>
-            <div style={{ flex: 1, minWidth: 0 }}>
-                <Link href={`/watch?v=${video.id}`} style={{ textDecoration: 'none' }}>
-                    <h3 style={{
-                        fontSize: '14px',
-                        fontWeight: '500',
-                        lineHeight: '20px',
-                        color: 'var(--yt-text-primary)',
-                        display: '-webkit-box',
-                        WebkitLineClamp: 2,
-                        WebkitBoxOrient: 'vertical',
-                        overflow: 'hidden',
-                        margin: '0 0 4px 0',
-                    }}>
-                        {video.title}
-                    </h3>
-                </Link>
-                {channelName && (
-                    channelId ? (
-                        <Link
-                            href={`/channel/${channelId}`}
-                            style={{ fontSize: '12px', color: 'var(--yt-text-secondary)', textDecoration: 'none' }}
-                            className="channel-link-hover"
-                        >
-                            {channelName}
-                        </Link>
-                    ) : (
-                        <div style={{ fontSize: '12px', color: 'var(--yt-text-secondary)' }}>{channelName}</div>
-                    )
-                )}
-                {relativeTime && (
-                    <div style={{ fontSize: '12px', color: 'var(--yt-text-secondary)' }}>
-                        {relativeTime}
-                    </div>
-                )}
-            </div>
-        </div>
-    );
-}
-
-function CardSkeleton() {
-    return (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-            <div style={{ aspectRatio: '16/9', borderRadius: '12px', background: 'var(--yt-hover)', animation: 'skeletonPulse 1.5s ease-in-out infinite' }} />
-            <div style={{ display: 'flex', gap: '12px' }}>
-                <div style={{ width: '36px', height: '36px', borderRadius: '50%', background: 'var(--yt-hover)', animation: 'skeletonPulse 1.5s ease-in-out infinite' }} />
-                <div style={{ flex: 1 }}>
-                    <div style={{ height: '14px', borderRadius: '4px', background: 'var(--yt-hover)', width: '90%', animation: 'skeletonPulse 1.5s ease-in-out infinite' }} />
-                    <div style={{ height: '12px', borderRadius: '4px', background: 'var(--yt-hover)', width: '55%', marginTop: '8px', animation: 'skeletonPulse 1.5s ease-in-out infinite' }} />
-                </div>
-            </div>
-        </div>
-    );
-}
+// Map an Invidious feed item to a VideoData card. Returns null when the item
+// cannot be turned into a playable video.
+const mapAuthFeedItem = (v: any): VideoData | null => {
+  const id = v.videoId || v.id;
+  if (!id) return null;
+  return {
+    id,
+    title: v.title,
+    uploader: v.author || v.uploader || 'Creator',
+    channel_id: v.authorId || '',
+    thumbnail: v.videoThumbnails?.[0]?.url || `https://i.ytimg.com/vi/${id}/mqdefault.jpg`,
+    duration: v.lengthSeconds ? `${Math.floor(v.lengthSeconds / 60)}:${(v.lengthSeconds % 60).toString().padStart(2, '0')}` : '',
+    view_count: v.viewCount ?? 0,
+    upload_date: v.publishedText || '',
+    publishedAt: v.publishedText || '',
+    avatar_url: v.authorThumbnails?.[0]?.url || v.authorThumbnail || '',
+  };
+};
 
 export default function SubscriptionsPage() {
-    const [recentSubs, setRecentSubs] = useState<Subscription[]>([]);
-    const [hasAnySubs, setHasAnySubs] = useState<boolean | null>(null);
-    const [videos, setVideos] = useState<VideoData[]>([]);
-    const [loading, setLoading] = useState(true);
-    const [loadingMore, setLoadingMore] = useState(false);
-    const [hasMore, setHasMore] = useState(true);
+  const [subscriptions, setSubscriptions] = useState<ChannelItem[]>([]);
+  const [videos, setVideos] = useState<VideoData[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const [importStatus, setImportStatus] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [visibleChannels, setVisibleChannels] = useState(CHANNELS_PER_BATCH);
+  const [hasMore, setHasMore] = useState(false);
+  const [usingAuthFeed, setUsingAuthFeed] = useState(false);
+  const [authFeedPage, setAuthFeedPage] = useState(0);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
-    const offsetRef = useRef(0);
-    const loadingRef = useRef(false);
-    const hasMoreRef = useRef(true);
-    const sentinelRef = useRef<HTMLDivElement>(null);
+  // Load subscriptions
+  const loadSubs = useCallback(async () => {
+    let localSubs = getSubscriptions();
 
-    // Merge real upload dates in the background (in chunks), then re-sort so the
-    // feed stays newest-first as dates resolve.
-    const enrichDates = useCallback(async (list: VideoData[]) => {
-        const ids = list.filter((v) => v.id && !v.upload_date).map((v) => v.id);
-        if (ids.length === 0) return;
-        for (let i = 0; i < ids.length; i += 60) {
-            const chunk = ids.slice(i, i + 60);
-            const dates = await getVideoDatesClient(chunk);
-            if (!dates || Object.keys(dates).length === 0) continue;
-            setVideos((prev) => sortByLatest(prev.map((v) => {
-                const d = dates[v.id];
-                return d && !v.upload_date ? { ...v, upload_date: d, publishedAt: formatRelativeTime(d) } : v;
-            })));
+    // Try fetching from Invidious auth account if connected
+    const token = invidious.getToken();
+    if (token) {
+      try {
+        const invSubs = await invidious.getAuthSubscriptions();
+        if (Array.isArray(invSubs) && invSubs.length > 0) {
+          const invMapped: ChannelItem[] = invSubs.map((s: any) => ({
+            channelId: s.authorId,
+            channelName: s.author,
+            channelAvatar: s.authorThumbnails?.[0]?.url || '',
+          }));
+
+          // Merge without duplicates
+          const seen = new Set(localSubs.map((s) => s.channelId));
+          invMapped.forEach((s) => {
+            if (!seen.has(s.channelId)) {
+              localSubs.push({
+                channelId: s.channelId,
+                channelName: s.channelName,
+                channelAvatar: s.channelAvatar || '',
+                subscribedAt: Date.now(),
+              });
+              subscribe(s);
+            }
+          });
         }
-    }, []);
+      } catch (e) {
+        console.warn('[Subscriptions] Invidious auth subs fetch notice:', e);
+      }
+    }
 
-    const loadFeed = useCallback(async (isInitial: boolean) => {
-        if (loadingRef.current || !hasMoreRef.current) return;
-        loadingRef.current = true;
-        if (isInitial) setLoading(true);
-        else setLoadingMore(true);
+    setSubscriptions(localSubs);
+    return localSubs;
+  }, []);
 
-        const offset = offsetRef.current;
-        const batch = await getSubscriptionsFeedClient(offset, CHANNELS_PER_PAGE, PER_CHANNEL);
+  // Fetch channel videos from a batch of subscribed channels
+  const fetchChannelBatch = useCallback(async (batch: ChannelItem[]): Promise<VideoData[]> => {
+    if (!batch || batch.length === 0) return [];
 
-        if (batch.length === 0) {
-            hasMoreRef.current = false;
-            setHasMore(false);
-        } else {
-            offsetRef.current = offset + CHANNELS_PER_PAGE;
-            setVideos((prev) => {
-                const existing = new Set(prev.map((v) => v.id));
-                const fresh = batch.filter((v) => !existing.has(v.id));
-                return sortByLatest([...prev, ...fresh]);
-            });
-            enrichDates(batch);
+    try {
+      const results = await Promise.allSettled(
+        batch.map(async (c) => {
+          const res = await invidious.getChannelVideos(c.channelId);
+          if (Array.isArray(res)) return res.slice(0, VIDEOS_PER_CHANNEL);
+          if (res?.videos && Array.isArray(res.videos)) return res.videos.slice(0, VIDEOS_PER_CHANNEL);
+          return [];
+        })
+      );
+
+      const combined: VideoData[] = [];
+      results.forEach((r, idx) => {
+        if (r.status === 'fulfilled' && Array.isArray(r.value)) {
+          const chName = batch[idx]?.channelName || 'Creator';
+          const chId = batch[idx]?.channelId || '';
+          r.value.forEach((v: any) => {
+            const vidId = v.videoId || v.id;
+            if (vidId && v.title) {
+              combined.push({
+                id: vidId,
+                title: v.title,
+                uploader: v.author || chName,
+                channel_id: chId,
+                thumbnail:
+                  v.videoThumbnails?.[0]?.url || `https://i.ytimg.com/vi/${vidId}/mqdefault.jpg`,
+                duration: v.lengthSeconds ? `${Math.floor(v.lengthSeconds / 60)}:${(v.lengthSeconds % 60).toString().padStart(2, '0')}` : (v.duration || ''),
+                view_count: v.viewCount ?? v.view_count ?? 0,
+                upload_date: v.publishedText || '',
+                avatar_url:
+                  batch[idx]?.channelAvatar ||
+                  v.authorThumbnails?.[0]?.url ||
+                  v.authorThumbnail ||
+                  (chId ? `/api/channel-avatar?id=${encodeURIComponent(chId)}` : ''),
+              });
+            }
+          });
         }
+      });
 
-        loadingRef.current = false;
-        setLoading(false);
-        setLoadingMore(false);
-    }, [enrichDates]);
+      // Sort by upload date or views
+      combined.sort((a, b) => (b.view_count || 0) - (a.view_count || 0));
+      return combined;
+    } catch (e) {
+      console.error('[Subscriptions] Failed to fetch channel videos:', e);
+      return [];
+    }
+  }, []);
 
-    useEffect(() => {
-        fetchSubscriptions().then((data) => {
-            setHasAnySubs(data.length > 0);
-            setRecentSubs(data);
+  // Fetch full subscriptions feed
+  const fetchSubscriptionsFeed = useCallback(async (subs: ChannelItem[]) => {
+    setLoading(true);
+    setVideos([]);
+    setHasMore(false);
+
+    // 1. Try Invidious authenticated feed (multiple pages for more videos)
+    const token = invidious.getToken();
+    if (token) {
+      setUsingAuthFeed(false);
+      setAuthFeedPage(0);
+      try {
+        const authFeed: VideoData[] = [];
+        const seen = new Set<string>();
+        let fetchedPages = 0;
+        for (let p = 1; p <= AUTH_FEED_PAGES; p++) {
+          let page: any[];
+          try {
+            page = await invidious.getAuthFeed(p);
+          } catch {
+            break;
+          }
+          if (!Array.isArray(page) || page.length === 0) break;
+          fetchedPages = p;
+          page.forEach((v: any) => {
+            const item = mapAuthFeedItem(v);
+            if (!item || seen.has(item.id)) return;
+            seen.add(item.id);
+            authFeed.push(item);
+          });
+        }
+        if (authFeed.length > 0) {
+          setVideos(authFeed);
+          setUsingAuthFeed(true);
+          setAuthFeedPage(fetchedPages);
+          setHasMore(fetchedPages >= AUTH_FEED_PAGES);
+          setLoading(false);
+          return;
+        }
+      } catch (e) {
+        console.warn('[Subscriptions] Invidious auth feed notice:', e);
+      }
+    }
+
+    // 2. Fetch channel videos from all subscribed channels
+    if (!subs || subs.length === 0) {
+      setVideos([]);
+      setLoading(false);
+      return;
+    }
+
+    const batch = subs.slice(0, CHANNELS_PER_BATCH);
+    const combined = await fetchChannelBatch(batch);
+    setVideos(combined);
+    setVisibleChannels(CHANNELS_PER_BATCH);
+    setHasMore(subs.length > CHANNELS_PER_BATCH);
+    setLoading(false);
+  }, [fetchChannelBatch]);
+
+  // Load more videos — either the next page of the Invidious auth feed, or the
+  // next batch of subscribed channels.
+  const loadMore = useCallback(async () => {
+    if (loadingMore) return;
+    setLoadingMore(true);
+    try {
+      if (usingAuthFeed) {
+        const next = authFeedPage + 1;
+        let page: any[] = [];
+        try {
+          page = await invidious.getAuthFeed(next);
+        } catch {
+          // fall through, treat as end of feed
+        }
+        if (!Array.isArray(page) || page.length === 0) {
+          setHasMore(false);
+          return;
+        }
+        setVideos((prev) => {
+          const seen = new Set(prev.map((v) => v.id));
+          const merged = [...prev];
+          page.forEach((v: any) => {
+            const item = mapAuthFeedItem(v);
+            if (!item || seen.has(item.id)) return;
+            seen.add(item.id);
+            merged.push(item);
+          });
+          return merged;
         });
-        loadFeed(true);
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, []);
-
-    useEffect(() => {
-        const el = sentinelRef.current;
-        if (!el) return;
-        const observer = new IntersectionObserver(
-            ([entry]) => {
-                if (entry.isIntersecting && !loadingRef.current && hasMoreRef.current) {
-                    loadFeed(false);
-                }
-            },
-            { rootMargin: '800px' }
-        );
-        observer.observe(el);
-        return () => observer.disconnect();
-    }, [loadFeed]);
-
-    if (loading) {
-        return (
-            <div style={{ maxWidth: '1400px', margin: '0 auto', padding: '0 24px' }}>
-                <h1 style={{ fontSize: '24px', fontWeight: '600', color: 'var(--yt-text-primary)', marginBottom: '20px' }}>Subscriptions</h1>
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: '16px 20px' }}>
-                    {Array.from({ length: 12 }).map((_, i) => <CardSkeleton key={i} />)}
-                </div>
-            </div>
-        );
+        setAuthFeedPage(next);
+      } else {
+        const start = visibleChannels;
+        const end = Math.min(start + CHANNELS_PER_BATCH, subscriptions.length);
+        const batch = subscriptions.slice(start, end);
+        const newVideos = await fetchChannelBatch(batch);
+        setVideos((prev) => {
+          const seen = new Set(prev.map((v) => v.id));
+          const merged = [...prev];
+          newVideos.forEach((v) => {
+            if (!seen.has(v.id)) {
+              seen.add(v.id);
+              merged.push(v);
+            }
+          });
+          return merged;
+        });
+        setVisibleChannels(end);
+        setHasMore(end < subscriptions.length);
+      }
+    } catch (e) {
+      console.error('[Subscriptions] Failed to load more videos:', e);
+    } finally {
+      setLoadingMore(false);
     }
+  }, [loadingMore, usingAuthFeed, authFeedPage, visibleChannels, subscriptions, fetchChannelBatch]);
 
-    if (hasAnySubs === false) {
-        return (
-            <div style={{ padding: '48px', textAlign: 'center', color: 'var(--yt-text-secondary)' }}>
-                <h2 style={{ marginBottom: '16px', color: 'var(--yt-text-primary)' }}>No subscriptions yet</h2>
-                <p>Subscribe to channels to see their latest videos here</p>
-                <Link href="/" style={{ display: 'inline-block', marginTop: '16px', padding: '10px 20px', backgroundColor: 'var(--yt-brand-red)', color: 'white', borderRadius: '20px', textDecoration: 'none', fontWeight: '500' }}>
-                    Discover videos
-                </Link>
-            </div>
-        );
+  useEffect(() => {
+    loadSubs().then((subs) => {
+      fetchSubscriptionsFeed(subs);
+    });
+  }, [loadSubs, fetchSubscriptionsFeed]);
+
+  // Handle Subscriptions File Import (Invidious JSON / Google Takeout CSV / OPML)
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setImporting(true);
+    setImportStatus('Reading subscription file...');
+
+    try {
+      const text = await file.text();
+      const channels = invidious.parseSubscriptions(text);
+
+      if (channels.length === 0) {
+        setImportStatus('No valid channels found. Supported: Invidious JSON, Google Takeout CSV, OPML.');
+        setTimeout(() => setImportStatus(null), 5000);
+        return;
+      }
+
+      setImportStatus(`Importing ${channels.length} channels...`);
+
+      for (const ch of channels) {
+        subscribe({
+          channelId: ch.channelId,
+          channelName: ch.channelName,
+          channelAvatar: ch.channelAvatar,
+        });
+      }
+
+      // Check if Invidious Auth Token is saved in localStorage to push to Invidious account
+      const token = invidious.getToken();
+      if (token) {
+        setImportStatus(`Pushing ${channels.length} channels to Invidious account...`);
+        for (const ch of channels.slice(0, 50)) {
+          await invidious.pushSubscriptionToInvidious(ch.channelId, token);
+        }
+      }
+
+      const updated = await loadSubs();
+      setImportStatus(`✓ Successfully imported ${channels.length} channels!`);
+      fetchSubscriptionsFeed(updated);
+      setTimeout(() => setImportStatus(null), 4000);
+    } catch (err: any) {
+      setImportStatus(`Import failed: ${err?.message || 'Unknown error'}`);
+    } finally {
+      setImporting(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
     }
+  };
 
-    return (
-        <div style={{ maxWidth: '1400px', margin: '0 auto', padding: '0 24px' }}>
-            <h1 style={{ fontSize: '24px', fontWeight: '600', color: 'var(--yt-text-primary)', marginBottom: '16px' }}>
-                Subscriptions
-            </h1>
+  // Export current subscriptions to Invidious JSON
+  const handleExport = () => {
+    const subs = getSubscriptions();
+    const data = subs.map((s) => ({
+      authorId: s.channelId,
+      author: s.channelName,
+      authorThumbnails: s.channelAvatar ? [{ url: s.channelAvatar }] : [],
+    }));
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `invidious_subscriptions_${new Date().toISOString().split('T')[0]}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
 
-            <RecentChannelsStrip subs={recentSubs} />
+  const filteredVideos = videos.filter((v) => {
+    if (!searchQuery.trim()) return true;
+    const q = searchQuery.toLowerCase();
+    return (v.title || '').toLowerCase().includes(q) || (v.uploader || '').toLowerCase().includes(q);
+  });
 
-            {videos.length === 0 ? (
-                <div style={{ padding: '48px', textAlign: 'center', color: 'var(--yt-text-secondary)' }}>
-                    Couldn&apos;t load the latest videos. Try refreshing.
-                </div>
-            ) : (
-                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: '24px 20px' }}>
-                    {videos.map((video) => <VideoCard key={video.id} video={video} />)}
-                </div>
-            )}
-
-            {hasMore && <div ref={sentinelRef} style={{ height: '1px' }} />}
-
-            {loadingMore && (
-                <div style={{ padding: '32px', display: 'flex', justifyContent: 'center' }}>
-                    <LoadingSpinner />
-                </div>
-            )}
-
-            {!hasMore && videos.length > 0 && (
-                <div style={{ textAlign: 'center', padding: '40px 0', color: 'var(--yt-text-secondary)', fontSize: '14px' }}>
-                    You&apos;ve reached the end
-                </div>
-            )}
+  return (
+    <div style={{ maxWidth: '1750px', margin: '0 auto', padding: '16px 24px 60px' }}>
+      {/* Header with Title and Import / Export Actions */}
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          flexWrap: 'wrap',
+          gap: '12px',
+          marginBottom: '20px',
+        }}
+      >
+        <div>
+          <h1 style={{ fontSize: '24px', fontWeight: 700, color: 'var(--yt-text-primary)', margin: '0 0 4px' }}>
+            Subscriptions Feed
+          </h1>
+          <p style={{ fontSize: '13px', color: 'var(--yt-text-secondary)', margin: 0 }}>
+            {subscriptions.length} channels subscribed · Powered by Invidious
+          </p>
         </div>
-    );
+
+        <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+
+          <label
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '6px',
+              padding: '8px 16px',
+              borderRadius: '20px',
+              backgroundColor: 'var(--md-sys-color-primary, var(--yt-blue))',
+              color: '#ffffff',
+              fontSize: '13px',
+              fontWeight: 600,
+              cursor: importing ? 'wait' : 'pointer',
+            }}
+          >
+            <IoCloudUploadOutline size={18} />
+            <span>{importing ? 'Importing...' : 'Import'}</span>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".json,.csv,.opml,.xml,.txt"
+              onChange={handleFileUpload}
+              style={{ display: 'none' }}
+            />
+          </label>
+
+          {subscriptions.length > 0 && (
+            <button
+              type="button"
+              onClick={handleExport}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '6px',
+                padding: '8px 16px',
+                borderRadius: '20px',
+                backgroundColor: 'var(--yt-surface)',
+                border: '1px solid var(--yt-border)',
+                color: 'var(--yt-text-primary)',
+                fontSize: '13px',
+                fontWeight: 600,
+                cursor: 'pointer',
+              }}
+            >
+              <IoCloudDownloadOutline size={18} />
+              <span>Export</span>
+            </button>
+          )}
+        </div>
+      </div>
+
+      {/* Import Status Banner */}
+      {importStatus && (
+        <div
+          style={{
+            padding: '12px 16px',
+            borderRadius: '14px',
+            backgroundColor: importStatus.startsWith('✓') ? 'rgba(0, 200, 83, 0.15)' : 'var(--yt-surface)',
+            border: importStatus.startsWith('✓') ? '1px solid #00c853' : '1px solid var(--yt-border)',
+            color: importStatus.startsWith('✓') ? '#00c853' : 'var(--yt-text-primary)',
+            fontSize: '13px',
+            fontWeight: 500,
+            marginBottom: '20px',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+          }}
+        >
+          {importStatus.startsWith('✓') && <IoCheckmarkCircle size={18} />}
+          <span>{importStatus}</span>
+        </div>
+      )}
+
+      {/* Subscribed Channels Avatars Rail */}
+      {subscriptions.length > 0 && (
+        <div
+          style={{
+            display: 'flex',
+            gap: '12px',
+            overflowX: 'auto',
+            padding: '8px 0 16px',
+            marginBottom: '24px',
+            borderBottom: '1px solid var(--yt-border)',
+            scrollbarWidth: 'none',
+            alignItems: 'center',
+          }}
+        >
+          {subscriptions.map((ch) => (
+            <Link
+              key={ch.channelId}
+              href={`/channel/${ch.channelId}`}
+              title={ch.channelName}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+                padding: '4px 10px 4px 4px',
+                borderRadius: '24px',
+                border: '1px solid var(--yt-border)',
+                backgroundColor: 'var(--yt-surface)',
+                color: 'var(--yt-text-primary)',
+                textDecoration: 'none',
+                flexShrink: 0,
+                transition: 'background-color 0.2s',
+              }}
+            >
+              <div
+                style={{
+                  width: '30px',
+                  height: '30px',
+                  borderRadius: '50%',
+                  backgroundColor: 'var(--md-sys-color-primary, var(--yt-hover))',
+                  color: '#ffffff',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  fontWeight: 700,
+                  fontSize: '13px',
+                  overflow: 'hidden',
+                  flexShrink: 0,
+                }}
+              >
+                <img
+                  src={ch.channelAvatar || `/api/channel-avatar?id=${encodeURIComponent(ch.channelId)}`}
+                  alt={ch.channelName}
+                  loading="lazy"
+                  style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                  onError={(e) => {
+                    const el = e.currentTarget;
+                    if (el.dataset.fallback !== '1') {
+                      el.dataset.fallback = '1';
+                      el.src = `/api/channel-avatar?id=${encodeURIComponent(ch.channelId)}`;
+                    } else {
+                      el.style.display = 'none';
+                    }
+                  }}
+                />
+              </div>
+              <span style={{ fontSize: '12px', fontWeight: 500, maxWidth: '100px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {ch.channelName}
+              </span>
+            </Link>
+          ))}
+        </div>
+      )}
+
+      {/* Video Feed */}
+      {loading ? (
+        <div
+          style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))',
+            gap: '20px',
+          }}
+        >
+          {Array.from({ length: 12 }).map((_, i) => (
+            <div key={i} style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+              <div
+                style={{
+                  width: '100%',
+                  aspectRatio: '16/9',
+                  borderRadius: '16px',
+                  backgroundColor: 'var(--yt-hover)',
+                  animation: 'skeletonPulse 1.5s ease-in-out infinite',
+                }}
+              />
+              <div style={{ height: '14px', borderRadius: '6px', backgroundColor: 'var(--yt-hover)', width: '80%' }} />
+            </div>
+          ))}
+        </div>
+      ) : subscriptions.length === 0 ? (
+        <div style={{ textAlign: 'center', padding: '40px 20px', color: 'var(--yt-text-secondary)' }}>
+          <h3 style={{ fontSize: '20px', color: 'var(--yt-text-primary)', marginBottom: '8px', fontWeight: 700 }}>
+            No Subscriptions Yet
+          </h3>
+          <p style={{ fontSize: '14px', maxWidth: '520px', margin: '0 auto 24px', lineHeight: 1.6 }}>
+            Import your subscriptions from Invidious/Google Takeout, or subscribe to popular channels below to start populating your feed.
+          </p>
+
+          {/* Quick Subscribe Recommendations */}
+          <div style={{ maxWidth: '800px', margin: '0 auto 32px', textAlign: 'left' }}>
+            <h4 style={{ fontSize: '14px', fontWeight: 600, color: 'var(--yt-text-primary)', marginBottom: '14px' }}>
+              Suggested Channels
+            </h4>
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))',
+                gap: '12px',
+              }}
+            >
+              {[
+                {
+                  channelId: 'UC_x5XG1OV2P6uZZ5FSM9Ttw',
+                  channelName: 'Google for Developers',
+                },
+                {
+                  channelId: 'UCsBjURrPoezykLs9EqgamOA',
+                  channelName: 'Fireship',
+                },
+                {
+                  channelId: 'UCBJycsmduvYEL83R_U4JriQ',
+                  channelName: 'Marques Brownlee',
+                },
+                {
+                  channelId: 'UCsXVk37bltHxD1rDPwtNM8Q',
+                  channelName: 'Kurzgesagt – In a Nutshell',
+                },
+                {
+                  channelId: 'UCHnyfMqiRRG1u-2MsSQLbXA',
+                  channelName: 'Veritasium',
+                },
+                {
+                  channelId: 'UC295-Dw_tDNtZXFeAPAW6Aw',
+                  channelName: '5-Minute Crafts',
+                },
+              ].map((rec) => (
+                <div
+                  key={rec.channelId}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    padding: '12px 16px',
+                    borderRadius: '16px',
+                    backgroundColor: 'var(--yt-surface)',
+                    border: '1px solid var(--yt-border)',
+                    gap: '12px',
+                  }}
+                >
+                  <Link
+                    href={`/channel/${rec.channelId}`}
+                    style={{
+                      fontSize: '13px',
+                      fontWeight: 600,
+                      color: 'var(--yt-text-primary)',
+                      textDecoration: 'none',
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
+                      flex: 1,
+                    }}
+                  >
+                    {rec.channelName}
+                  </Link>
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      subscribe({
+                        channelId: rec.channelId,
+                        channelName: rec.channelName,
+                        channelAvatar: '',
+                      });
+                      const updated = await loadSubs();
+                      fetchSubscriptionsFeed(updated);
+                    }}
+                    style={{
+                      padding: '6px 14px',
+                      borderRadius: '16px',
+                      backgroundColor: 'var(--md-sys-color-primary, var(--yt-blue))',
+                      color: '#ffffff',
+                      border: 'none',
+                      fontSize: '12px',
+                      fontWeight: 600,
+                      cursor: 'pointer',
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    Subscribe
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div style={{ display: 'flex', gap: '12px', justifyContent: 'center', flexWrap: 'wrap' }}>
+            <button
+              type="button"
+              onClick={() => fileInputRef.current?.click()}
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                gap: '8px',
+                padding: '10px 24px',
+                borderRadius: '20px',
+                backgroundColor: 'var(--md-sys-color-primary, var(--yt-blue))',
+                color: '#ffffff',
+                border: 'none',
+                fontWeight: 600,
+                fontSize: '14px',
+                cursor: 'pointer',
+              }}
+            >
+              <IoCloudUploadOutline size={18} />
+              <span>Import Subscriptions</span>
+            </button>
+            <Link
+              href="/"
+              style={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                padding: '10px 24px',
+                borderRadius: '20px',
+                backgroundColor: 'var(--yt-surface)',
+                border: '1px solid var(--yt-border)',
+                color: 'var(--yt-text-primary)',
+                textDecoration: 'none',
+                fontWeight: 600,
+                fontSize: '14px',
+              }}
+            >
+              Explore Home
+            </Link>
+          </div>
+        </div>
+      ) : filteredVideos.length === 0 ? (
+        <div style={{ textAlign: 'center', padding: '60px 20px', color: 'var(--yt-text-secondary)' }}>
+          <p>No videos found for the selected channel/query.</p>
+        </div>
+      ) : (
+        <>
+          <div
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))',
+              gap: '20px',
+            }}
+          >
+            {filteredVideos.map((v) => (
+              <VideoCard key={v.id} video={v} />
+            ))}
+          </div>
+
+          {hasMore && (
+            <div style={{ textAlign: 'center', padding: '28px 0 8px' }}>
+              <button
+                type="button"
+                onClick={loadMore}
+                disabled={loadingMore}
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '8px',
+                  padding: '10px 28px',
+                  borderRadius: '20px',
+                  backgroundColor: 'var(--md-sys-color-primary, var(--yt-blue))',
+                  color: '#ffffff',
+                  border: 'none',
+                  fontWeight: 600,
+                  fontSize: '14px',
+                  cursor: loadingMore ? 'wait' : 'pointer',
+                  opacity: loadingMore ? 0.7 : 1,
+                }}
+              >
+                {loadingMore ? 'Loading...' : 'Load More'}
+              </button>
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
 }

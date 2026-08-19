@@ -9,7 +9,7 @@ export interface VideoData {
 }
 
 export const CATEGORY_MAP: Record<string, string> = {
-    'All': 'trending videos 2025',
+    'All': 'trending videos',
     'Watched': 'watched history',
     'Suggested': 'suggested videos',
     'Tech': 'latest smart technology gadgets reviews',
@@ -24,8 +24,8 @@ export const CATEGORY_MAP: Record<string, string> = {
 };
 
 export const ALL_CATEGORY_SECTIONS = [
-    { id: 'trending', title: 'Trending Now', query: 'trending videos 2025' },
-    { id: 'music', title: 'Music Hits', query: 'music hits 2025' },
+    { id: 'trending', title: 'Trending Now', query: 'trending videos' },
+    { id: 'music', title: 'Music Hits', query: 'music hits' },
     { id: 'tech', title: 'Tech & Gadgets', query: 'latest smart technology gadgets reviews' },
     { id: 'gaming', title: 'Gaming', query: 'gaming trending' },
     { id: 'sports', title: 'Sports Highlights', query: 'sports highlights' },
@@ -43,18 +43,22 @@ export function getRandomModifier(): string {
     return RANDOM_MODIFIERS[Math.floor(Math.random() * RANDOM_MODIFIERS.length)];
 }
 
-// Thumbnails are routed through the backend image proxy (/api/proxy) so they
-// keep loading even when the browser cannot reach i.ytimg.com directly
-// (ad blockers, DNS/referrer filters). The proxy fetches server-side and the
-// browser caches the response for 24h.
 const THUMB_SIZES = ['hqdefault', 'mqdefault', 'default'] as const;
 export type ThumbSize = typeof THUMB_SIZES[number];
 
+/**
+ * Returns direct, high-speed YouTube / Invidious CDN thumbnail URL
+ */
 export function proxiedThumb(id: string, size: ThumbSize = 'hqdefault'): string {
-    return `/api/proxy?url=${encodeURIComponent(`https://i.ytimg.com/vi/${id}/${size}.jpg`)}`;
+    if (!id) return '';
+    return `https://i.ytimg.com/vi/${id}/${size}.jpg`;
 }
 
+/**
+ * Normalizes any image URL (handles relative URLs, WebP, Invidious thumbnails)
+ */
 export function proxiedImageUrl(raw: string | undefined | null): string {
     if (!raw) return '';
-    return `/api/proxy?url=${encodeURIComponent(raw)}`;
+    if (raw.startsWith('//')) return `https:${raw}`;
+    return raw;
 }
