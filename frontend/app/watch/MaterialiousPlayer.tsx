@@ -1220,12 +1220,13 @@ export default function MaterialiousPlayer({
         style={
           compact
             ? {
-                width: '200px',
-                height: '112px',
-                objectFit: 'contain',
+                width: '132px',
+                height: '74px',
+                objectFit: 'cover',
                 display: 'block',
                 flexShrink: 0,
                 backgroundColor: '#000000',
+                borderRadius: '8px',
                 pointerEvents: 'none',
                 zIndex: 2,
                 opacity: dataLoaded ? 1 : 0,
@@ -1270,9 +1271,10 @@ export default function MaterialiousPlayer({
                 position: 'absolute',
                 left: 0,
                 top: 0,
-                width: '200px',
-                height: '112px',
+                width: '132px',
+                height: '74px',
                 objectFit: 'cover',
+                borderRadius: '8px',
                 zIndex: 1,
                 pointerEvents: 'none',
               }}
@@ -1285,9 +1287,7 @@ export default function MaterialiousPlayer({
               position: 'absolute',
               left: '4px',
               bottom: '4px',
-              width: '190px',
-              textAlign: 'right',
-              backgroundColor: 'rgba(0, 0, 0, 0.75)',
+              backgroundColor: 'rgba(0, 0, 0, 0.8)',
               color: '#ffffff',
               fontSize: '10px',
               fontWeight: 600,
@@ -1296,8 +1296,8 @@ export default function MaterialiousPlayer({
               pointerEvents: 'none',
               fontVariantNumeric: 'tabular-nums',
               zIndex: 3,
+              lineHeight: 1.2,
             }}
-            className="mp-compact-badge"
           >
             {formatTime(currentTime)} / {formatTime(duration)}
           </div>
@@ -1310,8 +1310,9 @@ export default function MaterialiousPlayer({
               position: 'absolute',
               left: 0,
               top: 0,
-              width: '200px',
-              height: '112px',
+              width: '132px',
+              height: '74px',
+              borderRadius: '8px',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
@@ -2403,8 +2404,7 @@ export default function MaterialiousPlayer({
           }
           .mp-compact-video,
           .mp-compact-thumb,
-          .mp-compact-expand,
-          .mp-compact-badge {
+          .mp-compact-expand {
             width: 132px !important;
             height: 74px !important;
           }
@@ -2417,6 +2417,12 @@ export default function MaterialiousPlayer({
             width: 420px !important;
             max-width: 420px !important;
             border-radius: 16px !important;
+          }
+          .mp-compact-video,
+          .mp-compact-thumb,
+          .mp-compact-expand {
+            width: 132px !important;
+            height: 74px !important;
           }
         }
       `}</style>

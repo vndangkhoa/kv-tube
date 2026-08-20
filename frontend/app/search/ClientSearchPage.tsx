@@ -470,14 +470,23 @@ export default function ClientSearchPage() {
 
               // 1. Channel Card in Grid
               if (itemType === 'channel') {
-                const avatar =
+                let avatar =
                   item.authorThumbnails?.[item.authorThumbnails.length - 1]?.url ||
                   item.authorThumbnails?.[0]?.url ||
                   item.authorThumbnail ||
                   item.avatar_url ||
                   item.thumbnail ||
-                  (item.authorId ? `/api/channel-avatar?id=${encodeURIComponent(item.authorId)}` : '');
-                const avatarSrc = avatar ? (avatar.startsWith('http') ? `/api/proxy?url=${encodeURIComponent(avatar)}` : avatar) : '';
+                  '';
+                if (avatar.startsWith('//')) avatar = 'https:' + avatar;
+                if (avatar.startsWith('/ggpht') || avatar.startsWith('/yt')) avatar = 'https://yt3.ggpht.com' + avatar;
+                if (!avatar && item.authorId) avatar = `/api/channel-avatar?id=${encodeURIComponent(item.authorId)}`;
+                const avatarSrc = avatar
+                  ? avatar.includes('googleusercontent.com') || avatar.includes('ggpht.com')
+                    ? avatar
+                    : avatar.startsWith('http')
+                      ? `/api/proxy?url=${encodeURIComponent(avatar)}`
+                      : avatar
+                  : '';
                 const isSub = subscribedMap[item.authorId] ?? isSubscribed(item.authorId);
                 return (
                   <div
@@ -670,14 +679,23 @@ export default function ClientSearchPage() {
             const itemType = item.type || (item.authorId && !item.videoId ? 'channel' : 'video');
 
             if (itemType === 'channel') {
-              const avatar =
+              let avatar =
                 item.authorThumbnails?.[item.authorThumbnails.length - 1]?.url ||
                 item.authorThumbnails?.[0]?.url ||
                 item.authorThumbnail ||
                 item.avatar_url ||
                 item.thumbnail ||
-                (item.authorId ? `/api/channel-avatar?id=${encodeURIComponent(item.authorId)}` : '');
-              const avatarSrc = avatar ? (avatar.startsWith('http') ? `/api/proxy?url=${encodeURIComponent(avatar)}` : avatar) : '';
+                '';
+              if (avatar.startsWith('//')) avatar = 'https:' + avatar;
+              if (avatar.startsWith('/ggpht') || avatar.startsWith('/yt')) avatar = 'https://yt3.ggpht.com' + avatar;
+              if (!avatar && item.authorId) avatar = `/api/channel-avatar?id=${encodeURIComponent(item.authorId)}`;
+              const avatarSrc = avatar
+                ? avatar.includes('googleusercontent.com') || avatar.includes('ggpht.com')
+                  ? avatar
+                  : avatar.startsWith('http')
+                    ? `/api/proxy?url=${encodeURIComponent(avatar)}`
+                    : avatar
+                : '';
 
               return (
                 <Link

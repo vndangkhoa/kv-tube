@@ -99,7 +99,9 @@ function VideoCard({
   const channelId = video.channel_id || video.channelId;
   const rawAvatar = video.avatar_url || video.channelAvatar;
   let avatarSrc = '';
-  if (rawAvatar && rawAvatar.startsWith('http')) {
+  if (rawAvatar && (rawAvatar.includes('googleusercontent.com') || rawAvatar.includes('ggpht.com'))) {
+    avatarSrc = rawAvatar.startsWith('//') ? 'https:' + rawAvatar : rawAvatar;
+  } else if (rawAvatar && rawAvatar.startsWith('http')) {
     avatarSrc = `/api/proxy?url=${encodeURIComponent(rawAvatar)}`;
   } else if (rawAvatar && rawAvatar.startsWith('//')) {
     avatarSrc = `/api/proxy?url=${encodeURIComponent('https:' + rawAvatar)}`;

@@ -64,12 +64,19 @@ function mapInvidiousVideo(v: any): VideoData {
     dur = String(v.duration);
   }
 
-  const avatar =
+  let avatar =
     v.authorThumbnails?.[0]?.url ||
     v.authorThumbnails?.[v.authorThumbnails.length - 1]?.url ||
     v.authorThumbnail ||
     v.avatar_url ||
-    (v.authorId || v.channel_id ? `/api/channel-avatar?id=${encodeURIComponent(v.authorId || v.channel_id)}` : '');
+    '';
+  if (avatar.startsWith('//')) {
+    avatar = 'https:' + avatar;
+  } else if (avatar.startsWith('/ggpht') || avatar.startsWith('/yt')) {
+    avatar = 'https://yt3.ggpht.com' + avatar;
+  } else if (!avatar && (v.authorId || v.channel_id)) {
+    avatar = `/api/channel-avatar?id=${encodeURIComponent(v.authorId || v.channel_id)}`;
+  }
 
   return {
     id: vidId,

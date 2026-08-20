@@ -76,7 +76,9 @@ export default function YouTubePlayer({
     const router = useRouter();
 
     // Keep loop ref in sync
-    loopRef.current = loop;
+    useEffect(() => {
+        loopRef.current = loop;
+    }, [loop]);
 
     // Live timestamp synchronization for MiniPlayer continuity
     useEffect(() => {
@@ -261,7 +263,7 @@ export default function YouTubePlayer({
                         setIsPlayerReady(true);
                         if (onVideoReady) onVideoReady();
                         
-                        const startT = initialT > 0 ? initialT : 0;
+                        const startT = initialT > 0 ? initialT : (contextCurrentTime > 0 ? contextCurrentTime : 0);
                         if (startT > 0 && event.target?.seekTo) {
                             try {
                                 event.target.seekTo(startT, true);

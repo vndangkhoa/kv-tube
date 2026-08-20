@@ -92,6 +92,10 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile
+      args:
+        # Browser-facing Invidious URL, inlined into the client bundle at build
+        # time (the browser loads the Invidious embed player from this URL).
+        - NEXT_PUBLIC_INVIDIOUS_URL=http://127.0.0.1:7601
     image: kv-tube-ui:latest
     container_name: Invidious-Materialious-UI
     restart: unless-stopped
@@ -101,7 +105,7 @@ services:
       # Internal Invidious docker network URL (fast direct server-to-server)
       - INVIDIOUS_URL=http://invidious:3000
       # Public Invidious instance domain for client-side playback/thumbnails
-      - NEXT_PUBLIC_INVIDIOUS_URL=https://yt.khoavo.myds.me
+      - NEXT_PUBLIC_INVIDIOUS_URL=http://127.0.0.1:7601
       - NEXT_PUBLIC_SITE_URL=https://youtube.khoavo.myds.me
       - NEXT_PUBLIC_SPONSORBLOCK_URL=https://sponsor.ajay.app
       - NEXT_PUBLIC_RYD_URL=https://returnyoutubedislikeapi.com

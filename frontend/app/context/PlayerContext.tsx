@@ -78,12 +78,20 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
     } catch {}
   }, []);
 
-  // Reset dismissed state and timestamp when a new video is loaded
+  // Reset dismissed state and timestamp when a new video is loaded; preserve existing non-empty metadata if the same video is refreshed
   const setPlayingVideo = useCallback((video: PlayingVideoInfo | null) => {
     setCurrentVideo((prev) => {
-      if (prev?.id !== video?.id) {
-        setCurrentTime(0);
+      if (!video) return null;
+      if (prev?.id === video.id) {
+        return {
+          id: video.id,
+          title: video.title || prev.title,
+          uploader: video.uploader || prev.uploader,
+          thumbnail: video.thumbnail || prev.thumbnail,
+          duration: video.duration || prev.duration,
+        };
       }
+      setCurrentTime(0);
       return video;
     });
     if (video) {

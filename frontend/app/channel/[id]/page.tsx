@@ -194,7 +194,15 @@ export default function ChannelPage({ params }: { params: Promise<{ id: string }
     channel.authorThumbnails?.[channel.authorThumbnails.length - 1]?.url ||
     channel.authorThumbnails?.[0]?.url ||
     (channelId ? `/api/channel-avatar?id=${encodeURIComponent(channelId)}` : '');
-  const avatarUrl = rawAvatar ? (rawAvatar.startsWith('http') ? `/api/proxy?url=${encodeURIComponent(rawAvatar)}` : rawAvatar) : '';
+  const avatarUrl = rawAvatar
+    ? rawAvatar.includes('googleusercontent.com') || rawAvatar.includes('ggpht.com')
+      ? rawAvatar.startsWith('//')
+        ? 'https:' + rawAvatar
+        : rawAvatar
+      : rawAvatar.startsWith('http')
+        ? `/api/proxy?url=${encodeURIComponent(rawAvatar)}`
+        : rawAvatar
+    : '';
 
   return (
     <div style={{ maxWidth: '1750px', margin: '0 auto', paddingBottom: '60px' }}>

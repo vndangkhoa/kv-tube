@@ -82,6 +82,7 @@ export interface InvidiousVideo {
   liveNow: boolean;
   isUpcoming: boolean;
   premiereTimestamp?: number;
+  dashUrl?: string;
   hlsUrl?: string;
   adaptiveFormats: InvidiousAdaptiveFormat[];
   formatStreams: InvidiousFormatStream[];

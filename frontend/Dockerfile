@@ -16,6 +16,12 @@ WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 
+# Public Invidious URL used by the browser for playback/thumbnails. Inlined
+# into the client bundle at build time, so it must be passed as a build arg
+# (or overridden via --build-arg) — a runtime env alone won't affect the client.
+ARG NEXT_PUBLIC_INVIDIOUS_URL=https://yt.khoavo.myds.me
+ENV NEXT_PUBLIC_INVIDIOUS_URL=$NEXT_PUBLIC_INVIDIOUS_URL
+
 # Next.js telemetry is disabled
 ENV NEXT_TELEMETRY_DISABLED 1
 

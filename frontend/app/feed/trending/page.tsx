@@ -45,12 +45,20 @@ function mapTrendingItems(items: any[]): VideoData[] {
     view_count: v.viewCount ?? v.view_count ?? 0,
     upload_date: v.publishedText || v.upload_date || '',
     channel_id: v.authorId || v.channel_id || '',
-    avatar_url:
-      v.authorThumbnails?.[0]?.url ||
-      v.authorThumbnails?.[v.authorThumbnails.length - 1]?.url ||
-      v.authorThumbnail ||
-      v.avatar_url ||
-      (v.authorId || v.channel_id ? `/api/channel-avatar?id=${encodeURIComponent(v.authorId || v.channel_id)}` : ''),
+    avatar_url: (() => {
+      let a =
+        v.authorThumbnails?.[0]?.url ||
+        v.authorThumbnails?.[v.authorThumbnails.length - 1]?.url ||
+        v.authorThumbnail ||
+        v.avatar_url ||
+        '';
+      if (a.startsWith('//')) return 'https:' + a;
+      if (a.startsWith('/ggpht') || a.startsWith('/yt')) return 'https://yt3.ggpht.com' + a;
+      if (!a && (v.authorId || v.channel_id)) {
+        return `/api/channel-avatar?id=${encodeURIComponent(v.authorId || v.channel_id)}`;
+      }
+      return a;
+    })(),
   }));
 }
 

@@ -290,7 +290,7 @@ function VideoInfo({
                             <span>{(video.channelTitle || video.uploader || 'C').charAt(0).toUpperCase()}</span>
                             {channelAvatarUrl && (
                                 <img
-                                    src={channelAvatarUrl.startsWith('http') ? `/api/proxy?url=${encodeURIComponent(channelAvatarUrl)}` : channelAvatarUrl}
+                                    src={channelAvatarUrl.includes('googleusercontent.com') || channelAvatarUrl.includes('ggpht.com') ? (channelAvatarUrl.startsWith('//') ? 'https:' + channelAvatarUrl : channelAvatarUrl) : (channelAvatarUrl.startsWith('http') ? `/api/proxy?url=${encodeURIComponent(channelAvatarUrl)}` : channelAvatarUrl)}
                                     alt={video.channelTitle}
                                     loading="lazy"
                                     decoding="async"
@@ -469,7 +469,7 @@ function VideoInfo({
                     {onTogglePlayerMode && (
                         <button
                             onClick={onTogglePlayerMode}
-                            title={playerMode === 'iframe' ? 'Switch to self-hosted HD player' : 'Switch to YouTube embed player'}
+                            title={playerMode === 'iframe' ? 'Switch to Invidious player' : 'Switch to YouTube embed player'}
                             className="watch-action-pill watch-action-playermode"
                             style={{
                                 backgroundColor: playerMode === 'iframe' ? 'var(--yt-brand-red, #ff0000)' : undefined,
@@ -478,7 +478,7 @@ function VideoInfo({
                             }}
                         >
                             <IoLogoYoutube size={16} />
-                            <span className="watch-btn-text">{playerMode === 'iframe' ? 'YouTube' : 'HD'}</span>
+                            <span className="watch-btn-text">{playerMode === 'iframe' ? 'YouTube' : 'Invidious'}</span>
                         </button>
                     )}
                 </div>
@@ -906,9 +906,10 @@ export default function ClientWatchPage() {
 	const [wideMode, setWideMode] = useState(false);
 	const [showDownload, setShowDownload] = useState(false);
     // Player source: 'iframe' (YouTube embed, instant + always works) vs 'hd'
-    // (self-hosted Materialious player with Shaka DASH, quality & subtitle menus,
-    // SponsorBlock). Lives in PlayerContext so the persistent player in the layout
-    // can render the correct engine. Persisted in localStorage.
+    // (Invidious's own web player embedded directly — no separate audio element
+    // or A/V synchronization needed). Lives in PlayerContext so the persistent
+    // player in the layout can render the correct engine. Persisted in
+    // localStorage.
     const togglePlayerMode = useCallback(() => {
         setPlayerMode((prev) => {
             const next = prev === 'iframe' ? 'hd' : 'iframe';
@@ -1127,7 +1128,7 @@ export default function ClientWatchPage() {
         onVideoEnd: handleVideoEnd,
         onUseIframe: () => setPlayerMode('iframe'),
         onError: () => {
-            console.warn('[Watch] MaterialiousPlayer error, falling back to YouTube iframe player');
+            console.warn('[Watch] player error, falling back to YouTube iframe player');
             setPlayerMode('iframe');
         },
         loopMode,
@@ -1158,7 +1159,7 @@ export default function ClientWatchPage() {
                 {/* Main Content */}
                 <div className="watch-main">
                     {/* Video Player */}
-					<div style={{ position: 'relative', width: '100%' }}>
+					<div style={{ position: 'relative', width: '100%', aspectRatio: '16/9', backgroundColor: '#000000', borderRadius: '16px', overflow: 'hidden' }}>
 				{playerMode === 'iframe' ? (
 					<YouTubePlayer
 						videoId={videoId}
@@ -1168,10 +1169,7 @@ export default function ClientWatchPage() {
 						onVideoEnd={handleVideoEnd}
 					/>
 				) : (
-					// The persistent player (in the layout) portals the MaterialiousPlayer
-					// engine into this mount, keeping the <video> element alive across
-					// route changes so switching full <-> mini never re-buffers.
-					<div id="watch-player-mount" style={{ width: '100%' }} />
+					<div id="watch-player-slot" style={{ width: '100%', height: '100%' }} />
 				)}
 					</div>
  
