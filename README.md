@@ -100,10 +100,22 @@
 </tr>
 <tr>
   <td width="50%">
+    <h3>💬 Comments & Engagement</h3>
+    Real YouTube comments, comment counts, likes, and dislikes — powered by
+    Invidious + SponsorBlock &amp; Return YouTube Dislike integration.
+  </td>
+  <td width="50%">
     <h3>📥 Server-side Downloads</h3>
     Download any video straight to your device as an MP4. The server fetches it
     with yt-dlp and streams a live progress bar — no ads, no client-side hacks.
     Pick from three quality tiers: <b>Low</b> (≤360p), <b>Recommended</b> (≤1080p), or <b>Best</b>.
+  </td>
+</tr>
+<tr>
+  <td width="50%">
+    <h3>🔐 Invidious Account Sync</h3>
+    Optionally connect your Invidious account: subscriptions, feed, and watch
+    history sync automatically across devices, with import/export support.
   </td>
   <td width="50%">
     <h3>🧹 Self-cleaning Cache</h3>
@@ -131,47 +143,39 @@
 
 ## 🚀 Quick Start
 
-Pull the pre-built image and run it — no local build needed:
+The recommended deployment is a 4-container stack — **Invidious** (YouTube API
+backend), **PostgreSQL**, the **Invidious Companion** (stream signature
+decryptor), and the KV-Tube frontend:
 
 ```bash
-mkdir -p kv-tube/data && cd kv-tube
+mkdir -p kv-tube && cd kv-tube
 curl -O https://raw.githubusercontent.com/vndangkhoa/kv-tube/main/docker-compose.yml
-docker compose up -d
+docker compose up -d --build
 ```
 
-Prefer building from source?
+Then open **http://localhost:3241** (KV-Tube UI) — Invidious itself listens on
+**http://localhost:7601**. The frontend talks to Invidious server-to-server
+over an internal Docker network, so no Invidious API key is needed.
+
+Prefer running everything in a single container? The classic all-in-one image
+(Go backend + Next.js + yt-dlp, managed by supervisord) is still published:
 
 ```bash
 git clone https://github.com/vndangkhoa/kv-tube.git
 cd kv-tube
-mkdir -p data
 docker build -t kv-tube:latest .
-docker compose up -d
+docker run -d -p 5011:3000 -p 8981:8080 -v ./data:/app/data kv-tube:latest
 ```
 
-> **Note:** When YouTube starts serving the "Sign in to confirm you're not a bot"
-> error (common on datacenter IPs), upload a cookies file in
-> **Settings → YouTube Cookies** (available from the sidebar). The server also
-> needs the [deno](https://deno.com) runtime on `PATH` to solve YouTube's
-> JavaScript challenges with cookies — the Docker image bundles it at
-> `/app/bin/deno/bin/deno` automatically (Node.js is used as a fallback
-> runtime). yt-dlp is kept on the latest nightly build automatically (check/update
-> manually from **Settings → yt-dlp**).
->
-> The server also fights bot-blocks automatically:
-> - **IPv6 first** — YouTube blocks many residential IPv4 routes but allows the
->   same traffic over IPv6. The server probes IPv6 at startup and prefers it
->   when routable, flipping back to IPv4 on network failures. Override with
->   `FORCE_IPV6=1` (always) / `FORCE_IPV6=0` (never). Docker needs a
->   dual-stack network (already configured in `docker-compose.yml`).
-> - **Cookies auto-repair** — when YouTube rejects your uploaded cookies they are
->   blacklisted, an anonymous session is auto-refreshed, and the request is
->   retried. If no cookies exist at all, an anonymous session is fetched at
->   boot. Rate limits (HTTP 429) are retried with backoff.
+> **Note:** with the Invidious stack, no YouTube cookies are required — the
+> Invidious instance handles extraction and the frontend proxies streams
+> through `/api/invidious`. If your Invidious instance requires auth for
+> subscriptions/feed sync, generate an API token in the Invidious account
+> settings and paste it in **KV-Tube → Settings → Invidious Token**.
 
 <p align="center">
-  <b>Frontend:</b> <a href="http://localhost:5011">http://localhost:5011</a> &nbsp;•&nbsp;
-  <b>API:</b> <a href="http://localhost:8981">http://localhost:8981</a>
+  <b>Frontend:</b> <a href="http://localhost:3241">http://localhost:3241</a> &nbsp;•&nbsp;
+  <b>Invidious API:</b> <a href="http://localhost:7601">http://localhost:7601</a>
 </p>
 
 ### 📥 Container Images
@@ -202,7 +206,7 @@ KV-Tube gives you:
 - **Privacy** — No tracking, no algorithms manipulating you. Your watch history stays on your machine.
 - **Permanence** — Videos you subscribe to stay available. No takedowns, no region blocks.
 - **Ownership** — Run it on your NAS, your VPS, or a Raspberry Pi. It's yours.
-- **Simplicity** — One container. One command. Zero configuration.
+- **Simplicity** — One `docker compose up`. Zero configuration.
 
 ## 📖 Backstory
 
@@ -216,105 +220,90 @@ If that resonates, give it a star ⭐ — it helps others find the project.
 
 ## 🏗️ Architecture
 
-KV-Tube ships as a single Docker image. Everything runs in one container, managed by supervisord.
+KV-Tube is a thin, Materialious-inspired frontend on top of a self-hosted
+[Invidious](https://invidious.io) instance. A Docker Compose stack runs four
+services on an internal network:
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Go-1.25-00ADD8?style=flat&logo=go" />
-  <img src="https://img.shields.io/badge/Gin-008ECF?style=flat&logo=go" />
   <img src="https://img.shields.io/badge/Next.js-16-000000?style=flat&logo=nextdotjs" />
-  <img src="https://img.shields.io/badge/Supervisord-FF9900?style=flat&logo=superuser" />
-  <img src="https://img.shields.io/badge/SQLite-003B57?style=flat&logo=sqlite" />
-  <img src="https://img.shields.io/badge/yt--dlp-FF0000?style=flat&logo=youtube" />
-  <img src="https://img.shields.io/badge/FFmpeg-007808?style=flat&logo=ffmpeg" />
+  <img src="https://img.shields.io/badge/Invidious-000000?style=flat&logo=crystal" />
+  <img src="https://img.shields.io/badge/PostgreSQL-4169E1?style=flat&logo=postgresql" />
+  <img src="https://img.shields.io/badge/TailwindCSS-06B6D4?style=flat&logo=tailwindcss" />
+  <img src="https://img.shields.io/badge/TypeScript-3178C6?style=flat&logo=typescript" />
 </p>
 
-| Layer | Tech | Port | Role |
-|-------|------|------|------|
-| **Backend** | Go + Gin | `8080` | REST API, video fetching, yt-dlp orchestration |
-| **Frontend** | Next.js 16 | `3000` | SSR, PWA, responsive UI |
-| **Process Manager** | supervisord | — | Keeps backend + frontend alive |
-| **Storage** | SQLite | — | Watch history, subscriptions, metadata |
+| Service | Tech | Port | Role |
+|---------|------|------|------|
+| **kv-tube** (frontend) | Next.js 16 + Tailwind | `3241` | SSR/PWA UI, API proxy to Invidious |
+| **invidious** | Invidious (Crystal) | `7601` | YouTube metadata, streams, search, auth |
+| **invidious-db** | PostgreSQL 16 | internal | Invidious state (channels, users, tokens) |
+| **companion** | invidious-companion | internal | Decrypts YouTube stream signatures |
+
+The classic single-image build (Go/Gin + yt-dlp + SQLite under supervisord)
+still exists as a legacy fallback — see the root `Dockerfile`.
 
 ## 📦 Deployment
 
 ### 🐳 Docker Compose (Recommended)
 
-Using the pre-built image from **Docker Hub**:
+The stack is defined in the repo's `docker-compose.yml`:
 
 ```yaml
 services:
-  kv-tube:
-    image: vndangkhoa/kv-tube:latest
-    container_name: kv-tube
-    platform: linux/amd64
-    restart: unless-stopped
-    ports:
-      - "5011:3000"   # Frontend (Next.js)
-      - "8981:8080"   # Backend API (Go)
-    volumes:
-      - ./data:/app/data
-      # Optional: mount a valid Netscape cookies.txt for YouTube (read-only is
-      # fine — the server stages a writable copy internally):
-      # - ./cookies.txt:/app/data/cookies.txt:ro
+  invidious-db:        # PostgreSQL 16 — Invidious state
+    image: postgres:16-alpine
+    volumes: ["./data/invidious/db:/var/lib/postgresql/data:rw"]
+    healthcheck: { test: ["CMD", "pg_isready", "-q", "-d", "invidious", "-U", "kemal"] }
+
+  companion:           # YouTube stream-signature decryptor
+    image: quay.io/invidious/invidious-companion:latest
+    volumes: ["./data/invidious/companion:/var/tmp/youtubei.js:rw"]
+
+  invidious:           # The Invidious API backend
+    image: quay.io/invidious/invidious:master
+    ports: ["7601:3000"]
+    depends_on: [invidious-db, companion]
     environment:
-      - KVTUBE_DATA_DIR=/app/data
-      # - YTDLP_COOKIES=/app/data/cookies.txt  # Only needed if you mount a file above
-      # - FORCE_IPV6=1                         # 1=always IPv6, 0=never, unset=auto probe
-      - GIN_MODE=release
-      - NODE_ENV=production
-      - CORS_ALLOWED_ORIGINS=http://localhost:3000,http://127.0.0.1:3000,http://localhost:5011
-    devices:
-      - /dev/ptmx  # Required for downloads (progress parsing via pseudo-terminal)
-    dns:
-      - 8.8.8.8    # Docker's embedded DNS strips AAAA records; public
-      - 1.1.1.1    # resolvers make IPv6 lookups work
-    healthcheck:
-      test: ["CMD", "curl", "-fsS", "http://localhost:8080/api/health"]
-      interval: 60s
-      timeout: 10s
-      retries: 3
-      start_period: 30s
-    networks:
-      - kvtube-net
+      INVIDIOUS_CONFIG: |   # db creds, companion URL, hmac key, domain...
+
+  kv-tube:             # The KV-Tube frontend (built from ./frontend)
+    build: ./frontend
+    ports: ["3241:3000"]
+    environment:
+      - INVIDIOUS_URL=http://invidious:3000        # server-to-server
+      - NEXT_PUBLIC_INVIDIOUS_URL=https://yt.your.domain  # client-side streams/thumbnails
+      - NEXT_PUBLIC_SITE_URL=https://tube.your.domain
+      - NEXT_PUBLIC_SPONSORBLOCK_URL=https://sponsor.ajay.app
+      - NEXT_PUBLIC_RYD_URL=https://returnyoutubedislikeapi.com
 
 networks:
-  kvtube-net:
-    driver: bridge
-    enable_ipv6: true   # Dual-stack: lets the server prefer IPv6 (best weapon
-    ipam:               # against YouTube IPv4 bot-blocks). Server auto-falls
-      config:           # back to IPv4 when IPv6 isn't routable.
-        - subnet: fd00:1234::/64
+  invidious-net: { driver: bridge, ipam: { config: [{ subnet: "172.42.0.0/24" }] } }
 ```
 
-> **Troubleshooting:** if your Docker daemon can't create the IPv6 network
-> (pre-20.10, or IPv6 disabled in the daemon), delete the `networks:` block at
-> the bottom and remove `networks:` from the service — everything still works
-> over IPv4, the IPv6 benefits are simply skipped.
+Full, working file: [`docker-compose.yml`](docker-compose.yml). Set
+`NEXT_PUBLIC_INVIDIOUS_URL` to your public Invidious URL (e.g.
+`https://yt.khoavo.myds.me`) so the browser can reach it for playback and
+thumbnails; behind a reverse proxy, expose `7601` and `3241`.
 
-Or pull from another registry — swap the image line:
+The all-in-one legacy image is also still available — swap registries freely:
 
 ```yaml
-    image: ghcr.io/vndangkhoa/kv-tube:latest
-    # image: git.khoavo.myds.me/vndangkhoa/kv-tube:latest
+    image: vndangkhoa/kv-tube:latest     # Docker Hub
+    # image: ghcr.io/vndangkhoa/kv-tube:latest   # GitHub Container Registry
+    # image: git.khoavo.myds.me/vndangkhoa/kv-tube:latest  # Forgejo
 ```
 
-Prefer building locally? Replace `image:` with `build: .`.
+> **Note:** the classic single-container image runs the Go backend + Next.js
+> frontend with supervisord and expects `docker run -p 5011:3000 -p 8981:8080`
+> with a `./data` volume — see the legacy section of the Quick Start.
 
 ### 🖥️ Synology NAS (DSM 7.2+)
 
-1. Create folder `/volume1/docker/kv-tube/data`
-2. Upload `docker-compose.yml`, `Dockerfile`, `supervisord.conf`
-3. In **Container Manager** → **Project** → **Create**, select the folder
-4. Done. The container builds and starts automatically.
-
-> **Note for Synology:** DSM 7.2 ships a Docker daemon with IPv6 enabled, so
-> the dual-stack network in `docker-compose.yml` works out of the box. Beware
-> the "assigned but not routed" trap — many routers hand out IPv6 addresses
-> without a working route, so the server's IPv6 probe may fail and fall back
-> to IPv4 (which YouTube may bot-block). If IPv4 is blocked, enable IPv6
-> routing on your router/ISP, or force the family with `FORCE_IPV6=1`.
-> If Project creation fails with a network error, remove the `networks:`
-> blocks from the compose file.
+1. Copy this folder to the NAS (`/volume1/docker/kv-tube`).
+2. In **Container Manager** → **Project** → **Create**, select the folder.
+3. Done — the compose stack builds and starts. Open `http://<NAS-IP>:3241`.
+   For one-click install via Package Center, use the
+   [KV-Tube SPK](https://github.com/vndangkhoa/synology-spk) instead.
 
 ### 🛠️ Multi-arch Build
 
@@ -326,18 +315,25 @@ docker buildx build --platform linux/amd64 -t kv-tube:latest --push .
 
 ## ⚙️ Configuration
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `KVTUBE_DATA_DIR` | `/app/data` | Path for SQLite DB and data |
-| `GIN_MODE` | `release` | Gin framework log mode |
-| `NODE_ENV` | `production` | Node.js environment |
-| `CORS_ALLOWED_ORIGINS` | `""` | Comma-separated allowed origins |
-| `PORT` | `8080` | Backend API listen port |
-| `FORCE_IPV6` | `auto` | `1` = always IPv6, `0` = always IPv4, unset = probe at startup |
-| `YTDLP_COOKIES` | `""` | Path to a Netscape-format cookies.txt passed to yt-dlp |
-| `YTDLP_COOKIES_FROM_BROWSER` | `""` | Export cookies from a browser (e.g. `chrome`) |
-| `YTDLP_PROXY` | `""` | Route yt-dlp through an HTTP/SOCKS5 proxy |
-| `YTDLP_AUTO_UPDATE` | `true` | Keep yt-dlp on the latest nightly build |
+### Frontend (`docker-compose.yml` → `kv-tube` service)
+
+| Variable | Description |
+|----------|-------------|
+| `INVIDIOUS_URL` | Internal Invidious URL for server-side calls (e.g. `http://invidious:3000`) |
+| `NEXT_PUBLIC_INVIDIOUS_URL` | Public Invidious URL used by the browser for playback/thumbnails |
+| `NEXT_PUBLIC_SITE_URL` | Public KV-Tube URL (share previews, PWA) |
+| `NEXT_PUBLIC_SPONSORBLOCK_URL` | SponsorBlock API endpoint |
+| `NEXT_PUBLIC_RYD_URL` | Return YouTube Dislike API endpoint |
+| `NEXT_PUBLIC_DEFAULT_REGION` | Default region for trending/content (e.g. `VN`) |
+
+### Invidious (`INVIDIOUS_CONFIG` in `docker-compose.yml`)
+
+Key settings: `db` (Postgres credentials — must match the `invidious-db`
+service), `invidious_companion` + `invidious_companion_key` (stream signature
+decryption), `hmac_key` (session signing — keep secret), `domain` +
+`https_only` (public URL). See the
+[Invidious configuration docs](https://docs.invidious.io/configuration/) for
+the full reference.
 
 ---
 

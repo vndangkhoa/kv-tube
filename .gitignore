@@ -11,6 +11,13 @@ videos/
 logs/
 *.pid
 
+# Build artifacts (publish via GitHub/Forgejo Releases instead)
+releases/
+*.tsbuildinfo
+
+# Android local config (machine-specific)
+android-app/local.properties
+
 # Go
 backend/kvtube-go
 backend/kv-tube
