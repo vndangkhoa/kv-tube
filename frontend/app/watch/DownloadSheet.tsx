@@ -10,9 +10,31 @@ interface DownloadOption {
     resolution?: string;
     container: string;
     type: 'video' | 'audio';
-    url: string;
+    url?: string;
+    videoUrl?: string;
+    audioUrl?: string;
     size?: string;
     note?: string;
+    order: number;
+}
+
+const QUALITY_ORDER: Record<string, number> = {
+    '2160p': 100,
+    '1440p': 90,
+    '1080p': 80,
+    '720p': 70,
+    '480p': 60,
+    '360p': 50,
+    '240p': 40,
+    '144p': 30,
+};
+
+function getQualityOrder(label: string): number {
+    for (const [k, v] of Object.entries(QUALITY_ORDER)) {
+        if (label.includes(k)) return v;
+    }
+    const num = parseInt(label.replace(/\D/g, ''), 10);
+    return isNaN(num) ? 0 : num;
 }
 
 export default function DownloadSheet({
@@ -45,50 +67,109 @@ export default function DownloadSheet({
                 const formatStreams = Array.isArray(videoData?.formatStreams) ? videoData.formatStreams : [];
                 const adaptiveFormats = Array.isArray(videoData?.adaptiveFormats) ? videoData.adaptiveFormats : [];
 
-                // 1. Progressive Video + Audio streams (MP4)
-                formatStreams.forEach((f: any, idx: number) => {
-                    if (f.url) {
-                        const quality = f.qualityLabel || f.resolution || `${f.quality || '360p'}`;
-                        const container = f.container || 'mp4';
-                        opts.push({
-                            id: `prog-${idx}`,
-                            label: quality,
-                            resolution: f.resolution || quality,
-                            container: container.toUpperCase(),
-                            type: 'video',
-                            url: f.url,
-                            size: f.size || undefined,
-                            note: 'Video + Audio',
-                        });
-                    }
+                // 1. Find Best Audio stream (prefer AAC/M4A, then WebM)
+                let bestAudioUrl: string | undefined;
+                const audioFormats = adaptiveFormats.filter((f: any) => {
+                    return (f.type && f.type.includes('audio')) || (f.mimeType && f.mimeType.includes('audio'));
                 });
 
-                // 2. Adaptive Audio-only streams (M4A, WebM)
-                adaptiveFormats.forEach((f: any, idx: number) => {
-                    const isAudio = (f.type && f.type.includes('audio')) || (f.mimeType && f.mimeType.includes('audio'));
-                    if (isAudio && f.url) {
-                        const isM4A = f.type?.includes('audio/mp4') || f.container === 'm4a';
+                const m4aAudio = audioFormats.find((f: any) => f.container === 'm4a' || f.type?.includes('audio/mp4'));
+                const anyAudio = audioFormats[0];
+                bestAudioUrl = m4aAudio?.url || anyAudio?.url;
+
+                // 2. Audio-only download options
+                audioFormats.forEach((f: any, idx: number) => {
+                    if (f.url) {
+                        const isM4A = f.container === 'm4a' || f.type?.includes('audio/mp4');
                         const container = isM4A ? 'M4A' : (f.container?.toUpperCase() || 'WEBM');
                         const quality = f.audioQuality ? f.audioQuality.replace('AUDIO_QUALITY_', '').toLowerCase() : 'standard';
                         opts.push({
                             id: `audio-${idx}`,
                             label: `Audio (${container})`,
-                            resolution: `${quality.toUpperCase()}`,
+                            resolution: quality.toUpperCase(),
                             container: container,
                             type: 'audio',
                             url: f.url,
                             size: f.size || undefined,
-                            note: isM4A ? 'High quality AAC audio' : 'Opus audio',
+                            note: isM4A ? 'Âm thanh chất lượng cao (AAC)' : 'Âm thanh Opus',
+                            order: isM4A ? 100 : 50,
                         });
                     }
                 });
 
-                // Deduplicate & sort
+                // 3. Process video formats (both progressive and adaptive)
+                const seenResolutions = new Set<string>();
+
+                // A. Adaptive video streams (1080p, 720p, 480p, etc.) merged with best audio
+                // Sort by preference: MP4/H264 first
+                const sortedAdaptiveVideos = [...adaptiveFormats.filter((f: any) => {
+                    return (f.type && f.type.includes('video')) || (f.mimeType && f.mimeType.includes('video'));
+                })].sort((a: any, b: any) => {
+                    const aIsMp4 = (a.container === 'mp4' || a.type?.includes('mp4')) ? 1 : 0;
+                    const bIsMp4 = (b.container === 'mp4' || b.type?.includes('mp4')) ? 1 : 0;
+                    return bIsMp4 - aIsMp4;
+                });
+
+                sortedAdaptiveVideos.forEach((f: any, idx: number) => {
+                    if (f.url) {
+                        const qLabel = f.qualityLabel || f.resolution || `${f.quality || ''}`;
+                        const cleanLabel = qLabel.trim();
+                        if (!cleanLabel || seenResolutions.has(cleanLabel)) return;
+                        seenResolutions.add(cleanLabel);
+
+                        const order = getQualityOrder(cleanLabel);
+                        let subNote = 'Video + Âm thanh (HD Remux)';
+                        if (order >= 100) subNote = 'Video 4K Siêu nét + Âm thanh';
+                        else if (order >= 90) subNote = 'Video 2K Siêu nét + Âm thanh';
+                        else if (order >= 80) subNote = 'Video 1080p Full HD + Âm thanh';
+                        else if (order >= 70) subNote = 'Video 720p HD + Âm thanh';
+                        else if (order >= 60) subNote = 'Video 480p SD + Âm thanh';
+
+                        opts.push({
+                            id: `adapt-${idx}`,
+                            label: cleanLabel,
+                            resolution: f.resolution || cleanLabel,
+                            container: 'MP4',
+                            type: 'video',
+                            videoUrl: f.url,
+                            audioUrl: bestAudioUrl,
+                            size: f.size || undefined,
+                            note: subNote,
+                            order: order,
+                        });
+                    }
+                });
+
+                // B. Progressive combined streams as backup if not already covered
+                formatStreams.forEach((f: any, idx: number) => {
+                    if (f.url) {
+                        const qLabel = f.qualityLabel || f.resolution || `${f.quality || '360p'}`;
+                        const cleanLabel = qLabel.trim();
+                        if (!seenResolutions.has(cleanLabel)) {
+                            seenResolutions.add(cleanLabel);
+                            opts.push({
+                                id: `prog-${idx}`,
+                                label: cleanLabel,
+                                resolution: f.resolution || cleanLabel,
+                                container: (f.container || 'mp4').toUpperCase(),
+                                type: 'video',
+                                url: f.url,
+                                size: f.size || undefined,
+                                note: 'Video + Âm thanh',
+                                order: getQualityOrder(cleanLabel),
+                            });
+                        }
+                    }
+                });
+
+                // Sort all options descending by quality order
+                opts.sort((a, b) => b.order - a.order);
+
                 const videoOpts = opts.filter(o => o.type === 'video');
                 const audioOpts = opts.filter(o => o.type === 'audio');
 
                 if (videoOpts.length === 0 && audioOpts.length === 0) {
-                    setError('No downloadable streams available for this video.');
+                    setError('Không tìm thấy định dạng tải khả dụng cho video này.');
                 } else {
                     setOptions(opts);
                     if (videoOpts.length === 0 && audioOpts.length > 0) {
@@ -98,7 +179,7 @@ export default function DownloadSheet({
             } catch (err: any) {
                 if (!isCancelled) {
                     console.error('[DownloadSheet] Error fetching formats:', err);
-                    setError('Could not load stream formats. Please try again.');
+                    setError('Không thể tải danh sách định dạng. Vui lòng thử lại.');
                 }
             } finally {
                 if (!isCancelled) setLoading(false);
@@ -113,7 +194,15 @@ export default function DownloadSheet({
         setDownloadingId(opt.id);
         const ext = opt.container.toLowerCase();
         const cleanTitle = (title || 'video').trim();
-        const downloadUrl = `/api/download?url=${encodeURIComponent(opt.url)}&title=${encodeURIComponent(cleanTitle)}&ext=${ext}`;
+
+        let downloadUrl = '';
+        if (opt.videoUrl && opt.audioUrl) {
+            downloadUrl = `/api/download?videoUrl=${encodeURIComponent(opt.videoUrl)}&audioUrl=${encodeURIComponent(opt.audioUrl)}&title=${encodeURIComponent(cleanTitle)}&ext=mp4`;
+        } else if (opt.url) {
+            downloadUrl = `/api/download?url=${encodeURIComponent(opt.url)}&title=${encodeURIComponent(cleanTitle)}&ext=${ext}`;
+        } else {
+            return;
+        }
 
         const a = document.createElement('a');
         a.href = downloadUrl;
@@ -125,7 +214,7 @@ export default function DownloadSheet({
         setDownloadSuccess(opt.label);
         setTimeout(() => {
             setDownloadingId(null);
-        }, 2000);
+        }, 2500);
     };
 
     const currentList = options.filter(o => o.type === selectedTab);
@@ -148,7 +237,7 @@ export default function DownloadSheet({
         >
             <div
                 style={{
-                    width: 'min(40rem, 100%)',
+                    width: 'min(42rem, 100%)',
                     maxHeight: '85vh',
                     background: '#16181d',
                     borderTopLeftRadius: '20px',
@@ -219,7 +308,7 @@ export default function DownloadSheet({
                         }}
                     >
                         <IoVideocamOutline size={18} />
-                        <span>Video (MP4)</span>
+                        <span>Video (MP4 Full HD / HD)</span>
                     </button>
                     <button
                         onClick={() => setSelectedTab('audio')}
@@ -250,7 +339,7 @@ export default function DownloadSheet({
                     {loading && (
                         <div style={{ textAlign: 'center', padding: '32px 0', color: 'rgba(255,255,255,0.6)' }}>
                             <div className="download-spinner" />
-                            <p style={{ fontSize: '13px', marginTop: '12px' }}>Đang tìm định dạng tải tốt nhất...</p>
+                            <p style={{ fontSize: '13px', marginTop: '12px' }}>Đang tìm các độ phân giải cao nhất...</p>
                         </div>
                     )}
 
@@ -303,14 +392,26 @@ export default function DownloadSheet({
                                                 fontSize: '11px',
                                                 padding: '2px 6px',
                                                 borderRadius: '5px',
-                                                background: 'rgba(255,255,255,0.1)',
-                                                color: '#0a6cff',
-                                                fontWeight: 600,
+                                                background: opt.order >= 70 ? 'rgba(10, 108, 255, 0.2)' : 'rgba(255,255,255,0.1)',
+                                                color: opt.order >= 70 ? '#38bdf8' : '#0a6cff',
+                                                fontWeight: 700,
                                             }}>
                                                 {opt.container}
                                             </span>
+                                            {opt.order >= 80 && (
+                                                <span style={{
+                                                    fontSize: '10px',
+                                                    padding: '2px 6px',
+                                                    borderRadius: '5px',
+                                                    background: 'rgba(34, 197, 94, 0.2)',
+                                                    color: '#4ade80',
+                                                    fontWeight: 700,
+                                                }}>
+                                                    HD
+                                                </span>
+                                            )}
                                         </div>
-                                        <div style={{ fontSize: '12px', color: 'rgba(255,255,255,0.45)' }}>
+                                        <div style={{ fontSize: '12px', color: 'rgba(255,255,255,0.5)' }}>
                                             {opt.note || opt.resolution}
                                             {opt.size ? ` · ${opt.size}` : ''}
                                         </div>
@@ -353,7 +454,7 @@ export default function DownloadSheet({
                             color: '#4ade80',
                         }}>
                             <IoCheckmarkCircle size={20} style={{ flexShrink: 0 }} />
-                            <span>Đã bắt đầu tải file về thiết bị của bạn. Vui lòng kiểm tra thư mục Downloads.</span>
+                            <span>Đã bắt đầu tải video độ phân giải cao kèm âm thanh về thiết bị của bạn.</span>
                         </div>
                     )}
                 </div>
