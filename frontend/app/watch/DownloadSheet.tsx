@@ -1,28 +1,18 @@
 'use client';
 
-import { useState, useRef, useEffect } from 'react';
+import { useState, useEffect } from 'react';
+import { invidious } from '../services/invidious';
+import { IoDownloadOutline, IoCheckmarkCircle, IoAlertCircle, IoMusicalNotesOutline, IoVideocamOutline, IoClose } from 'react-icons/io5';
 
-interface DownloadProgress {
-    type: 'progress' | 'merging' | 'complete' | 'error';
-    percent?: number;
-    speed?: string;
-    eta?: string;
-    message?: string;
-    filename?: string;
-    size?: number;
-}
-
-const qualities = [
-    { key: 'low', label: 'Low', desc: '~360p', note: 'Small file, fast download' },
-    { key: 'recommended', label: 'Recommended', desc: '~1080p', note: 'Best quality-size balance' },
-    { key: 'best', label: 'Best', desc: 'Highest', note: 'Large file, best quality' },
-];
-
-function formatSize(bytes: number): string {
-    const mb = bytes / (1024 * 1024);
-    if (mb < 1) return `${(bytes / 1024).toFixed(0)} KB`;
-    if (mb < 1000) return `${mb.toFixed(1)} MB`;
-    return `${(mb / 1024).toFixed(1)} GB`;
+interface DownloadOption {
+    id: string;
+    label: string;
+    resolution?: string;
+    container: string;
+    type: 'video' | 'audio';
+    url: string;
+    size?: string;
+    note?: string;
 }
 
 export default function DownloadSheet({
@@ -34,66 +24,111 @@ export default function DownloadSheet({
     title?: string;
     onClose: () => void;
 }) {
-    const [activeQuality, setActiveQuality] = useState<string | null>(null);
-    const [progress, setProgress] = useState<DownloadProgress | null>(null);
-    const [status, setStatus] = useState<'idle' | 'downloading' | 'done' | 'error'>('idle');
-    const esRef = useRef<EventSource | null>(null);
+    const [loading, setLoading] = useState(true);
+    const [options, setOptions] = useState<DownloadOption[]>([]);
+    const [selectedTab, setSelectedTab] = useState<'video' | 'audio'>('video');
+    const [downloadingId, setDownloadingId] = useState<string | null>(null);
+    const [downloadSuccess, setDownloadSuccess] = useState<string | null>(null);
+    const [error, setError] = useState<string | null>(null);
 
     useEffect(() => {
-        return () => {
-            esRef.current?.close();
-        };
-    }, []);
+        let isCancelled = false;
+        setLoading(true);
+        setError(null);
 
-    function startDownload(quality: string) {
-        if (esRef.current) {
-            esRef.current.close();
+        async function fetchFormats() {
+            try {
+                const videoData: any = await invidious.getVideo(videoId);
+                if (isCancelled) return;
+
+                const opts: DownloadOption[] = [];
+                const formatStreams = Array.isArray(videoData?.formatStreams) ? videoData.formatStreams : [];
+                const adaptiveFormats = Array.isArray(videoData?.adaptiveFormats) ? videoData.adaptiveFormats : [];
+
+                // 1. Progressive Video + Audio streams (MP4)
+                formatStreams.forEach((f: any, idx: number) => {
+                    if (f.url) {
+                        const quality = f.qualityLabel || f.resolution || `${f.quality || '360p'}`;
+                        const container = f.container || 'mp4';
+                        opts.push({
+                            id: `prog-${idx}`,
+                            label: quality,
+                            resolution: f.resolution || quality,
+                            container: container.toUpperCase(),
+                            type: 'video',
+                            url: f.url,
+                            size: f.size || undefined,
+                            note: 'Video + Audio',
+                        });
+                    }
+                });
+
+                // 2. Adaptive Audio-only streams (M4A, WebM)
+                adaptiveFormats.forEach((f: any, idx: number) => {
+                    const isAudio = (f.type && f.type.includes('audio')) || (f.mimeType && f.mimeType.includes('audio'));
+                    if (isAudio && f.url) {
+                        const isM4A = f.type?.includes('audio/mp4') || f.container === 'm4a';
+                        const container = isM4A ? 'M4A' : (f.container?.toUpperCase() || 'WEBM');
+                        const quality = f.audioQuality ? f.audioQuality.replace('AUDIO_QUALITY_', '').toLowerCase() : 'standard';
+                        opts.push({
+                            id: `audio-${idx}`,
+                            label: `Audio (${container})`,
+                            resolution: `${quality.toUpperCase()}`,
+                            container: container,
+                            type: 'audio',
+                            url: f.url,
+                            size: f.size || undefined,
+                            note: isM4A ? 'High quality AAC audio' : 'Opus audio',
+                        });
+                    }
+                });
+
+                // Deduplicate & sort
+                const videoOpts = opts.filter(o => o.type === 'video');
+                const audioOpts = opts.filter(o => o.type === 'audio');
+
+                if (videoOpts.length === 0 && audioOpts.length === 0) {
+                    setError('No downloadable streams available for this video.');
+                } else {
+                    setOptions(opts);
+                    if (videoOpts.length === 0 && audioOpts.length > 0) {
+                        setSelectedTab('audio');
+                    }
+                }
+            } catch (err: any) {
+                if (!isCancelled) {
+                    console.error('[DownloadSheet] Error fetching formats:', err);
+                    setError('Could not load stream formats. Please try again.');
+                }
+            } finally {
+                if (!isCancelled) setLoading(false);
+            }
         }
 
-        setActiveQuality(quality);
-        setStatus('downloading');
-        setProgress({ type: 'progress', percent: 0, message: 'Starting download...' });
+        fetchFormats();
+        return () => { isCancelled = true; };
+    }, [videoId]);
 
-        const es = new EventSource(`/api/video/${videoId}/download/status?quality=${quality}`);
-        esRef.current = es;
+    const handleDownload = (opt: DownloadOption) => {
+        setDownloadingId(opt.id);
+        const ext = opt.container.toLowerCase();
+        const cleanTitle = (title || 'video').trim();
+        const downloadUrl = `/api/download?url=${encodeURIComponent(opt.url)}&title=${encodeURIComponent(cleanTitle)}&ext=${ext}`;
 
-        es.onmessage = (e) => {
-            try {
-                const data: DownloadProgress = JSON.parse(e.data);
-                setProgress(data);
-
-                if (data.type === 'complete') {
-                    es.close();
-                    setStatus('done');
-                    setProgress(prev => prev ? { ...prev, message: 'Download complete' } : { type: 'complete' });
-                } else if (data.type === 'error') {
-                    es.close();
-                    setStatus('error');
-                }
-            } catch {}
-        };
-
-        es.onerror = () => {
-            es.close();
-            setStatus(prev => {
-                if (prev === 'downloading') {
-                    setProgress({ type: 'error', message: 'Connection lost' });
-                    return 'error';
-                }
-                return prev;
-            });
-        };
-    }
-
-    function triggerDownload() {
-        if (!activeQuality) return;
         const a = document.createElement('a');
-        a.href = `/api/video/${videoId}/download?quality=${activeQuality}`;
-        a.download = '';
+        a.href = downloadUrl;
+        a.download = `${cleanTitle}.${ext}`;
         document.body.appendChild(a);
         a.click();
         document.body.removeChild(a);
-    }
+
+        setDownloadSuccess(opt.label);
+        setTimeout(() => {
+            setDownloadingId(null);
+        }, 2000);
+    };
+
+    const currentList = options.filter(o => o.type === selectedTab);
 
     return (
         <div
@@ -104,7 +139,7 @@ export default function DownloadSheet({
                 position: 'fixed',
                 inset: 0,
                 zIndex: 9999,
-                backgroundColor: 'rgba(0,0,0,0.6)',
+                backgroundColor: 'rgba(0,0,0,0.7)',
                 backdropFilter: 'blur(8px)',
                 display: 'flex',
                 alignItems: 'flex-end',
@@ -113,26 +148,33 @@ export default function DownloadSheet({
         >
             <div
                 style={{
-                    width: 'min(46rem, 100%)',
-                    maxHeight: '80vh',
-                    background: '#1a1a1a',
-                    borderTopLeftRadius: '16px',
-                    borderTopRightRadius: '16px',
-                    boxShadow: '0 -8px 32px rgba(0,0,0,0.5)',
+                    width: 'min(40rem, 100%)',
+                    maxHeight: '85vh',
+                    background: '#16181d',
+                    borderTopLeftRadius: '20px',
+                    borderTopRightRadius: '20px',
+                    boxShadow: '0 -10px 40px rgba(0,0,0,0.6)',
+                    border: '1px solid rgba(255,255,255,0.08)',
                     overflow: 'hidden',
                     display: 'flex',
                     flexDirection: 'column',
+                    animation: 'slideUp 0.25s cubic-bezier(0.16, 1, 0.3, 1)',
                 }}
             >
-                <div style={{ display: 'flex', justifyContent: 'center', padding: '10px 0 4px' }}>
-                    <div style={{ width: '36px', height: '4px', borderRadius: '2px', background: 'rgba(255,255,255,0.2)' }} />
+                {/* Grab handle */}
+                <div style={{ display: 'flex', justifyContent: 'center', padding: '10px 0 2px' }}>
+                    <div style={{ width: '40px', height: '4px', borderRadius: '2px', background: 'rgba(255,255,255,0.2)' }} />
                 </div>
 
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0 20px 12px', borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
+                {/* Header */}
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 20px 14px', borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
                     <div style={{ minWidth: 0, flex: 1 }}>
-                        <p style={{ fontSize: '16px', fontWeight: 600, color: '#fff', margin: 0 }}>Download</p>
-                        <p style={{ fontSize: '12px', color: 'rgba(255,255,255,0.5)', margin: '2px 0 0 0', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                            {title}
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <IoDownloadOutline size={20} color="#0a6cff" />
+                            <p style={{ fontSize: '16px', fontWeight: 700, color: '#fff', margin: 0 }}>Tải Video & Âm thanh</p>
+                        </div>
+                        <p style={{ fontSize: '12px', color: 'rgba(255,255,255,0.5)', margin: '4px 0 0 0', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            {title || 'Loading video...'}
                         </p>
                     </div>
                     <button
@@ -140,188 +182,199 @@ export default function DownloadSheet({
                         style={{
                             background: 'rgba(255,255,255,0.08)',
                             border: 'none',
-                            color: 'rgba(255,255,255,0.6)',
+                            color: 'rgba(255,255,255,0.7)',
                             cursor: 'pointer',
-                            fontSize: '12px',
-                            padding: '6px 12px',
-                            borderRadius: '8px',
-                            flexShrink: 0,
+                            padding: '8px',
+                            borderRadius: '50%',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
                             marginLeft: '12px',
                         }}
+                        aria-label="Close"
                     >
-                        Close
+                        <IoClose size={18} />
                     </button>
                 </div>
 
-                <div style={{ flex: 1, overflowY: 'auto', padding: '16px 20px' }}>
-                    {status === 'idle' && (
+                {/* Tabs */}
+                <div style={{ display: 'flex', padding: '12px 20px 6px', gap: '8px' }}>
+                    <button
+                        onClick={() => setSelectedTab('video')}
+                        style={{
+                            flex: 1,
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            gap: '6px',
+                            padding: '10px 14px',
+                            borderRadius: '10px',
+                            border: selectedTab === 'video' ? '1px solid #0a6cff' : '1px solid rgba(255,255,255,0.08)',
+                            background: selectedTab === 'video' ? 'rgba(10, 108, 255, 0.15)' : 'rgba(255,255,255,0.03)',
+                            color: selectedTab === 'video' ? '#0a6cff' : 'rgba(255,255,255,0.7)',
+                            fontWeight: 600,
+                            fontSize: '13px',
+                            cursor: 'pointer',
+                            transition: 'all 0.15s',
+                        }}
+                    >
+                        <IoVideocamOutline size={18} />
+                        <span>Video (MP4)</span>
+                    </button>
+                    <button
+                        onClick={() => setSelectedTab('audio')}
+                        style={{
+                            flex: 1,
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            gap: '6px',
+                            padding: '10px 14px',
+                            borderRadius: '10px',
+                            border: selectedTab === 'audio' ? '1px solid #0a6cff' : '1px solid rgba(255,255,255,0.08)',
+                            background: selectedTab === 'audio' ? 'rgba(10, 108, 255, 0.15)' : 'rgba(255,255,255,0.03)',
+                            color: selectedTab === 'audio' ? '#0a6cff' : 'rgba(255,255,255,0.7)',
+                            fontWeight: 600,
+                            fontSize: '13px',
+                            cursor: 'pointer',
+                            transition: 'all 0.15s',
+                        }}
+                    >
+                        <IoMusicalNotesOutline size={18} />
+                        <span>Âm thanh (Audio Only)</span>
+                    </button>
+                </div>
+
+                {/* Body */}
+                <div style={{ flex: 1, overflowY: 'auto', padding: '12px 20px 24px' }}>
+                    {loading && (
+                        <div style={{ textAlign: 'center', padding: '32px 0', color: 'rgba(255,255,255,0.6)' }}>
+                            <div className="download-spinner" />
+                            <p style={{ fontSize: '13px', marginTop: '12px' }}>Đang tìm định dạng tải tốt nhất...</p>
+                        </div>
+                    )}
+
+                    {error && !loading && (
+                        <div style={{ textAlign: 'center', padding: '24px 0', color: '#ef4444' }}>
+                            <IoAlertCircle size={36} />
+                            <p style={{ fontSize: '13px', marginTop: '8px', color: 'rgba(255,255,255,0.8)' }}>{error}</p>
+                        </div>
+                    )}
+
+                    {!loading && !error && currentList.length === 0 && (
+                        <div style={{ textAlign: 'center', padding: '24px 0', color: 'rgba(255,255,255,0.5)' }}>
+                            <p style={{ fontSize: '13px' }}>Không có định dạng {selectedTab === 'video' ? 'video' : 'âm thanh'} khả dụng.</p>
+                        </div>
+                    )}
+
+                    {!loading && !error && currentList.length > 0 && (
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                            {qualities.map((q) => (
+                            {currentList.map((opt) => (
                                 <button
-                                    key={q.key}
-                                    onClick={() => startDownload(q.key)}
+                                    key={opt.id}
+                                    onClick={() => handleDownload(opt)}
+                                    disabled={downloadingId === opt.id}
                                     style={{
                                         display: 'flex',
                                         alignItems: 'center',
                                         justifyContent: 'space-between',
                                         padding: '14px 16px',
-                                        borderRadius: '10px',
+                                        borderRadius: '12px',
                                         border: '1px solid rgba(255,255,255,0.06)',
-                                        background: 'rgba(255,255,255,0.03)',
-                                        cursor: 'pointer',
+                                        background: downloadingId === opt.id ? 'rgba(10, 108, 255, 0.15)' : 'rgba(255,255,255,0.03)',
+                                        cursor: downloadingId === opt.id ? 'default' : 'pointer',
                                         color: '#fff',
                                         textAlign: 'left',
                                         width: '100%',
                                         fontSize: '14px',
                                         transition: 'all 0.15s',
                                     }}
-                                    onMouseEnter={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.08)'}
-                                    onMouseLeave={(e) => e.currentTarget.style.background = 'rgba(255,255,255,0.03)'}
+                                    onMouseEnter={(e) => {
+                                        if (downloadingId !== opt.id) e.currentTarget.style.background = 'rgba(255,255,255,0.08)';
+                                    }}
+                                    onMouseLeave={(e) => {
+                                        if (downloadingId !== opt.id) e.currentTarget.style.background = 'rgba(255,255,255,0.03)';
+                                    }}
                                 >
                                     <div>
-                                        <div style={{ fontWeight: 600, marginBottom: '2px' }}>{q.label}</div>
-                                        <div style={{ fontSize: '12px', color: 'rgba(255,255,255,0.4)' }}>{q.desc} · {q.note}</div>
+                                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '3px' }}>
+                                            <span style={{ fontWeight: 700, fontSize: '15px' }}>{opt.label}</span>
+                                            <span style={{
+                                                fontSize: '11px',
+                                                padding: '2px 6px',
+                                                borderRadius: '5px',
+                                                background: 'rgba(255,255,255,0.1)',
+                                                color: '#0a6cff',
+                                                fontWeight: 600,
+                                            }}>
+                                                {opt.container}
+                                            </span>
+                                        </div>
+                                        <div style={{ fontSize: '12px', color: 'rgba(255,255,255,0.45)' }}>
+                                            {opt.note || opt.resolution}
+                                            {opt.size ? ` · ${opt.size}` : ''}
+                                        </div>
                                     </div>
-                                    <div style={{ fontSize: '20px', color: 'rgba(255,255,255,0.3)' }}>›</div>
+                                    <div style={{
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: '6px',
+                                        color: '#0a6cff',
+                                        fontWeight: 600,
+                                        fontSize: '13px',
+                                    }}>
+                                        {downloadingId === opt.id ? (
+                                            <span style={{ color: '#22c55e', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                                <IoCheckmarkCircle size={18} /> Đang tải...
+                                            </span>
+                                        ) : (
+                                            <>
+                                                <span>Tải về</span>
+                                                <IoDownloadOutline size={16} />
+                                            </>
+                                        )}
+                                    </div>
                                 </button>
                             ))}
                         </div>
                     )}
 
-                    {status === 'downloading' && progress && (
-                        <div style={{ padding: '12px 0', textAlign: 'center' }}>
-                            <div style={{ marginBottom: '12px', fontSize: '14px', color: '#fff' }}>
-                                {progress.type === 'merging' ? 'Merging video & audio...' : progress.message || 'Downloading...'}
-                            </div>
-
-                            {progress.type === 'progress' && progress.percent !== undefined && (
-                                <>
-                                    <div style={{
-                                        width: '100%',
-                                        height: '8px',
-                                        borderRadius: '4px',
-                                        background: 'rgba(255,255,255,0.1)',
-                                        overflow: 'hidden',
-                                        marginBottom: '8px',
-                                    }}>
-                                        <div style={{
-                                            width: `${Math.min(progress.percent, 100)}%`,
-                                            height: '100%',
-                                            borderRadius: '4px',
-                                            background: 'linear-gradient(90deg, #3b82f6, #8b5cf6)',
-                                            transition: 'width 0.3s ease',
-                                        }} />
-                                    </div>
-                                    <div style={{ fontSize: '12px', color: 'rgba(255,255,255,0.5)' }}>
-                                        {progress.percent.toFixed(1)}%
-                                        {progress.speed && ` · ${progress.speed}`}
-                                        {progress.eta && ` · ETA ${progress.eta}`}
-                                    </div>
-                                </>
-                            )}
-
-                            {progress.type === 'merging' && (
-                                <div style={{
-                                    width: '100%',
-                                    height: '8px',
-                                    borderRadius: '4px',
-                                    background: 'rgba(255,255,255,0.1)',
-                                    overflow: 'hidden',
-                                    marginBottom: '8px',
-                                }}>
-                                    <div style={{
-                                        width: '100%',
-                                        height: '100%',
-                                        borderRadius: '4px',
-                                        background: 'linear-gradient(90deg, #3b82f6, #8b5cf6)',
-                                        animation: 'pulse 1.5s infinite',
-                                    }} />
-                                </div>
-                            )}
+                    {downloadSuccess && (
+                        <div style={{
+                            marginTop: '16px',
+                            padding: '12px 16px',
+                            borderRadius: '10px',
+                            background: 'rgba(34, 197, 94, 0.12)',
+                            border: '1px solid rgba(34, 197, 94, 0.3)',
+                            display: 'flex',
+                            alignItems: 'center',
+                            gap: '10px',
+                            fontSize: '13px',
+                            color: '#4ade80',
+                        }}>
+                            <IoCheckmarkCircle size={20} style={{ flexShrink: 0 }} />
+                            <span>Đã bắt đầu tải file về thiết bị của bạn. Vui lòng kiểm tra thư mục Downloads.</span>
                         </div>
-                    )}
-
-                    {status === 'done' && (
-                        <div style={{ textAlign: 'center', padding: '12px 0' }}>
-                            <div style={{ fontSize: '40px', marginBottom: '8px', color: '#22c55e' }}>✓</div>
-                            <div style={{ fontSize: '14px', color: '#fff', marginBottom: '4px' }}>Download complete</div>
-                            {progress?.size && progress.size > 0 && (
-                                <div style={{ fontSize: '12px', color: 'rgba(255,255,255,0.5)', marginBottom: '16px' }}>
-                                    {formatSize(progress.size)} · {progress.filename}
-                                </div>
-                            )}
-                            <div style={{ fontSize: '11px', color: 'rgba(255,255,255,0.3)', marginBottom: '16px' }}>
-                                File cached for 30 min. Click below to download.
-                            </div>
-                            <button
-                                onClick={triggerDownload}
-                                style={{
-                                    padding: '10px 24px',
-                                    borderRadius: '8px',
-                                    border: 'none',
-                                    background: '#3b82f6',
-                                    color: '#fff',
-                                    cursor: 'pointer',
-                                    fontSize: '14px',
-                                    fontWeight: 600,
-                                }}
-                                onMouseEnter={(e) => e.currentTarget.style.opacity = '0.8'}
-                                onMouseLeave={(e) => e.currentTarget.style.opacity = '1'}
-                            >
-                                Download to device
-                            </button>
-                        </div>
-                    )}
-
-                    {status === 'error' && (
-                        <div style={{ textAlign: 'center', padding: '12px 0' }}>
-                            <div style={{ fontSize: '40px', marginBottom: '8px', color: '#ef4444' }}>✕</div>
-                            <div style={{ fontSize: '14px', color: '#fff', marginBottom: '4px' }}>
-                                {progress?.message || 'Download failed'}
-                            </div>
-                            <button
-                                onClick={() => { setStatus('idle'); setActiveQuality(null); setProgress(null); }}
-                                style={{
-                                    padding: '8px 16px',
-                                    borderRadius: '8px',
-                                    border: '1px solid rgba(255,255,255,0.2)',
-                                    background: 'transparent',
-                                    color: '#fff',
-                                    cursor: 'pointer',
-                                    fontSize: '13px',
-                                    marginTop: '12px',
-                                }}
-                            >
-                                Try again
-                            </button>
-                        </div>
-                    )}
-
-                    {status !== 'idle' && status !== 'done' && (
-                        <button
-                            onClick={() => { esRef.current?.close(); setStatus('idle'); setActiveQuality(null); setProgress(null); }}
-                            style={{
-                                display: 'block',
-                                margin: '12px auto 0',
-                                padding: '6px 14px',
-                                borderRadius: '8px',
-                                border: '1px solid rgba(255,255,255,0.15)',
-                                background: 'transparent',
-                                color: 'rgba(255,255,255,0.5)',
-                                cursor: 'pointer',
-                                fontSize: '12px',
-                            }}
-                        >
-                            Cancel
-                        </button>
                     )}
                 </div>
             </div>
 
             <style jsx>{`
-                @keyframes pulse {
-                    0%, 100% { opacity: 0.5; }
-                    50% { opacity: 1; }
+                @keyframes slideUp {
+                    from { transform: translateY(100%); opacity: 0; }
+                    to { transform: translateY(0); opacity: 1; }
+                }
+                .download-spinner {
+                    width: 28px;
+                    height: 28px;
+                    border: 3px solid rgba(255,255,255,0.1);
+                    border-top-color: #0a6cff;
+                    border-radius: 50%;
+                    margin: 0 auto;
+                    animation: spin 0.8s linear infinite;
+                }
+                @keyframes spin {
+                    to { transform: rotate(360deg); }
                 }
             `}</style>
         </div>
