@@ -187,11 +187,13 @@ export class InvidiousService {
   private instanceUrl: string;
 
   constructor() {
-    this.instanceUrl = process.env.NEXT_PUBLIC_INVIDIOUS_URL || 'https://yt.khoavo.myds.me';
+    this.instanceUrl = process.env.NEXT_PUBLIC_INVIDIOUS_URL || '';
     if (typeof window !== 'undefined') {
       const custom = localStorage.getItem('kv_invidious_instance');
       if (custom && custom.trim()) {
         this.instanceUrl = custom.replace(/\/$/, '');
+      } else if (!this.instanceUrl) {
+        this.instanceUrl = window.location.origin;
       }
     }
   }
@@ -208,8 +210,12 @@ export class InvidiousService {
   }
 
   public getToken(): string | null {
-    if (typeof window === 'undefined') return null;
-    return localStorage.getItem('kv_invidious_token');
+    if (typeof window === 'undefined') {
+      return process.env.INVIDIOUS_TOKEN || process.env.NEXT_PUBLIC_INVIDIOUS_TOKEN || null;
+    }
+    const custom = localStorage.getItem('kv_invidious_token');
+    if (custom && custom.trim()) return custom.trim();
+    return process.env.NEXT_PUBLIC_INVIDIOUS_TOKEN || null;
   }
 
   public setToken(token: string | null) {
@@ -230,16 +236,31 @@ export class InvidiousService {
 
   // Generic Public API fetcher with multi-node resilient fallback
   public async fetchApi<T>(endpoint: string, params: Record<string, any> = {}): Promise<T> {
-    const instancesToTry = [
-      this.instanceUrl,
-      ...InvidiousService.FALLBACK_INSTANCES.filter(i => i !== this.instanceUrl),
-    ];
+    const isBrowser = typeof window !== 'undefined';
+    const instancesToTry: string[] = [];
+
+    if (isBrowser) {
+      instancesToTry.push('/api/invidious');
+    }
+    if (this.instanceUrl && !instancesToTry.includes(this.instanceUrl)) {
+      instancesToTry.push(this.instanceUrl);
+    }
+    for (const fb of InvidiousService.FALLBACK_INSTANCES) {
+      if (!instancesToTry.includes(fb)) instancesToTry.push(fb);
+    }
 
     let lastError: any = null;
 
     for (const base of instancesToTry) {
       try {
-        const url = new URL(`${base}/api/v1${endpoint}`);
+        const isRelative = base.startsWith('/');
+        const url = isRelative
+          ? new URL(
+              `${base}/api/v1${endpoint}`,
+              typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3000'
+            )
+          : new URL(`${base}/api/v1${endpoint}`);
+
         Object.entries(params).forEach(([key, val]) => {
           if (val !== undefined && val !== null && val !== '') {
             url.searchParams.set(key, String(val));
@@ -251,7 +272,7 @@ export class InvidiousService {
 
         const res = await fetch(url.toString(), {
           headers: {
-            'Accept': 'application/json',
+            Accept: 'application/json',
           },
           signal: controller.signal,
         });
