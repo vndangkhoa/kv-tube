@@ -1220,13 +1220,16 @@ export default function MaterialiousPlayer({
         style={
           compact
             ? {
-                width: '132px',
-                height: '74px',
+                width: '128px',
+                height: '72px',
+                minWidth: '128px',
+                maxWidth: '128px',
+                minHeight: '72px',
+                maxHeight: '72px',
                 objectFit: 'cover',
                 display: 'block',
                 flexShrink: 0,
                 backgroundColor: '#000000',
-                borderRadius: '8px',
                 pointerEvents: 'none',
                 zIndex: 2,
                 opacity: dataLoaded ? 1 : 0,
@@ -1271,10 +1274,9 @@ export default function MaterialiousPlayer({
                 position: 'absolute',
                 left: 0,
                 top: 0,
-                width: '132px',
-                height: '74px',
+                width: '128px',
+                height: '72px',
                 objectFit: 'cover',
-                borderRadius: '8px',
                 zIndex: 1,
                 pointerEvents: 'none',
               }}
@@ -1291,8 +1293,8 @@ export default function MaterialiousPlayer({
               color: '#ffffff',
               fontSize: '10px',
               fontWeight: 600,
-              padding: '1px 5px',
-              borderRadius: '4px',
+              padding: '1px 4px',
+              borderRadius: '3px',
               pointerEvents: 'none',
               fontVariantNumeric: 'tabular-nums',
               zIndex: 3,
@@ -1310,9 +1312,8 @@ export default function MaterialiousPlayer({
               position: 'absolute',
               left: 0,
               top: 0,
-              width: '132px',
-              height: '74px',
-              borderRadius: '8px',
+              width: '128px',
+              height: '72px',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
@@ -1338,23 +1339,27 @@ export default function MaterialiousPlayer({
             style={{
               flex: 1,
               minWidth: 0,
-              padding: '8px 12px',
+              padding: '6px 10px',
               display: 'flex',
               flexDirection: 'column',
-              gap: '6px',
+              justifyContent: 'center',
+              gap: '4px',
+              height: '72px',
+              boxSizing: 'border-box',
+              overflow: 'hidden',
             }}
           >
             <div onClick={handleExpand} style={{ cursor: 'pointer', minWidth: 0 }}>
               <h4
                 style={{
                   margin: '0 0 2px',
-                  fontSize: '13px',
+                  fontSize: '12px',
                   fontWeight: 600,
                   color: 'var(--yt-text-primary)',
                   overflow: 'hidden',
                   textOverflow: 'ellipsis',
                   whiteSpace: 'nowrap',
-                  lineHeight: 1.3,
+                  lineHeight: 1.2,
                 }}
                 title={title || 'Now Playing'}
               >
@@ -1373,7 +1378,7 @@ export default function MaterialiousPlayer({
                   gap: '4px',
                 }}
               >
-                <IoMusicalNotes size={12} />
+                <IoMusicalNotes size={11} />
                 <span>{uploader || 'Creator'}</span>
               </p>
             </div>
@@ -1388,8 +1393,8 @@ export default function MaterialiousPlayer({
               }}
               style={{
                 position: 'relative',
-                height: '4px',
-                borderRadius: '2px',
+                height: '3px',
+                borderRadius: '1.5px',
                 backgroundColor: 'var(--yt-border)',
                 cursor: 'pointer',
                 overflow: 'hidden',
@@ -1404,7 +1409,7 @@ export default function MaterialiousPlayer({
                   bottom: 0,
                   width: `${progressPercent}%`,
                   backgroundColor: 'var(--md-sys-color-primary, var(--yt-brand-red))',
-                  borderRadius: '2px',
+                  borderRadius: '1.5px',
                 }}
               />
             </div>
@@ -1415,8 +1420,8 @@ export default function MaterialiousPlayer({
                 type="button"
                 onClick={togglePlay}
                 style={{
-                  width: '34px',
-                  height: '34px',
+                  width: '28px',
+                  height: '28px',
                   borderRadius: '50%',
                   border: 'none',
                   backgroundColor: 'transparent',
@@ -1425,19 +1430,19 @@ export default function MaterialiousPlayer({
                   alignItems: 'center',
                   justifyContent: 'center',
                   cursor: 'pointer',
-                  transition: 'background-color 0.2s',
+                  padding: 0,
                 }}
                 title={isPlaying ? 'Pause' : 'Play'}
               >
-                {isPlaying ? <IoPause size={20} /> : <IoPlay size={20} />}
+                {isPlaying ? <IoPause size={18} /> : <IoPlay size={18} />}
               </button>
 
               <button
                 type="button"
                 onClick={handleExpand}
                 style={{
-                  width: '34px',
-                  height: '34px',
+                  width: '28px',
+                  height: '28px',
                   borderRadius: '50%',
                   border: 'none',
                   backgroundColor: 'transparent',
@@ -1446,19 +1451,19 @@ export default function MaterialiousPlayer({
                   alignItems: 'center',
                   justifyContent: 'center',
                   cursor: 'pointer',
-                  transition: 'background-color 0.2s',
+                  padding: 0,
                 }}
                 title="Open in player"
               >
-                <IoExpandOutline size={20} />
+                <IoExpandOutline size={18} />
               </button>
 
               <button
                 type="button"
                 onClick={closeMiniPlayer}
                 style={{
-                  width: '34px',
-                  height: '34px',
+                  width: '28px',
+                  height: '28px',
                   borderRadius: '50%',
                   border: 'none',
                   backgroundColor: 'transparent',
@@ -1467,11 +1472,11 @@ export default function MaterialiousPlayer({
                   alignItems: 'center',
                   justifyContent: 'center',
                   cursor: 'pointer',
-                  transition: 'background-color 0.2s',
+                  padding: 0,
                 }}
                 title="Close"
               >
-                <IoCloseOutline size={22} />
+                <IoCloseOutline size={20} />
               </button>
             </div>
           </div>
@@ -2395,18 +2400,20 @@ export default function MaterialiousPlayer({
 
         @media (max-width: 768px) {
           .mp-compact-container {
-            bottom: 74px !important;
-            left: 12px !important;
-            right: 12px !important;
-            width: calc(100vw - 24px) !important;
-            max-width: 100% !important;
-            border-radius: 14px !important;
+            bottom: 70px !important;
+            left: 8px !important;
+            right: 8px !important;
+            width: calc(100vw - 16px) !important;
+            max-width: calc(100vw - 16px) !important;
+            height: 72px !important;
+            border-radius: 12px !important;
+            overflow: hidden !important;
           }
           .mp-compact-video,
           .mp-compact-thumb,
           .mp-compact-expand {
-            width: 132px !important;
-            height: 74px !important;
+            width: 128px !important;
+            height: 72px !important;
           }
         }
         @media (min-width: 769px) {
@@ -2414,15 +2421,17 @@ export default function MaterialiousPlayer({
             bottom: 24px !important;
             right: 24px !important;
             left: auto !important;
-            width: 420px !important;
-            max-width: 420px !important;
-            border-radius: 16px !important;
+            width: 400px !important;
+            max-width: 400px !important;
+            height: 72px !important;
+            border-radius: 12px !important;
+            overflow: hidden !important;
           }
           .mp-compact-video,
           .mp-compact-thumb,
           .mp-compact-expand {
-            width: 132px !important;
-            height: 74px !important;
+            width: 128px !important;
+            height: 72px !important;
           }
         }
       `}</style>
