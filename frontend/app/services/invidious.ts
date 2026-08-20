@@ -353,6 +353,86 @@ export class InvidiousService {
     return res.json();
   }
 
+  // Test connectivity to Invidious instance (with proxy fallback for Mixed Content / CORS)
+  public async testInstance(targetUrl?: string): Promise<{ success: boolean; message: string; count?: number }> {
+    const raw = (targetUrl !== undefined ? targetUrl : this.instanceUrl).trim();
+    const isLocalOrProxy = !raw || raw.startsWith('/') || raw.includes('localhost') || raw.includes('127.0.0.1');
+
+    // 1. Try local Next.js proxy route first
+    if (isLocalOrProxy) {
+      try {
+        const res = await fetch('/api/invidious/api/v1/trending?region=VN');
+        if (res.ok) {
+          const data = await res.json();
+          const count = Array.isArray(data) ? data.length : 0;
+          return {
+            success: true,
+            message: `Connected to local Invidious backend (${count} videos fetched)`,
+            count,
+          };
+        }
+      } catch {}
+    }
+
+    // 2. Direct fetch with timeout
+    if (raw && !raw.startsWith('/')) {
+      try {
+        const fullUrl = raw.startsWith('http') ? raw : `http://${raw}`;
+        const url = new URL(`${fullUrl.replace(/\/$/, '')}/api/v1/trending?region=VN`);
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 6000);
+        const res = await fetch(url.toString(), {
+          headers: { Accept: 'application/json' },
+          signal: controller.signal,
+        });
+        clearTimeout(timeout);
+        if (res.ok) {
+          const data = await res.json();
+          const count = Array.isArray(data) ? data.length : 0;
+          return {
+            success: true,
+            message: `Connected to ${raw} (${count} videos fetched)`,
+            count,
+          };
+        }
+      } catch (err: any) {
+        // 3. If direct fetch fails (e.g. Mixed Content HTTPS->HTTP or CORS), try via internal proxy
+        try {
+          const res = await fetch('/api/invidious/api/v1/trending?region=VN');
+          if (res.ok) {
+            const data = await res.json();
+            const count = Array.isArray(data) ? data.length : 0;
+            return {
+              success: true,
+              message: `Connected to Invidious via internal proxy (${count} videos fetched)`,
+              count,
+            };
+          }
+        } catch {}
+        return {
+          success: false,
+          message: err?.message || 'Could not connect to instance',
+        };
+      }
+    }
+
+    // Fallback: test proxy
+    try {
+      const res = await fetch('/api/invidious/api/v1/trending?region=VN');
+      if (res.ok) {
+        const data = await res.json();
+        const count = Array.isArray(data) ? data.length : 0;
+        return {
+          success: true,
+          message: `Connected via internal proxy (${count} videos fetched)`,
+          count,
+        };
+      }
+    } catch {}
+
+    return { success: false, message: 'Could not connect to Invidious instance' };
+  }
+
   // Test token against Invidious authenticated endpoints
   public async testAuthToken(customToken?: string): Promise<{ success: boolean; message: string; details?: any }> {
     const originalToken = this.getToken();

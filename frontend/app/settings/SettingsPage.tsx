@@ -107,16 +107,17 @@ export default function SettingsPage() {
     setInstanceStatus('testing');
     setInstanceMessage(null);
     try {
-      invidious.setInstanceUrl(invidiousUrl);
-      const test = await invidious.getTrending('VN');
-      if (Array.isArray(test)) {
+      const url = invidiousUrl.trim();
+      invidious.setInstanceUrl(url);
+      const test = await invidious.testInstance(url);
+      if (test.success) {
         setInstanceStatus('ok');
-        setInstanceMessage(`Connected successfully (${test.length} videos fetched)`);
+        setInstanceMessage(test.message);
       } else {
-        setInstanceStatus('ok');
-        setInstanceMessage('Connected successfully');
+        setInstanceStatus('fail');
+        setInstanceMessage(test.message);
       }
-      setTimeout(() => setInstanceStatus('idle'), 4000);
+      setTimeout(() => setInstanceStatus('idle'), 5000);
     } catch (e: any) {
       setInstanceStatus('fail');
       setInstanceMessage(e?.message || 'Could not connect to instance');
