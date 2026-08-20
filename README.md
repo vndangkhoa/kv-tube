@@ -242,6 +242,53 @@ services on an internal network:
 The classic single-image build (Go/Gin + yt-dlp + SQLite under supervisord)
 still exists as a legacy fallback — see the root `Dockerfile`.
 
+### 🔀 Data Flow
+
+```mermaid
+flowchart LR
+    subgraph Client["Browser / PWA"]
+        UI[KV-Tube UI<br/>React + Tailwind]
+    end
+
+    subgraph KVT["KV-Tube — Next.js 16 (port 3241)"]
+        RSC["Server Components<br/>search · watch · channel · feed"]
+        API["API Route Handlers<br/>/api/invidious/[...path] · /api/media-proxy<br/>/api/proxy · /api/channel-avatar"]
+        ST["Static Assets<br/>SSR pages · PWA · thumbnails"]
+    end
+
+    subgraph INV["Invidious stack (internal Docker network)"]
+        CORE["invidious<br/>(port 7601 / internal :3000)"]
+        DB[("invidious-db<br/>PostgreSQL 16")]
+        COMP["companion<br/>signature decryptor"]
+        AUTH["Invidious auth<br/>token · subscriptions · feed"]
+    end
+
+    YT[("YouTube")]
+
+    UI -->|"RSC renders data (server-side)"| RSC
+    UI -->|"client fetches metadata / playback"| API
+    UI -->|"thumbnails & streams via public URL"| ST
+    API -->|"HTTP proxy"| CORE
+    RSC -->|"direct HTTP (INVIDIOUS_URL)"| CORE
+    CORE --> DB
+    CORE --> COMP
+    AUTH -.->|"optional: API token sync"| CORE
+    COMP -->|"decrypts stream signatures"| YT
+    CORE -->|"scrapes metadata / streams"| YT
+    API -->|"media proxy for embeds"| YT
+
+    SB[SponsorBlock API] -.-> UI
+    RYD[Return YouTube Dislike API] -.-> UI
+```
+
+Request path summary: the **browser** always talks to the KV-Tube frontend
+(`:3241`) — server components call Invidious directly over the internal
+network, while client-side fetches go through the `/api/invidious` proxy so
+streams, search, and metadata are never exposed to CORS or the public
+Invidious port. Streams are served by Invidious/Companion (with signature
+decryption), and the Postgres DB holds Invidious state (users, subscriptions,
+tokens).
+
 ## 📦 Deployment
 
 ### 🐳 Docker Compose (Recommended)
