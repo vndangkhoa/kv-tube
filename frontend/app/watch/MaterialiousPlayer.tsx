@@ -527,6 +527,10 @@ export default function MaterialiousPlayer({
       setIsPlaying(true);
       setGlobalIsPlaying(true);
       setMediaSessionPlaybackState('playing');
+      const dur = video.duration || duration || 0;
+      if (dur > 0) {
+        updateMediaSessionPosition(dur, video.playbackRate || playbackRate || 1, video.currentTime);
+      }
       if (needsSeparateAudio && audio && audio.paused) {
         audio.play().catch(() => {});
       }
@@ -544,6 +548,10 @@ export default function MaterialiousPlayer({
       setIsPlaying(false);
       setGlobalIsPlaying(false);
       setMediaSessionPlaybackState('paused');
+      const dur = video.duration || duration || 0;
+      if (dur > 0) {
+        updateMediaSessionPosition(dur, video.playbackRate || playbackRate || 1, video.currentTime);
+      }
       if (audio && !audio.paused) {
         audio.pause();
       }
@@ -585,7 +593,10 @@ export default function MaterialiousPlayer({
         }
       }
 
-      updateMediaSessionPosition(cur, video.duration || 0, video.playbackRate);
+      const dur = video.duration || duration || 0;
+      if (dur > 0) {
+        updateMediaSessionPosition(dur, video.playbackRate || playbackRate || 1, cur);
+      }
 
       // SponsorBlock segment detection & skip
       if (sponsorSegments.length > 0) {
@@ -610,7 +621,13 @@ export default function MaterialiousPlayer({
       }
     };
 
-    const onDurationChange = () => setDuration(video.duration || 0);
+    const onDurationChange = () => {
+      const dur = video.duration || 0;
+      setDuration(dur);
+      if (dur > 0) {
+        updateMediaSessionPosition(dur, video.playbackRate || playbackRate || 1, video.currentTime);
+      }
+    };
     const onWaiting = () => {
       setIsBuffering(true);
       if (needsSeparateAudio && audio) audio.pause();
@@ -620,6 +637,11 @@ export default function MaterialiousPlayer({
     };
     const onPlaying = () => {
       setIsBuffering(false);
+      setMediaSessionPlaybackState('playing');
+      const dur = video.duration || duration || 0;
+      if (dur > 0) {
+        updateMediaSessionPosition(dur, video.playbackRate || playbackRate || 1, video.currentTime);
+      }
       if (needsSeparateAudio && audio && audio.paused && isPlaying) audio.play().catch(() => {});
     };
     const onCanPlay = () => {
@@ -641,6 +663,36 @@ export default function MaterialiousPlayer({
       }
     };
 
+    const onAudioTimeUpdate = () => {
+      if (audio && (document.hidden || bgAudioOnlyRef.current)) {
+        const cur = audio.currentTime;
+        setCurrentTime(cur);
+        setGlobalCurrentTime(cur);
+        const dur = audio.duration || video.duration || duration || 0;
+        if (dur > 0) {
+          updateMediaSessionPosition(dur, audio.playbackRate || playbackRate || 1, cur);
+        }
+      }
+    };
+    const onAudioPlay = () => {
+      if (audio && (document.hidden || bgAudioOnlyRef.current)) {
+        setMediaSessionPlaybackState('playing');
+        const dur = audio.duration || video.duration || duration || 0;
+        if (dur > 0) {
+          updateMediaSessionPosition(dur, audio.playbackRate || playbackRate || 1, audio.currentTime);
+        }
+      }
+    };
+    const onAudioPause = () => {
+      if (audio && (document.hidden || bgAudioOnlyRef.current)) {
+        setMediaSessionPlaybackState('paused');
+        const dur = audio.duration || video.duration || duration || 0;
+        if (dur > 0) {
+          updateMediaSessionPosition(dur, audio.playbackRate || playbackRate || 1, audio.currentTime);
+        }
+      }
+    };
+
     video.addEventListener('play', onPlay);
     video.addEventListener('pause', onPause);
     video.addEventListener('timeupdate', onTimeUpdate);
@@ -649,6 +701,12 @@ export default function MaterialiousPlayer({
     video.addEventListener('playing', onPlaying);
     video.addEventListener('canplay', onCanPlay);
     video.addEventListener('ended', onEnded);
+
+    if (audio) {
+      audio.addEventListener('timeupdate', onAudioTimeUpdate);
+      audio.addEventListener('play', onAudioPlay);
+      audio.addEventListener('pause', onAudioPause);
+    }
 
     return () => {
       video.removeEventListener('play', onPlay);
@@ -659,6 +717,12 @@ export default function MaterialiousPlayer({
       video.removeEventListener('playing', onPlaying);
       video.removeEventListener('canplay', onCanPlay);
       video.removeEventListener('ended', onEnded);
+
+      if (audio) {
+        audio.removeEventListener('timeupdate', onAudioTimeUpdate);
+        audio.removeEventListener('play', onAudioPlay);
+        audio.removeEventListener('pause', onAudioPause);
+      }
     };
   }, [sponsorSegments, lastSkippedSegment, isLooping, onVideoEnd, needsSeparateAudio]);
 

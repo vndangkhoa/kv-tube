@@ -34,6 +34,7 @@ function buildArtwork(videoId: string, thumbnail?: string): MediaImage[] {
         ? thumbnail
         : `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`;
     
+    const maxres = `https://i.ytimg.com/vi/${videoId}/maxresdefault.jpg`;
     const hq = `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`;
     const mq = `https://i.ytimg.com/vi/${videoId}/mqdefault.jpg`;
     const sd = `https://i.ytimg.com/vi/${videoId}/sddefault.jpg`;
@@ -45,6 +46,7 @@ function buildArtwork(videoId: string, thumbnail?: string): MediaImage[] {
         { src: hq, sizes: '256x256', type: 'image/jpeg' },
         { src: hq, sizes: '384x384', type: 'image/jpeg' },
         { src: sd, sizes: '512x512', type: 'image/jpeg' },
+        { src: maxres, sizes: '1280x720', type: 'image/jpeg' },
         { src: hq, sizes: '480x360', type: 'image/jpeg' },
         { src: mq, sizes: '320x180', type: 'image/jpeg' },
     ];
@@ -95,17 +97,29 @@ export function useMediaSession(opts: UseMediaSessionOptions) {
 
         const play = () => {
             const el = activeMedia(optsRef.current.getVideo, optsRef.current.getAudio);
-            if (el) el.play().catch(() => {});
+            if (el) {
+                el.play().catch(() => {});
+                setMediaSessionPlaybackState('playing');
+                if (el.duration > 0) {
+                    updateMediaSessionPosition(el.duration, el.playbackRate || 1, el.currentTime);
+                }
+            }
         };
         const pause = () => {
             const el = activeMedia(optsRef.current.getVideo, optsRef.current.getAudio);
-            if (el) el.pause();
+            if (el) {
+                el.pause();
+                setMediaSessionPlaybackState('paused');
+                if (el.duration > 0) {
+                    updateMediaSessionPosition(el.duration, el.playbackRate || 1, el.currentTime);
+                }
+            }
         };
         const seekBy = (delta: number) => {
             const el = activeMedia(optsRef.current.getVideo, optsRef.current.getAudio);
             if (!el) return;
             const dur = Number.isFinite(el.duration) ? el.duration : 0;
-            const t = Math.max(0, Math.min(dur, el.currentTime + delta));
+            const t = Math.max(0, Math.min(dur || (el.currentTime + delta), el.currentTime + delta));
             el.currentTime = t;
             // Mirror the seek onto the other element so they stay in sync
             // when the page becomes visible again.
@@ -113,16 +127,19 @@ export function useMediaSession(opts: UseMediaSessionOptions) {
             const audio = optsRef.current.getAudio();
             if (el !== video && video) video.currentTime = t;
             if (el !== audio && audio) audio.currentTime = t;
+            updateMediaSessionPosition(dur || t, el.playbackRate || 1, t);
         };
         const seekTo = (time: number) => {
             const el = activeMedia(optsRef.current.getVideo, optsRef.current.getAudio);
             if (!el) return;
-            const t = Number.isFinite(time) ? Math.max(0, time) : 0;
+            const dur = Number.isFinite(el.duration) ? el.duration : 0;
+            const t = Number.isFinite(time) ? Math.max(0, Math.min(dur || time, time)) : 0;
             el.currentTime = t;
             const video = optsRef.current.getVideo();
             const audio = optsRef.current.getAudio();
             if (el !== video && video) video.currentTime = t;
             if (el !== audio && audio) audio.currentTime = t;
+            updateMediaSessionPosition(dur || t, el.playbackRate || 1, t);
         };
         const next = () => optsRef.current.onNext?.();
         const prev = () => optsRef.current.onPrev?.();
@@ -175,11 +192,17 @@ export function updateMediaSessionPosition(duration: number, playbackRate: numbe
     if (!mediaSessionAvailable()) return;
     try {
         if (typeof navigator.mediaSession.setPositionState !== 'function') return;
-        navigator.mediaSession.setPositionState({
-            duration: Number.isFinite(duration) && duration > 0 ? duration : 0,
-            playbackRate: playbackRate || 1,
-            position: Number.isFinite(position) ? position : 0,
-        });
+        const validDuration = Number.isFinite(duration) && duration > 0 ? duration : 0;
+        const validPosition = Number.isFinite(position) && position >= 0 ? Math.min(position, validDuration || position) : 0;
+        const validRate = Number.isFinite(playbackRate) && playbackRate > 0 ? playbackRate : 1;
+
+        if (validDuration > 0) {
+            navigator.mediaSession.setPositionState({
+                duration: validDuration,
+                playbackRate: validRate,
+                position: validPosition,
+            });
+        }
     } catch {
         // position 0 with unknown duration throws — ignore
     }

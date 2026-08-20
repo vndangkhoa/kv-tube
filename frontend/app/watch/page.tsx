@@ -16,16 +16,18 @@ export async function generateMetadata({ searchParams }: WatchPageProps): Promis
     const params = await searchParams;
     const videoId = params?.v;
 
+    const siteUrl = (process.env.NEXT_PUBLIC_SITE_URL || 'https://ut.khoavo.myds.me').replace(/\/$/, '');
+    const pageUrl = videoId ? `${siteUrl}/watch?v=${videoId}` : siteUrl;
+
     if (!videoId) {
         return {
-            title: 'Watch Video - KV-Tube',
-            description: 'Watch videos on KV-Tube with background playback.',
+            title: 'KV-Tube — YouTube KHÔNG QUẢNG CÁO',
+            description: 'Xem video không quảng cáo với âm thanh nền trên KV-Tube.',
         };
     }
 
-    let title = 'Watch Video';
-    let description = 'Watch this video on KV-Tube with background playback.';
-    let thumbnail = '';
+    let title = 'Watch Video on KV-Tube';
+    let description = 'Xem video không quảng cáo với âm thanh nền trên KV-Tube.';
     let uploader = '';
 
     try {
@@ -33,42 +35,69 @@ export async function generateMetadata({ searchParams }: WatchPageProps): Promis
         if (invVideo) {
             if (invVideo.title) title = invVideo.title;
             if (invVideo.author) uploader = invVideo.author;
-            if (invVideo.videoThumbnails?.[0]?.url) thumbnail = invVideo.videoThumbnails[0].url;
-            description = `Watch "${title}" by ${uploader || 'creator'} on KV-Tube.`;
+            description = `Xem "${title}" bởi ${uploader || 'kênh YouTube'} không quảng cáo trên KV-Tube.`;
         }
     } catch (_) {}
 
-    // Prefer the high-res thumbnail; fall back to the standard i.ytimg URL
-    // built from the video ID so the preview still has an image.
-    const imageUrl =
-        thumbnail && thumbnail.startsWith('http')
-            ? thumbnail
-            : `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`;
+    // Use reliable high-resolution HTTPS YouTube thumbnail CDN for social media crawlers
+    // (Facebook/Messenger crawler requires secure HTTPS and rejects unreachable internal proxy URLs).
+    const maxresImg = `https://i.ytimg.com/vi/${videoId}/maxresdefault.jpg`;
+    const hqImg = `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`;
+    const mqImg = `https://i.ytimg.com/vi/${videoId}/mqdefault.jpg`;
 
     return {
-        title,
+        title: `${title} - KV-Tube`,
         description,
+        alternates: {
+            canonical: pageUrl,
+        },
         openGraph: {
             type: 'video.other',
             siteName: 'KV-Tube',
             title,
             description,
-            url: `/watch?v=${videoId}`,
+            url: pageUrl,
             images: [
                 {
-                    url: imageUrl,
+                    url: maxresImg,
+                    secureUrl: maxresImg,
+                    width: 1280,
+                    height: 720,
+                    type: 'image/jpeg',
+                    alt: title,
+                },
+                {
+                    url: hqImg,
+                    secureUrl: hqImg,
                     width: 480,
                     height: 360,
+                    type: 'image/jpeg',
+                    alt: title,
+                },
+                {
+                    url: mqImg,
+                    secureUrl: mqImg,
+                    width: 320,
+                    height: 180,
+                    type: 'image/jpeg',
                     alt: title,
                 },
             ],
-            videos: [`https://www.youtube.com/watch?v=${videoId}`],
+            videos: [
+                {
+                    url: `https://www.youtube.com/embed/${videoId}`,
+                    secureUrl: `https://www.youtube.com/embed/${videoId}`,
+                    type: 'text/html',
+                    width: 1280,
+                    height: 720,
+                },
+            ],
         },
         twitter: {
             card: 'summary_large_image',
             title,
             description,
-            images: [imageUrl],
+            images: [maxresImg, hqImg],
         },
     };
 }
