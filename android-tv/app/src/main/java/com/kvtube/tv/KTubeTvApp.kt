@@ -11,10 +11,16 @@ import kotlinx.coroutines.launch
 import androidx.datastore.preferences.core.stringPreferencesKey
 
 class KTubeTvApp : Application() {
+    companion object {
+        lateinit var instance: KTubeTvApp
+            private set
+    }
+
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     override fun onCreate() {
         super.onCreate()
+        instance = this
         scope.launch {
             try {
                 val prefs = tvDataStore.data.first()

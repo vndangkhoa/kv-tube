@@ -20,6 +20,7 @@ data class DetailUiState(
 
 class DetailViewModel : ViewModel() {
     private val repo = InvidiousRepository()
+    private val historyRepo = com.kvtube.tv.data.repository.TvHistoryRepository.getInstance()
     private val _state = MutableStateFlow(DetailUiState())
     val state: StateFlow<DetailUiState> = _state
 
@@ -36,6 +37,7 @@ class DetailViewModel : ViewModel() {
                 val tv = v.toTvVideo()
                 val related = runCatching { repo.related(v) }.getOrDefault(emptyList())
                 _state.value = DetailUiState(video = v, tvVideo = tv, related = related, isLoading = false)
+                historyRepo.recordWatch(tv)
             } catch (e: retrofit2.HttpException) {
                 val body = try { e.response()?.errorBody()?.string()?.take(400) } catch (_: Exception) { null }
                 _state.value = DetailUiState(isLoading = false, error = body ?: "Video unavailable (HTTP ${e.code()}: ${e.message()})")

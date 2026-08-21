@@ -16,6 +16,7 @@ data class PlayerUiState(
 
 class PlayerViewModel : ViewModel() {
     private val repo = InvidiousRepository()
+    private val historyRepo = com.kvtube.tv.data.repository.TvHistoryRepository.getInstance()
     private val _state = MutableStateFlow(PlayerUiState())
     val state: StateFlow<PlayerUiState> = _state
 
@@ -30,11 +31,21 @@ class PlayerViewModel : ViewModel() {
             try {
                 val v = repo.video(id)
                 _state.value = PlayerUiState(video = v, isLoading = false)
+                historyRepo.recordWatch(v)
             } catch (e: retrofit2.HttpException) {
                 val body = try { e.response()?.errorBody()?.string()?.take(400) } catch (_: Exception) { null }
                 _state.value = PlayerUiState(isLoading = false, error = body ?: "Video unavailable (HTTP ${e.code()}: ${e.message()})")
             } catch (e: Exception) {
                 _state.value = PlayerUiState(isLoading = false, error = e.message ?: "Failed to load")
+            }
+        }
+    }
+
+    fun updateProgress(positionMs: Long, durationMs: Long) {
+        val id = _state.value.video?.videoId ?: return
+        if (id.isNotBlank() && positionMs >= 0) {
+            viewModelScope.launch {
+                historyRepo.updateProgress(id, positionMs, durationMs)
             }
         }
     }

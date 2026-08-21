@@ -15,8 +15,15 @@ logs/
 releases/
 *.tsbuildinfo
 
-# Android local config (machine-specific)
+# Android local config and caches
 android-app/local.properties
+android-app/**/build/
+android-app/.gradle/
+android-tv/local.properties
+android-tv/**/build/
+android-tv/.gradle/
+android-tv/.gradle_home/
+.gradle/
 
 # Go
 backend/kvtube-go

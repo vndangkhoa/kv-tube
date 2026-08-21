@@ -29,6 +29,7 @@ fun YtTvVideoCard(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     showChannel: Boolean = true,
+    progressFraction: Float? = null,
 ) {
     // TV focus: scale + border glow (leanback-native)
     Card(
@@ -83,6 +84,22 @@ fun YtTvVideoCard(
                             .padding(horizontal = 6.dp, vertical = 2.dp)
                     ) {
                         Text("LIVE", color = Color.White, style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp, fontWeight = FontWeight.Bold))
+                    }
+                }
+                if (progressFraction != null && progressFraction > 0.01f) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(4.dp)
+                            .align(Alignment.BottomStart)
+                            .background(Color.White.copy(alpha = 0.3f))
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth(progressFraction.coerceIn(0f, 1f))
+                                .fillMaxHeight()
+                                .background(YTBrandRed)
+                        )
                     }
                 }
             }

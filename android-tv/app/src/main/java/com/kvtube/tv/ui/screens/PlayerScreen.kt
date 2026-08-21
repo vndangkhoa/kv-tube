@@ -102,10 +102,16 @@ fun PlayerScreen(
     }
 
     LaunchedEffect(exo) {
+        var lastSaved = 0L
         while (true) {
             currentPosition = exo.currentPosition.coerceAtLeast(0L)
             duration = exo.duration.coerceAtLeast(0L)
             isPlaying = exo.isPlaying
+            val now = System.currentTimeMillis()
+            if (now - lastSaved >= 5000L && currentPosition > 0L) {
+                vm.updateProgress(currentPosition, duration)
+                lastSaved = now
+            }
             delay(500)
         }
     }
@@ -119,6 +125,13 @@ fun PlayerScreen(
 
     DisposableEffect(Unit) {
         onDispose {
+            try {
+                val pos = exo.currentPosition.coerceAtLeast(0L)
+                val dur = exo.duration.coerceAtLeast(0L)
+                if (pos > 0L) {
+                    vm.updateProgress(pos, dur)
+                }
+            } catch (_: Exception) {}
             exo.release()
         }
     }
