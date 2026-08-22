@@ -108,23 +108,6 @@ fun LibraryScreen(
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
-
-                        Surface(
-                            shape = CircleShape,
-                            color = MaterialTheme.colorScheme.surfaceVariant,
-                            modifier = Modifier
-                                .size(40.dp)
-                                .clickable { navController.navigate(Screen.Settings.route) }
-                        ) {
-                            Box(contentAlignment = Alignment.Center) {
-                                Icon(
-                                    imageVector = Icons.Default.Settings,
-                                    contentDescription = "Settings",
-                                    tint = MaterialTheme.colorScheme.onSurface,
-                                    modifier = Modifier.size(20.dp)
-                                )
-                            }
-                        }
                     }
                 }
 
@@ -182,7 +165,7 @@ fun LibraryScreen(
                     }
                 }
 
-                // Quick Navigation Cards (Downloads, Liked Videos)
+                // Quick Navigation Cards (Settings, Downloads, Liked Videos)
                 item {
                     Spacer(modifier = Modifier.height(20.dp))
                     Column(
@@ -191,6 +174,13 @@ fun LibraryScreen(
                             .padding(horizontal = 16.dp),
                         verticalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
+                        LibraryActionCard(
+                            icon = Icons.Default.Settings,
+                            title = "Settings",
+                            subtitle = "Server, region, theme & updates",
+                            onClick = { navController.navigate(Screen.Settings.route) }
+                        )
+
                         LibraryActionCard(
                             icon = Icons.Default.Download,
                             title = "Downloads",

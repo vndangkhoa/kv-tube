@@ -28,7 +28,8 @@ class UpdateManager @Inject constructor(
 ) {
     companion object {
         private const val TAG = "UpdateManager"
-        private const val GITHUB_API_URL = "https://api.github.com/repos/vndangkhoa/kv-tube/releases/latest"
+        private const val GITHUB_API_URL =
+            "https://api.github.com/repos/vndangkhoa/kv-tube/releases?per_page=30"
     }
 
     suspend fun checkForUpdate(currentVersion: String): UpdateInfo? = withContext(Dispatchers.IO) {
@@ -42,33 +43,42 @@ class UpdateManager @Inject constructor(
             if (!response.isSuccessful) return@withContext null
 
             val body = response.body?.string() ?: return@withContext null
-            val root = json.parseToJsonElement(body).jsonObject
-            val tagName = root["tag_name"]?.jsonPrimitive?.content ?: ""
-            val releaseNotes = root["body"]?.jsonPrimitive?.content ?: ""
+            val releases = json.parseToJsonElement(body).jsonArray
 
-            val latestVer = tagName.removePrefix("v").trim()
-            val currentVer = currentVersion.removePrefix("v").trim()
+            // Phone releases only: skip tv-* tags and any TV-named APK asset so
+            // the phone never downloads the Android TV build.
+            for (element in releases) {
+                val root = element.jsonObject
+                val tagName = root["tag_name"]?.jsonPrimitive?.content ?: ""
+                if (tagName.removePrefix("v").startsWith("tv")) continue
 
-            // Find apk in assets
-            val assets = root["assets"]?.jsonArray
-            var apkUrl = ""
-            assets?.forEach { element ->
-                val assetObj = element.jsonObject
-                val name = assetObj["name"]?.jsonPrimitive?.content ?: ""
-                if (name.endsWith(".apk", ignoreCase = true)) {
-                    apkUrl = assetObj["browser_download_url"]?.jsonPrimitive?.content ?: ""
+                val releaseNotes = root["body"]?.jsonPrimitive?.content ?: ""
+                val latestVer = tagName.removePrefix("v").trim()
+                val currentVer = currentVersion.removePrefix("v").trim()
+
+                val assets = root["assets"]?.jsonArray
+                var apkUrl = ""
+                assets?.forEach { assetElement ->
+                    val assetObj = assetElement.jsonObject
+                    val name = assetObj["name"]?.jsonPrimitive?.content ?: ""
+                    if (name.endsWith(".apk", ignoreCase = true) &&
+                        !name.contains("tv", ignoreCase = true)
+                    ) {
+                        apkUrl = assetObj["browser_download_url"]?.jsonPrimitive?.content ?: ""
+                    }
                 }
-            }
 
-            if (apkUrl.isNotEmpty() && isNewerVersion(latestVer, currentVer)) {
-                UpdateInfo(
-                    latestVersion = latestVer,
-                    downloadUrl = apkUrl,
-                    releaseNotes = releaseNotes
-                )
-            } else {
-                null
+                if (apkUrl.isNotEmpty() && isNewerVersion(latestVer, currentVer)) {
+                    return@withContext UpdateInfo(
+                        latestVersion = latestVer,
+                        downloadUrl = apkUrl,
+                        releaseNotes = releaseNotes
+                    )
+                }
+                // Newest non-TV release has no newer phone build — stop early.
+                if (apkUrl.isNotEmpty()) return@withContext null
             }
+            null
         } catch (e: Exception) {
             Log.e(TAG, "Check update error: ${e.message}")
             null
