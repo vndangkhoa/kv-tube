@@ -102,13 +102,17 @@ async function handleProxy(req: NextRequest, pathParts: string[]) {
       duplex: 'half',
     });
 
+    const upstreamContentType = res.headers.get('content-type') || '';
+    const isMedia =
+      upstreamContentType.startsWith('video/') ||
+      upstreamContentType.startsWith('audio/') ||
+      !!req.headers.get('range');
+
     const responseHeaders = new Headers();
     const headersToForward = [
       'content-type',
-      'content-length',
       'content-range',
       'accept-ranges',
-      'set-cookie',
       'location',
     ];
     headersToForward.forEach((h) => {
@@ -120,7 +124,21 @@ async function handleProxy(req: NextRequest, pathParts: string[]) {
     responseHeaders.set('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS, HEAD');
     responseHeaders.set('Access-Control-Allow-Headers', '*');
 
-    return new NextResponse(res.body, {
+    // Media streams must be streamed through untouched (range support, low memory).
+    if (isMedia) {
+      const len = res.headers.get('content-length');
+      if (len) responseHeaders.set('content-length', len);
+      return new NextResponse(res.body, {
+        status: res.status,
+        headers: responseHeaders,
+      });
+    }
+
+    // JSON / other small payloads are buffered so the client always receives a
+    // complete body with a correct content-length (blind streaming can drop
+    // trailing bytes, producing truncated JSON in the browser).
+    const buf = await res.arrayBuffer();
+    return new NextResponse(buf, {
       status: res.status,
       headers: responseHeaders,
     });
