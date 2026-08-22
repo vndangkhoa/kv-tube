@@ -116,12 +116,12 @@
 
 ## 🚀 Quick Start
 
-The recommended production deployment is the **4-container Invidious stack** — Invidious (YouTube backend), PostgreSQL 16, Invidious Companion (stream signature decryptor), and the KV-Tube Next.js frontend. The compose file builds the frontend image from the `frontend/` directory, so clone the full repository first:
+The recommended production deployment is the **4-container Invidious stack** — Invidious (YouTube backend), PostgreSQL 16, Invidious Companion (stream signature decryptor), and the KV-Tube Next.js frontend. Everything pulls pre-built images, so only the compose file is needed:
 
 ```bash
-git clone https://github.com/vndangkhoa/kv-tube.git
-cd kv-tube
-docker compose up -d --build
+mkdir -p kv-tube && cd kv-tube
+curl -O https://raw.githubusercontent.com/vndangkhoa/kv-tube/main/docker-compose.yml
+docker compose up -d
 ```
 
 Access the services:
@@ -150,11 +150,11 @@ docker run -d -p 3241:3000 -p 8080:8080 -v ./data:/app/data kv-tube:latest
 
 Pre-built container images are published to multiple registries:
 
-| Registry | Image |
-|----------|-------|
-| **Docker Hub** | `vndangkhoa/kv-tube:latest` |
-| **GitHub Container Registry** | `ghcr.io/vndangkhoa/kv-tube:latest` |
-| **Forgejo** | `git.khoavo.myds.me/vndangkhoa/kv-tube:latest` |
+| Registry | Unified image (backend + frontend) | Frontend-only image (Invidious stack) |
+|----------|-----------------------------------|----------------------------------------|
+| **Docker Hub** | `vndangkhoa/kv-tube:latest` | `vndangkhoa/kv-tube-ui:latest` |
+| **GitHub Container Registry** | `ghcr.io/vndangkhoa/kv-tube:latest` | `ghcr.io/vndangkhoa/kv-tube-ui:latest` |
+| **Forgejo** | `git.khoavo.myds.me/vndangkhoa/kv-tube:latest` | `git.khoavo.myds.me/vndangkhoa/kv-tube-ui:latest` |
 
 ### 🌐 Source Repositories
 
@@ -379,15 +379,16 @@ services:
       - invidious-net
 
   # 4. KV-Tube Materialious-Inspired Frontend WebApp
+  # Pre-built image (no source build required). To build from source instead,
+  # uncomment the build section and run `docker compose up -d --build`.
   kv-tube:
-    build:
-      context: ./frontend
-      dockerfile: Dockerfile
-      args:
-        # Browser-facing Invidious URL, inlined into the client bundle at build
-        # time (the browser loads the Invidious embed player from this URL).
-        - NEXT_PUBLIC_INVIDIOUS_URL=http://127.0.0.1:7601
-    image: kv-tube-ui:latest
+    image: vndangkhoa/kv-tube-ui:latest
+    # build:
+    #   context: ./frontend
+    #   dockerfile: Dockerfile
+    #   args:
+    #     # Browser-facing Invidious URL, inlined into the client bundle at build time.
+    #     - NEXT_PUBLIC_INVIDIOUS_URL=http://127.0.0.1:7601
     container_name: Invidious-Materialious-UI
     restart: unless-stopped
     ports:
