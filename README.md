@@ -8,14 +8,15 @@
   <a href="https://github.com/vndangkhoa/kv-tube/blob/main/LICENSE">
     <img src="https://img.shields.io/github/license/vndangkhoa/kv-tube?style=flat-square" alt="License" />
   </a>
-  <img src="https://img.shields.io/badge/Go-1.25-00ADD8?style=flat-square&logo=go" alt="Go" />
   <img src="https://img.shields.io/badge/Next.js-16-000000?style=flat-square&logo=nextdotjs" alt="Next.js" />
+  <img src="https://img.shields.io/badge/React-19-61DAFB?style=flat-square&logo=react" alt="React" />
+  <img src="https://img.shields.io/badge/Invidious-API-000000?style=flat-square&logo=crystal" alt="Invidious" />
+  <img src="https://img.shields.io/badge/Go-1.25-00ADD8?style=flat-square&logo=go" alt="Go" />
   <img src="https://img.shields.io/badge/Docker-Ready-2496ED?style=flat-square&logo=docker" alt="Docker" />
-  <img src="https://img.shields.io/badge/SQLite-003B57?style=flat-square&logo=sqlite" alt="SQLite" />
-  <img src="https://img.shields.io/badge/PWA-Yes-5A0FC8?style=flat-square&logo=pwa" alt="PWA" />
+  <img src="https://img.shields.io/badge/PWA-Ready-5A0FC8?style=flat-square&logo=pwa" alt="PWA" />
   <img src="https://img.shields.io/badge/Android-5.0+-3DDC84?style=flat-square&logo=android" alt="Android" />
+  <img src="https://img.shields.io/badge/Android%20TV-7.0+-00838F?style=flat-square&logo=android" alt="Android TV" />
   <img src="https://img.shields.io/badge/Kotlin-2.0-7F52FF?style=flat-square&logo=kotlin" alt="Kotlin" />
-  <img src="https://img.shields.io/badge/Jetpack%20Compose-Yes-4285F4?style=flat-square" alt="Jetpack Compose" />
 </p>
 
 <p align="center">
@@ -31,9 +32,12 @@
   <a href="#-features">Features</a> •
   <a href="#-quick-start">Quick Start</a> •
   <a href="#-why-kv-tube">Why KV-Tube?</a> •
+  <a href="#%EF%B8%8F-architecture">Architecture</a> •
+  <a href="#-native-apps-mobile--tv">Native Apps</a> •
   <a href="#-deployment">Deployment</a> •
+  <a href="#%EF%B8%8F-configuration">Configuration</a> •
   <a href="#-development">Development</a> •
-  <a href="#-support">Support</a> •
+  <a href="#-support-the-project">Support</a> •
   <a href="#-contributing">Contributing</a>
 </p>
 
@@ -43,109 +47,76 @@
   <i>Watch, search, and subscribe — just like YouTube, but fully under your control.</i>
 </p>
 
-<!-- TODO: Add a demo screenshot/GIF here -->
-
 ## ✨ Features
 
 <table>
 <tr>
   <td width="50%">
-    <h3>🎞️ Video Playback</h3>
-    HLS streaming with adaptive quality — from 144p to 4K.
+    <h3>🎞️ Adaptive Video Playback</h3>
+    HLS and DASH streaming with adaptive quality selector — from 144p up to 4K, including variable playback speeds and subtitle support.
   </td>
   <td width="50%">
-    <h3>📜 Watch History</h3>
-    Automatically tracked. Always in sync. Never lose your place.
-  </td>
-</tr>
-<tr>
-  <td width="50%">
-    <h3>🔔 Subscriptions</h3>
-    Follow any YouTube channel. Get updates instantly.
-  </td>
-  <td width="50%">
-    <h3>🔍 Search</h3>
-    Full-text search across videos, channels, and history.
+    <h3>📜 Watch History & Feed</h3>
+    Automatically tracked watch history and personalized feed. Always in sync, never lose your place.
   </td>
 </tr>
 <tr>
   <td width="50%">
-    <h3>🎵 Background Audio</h3>
-    Keep listening with the screen locked — perfect for music.
+    <h3>🔔 Subscriptions & Channels</h3>
+    Follow any YouTube channel. Rich channel pages with banners, avatars, subscriber/video counts, and infinite-scrolling video lists.
   </td>
   <td width="50%">
-    <h3>📱 PWA</h3>
-    Install as a native app. Works offline. Full-screen experience.
-  </td>
-</tr>
-<tr>
-  <td width="50%">
-    <h3>🌍 Region Tuning</h3>
-    Tailor content and recommendations to any region.
-  </td>
-  <td width="50%">
-    <h3>🌓 Themes</h3>
-    Light, dark, and system-following themes out of the box.
+    <h3>🔍 Full-Text Search</h3>
+    Fast search across videos, channels, and playlists with category filter chips.
   </td>
 </tr>
 <tr>
   <td width="50%">
-    <h3>📺 Rich Channel Pages</h3>
-    Banner, avatar, description, subscriber & view counts, and infinite-scrolling videos.
+    <h3>🎵 Background Audio & PWA</h3>
+    Keep listening with your screen locked. Installable PWA with full-screen experience and offline UI caching.
   </td>
   <td width="50%">
-    <h3>⚡ Fast & Resilient</h3>
-    Aggressive caching, multi-client yt-dlp fallback, and lazy metadata hydration.
+    <h3>🌓 Themes & Region Tuning</h3>
+    Modern Materialious-inspired design with Dark, Light, and System themes. Tailor trending content to any region.
   </td>
 </tr>
 <tr>
   <td width="50%">
     <h3>💬 Comments & Engagement</h3>
-    Real YouTube comments, comment counts, likes, and dislikes — powered by
-    Invidious + SponsorBlock &amp; Return YouTube Dislike integration.
+    Real YouTube comments, like/dislike counts via <b>Return YouTube Dislike (RYD)</b>, and automatic segment skipping powered by <b>SponsorBlock</b>.
   </td>
   <td width="50%">
-    <h3>📥 Server-side Downloads</h3>
-    Download any video straight to your device as an MP4. The server fetches it
-    with yt-dlp and streams a live progress bar — no ads, no client-side hacks.
-    Pick from three quality tiers: <b>Low</b> (≤360p), <b>Recommended</b> (≤1080p), or <b>Best</b>.
+    <h3>📥 Server & Client Downloads</h3>
+    Download videos straight to your device as MP4 with live progress. Multi-tier quality selection: <b>Low</b> (≤360p), <b>Recommended</b> (≤1080p), or <b>Best</b>.
+  </td>
+</tr>
+<tr>
+  <td width="50%">
+    <h3>📱 Native Android Mobile App</h3>
+    Kotlin &amp; Jetpack Compose with Material 3. Media3 ExoPlayer, on-device NewPipeExtractor downloads via WorkManager, Room DB history, and auto-updates.
+  </td>
+  <td width="50%">
+    <h3>📺 Native Android TV App</h3>
+    10-foot Leanback interface built with Compose for TV. D-pad navigation, Media3 ExoPlayer (HLS/DASH), and customizable Invidious server connection.
   </td>
 </tr>
 <tr>
   <td width="50%">
     <h3>🔐 Invidious Account Sync</h3>
-    Optionally connect your Invidious account: subscriptions, feed, and watch
-    history sync automatically across devices, with import/export support.
+    Connect your Invidious account to sync subscriptions, feed, and watch history across all devices with import/export support.
   </td>
   <td width="50%">
-    <h3>🧹 Self-cleaning Cache</h3>
-    Downloaded files live in a temp server cache (30-minute TTL) and are purged
-    automatically — nothing piles up on your disk.
-  </td>
-</tr>
-<tr>
-  <td width="50%">
-    <h3>📱 Android App</h3>
-    Native Android client built with Kotlin &amp; Jetpack Compose. Material 3 design,
-    ExoPlayer video playback, on-device NewPipeExtractor downloads, share to any app,
-    download progress with badge indicator, dark/light themes, and auto-updates
-    via GitHub/Forgejo releases.
-  </td>
-  <td width="50%">
-    <h3>⬇️ On-device Downloads</h3>
-    Download videos directly on your Android device using NewPipeExtractor stream
-    extraction. Three quality tiers (Low 360p, Recommended 1080p, Best) with
-    background download via WorkManager. Search, rename, sort, and delete
-    downloaded files from the Downloads tab.
+    <h3>⚡ Fast, Resilient & Self-cleaning</h3>
+    Stream signature decryption via companion, aggressive caching, multi-client fallback, and automated temp file cache purging.
   </td>
 </tr>
 </table>
 
+---
+
 ## 🚀 Quick Start
 
-The recommended deployment is a 4-container stack — **Invidious** (YouTube API
-backend), **PostgreSQL**, the **Invidious Companion** (stream signature
-decryptor), and the KV-Tube frontend:
+The recommended production deployment is the **4-container Invidious stack** — Invidious (YouTube backend), PostgreSQL 16, Invidious Companion (stream signature decryptor), and the KV-Tube Next.js frontend:
 
 ```bash
 mkdir -p kv-tube && cd kv-tube
@@ -153,34 +124,31 @@ curl -O https://raw.githubusercontent.com/vndangkhoa/kv-tube/main/docker-compose
 docker compose up -d --build
 ```
 
-Then open **http://localhost:3241** (KV-Tube UI) — Invidious itself listens on
-**http://localhost:7601**. The frontend talks to Invidious server-to-server
-over an internal Docker network, so no Invidious API key is needed.
+Access the services:
+- **KV-Tube Web UI:** [http://localhost:3241](http://localhost:3241)
+- **Invidious Backend API:** [http://localhost:7601](http://localhost:7601)
 
-Prefer running everything in a single container? The classic all-in-one image
-(Go backend + Next.js + yt-dlp, managed by supervisord) is still published:
-
-```bash
-git clone https://github.com/vndangkhoa/kv-tube.git
-cd kv-tube
-docker build -t kv-tube:latest .
-docker run -d -p 5011:3000 -p 8981:8080 -v ./data:/app/data kv-tube:latest
-```
-
-> **Note:** with the Invidious stack, no YouTube cookies are required — the
-> Invidious instance handles extraction and the frontend proxies streams
-> through `/api/invidious`. If your Invidious instance requires auth for
-> subscriptions/feed sync, generate an API token in the Invidious account
-> settings and paste it in **KV-Tube → Settings → Invidious Token**.
+The frontend talks to Invidious server-to-server over an internal Docker bridge network (`172.42.0.0/24`), so no API key is required.
 
 <p align="center">
   <b>Frontend:</b> <a href="http://localhost:3241">http://localhost:3241</a> &nbsp;•&nbsp;
   <b>Invidious API:</b> <a href="http://localhost:7601">http://localhost:7601</a>
 </p>
 
+### 📦 Classic All-in-One Image (Legacy Go Backend)
+
+Prefer running everything inside a single standalone container? The classic image (Go/Gin backend + Next.js + yt-dlp managed by supervisord) is also supported:
+
+```bash
+git clone https://github.com/vndangkhoa/kv-tube.git
+cd kv-tube
+docker build -t kv-tube:latest .
+docker run -d -p 3241:3000 -p 8080:8080 -v ./data:/app/data kv-tube:latest
+```
+
 ### 📥 Container Images
 
-Pre-built images are published to three registries:
+Pre-built container images are published to multiple registries:
 
 | Registry | Image |
 |----------|-------|
@@ -190,267 +158,330 @@ Pre-built images are published to three registries:
 
 ### 🌐 Source Repositories
 
-The project is mirrored on GitHub and Forgejo — both stay in sync:
+The project is actively maintained and mirrored across:
 
-- **GitHub:** https://github.com/vndangkhoa/kv-tube
-- **Forgejo:** https://git.khoavo.myds.me/vndangkhoa/kv-tube
+- **GitHub:** [https://github.com/vndangkhoa/kv-tube](https://github.com/vndangkhoa/kv-tube)
+- **Forgejo:** [https://git.khoavo.myds.me/vndangkhoa/kv-tube](https://git.khoavo.myds.me/vndangkhoa/kv-tube)
 
 ---
 
 ## 🤔 Why KV-Tube?
 
-YouTube is incredible — but it's also ad-ridden, tracks everything, and sometimes removes the videos you love.
+YouTube is incredible — but it's also ad-ridden, tracks everything, and frequently changes recommendations based on algorithms rather than your intent.
 
 KV-Tube gives you:
 
-- **Privacy** — No tracking, no algorithms manipulating you. Your watch history stays on your machine.
-- **Permanence** — Videos you subscribe to stay available. No takedowns, no region blocks.
-- **Ownership** — Run it on your NAS, your VPS, or a Raspberry Pi. It's yours.
-- **Simplicity** — One `docker compose up`. Zero configuration.
-
-## 📖 Backstory
-
-I built KV-Tube because I wanted a way to watch YouTube content without the YouTube baggage — ads, recommendation rabbit holes, and the feeling that the product was me, not the video player.
-
-What started as a simple Go API to proxy video streams evolved into a full-featured frontend with subscriptions, search, PWA support, and a clean, YouTube-like interface. It runs on my Synology NAS at home, and I use it daily.
-
-If that resonates, give it a star ⭐ — it helps others find the project.
+- **Privacy** — No user tracking, no corporate telemetry. Your watch history and subscriptions stay on your instance.
+- **Zero Ads & Sponsors** — Integrated SponsorBlock and Return YouTube Dislike support out of the box.
+- **Ownership** — Run it on your NAS, home server, VPS, or Raspberry Pi.
+- **Multi-Platform** — Web, PWA, native Android mobile app, and native Android TV app.
 
 ---
 
 ## 🏗️ Architecture
 
-KV-Tube is a thin, Materialious-inspired frontend on top of a self-hosted
-[Invidious](https://invidious.io) instance. A Docker Compose stack runs four
-services on an internal network:
+KV-Tube uses a modular architecture with a Next.js 16 frontend powered by a self-hosted Invidious backend:
 
 <p align="center">
   <img src="https://img.shields.io/badge/Next.js-16-000000?style=flat&logo=nextdotjs" />
+  <img src="https://img.shields.io/badge/React-19-61DAFB?style=flat&logo=react" />
   <img src="https://img.shields.io/badge/Invidious-000000?style=flat&logo=crystal" />
   <img src="https://img.shields.io/badge/PostgreSQL-4169E1?style=flat&logo=postgresql" />
   <img src="https://img.shields.io/badge/TailwindCSS-06B6D4?style=flat&logo=tailwindcss" />
-  <img src="https://img.shields.io/badge/TypeScript-3178C6?style=flat&logo=typescript" />
+  <img src="https://img.shields.io/badge/Kotlin-7F52FF?style=flat&logo=kotlin" />
 </p>
 
-| Service | Tech | Port | Role |
-|---------|------|------|------|
-| **kv-tube** (frontend) | Next.js 16 + Tailwind | `3241` | SSR/PWA UI, API proxy to Invidious |
-| **invidious** | Invidious (Crystal) | `7601` | YouTube metadata, streams, search, auth |
-| **invidious-db** | PostgreSQL 16 | internal | Invidious state (channels, users, tokens) |
-| **companion** | invidious-companion | internal | Decrypts YouTube stream signatures |
-
-The classic single-image build (Go/Gin + yt-dlp + SQLite under supervisord)
-still exists as a legacy fallback — see the root `Dockerfile`.
+| Service | Technology | Port | Role |
+|---------|------------|------|------|
+| **kv-tube** (frontend) | Next.js 16, React 19, TailwindCSS | `3241` (mapped to `:3000`) | SSR/PWA UI, media proxies, Invidious API gateway |
+| **invidious** | Invidious (Crystal) | `7601` (mapped to `:3000`) | YouTube API proxy, metadata extraction, auth |
+| **invidious-db** | PostgreSQL 16 Alpine | internal | Invidious database (channels, playlists, tokens) |
+| **companion** | invidious-companion | internal (`:8282`) | Decrypts YouTube stream signatures |
+| **backend** *(optional/dev)* | Go 1.25, Gin, SQLite, yt-dlp | `8080` | Standalone backend / development proxy |
 
 ### 🔀 Data Flow
 
 ```mermaid
-flowchart LR
-    subgraph Client["Browser / PWA"]
-        UI[KV-Tube UI<br/>React + Tailwind]
+flowchart TD
+    subgraph Clients["Client Applications"]
+        WEB["Browser / PWA<br/>React 19 + Tailwind"]
+        MOBILE["Android Mobile App<br/>Compose + ExoPlayer + WorkManager"]
+        TV["Android TV App<br/>Compose for TV + Media3"]
     end
 
-    subgraph KVT["KV-Tube — Next.js 16 (port 3241)"]
-        RSC["Server Components<br/>search · watch · channel · feed"]
-        API["API Route Handlers<br/>/api/invidious/[...path] · /api/media-proxy<br/>/api/proxy · /api/channel-avatar"]
-        ST["Static Assets<br/>SSR pages · PWA · thumbnails"]
+    subgraph KVT["KV-Tube Frontend — Next.js 16 (:3241)"]
+        RSC["Server Components<br/>Home · Watch · Channel · Search · Feed"]
+        API["API Handlers & Proxies<br/>/api/invidious · /api/download<br/>/api/media-proxy · /api/channel-avatar"]
     end
 
-    subgraph INV["Invidious stack (internal Docker network)"]
-        CORE["invidious<br/>(port 7601 / internal :3000)"]
+    subgraph INV["Invidious Backend Stack (internal network)"]
+        CORE["invidious Core<br/>(:7601 / internal :3000)"]
         DB[("invidious-db<br/>PostgreSQL 16")]
-        COMP["companion<br/>signature decryptor"]
-        AUTH["Invidious auth<br/>token · subscriptions · feed"]
+        COMP["companion<br/>signature decryptor (:8282)"]
     end
 
-    YT[("YouTube")]
+    YT[("YouTube Servers")]
+    SB["SponsorBlock API"]
+    RYD["Return YouTube Dislike API"]
 
-    UI -->|"RSC renders data (server-side)"| RSC
-    UI -->|"client fetches metadata / playback"| API
-    UI -->|"thumbnails & streams via public URL"| ST
-    API -->|"HTTP proxy"| CORE
-    RSC -->|"direct HTTP (INVIDIOUS_URL)"| CORE
+    WEB -->|"SSR & client fetch"| KVT
+    MOBILE -->|"API & stream extraction"| CORE
+    TV -->|"Direct API / Invidious"| CORE
+    RSC -->|"Internal HTTP"| CORE
+    API -->|"Proxy HTTP"| CORE
     CORE --> DB
     CORE --> COMP
-    AUTH -.->|"optional: API token sync"| CORE
-    COMP -->|"decrypts stream signatures"| YT
-    CORE -->|"scrapes metadata / streams"| YT
-    API -->|"media proxy for embeds"| YT
-
-    SB[SponsorBlock API] -.-> UI
-    RYD[Return YouTube Dislike API] -.-> UI
+    COMP -->|"Signature Decryption"| YT
+    CORE -->|"Scrapes Metadata & Streams"| YT
+    WEB -.-> SB
+    WEB -.-> RYD
+    MOBILE -.-> SB
 ```
 
-Request path summary: the **browser** always talks to the KV-Tube frontend
-(`:3241`) — server components call Invidious directly over the internal
-network, while client-side fetches go through the `/api/invidious` proxy so
-streams, search, and metadata are never exposed to CORS or the public
-Invidious port. Streams are served by Invidious/Companion (with signature
-decryption), and the Postgres DB holds Invidious state (users, subscriptions,
-tokens).
+---
+
+## 📱 Native Apps (Mobile & TV)
+
+KV-Tube provides two dedicated, native Android applications built with Kotlin and Jetpack Compose.
+
+### 📲 Android Mobile App (`android-app/`)
+
+A full-featured native client tailored for Android phones and tablets:
+
+- **UI & UX:** Modern Material 3 design matching the KV-Tube web interface.
+- **Playback:** Media3 ExoPlayer with adaptive streaming and background audio.
+- **On-Device Downloads:** Direct stream extraction using **NewPipeExtractor** with 3 quality tiers (Low ≤360p, Recommended ≤1080p, Best). Background downloads managed reliably via **WorkManager**.
+- **Download Manager:** Local Room database tracking with search, sorting (name, date, size, channel), renaming, and deletion.
+- **Features:** Subscriptions feed, channel pages, watch history, liked videos, native share sheet, and in-app auto-update checker via GitHub/Forgejo releases.
+- **Compatibility:** Android 5.0+ (minSdk 21, compileSdk 35).
+
+```bash
+cd android-app
+# Build debug APK
+./gradlew assembleDebug
+# Install on connected device/emulator
+adb install -r app/build/outputs/apk/debug/app-debug.apk
+```
+
+### 📺 Android TV App (`android-tv/`)
+
+A dedicated 10-foot Leanback experience built specifically for Android TV and Google TV devices:
+
+- **UI & Navigation:** Built with **Compose for TV** (`tv-material` + `tv-foundation`) with full D-pad remote support and intuitive focus handling.
+- **Playback:** Media3 ExoPlayer with seamless HLS and DASH stream support.
+- **Invidious Integration:** Connects directly to your self-hosted Invidious instance (default `https://yt.khoavo.myds.me` or configurable via in-app Settings).
+- **Authentication:** Invidious session token support for private subscription feeds and history sync.
+- **Compatibility:** Android 7.0+ (minSdk 24, compileSdk 35).
+
+```bash
+cd android-tv
+# Build debug APK
+./gradlew :app:assembleDebug
+# Install on Android TV
+adb install -r app/build/outputs/apk/debug/app-debug.apk
+```
+
+---
 
 ## 📦 Deployment
 
 ### 🐳 Docker Compose (Recommended)
 
-The stack is defined in the repo's `docker-compose.yml`:
+The complete stack is defined in [`docker-compose.yml`](docker-compose.yml):
 
 ```yaml
 services:
-  invidious-db:        # PostgreSQL 16 — Invidious state
+  invidious-db:
     image: postgres:16-alpine
-    volumes: ["./data/invidious/db:/var/lib/postgresql/data:rw"]
-    healthcheck: { test: ["CMD", "pg_isready", "-q", "-d", "invidious", "-U", "kemal"] }
+    container_name: Invidious-DB
+    volumes:
+      - ./data/invidious/db:/var/lib/postgresql/data:rw
+    environment:
+      POSTGRES_DB: invidious
+      POSTGRES_USER: kemal
+      POSTGRES_PASSWORD: kemalpw
+    restart: unless-stopped
+    networks:
+      - invidious-net
 
-  companion:           # YouTube stream-signature decryptor
+  companion:
     image: quay.io/invidious/invidious-companion:latest
-    volumes: ["./data/invidious/companion:/var/tmp/youtubei.js:rw"]
+    container_name: Invidious-COMPANION
+    volumes:
+      - ./data/invidious/companion:/var/tmp:rw
+    environment:
+      SERVER_SECRET_KEY: KXyzWwrtQlgMiJZA
+    restart: unless-stopped
+    networks:
+      - invidious-net
 
-  invidious:           # The Invidious API backend
+  invidious:
     image: quay.io/invidious/invidious:master
-    ports: ["7601:3000"]
-    depends_on: [invidious-db, companion]
+    container_name: Invidious
+    ports:
+      - "7601:3000"
     environment:
-      INVIDIOUS_CONFIG: |   # db creds, companion URL, hmac key, domain...
+      INVIDIOUS_CONFIG: |
+        db:
+          dbname: invidious
+          user: kemal
+          password: kemalpw
+          host: invidious-db
+          port: 5432
+        check_tables: true
+        invidious_companion:
+          - private_url: "http://companion:8282/companion"
+        invidious_companion_key: KXyzWwrtQlgMiJZA
+        hmac_key: e216a52a6d3f8ee752a0bbb4f6a4981b7287c4b39425d510ac86fe499fb8ec6f
+        domain: yt.khoavo.myds.me
+        https_only: true
+    depends_on:
+      invidious-db:
+        condition: service_healthy
+      companion:
+        condition: service_started
+    networks:
+      - invidious-net
 
-  kv-tube:             # The KV-Tube frontend (built from ./frontend)
-    build: ./frontend
-    ports: ["3241:3000"]
+  kv-tube:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    image: kv-tube-ui:latest
+    container_name: Invidious-Materialious-UI
+    ports:
+      - "3241:3000"
     environment:
-      - INVIDIOUS_URL=http://invidious:3000        # server-to-server
-      - NEXT_PUBLIC_INVIDIOUS_URL=https://yt.your.domain  # client-side streams/thumbnails
-      - NEXT_PUBLIC_SITE_URL=https://tube.your.domain
+      - INVIDIOUS_URL=http://invidious:3000
+      - NEXT_PUBLIC_INVIDIOUS_URL=http://127.0.0.1:7601
+      - NEXT_PUBLIC_SITE_URL=https://youtube.khoavo.myds.me
       - NEXT_PUBLIC_SPONSORBLOCK_URL=https://sponsor.ajay.app
       - NEXT_PUBLIC_RYD_URL=https://returnyoutubedislikeapi.com
+      - NEXT_PUBLIC_DEFAULT_REGION=VN
+    depends_on:
+      - invidious
+    networks:
+      - invidious-net
 
 networks:
-  invidious-net: { driver: bridge, ipam: { config: [{ subnet: "172.42.0.0/24" }] } }
+  invidious-net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.42.0.0/24
 ```
-
-Full, working file: [`docker-compose.yml`](docker-compose.yml). Set
-`NEXT_PUBLIC_INVIDIOUS_URL` to your public Invidious URL (e.g.
-`https://yt.khoavo.myds.me`) so the browser can reach it for playback and
-thumbnails; behind a reverse proxy, expose `7601` and `3241`.
-
-The all-in-one legacy image is also still available — swap registries freely:
-
-```yaml
-    image: vndangkhoa/kv-tube:latest     # Docker Hub
-    # image: ghcr.io/vndangkhoa/kv-tube:latest   # GitHub Container Registry
-    # image: git.khoavo.myds.me/vndangkhoa/kv-tube:latest  # Forgejo
-```
-
-> **Note:** the classic single-container image runs the Go backend + Next.js
-> frontend with supervisord and expects `docker run -p 5011:3000 -p 8981:8080`
-> with a `./data` volume — see the legacy section of the Quick Start.
 
 ### 🖥️ Synology NAS (DSM 7.2+)
 
-1. Copy this folder to the NAS (`/volume1/docker/kv-tube`).
-2. In **Container Manager** → **Project** → **Create**, select the folder.
-3. Done — the compose stack builds and starts. Open `http://<NAS-IP>:3241`.
-   For one-click install via Package Center, use the
-   [KV-Tube SPK](https://github.com/vndangkhoa/synology-spk) instead.
-
-### 🛠️ Multi-arch Build
-
-```bash
-docker buildx build --platform linux/amd64 -t kv-tube:latest --push .
-```
+1. Clone or copy this repository to your Synology volume (e.g. `/volume1/docker/kv-tube`).
+2. Open **Container Manager** → **Project** → **Create**.
+3. Set the project path to the `kv-tube` folder and click **Build / Start**.
+4. Access the web interface at `http://<NAS-IP>:3241`.
+5. *(Optional)* For direct Synology Package Center installation, check the [KV-Tube SPK Package](https://github.com/vndangkhoa/synology-spk).
 
 ---
 
 ## ⚙️ Configuration
 
-### Frontend (`docker-compose.yml` → `kv-tube` service)
+### Frontend Environment Variables (`docker-compose.yml` / `frontend/.env`)
 
-| Variable | Description |
-|----------|-------------|
-| `INVIDIOUS_URL` | Internal Invidious URL for server-side calls (e.g. `http://invidious:3000`) |
-| `NEXT_PUBLIC_INVIDIOUS_URL` | Public Invidious URL used by the browser for playback/thumbnails |
-| `NEXT_PUBLIC_SITE_URL` | Public KV-Tube URL (share previews, PWA) |
-| `NEXT_PUBLIC_SPONSORBLOCK_URL` | SponsorBlock API endpoint |
-| `NEXT_PUBLIC_RYD_URL` | Return YouTube Dislike API endpoint |
-| `NEXT_PUBLIC_DEFAULT_REGION` | Default region for trending/content (e.g. `VN`) |
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `INVIDIOUS_URL` | `http://invidious:3000` | Internal URL for server-side Next.js to Invidious communication |
+| `NEXT_PUBLIC_INVIDIOUS_URL` | `http://127.0.0.1:7601` | Public Invidious instance URL used by browsers for video streams/thumbnails |
+| `NEXT_PUBLIC_SITE_URL` | `https://youtube.khoavo.myds.me` | Public canonical site URL used for Open Graph share previews |
+| `NEXT_PUBLIC_SPONSORBLOCK_URL` | `https://sponsor.ajay.app` | SponsorBlock API endpoint for segment skipping |
+| `NEXT_PUBLIC_RYD_URL` | `https://returnyoutubedislikeapi.com` | Return YouTube Dislike API endpoint |
+| `NEXT_PUBLIC_DEFAULT_REGION` | `VN` | Default two-letter ISO region for trending videos |
 
-### Invidious (`INVIDIOUS_CONFIG` in `docker-compose.yml`)
+### Go Backend Environment Variables (`backend/.env` / `.env.example`)
 
-Key settings: `db` (Postgres credentials — must match the `invidious-db`
-service), `invidious_companion` + `invidious_companion_key` (stream signature
-decryption), `hmac_key` (session signing — keep secret), `domain` +
-`https_only` (public URL). See the
-[Invidious configuration docs](https://docs.invidious.io/configuration/) for
-the full reference.
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `PORT` | `8080` | Backend listening port |
+| `KVTUBE_DATA_DIR` | `./data` | Directory for SQLite database and cached files |
+| `GIN_MODE` | `release` | Gin framework mode (`release` or `debug`) |
+| `CORS_ALLOWED_ORIGINS` | `http://localhost:3000,...` | Comma-separated list of allowed origins or `*` |
+| `CACHE_TTL` | `3600` | In-memory cache TTL in seconds |
+| `YTDLP_PROXY` | *empty* | Optional HTTP/SOCKS5 proxy for yt-dlp (`socks5://user:pass@host:port`) |
+| `FORCE_IPV6` | *unset* | Force IPv6 for yt-dlp (`1` = force, `0` = disable, unset = auto-probe) |
+| `YTDLP_AUTO_UPDATE` | `true` | Auto-update yt-dlp nightly at startup and every 24h |
 
 ---
 
 ## 💻 Development
 
-Run the whole stack (backend + frontend) with one command:
+### Using the Unified Launch Script
+
+The repository includes a launcher script to start both Go backend and Next.js frontend concurrently:
 
 ```bash
-./launch.sh dev     # dev: backend binary + next dev (hot reload)
-./launch.sh prod    # prod: GIN_MODE=release build + next build/start
-./stop.sh           # stop both services
+# Start in development mode (hot reload enabled)
+./launch.sh dev
+
+# Start in production mode
+./launch.sh prod
+
+# Stop running services
+./stop.sh
 ```
 
-Or start each part manually:
+### Running Manually
 
 ```bash
-# Frontend
+# 1. Start Frontend (Next.js)
 cd frontend
 npm install
 npm run dev
 
-# Backend
+# 2. Start Backend (Go)
 cd backend
 go run main.go
 
-# Android App
+# 3. Build Mobile App
 cd android-app
-# Ensure JAVA_HOME points to JDK 17
 ./gradlew assembleDebug
-# Install on emulator/device
-adb install -r app/build/outputs/apk/debug/app-debug.apk
+
+# 4. Build TV App
+cd android-tv
+./gradlew :app:assembleDebug
 ```
 
 ---
 
 ## 💖 Support the Project
 
-KV-Tube is free, open source, and ad-free — built and maintained in spare time. If it saves you from subscriptions or just brings you joy, I'd love your support to keep the project going:
+KV-Tube is free, open source, and ad-free — developed and maintained with care. If it saves you from ads or brings you joy, your support is deeply appreciated:
 
 <p align="center">
   <img src="frontend/public/donation.jpg" alt="Donate to support KV-Tube" width="360" />
 </p>
 
 <p align="center">
-  Every contribution — no matter how small — means a lot. Thank you! ❤️
+  Every contribution — no matter how small — helps keep the servers running and development active. Thank you! ❤️
 </p>
 
 ---
 
 ## 🤝 Contributing
 
-Contributions are welcome! Here's how to help:
+Contributions, issues, and feature suggestions are always welcome!
 
-1. Fork the repo
-2. Create a feature branch (`git checkout -b feature/amazing`)
-3. Commit your changes (`git commit -m 'Add amazing feature'`)
-4. Push (`git push origin feature/amazing`)
+1. Fork the repository
+2. Create your feature branch (`git checkout -b feature/amazing-feature`)
+3. Commit your changes (`git commit -m 'feat: add amazing feature'`)
+4. Push to the branch (`git push origin feature/amazing-feature`)
 5. Open a Pull Request
-
-Please make sure to follow existing code style and add tests when possible.
 
 ---
 
 ## 📄 License
 
-Distributed under the **MIT License**. See [`LICENSE`](LICENSE) for more information.
+Distributed under the **MIT License**. See [`LICENSE`](LICENSE) for more details.
 
 <p align="center">
   <br />
-  <sub>If you find this project useful, please <a href="https://github.com/vndangkhoa/kv-tube">⭐ star it on GitHub</a>.</sub>
+  <sub>If you find this project useful, please <a href="https://github.com/vndangkhoa/kv-tube">⭐ star it on GitHub</a>!</sub>
   <br />
   <sub>Built with ❤️ by <a href="https://github.com/vndangkhoa">Khoa Vo</a></sub>
 </p>

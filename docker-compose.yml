@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   # 1. Invidious PostgreSQL Database
   invidious-db:
@@ -32,9 +30,11 @@ services:
       SERVER_SECRET_KEY: KXyzWwrtQlgMiJZA
     cap_drop:
       - ALL
-    read_only: true
+    read_only: false
+    tmpfs:
+      - /tmp
     volumes:
-      - ./data/invidious/companion:/var/tmp/youtubei.js:rw
+      - ./data/invidious/companion:/var/tmp:rw
     security_opt:
       - no-new-privileges:true
     restart: unless-stopped
@@ -71,7 +71,6 @@ services:
           locale: vn
           region: VN
         external_port: 443
-        check_tables: true
         invidious_companion:
           - private_url: "http://companion:8282/companion"
         invidious_companion_key: KXyzWwrtQlgMiJZA
