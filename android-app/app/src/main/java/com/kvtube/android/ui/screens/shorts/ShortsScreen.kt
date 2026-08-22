@@ -27,6 +27,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.pager.VerticalPager
 import androidx.compose.foundation.pager.rememberPagerState
@@ -38,6 +39,7 @@ import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.ThumbDown
 import androidx.compose.material.icons.filled.ThumbUp
@@ -86,12 +88,14 @@ import coil3.compose.AsyncImage
 import com.kvtube.android.data.model.VideoData
 import com.kvtube.android.ui.components.ChannelAvatar
 import com.kvtube.android.ui.navigation.Screen
+import com.kvtube.android.ui.navigation.TabReselect
 import com.kvtube.android.ui.theme.YTBrandRed
 import kotlinx.coroutines.launch
 
 @Composable
 fun ShortsScreen(
     navController: NavController,
+    onOpenSearch: () -> Unit = {},
     viewModel: ShortsViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
@@ -143,23 +147,52 @@ fun ShortsScreen(
 
     val pagerState = rememberPagerState(pageCount = { uiState.videos.size })
 
-    VerticalPager(
-        state = pagerState,
+    // Re-tapping the Shorts tab jumps back to the first short
+    LaunchedEffect(Unit) {
+        TabReselect.events.collect { route ->
+            if (route == Screen.Shorts.route) pagerState.scrollToPage(0)
+        }
+    }
+
+    Box(
         modifier = Modifier
             .fillMaxSize()
             .background(Color.Black)
-    ) { page ->
-        val video = uiState.videos[page]
-        val isCurrentPage = pagerState.currentPage == page
+    ) {
+        VerticalPager(
+            state = pagerState,
+            modifier = Modifier.fillMaxSize()
+        ) { page ->
+            val video = uiState.videos[page]
+            val isCurrentPage = pagerState.currentPage == page
 
-        ShortVideoItem(
-            video = video,
-            isCurrentPage = isCurrentPage,
-            onGetStreamUrl = { viewModel.getStreamUrl(video.id) },
-            onChannelClick = { channelId ->
-                navController.navigate(Screen.Channel.createRoute(channelId))
-            }
-        )
+            ShortVideoItem(
+                video = video,
+                isCurrentPage = isCurrentPage,
+                onGetStreamUrl = { viewModel.getStreamUrl(video.id) },
+                onChannelClick = { channelId ->
+                    navController.navigate(Screen.Channel.createRoute(channelId))
+                }
+            )
+        }
+
+        // Chromeless top bar: only a floating search button over the video
+        IconButton(
+            onClick = onOpenSearch,
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .statusBarsPadding()
+                .padding(horizontal = 16.dp, vertical = 10.dp)
+                .size(40.dp)
+                .background(Color.Black.copy(alpha = 0.4f), CircleShape)
+        ) {
+            Icon(
+                imageVector = Icons.Filled.Search,
+                contentDescription = "Search",
+                tint = Color.White,
+                modifier = Modifier.size(22.dp)
+            )
+        }
     }
 }
 

@@ -27,8 +27,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Bookmark
-import androidx.compose.material.icons.filled.BookmarkBorder
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Share
@@ -42,6 +41,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -64,7 +64,6 @@ import androidx.core.view.WindowInsetsControllerCompat
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavController
 import com.kvtube.android.data.model.Comment
-import com.kvtube.android.data.model.PlaybackFormat
 import com.kvtube.android.data.model.VideoData
 import com.kvtube.android.ui.components.ChannelAvatar
 import com.kvtube.android.ui.components.DownloadBottomSheet
@@ -88,7 +87,7 @@ fun WatchScreen(
     var showDownloadSheet by remember { mutableStateOf(false) }
     var isFullscreen by remember { mutableStateOf(false) }
 
-    // Hide/show system bars on fullscreen toggle
+    // Hide/show system bars on fullscreen toggle + rotate to landscape
     LaunchedEffect(isFullscreen) {
         val window = activity?.window ?: return@LaunchedEffect
         val controller = WindowCompat.getInsetsController(window, window.decorView)
@@ -96,8 +95,20 @@ fun WatchScreen(
             controller.hide(WindowInsetsCompat.Type.systemBars())
             controller.systemBarsBehavior =
                 WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            activity.requestedOrientation =
+                android.content.pm.ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
         } else {
             controller.show(WindowInsetsCompat.Type.systemBars())
+            activity.requestedOrientation =
+                android.content.pm.ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+        }
+    }
+
+    // Always restore orientation when leaving the watch page
+    DisposableEffect(Unit) {
+        onDispose {
+            activity?.requestedOrientation =
+                android.content.pm.ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
         }
     }
 
@@ -135,6 +146,7 @@ fun WatchScreen(
                     ExoPlayerView(
                         videoUrl = url,
                         audioUrl = uiState.audioUrl,
+                        sharedPlayer = viewModel.playbackManagerRef.player,
                         isFullscreen = true,
                         onFullscreenToggle = { isFullscreen = false },
                         onError = { viewModel.fallbackToIframe() },
@@ -172,6 +184,7 @@ fun WatchScreen(
                     ExoPlayerView(
                         videoUrl = url,
                         audioUrl = uiState.audioUrl,
+                        sharedPlayer = viewModel.playbackManagerRef.player,
                         isFullscreen = false,
                         onFullscreenToggle = { isFullscreen = true },
                         onError = { viewModel.fallbackToIframe() },
@@ -201,17 +214,18 @@ fun WatchScreen(
                     uiState.video?.let { video ->
                         VideoInfoSection(
                             video = video,
-                            playbackFormats = uiState.playbackInfo?.videoFormats ?: emptyList(),
-                            selectedQuality = uiState.selectedQualityLabel,
+                            tierDescriptions = uiState.tierDescriptions,
+                            selectedTier = uiState.selectedTier,
                             isSubscribed = uiState.isSubscribed,
                             onSubscribeClick = { viewModel.toggleSubscription() },
-                            onFormatSelected = { format -> viewModel.selectQuality(format) },
+                            onTierSelected = { tier -> viewModel.selectQualityTier(tier) },
                             onDownloadClick = { showDownloadSheet = true },
                             onShareClick = {
                                 val shareIntent = Intent(Intent.ACTION_SEND).apply {
                                     type = "text/plain"
                                     putExtra(Intent.EXTRA_SUBJECT, video.title)
-                                    putExtra(Intent.EXTRA_TEXT, "https://youtube.com/watch?v=$videoId")
+                                    val base = uiState.serverBaseUrl.ifBlank { "https://youtube.com" }
+                                    putExtra(Intent.EXTRA_TEXT, "$base/watch?v=$videoId")
                                 }
                                 context.startActivity(Intent.createChooser(shareIntent, "Share video"))
                             },
@@ -341,11 +355,11 @@ fun WatchScreen(
 @Composable
 private fun VideoInfoSection(
     video: VideoData,
-    playbackFormats: List<PlaybackFormat>,
-    selectedQuality: String?,
+    tierDescriptions: Map<QualityTier, String>,
+    selectedTier: QualityTier,
     isSubscribed: Boolean,
     onSubscribeClick: () -> Unit,
-    onFormatSelected: (PlaybackFormat) -> Unit,
+    onTierSelected: (QualityTier) -> Unit,
     onDownloadClick: () -> Unit,
     onShareClick: () -> Unit,
     onChannelClick: (String) -> Unit
@@ -353,7 +367,6 @@ private fun VideoInfoSection(
     var showFormats by remember { mutableStateOf(false) }
     var isLiked by remember { mutableStateOf(false) }
     var isDisliked by remember { mutableStateOf(false) }
-    var isSaved by remember { mutableStateOf(false) }
 
     Column(
         modifier = Modifier
@@ -436,38 +449,7 @@ private fun VideoInfoSection(
 
         Spacer(modifier = Modifier.height(12.dp))
 
-        // Save pill — sits right next to the channel/subscribe row
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.End
-        ) {
-            Row(
-                modifier = Modifier
-                    .clip(RoundedCornerShape(18.dp))
-                    .background(MaterialTheme.colorScheme.surfaceVariant)
-                    .clickable { isSaved = !isSaved }
-                    .padding(horizontal = 14.dp, vertical = 7.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
-            ) {
-                Icon(
-                    imageVector = if (isSaved) Icons.Filled.Bookmark else Icons.Filled.BookmarkBorder,
-                    contentDescription = "Save",
-                    tint = if (isSaved) Color(0xFF3EA6FF) else MaterialTheme.colorScheme.onSurface,
-                    modifier = Modifier.size(18.dp)
-                )
-                Text(
-                    text = if (isSaved) "Saved" else "Save",
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Medium,
-                    color = MaterialTheme.colorScheme.onSurface
-                )
-            }
-        }
-
-        Spacer(modifier = Modifier.height(12.dp))
-
-        // YouTube Action Bar: Like/Dislike pill, Share, Download, Quality, Save
+        // YouTube Action Bar: Like/Dislike pill, Share, Download, Quality
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -595,7 +577,7 @@ private fun VideoInfoSection(
                     modifier = Modifier.size(18.dp)
                 )
                 Text(
-                    text = selectedQuality?.let { "Quality • $it" } ?: "Quality",
+                    text = "Quality • ${tierDescriptions[selectedTier] ?: selectedTier.label}",
                     fontSize = 12.sp,
                     fontWeight = FontWeight.Medium,
                     color = MaterialTheme.colorScheme.onSurface
@@ -603,8 +585,8 @@ private fun VideoInfoSection(
             }
         }
 
-        // Expanded quality picker drawer
-        if (showFormats && playbackFormats.isNotEmpty()) {
+        // Expanded quality picker drawer: Auto / Low / Maximum (audio always merged)
+        if (showFormats && tierDescriptions.isNotEmpty()) {
             Spacer(modifier = Modifier.height(10.dp))
             Column(
                 modifier = Modifier
@@ -613,34 +595,31 @@ private fun VideoInfoSection(
                     .background(MaterialTheme.colorScheme.surfaceVariant)
                     .padding(8.dp)
             ) {
-                playbackFormats.forEach { format ->
+                QualityTier.entries.forEach { tier ->
+                    val isSelected = tier == selectedTier
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
                             .clickable {
-                                onFormatSelected(format)
+                                onTierSelected(tier)
                                 showFormats = false
                             }
-                            .padding(vertical = 8.dp, horizontal = 12.dp),
+                            .padding(vertical = 10.dp, horizontal = 12.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            text = "${format.height}p",
+                            text = tierDescriptions[tier] ?: tier.label,
                             style = MaterialTheme.typography.bodyMedium,
-                            fontWeight = FontWeight.Bold
+                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                            color = if (isSelected) YTBrandRed else MaterialTheme.colorScheme.onSurface,
+                            modifier = Modifier.weight(1f)
                         )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            text = format.ext.uppercase(),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        if (!format.hasAudio) {
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text(
-                                text = "video only",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.error
+                        if (isSelected) {
+                            Icon(
+                                imageVector = Icons.Filled.Check,
+                                contentDescription = "Selected",
+                                tint = YTBrandRed,
+                                modifier = Modifier.size(18.dp)
                             )
                         }
                     }

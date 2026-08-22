@@ -40,14 +40,6 @@ class KVApi(
     companion object {
         private const val TAG = "KVApi"
         private const val DEFAULT_BASE_URL = "https://yt.khoavo.myds.me"
-
-        /** Accepts "https://x", "//x" and bare hosts; returns a usable URL or "". */
-        private fun absoluteUrl(raw: String): String = when {
-            raw.isBlank() -> ""
-            raw.startsWith("https://") || raw.startsWith("http://") -> raw
-            raw.startsWith("//") -> "https:$raw"
-            else -> "https://$raw"
-        }
     }
 
     @Volatile
@@ -86,6 +78,15 @@ class KVApi(
     }
 
     fun getServerUrl(): String = baseUrl
+
+    /** Accepts absolute, protocol-relative and instance-relative URLs. */
+    private fun absoluteUrl(raw: String): String = when {
+        raw.isBlank() -> ""
+        raw.startsWith("https://") || raw.startsWith("http://") -> raw
+        raw.startsWith("//") -> "https:$raw"
+        raw.startsWith("/") -> "$baseUrl$raw"
+        else -> "https://$raw"
+    }
 
     // --- low-level helpers ---------------------------------------------------
 
@@ -391,9 +392,13 @@ class KVApi(
 
     suspend fun getLiked(limit: Int = 50): List<VideoData> = emptyList()
 
-    /** Authenticated channel list: GET /auth/subscriptions. */
+    /**
+     * Authenticated channel list: GET /auth/subscriptions.
+     * When the app has no local token the request still goes out: a KV-Tube
+     * gateway injects its server-side Invidious token, so subscriptions work
+     * on your own instance without any manual setup.
+     */
     suspend fun getSubscriptions(): List<Subscription> {
-        if (authToken.isBlank()) return emptyList()
         return getJsonArray("auth/subscriptions", auth = true)
             .mapNotNull { o ->
                 val id = o.str("authorId")
@@ -407,7 +412,6 @@ class KVApi(
 
     /** Authenticated subscription feed: GET /auth/feed?max_results=N. */
     suspend fun getSubscriptionFeed(perChannel: Int = 5, channels: Int = 20, offset: Int = 0): List<VideoData> {
-        if (authToken.isBlank()) return emptyList()
         val maxResults = (perChannel * channels).coerceIn(10, 100)
         return getJsonArray(
             "auth/feed",
@@ -417,7 +421,6 @@ class KVApi(
     }
 
     suspend fun subscribe(channelId: String, channelName: String, channelAvatar: String): Boolean {
-        if (authToken.isBlank()) return true
         return try {
             client.post(api("auth/subscriptions")) {
                 applyAuth(this)
@@ -431,7 +434,6 @@ class KVApi(
     }
 
     suspend fun unsubscribe(channelId: String): Boolean {
-        if (authToken.isBlank()) return true
         return try {
             client.delete(api("auth/subscriptions/$channelId")) {
                 applyAuth(this)
@@ -443,7 +445,6 @@ class KVApi(
     }
 
     suspend fun isSubscribed(channelId: String): Boolean {
-        if (authToken.isBlank()) return false
         return getJsonArray("auth/subscriptions", auth = true)
             .any { it.str("authorId") == channelId }
     }

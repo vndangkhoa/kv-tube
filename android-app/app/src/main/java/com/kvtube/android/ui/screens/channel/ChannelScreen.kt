@@ -1,16 +1,19 @@
 package com.kvtube.android.ui.screens.channel
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
@@ -61,11 +64,12 @@ fun ChannelScreen(
 
     uiState.channel?.let { channel ->
         var showBanner by remember(channel.id) { mutableStateOf(!channel.bannerUrl.isNullOrBlank()) }
+        var descriptionExpanded by remember(channel.id) { mutableStateOf(false) }
 
         Column(
             modifier = Modifier.fillMaxSize()
         ) {
-            // Banner
+            // Compact banner
             if (showBanner && !channel.bannerUrl.isNullOrBlank()) {
                 AsyncImage(
                     model = channel.bannerUrl,
@@ -77,55 +81,56 @@ fun ChannelScreen(
                     },
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(60.dp)
-                        .clip(RoundedCornerShape(bottomStart = 12.dp, bottomEnd = 12.dp)),
+                        .height(44.dp)
+                        .clip(RoundedCornerShape(bottomStart = 10.dp, bottomEnd = 10.dp)),
                     contentScale = ContentScale.Crop
                 )
             }
 
-            // Channel header
-            Column(
+            // Channel header: avatar + name/stats + subscribe aligned horizontally
+            Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(16.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
                 ChannelAvatar(
                     avatarUrl = channel.avatarUrl,
                     channelName = channel.title,
-                    size = 72.dp
+                    size = 52.dp
                 )
 
-                Spacer(modifier = Modifier.height(8.dp))
+                Spacer(modifier = Modifier.width(12.dp))
 
-                Text(
-                    text = channel.title,
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.Bold
-                )
-
-                Text(
-                    text = buildString {
-                        if (channel.subscriberCount > 0) {
-                            val count = channel.subscriberCount
-                            val formattedSubscribers = when {
-                                count >= 1_000_000_000 -> String.format("%.1fB", count / 1_000_000_000f).replace(".0", "")
-                                count >= 1_000_000 -> String.format("%.1fM", count / 1_000_000f).replace(".0", "")
-                                count >= 1_000 -> String.format("%.1fk", count / 1_000f).replace(".0", "")
-                                else -> count.toString()
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = channel.title,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                    )
+                    Text(
+                        text = buildString {
+                            if (channel.subscriberCount > 0) {
+                                val count = channel.subscriberCount
+                                val formattedSubscribers = when {
+                                    count >= 1_000_000_000 -> String.format("%.1fB", count / 1_000_000_000f).replace(".0", "")
+                                    count >= 1_000_000 -> String.format("%.1fM", count / 1_000_000f).replace(".0", "")
+                                    count >= 1_000 -> String.format("%.1fk", count / 1_000f).replace(".0", "")
+                                    else -> count.toString()
+                                }
+                                append("$formattedSubscribers subscribers")
                             }
-                            append("$formattedSubscribers subscribers")
-                        }
-                        if (channel.videoCount > 0) {
-                            if (isNotEmpty()) append(" · ")
-                            append("${channel.videoCount} videos")
-                        }
-                    },
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-
-                Spacer(modifier = Modifier.height(12.dp))
+                            if (channel.videoCount > 0) {
+                                if (isNotEmpty()) append(" · ")
+                                append("${channel.videoCount} videos")
+                            }
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
 
                 SubscribeButton(
                     isSubscribed = uiState.isSubscribed,
@@ -136,6 +141,21 @@ fun ChannelScreen(
                             channel.avatarUrl ?: ""
                         )
                     }
+                )
+            }
+
+            // Channel description (tap to expand)
+            if (!channel.description.isNullOrBlank()) {
+                Text(
+                    text = channel.description,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = if (descriptionExpanded) 20 else 2,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { descriptionExpanded = !descriptionExpanded }
+                        .padding(horizontal = 16.dp, vertical = 4.dp)
                 )
             }
 

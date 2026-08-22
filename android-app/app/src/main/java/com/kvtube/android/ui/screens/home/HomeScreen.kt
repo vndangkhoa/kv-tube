@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
@@ -21,6 +22,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -40,6 +42,7 @@ import com.kvtube.android.ui.components.LoadingSpinner
 import com.kvtube.android.ui.components.VideoCard
 import com.kvtube.android.ui.components.VideoGridSkeleton
 import com.kvtube.android.ui.navigation.Screen
+import com.kvtube.android.ui.navigation.TabReselect
 import com.kvtube.android.ui.theme.YTBrandRed
 
 @Composable
@@ -48,6 +51,14 @@ fun HomeScreen(
     viewModel: HomeViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
+    val gridState = rememberLazyGridState()
+
+    // Re-tapping the active tab scrolls back to the first item
+    LaunchedEffect(Unit) {
+        TabReselect.events.collect { route ->
+            if (route == Screen.Home.route) gridState.scrollToItem(0)
+        }
+    }
 
     Column(
         modifier = Modifier.fillMaxSize()
@@ -101,8 +112,6 @@ fun HomeScreen(
                 }
             }
         } else {
-            val gridState = rememberLazyGridState()
-
             LazyVerticalGrid(
                 columns = GridCells.Adaptive(minSize = 300.dp),
                 state = gridState,
@@ -127,12 +136,35 @@ fun HomeScreen(
 
                 // Loading more indicator
                 if (uiState.isLoadingMore) {
-                    item {
+                    item(span = { GridItemSpan(maxLineSpan) }) {
                         LoadingSpinner(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .padding(16.dp)
                         )
+                    }
+                }
+
+                // Manual "show more" button (in addition to infinite scroll)
+                if (!uiState.isLoadingMore && uiState.hasMore && uiState.videos.isNotEmpty()) {
+                    item(span = { GridItemSpan(maxLineSpan) }) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 10.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            OutlinedButton(
+                                onClick = { viewModel.loadMore() },
+                                shape = RoundedCornerShape(20.dp)
+                            ) {
+                                Text(
+                                    text = "Show more videos",
+                                    fontWeight = FontWeight.SemiBold,
+                                    fontSize = 14.sp
+                                )
+                            }
+                        }
                     }
                 }
             }

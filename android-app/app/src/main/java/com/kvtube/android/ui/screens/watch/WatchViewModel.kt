@@ -6,6 +6,7 @@ import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.kvtube.android.data.extractor.ExtractorHelper
+import com.kvtube.android.data.local.SettingsDataStore
 import com.kvtube.android.data.model.Comment
 import com.kvtube.android.data.model.DownloadProgress
 import com.kvtube.android.data.model.PlaybackFormat
@@ -16,13 +17,22 @@ import com.kvtube.android.data.repository.DownloadRepository
 import com.kvtube.android.data.repository.HistoryRepository
 import com.kvtube.android.data.repository.SubscriptionRepository
 import com.kvtube.android.data.repository.VideoRepository
+import com.kvtube.android.player.PlaybackManager
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import javax.inject.Inject
+
+/** YouTube-style quality tiers shown on the watch page. */
+enum class QualityTier(val label: String) {
+    AUTO("Auto"),
+    LOW("Low"),
+    MAXIMUM("Maximum")
+}
 
 data class WatchUiState(
     val video: VideoData? = null,
@@ -33,9 +43,15 @@ data class WatchUiState(
     val error: String? = null,
     val selectedUrl: String? = null,
     val audioUrl: String? = null,
+    val selectedTier: QualityTier = QualityTier.AUTO,
+    /** Resolved resolution of the active stream, e.g. "1080p". */
     val selectedQualityLabel: String? = null,
+    /** Resolved per-tier descriptions, e.g. "Auto • 720p". */
+    val tierDescriptions: Map<QualityTier, String> = emptyMap(),
     val showComments: Boolean = false,
     val isSubscribed: Boolean = false,
+    /** Self-hosted base URL used for share links. */
+    val serverBaseUrl: String = "",
     /** True when stream extraction failed and the UI should render the
      *  YouTube embed iframe instead of ExoPlayer. */
     val useIframeFallback: Boolean = false
@@ -48,6 +64,8 @@ class WatchViewModel @Inject constructor(
     private val historyRepository: HistoryRepository,
     private val downloadRepository: DownloadRepository,
     private val subscriptionRepository: SubscriptionRepository,
+    private val settingsDataStore: SettingsDataStore,
+    private val playbackManager: PlaybackManager,
     private val extractorHelper: ExtractorHelper
 ) : ViewModel() {
 
@@ -60,11 +78,18 @@ class WatchViewModel @Inject constructor(
     private val _uiState = MutableStateFlow(WatchUiState())
     val uiState: StateFlow<WatchUiState> = _uiState.asStateFlow()
 
+    /** Shared app-wide player so the watch page and mini player stay in sync. */
+    val playbackManagerRef: PlaybackManager get() = playbackManager
+
     val activeDownloads: Flow<Map<String, DownloadProgress>> = downloadRepository.activeDownloads
 
     init {
         if (videoId.isNotBlank()) {
             loadVideo()
+        }
+        viewModelScope.launch {
+            val base = settingsDataStore.serverUrl.first().trim().removeSuffix("/")
+            _uiState.value = _uiState.value.copy(serverBaseUrl = base)
         }
     }
 
@@ -74,18 +99,33 @@ class WatchViewModel @Inject constructor(
         )
     }
 
-    fun selectQuality(format: PlaybackFormat) {
-        val audioUrl = if (format.hasAudio) null else _uiState.value.playbackInfo?.audioFormat?.url
+    /**
+     * Applies a quality tier:
+     *  - Auto  → best combined (video+audio) progressive stream, falls back to
+     *            highest video-only stream merged with best audio.
+     *  - Low   → ~360p for data saving (audio always merged in).
+     *  - Maximum → highest resolution video-only stream merged with the best
+     *            audio track — like the webapp's custom player.
+     */
+    fun selectQualityTier(tier: QualityTier) {
+        val info = _uiState.value.playbackInfo ?: return
+        val target = pickFormatForTier(tier, info) ?: return
+
+        val audioUrl = if (target.hasAudio) null else info.audioFormat?.url?.takeIf { it.isNotBlank() }
+        playbackManager.play(videoId, target.url, audioUrl)
+
         _uiState.value = _uiState.value.copy(
-            selectedUrl = format.url,
+            selectedUrl = target.url,
             audioUrl = audioUrl,
-            selectedQualityLabel = format.qualityLabel
+            selectedTier = tier,
+            selectedQualityLabel = target.qualityLabel
         )
     }
 
     /** Called when ExoPlayer fails mid-playback: switch to the YouTube embed. */
     fun fallbackToIframe() {
         if (!_uiState.value.useIframeFallback) {
+            playbackManager.stopAndClear()
             _uiState.value = _uiState.value.copy(
                 useIframeFallback = true,
                 error = "Playback error — switched to embedded player"
@@ -138,6 +178,38 @@ class WatchViewModel @Inject constructor(
         }
     }
 
+    // --- internal ------------------------------------------------------------
+
+    private fun pickFormatForTier(tier: QualityTier, info: PlaybackInfo): PlaybackFormat? {
+        val all = info.videoFormats.filter { it.url.isNotBlank() }
+        if (all.isEmpty()) return null
+        val progressive = all.filter { it.hasAudio }.sortedByDescending { it.height }
+        val videoOnly = all.filter { !it.hasAudio }.sortedByDescending { it.height }
+
+        return when (tier) {
+            QualityTier.AUTO ->
+                progressive.firstOrNull() ?: videoOnly.firstOrNull()
+            QualityTier.LOW ->
+                progressive.lastOrNull { it.height <= 480 }
+                    ?: progressive.lastOrNull()
+                    ?: videoOnly.lastOrNull()
+            QualityTier.MAXIMUM ->
+                videoOnly.firstOrNull() ?: progressive.firstOrNull()
+        }
+    }
+
+    private fun refreshTierDescriptions(info: PlaybackInfo?): Map<QualityTier, String> {
+        info ?: return emptyMap()
+        return QualityTier.entries.associateWith { tier ->
+            val format = pickFormatForTier(tier, info)
+            when {
+                format == null -> tier.label
+                format.height > 0 -> "${tier.label} • ${format.qualityLabel}"
+                else -> tier.label
+            }
+        }
+    }
+
     private fun loadVideo() {
         viewModelScope.launch {
             try {
@@ -152,7 +224,7 @@ class WatchViewModel @Inject constructor(
                     // Bounded: a blocked YouTube/server must not stall the
                     // iframe fallback for long.
                     val extracted = kotlinx.coroutines.withTimeoutOrNull(10_000L) {
-                        extractorHelper.extractStreamUrl(videoId, Quality.RECOMMENDED)
+                        extractorHelper.extractStreamUrl(videoId, Quality.BEST)
                     }
                     if (extracted != null && extracted.videoUrl.isNotBlank()) {
                         videoUrl = extracted.videoUrl
@@ -169,10 +241,9 @@ class WatchViewModel @Inject constructor(
                         runCatching { videoRepository.getPlaybackInfo(videoId) }.getOrNull()
                     }
                     if (playback != null && playback.videoFormats.isNotEmpty()) {
-                        val bestFormat = playback.videoFormats.firstOrNull { it.hasAudio }
-                            ?: playback.videoFormats.firstOrNull()
-                        videoUrl = bestFormat?.url
-                        audioUrl = if (bestFormat?.hasAudio == true) null else playback.audioFormat?.url
+                        val auto = pickFormatForTier(QualityTier.AUTO, playback)
+                        videoUrl = auto?.url
+                        audioUrl = if (auto?.hasAudio == true) null else playback.audioFormat?.url
                     }
                 }
 
@@ -190,12 +261,20 @@ class WatchViewModel @Inject constructor(
 
                 val initialTitle = playback?.title?.ifEmpty { null } ?: "Loading..."
 
+                // Hand playback over to the app-wide manager so it survives
+                // back navigation as a mini player.
+                playbackManager.setMetadata(videoId, initialTitle, "", "")
+                playbackManager.play(videoId, videoUrl, audioUrl)
+
                 _uiState.value = WatchUiState(
                     video = VideoData(id = videoId, title = initialTitle),
                     playbackInfo = playback ?: PlaybackInfo(title = initialTitle),
                     isLoading = false,
                     selectedUrl = videoUrl,
-                    audioUrl = audioUrl
+                    audioUrl = audioUrl,
+                    selectedTier = QualityTier.AUTO,
+                    tierDescriptions = refreshTierDescriptions(playback),
+                    serverBaseUrl = _uiState.value.serverBaseUrl
                 )
 
                 // Background enrichment (info, related, comments, history, quality list)
@@ -205,6 +284,21 @@ class WatchViewModel @Inject constructor(
                         _uiState.value = _uiState.value.copy(
                             video = video,
                             isSubscribed = subscriptionRepository.isSubscribed(video.displayChannelId)
+                        )
+                        playbackManager.setMetadata(
+                            videoId = videoId,
+                            title = video.title,
+                            channelTitle = video.displayChannelTitle,
+                            thumbnail = video.displayThumbnail
+                        )
+                        // refresh the history entry with real metadata
+                        historyRepository.record(
+                            videoId = videoId,
+                            title = video.title,
+                            thumbnail = video.thumbnail,
+                            uploader = video.displayChannelTitle,
+                            channelId = video.displayChannelId,
+                            duration = video.duration
                         )
                     }
                 }
@@ -216,9 +310,15 @@ class WatchViewModel @Inject constructor(
                     }
                     if (info != null && info.videoFormats.isNotEmpty()) {
                         val current = _uiState.value
-                        if (current.playbackInfo == null || current.playbackInfo.videoFormats.isEmpty()) {
-                            _uiState.value = current.copy(playbackInfo = info)
-                        }
+                        val updatedInfo = if (current.playbackInfo == null || current.playbackInfo.videoFormats.isEmpty()) {
+                            info
+                        } else current.playbackInfo
+                        _uiState.value = current.copy(
+                            playbackInfo = updatedInfo,
+                            tierDescriptions = refreshTierDescriptions(updatedInfo),
+                            selectedQualityLabel = current.selectedQualityLabel
+                                ?: pickFormatForTier(current.selectedTier, updatedInfo)?.qualityLabel
+                        )
                     }
                 }
                 launch {
@@ -232,12 +332,7 @@ class WatchViewModel @Inject constructor(
                     _uiState.value = _uiState.value.copy(comments = comments)
                 }
                 launch {
-                    historyRepository.addToHistory(
-                        videoId = videoId,
-                        title = initialTitle,
-                        thumbnail = "",
-                        uploader = ""
-                    )
+                    historyRepository.record(videoId = videoId)
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Error loading watch video: ${e.message}", e)

@@ -39,8 +39,8 @@ object RepositoryModule {
 
     @Provides
     @Singleton
-    fun provideHistoryRepository(api: KVApi): HistoryRepository {
-        return HistoryRepository(api)
+    fun provideHistoryRepository(historyDao: com.kvtube.android.data.local.WatchHistoryDao): HistoryRepository {
+        return HistoryRepository(historyDao)
     }
 
     @Provides

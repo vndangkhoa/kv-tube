@@ -24,6 +24,8 @@ data class SubscriptionsUiState(
     val subscriptions: List<Subscription> = emptyList(),
     val feedVideos: List<VideoData> = emptyList(),
     val isLoading: Boolean = true,
+    val isLoadingMore: Boolean = false,
+    val hasMore: Boolean = true,
     val error: String? = null
 )
 
@@ -44,9 +46,31 @@ class SubscriptionsViewModel @Inject constructor(
         loadData()
     }
 
+    /** Appends the next page of the subscription feed ("Show more videos"). */
+    fun loadMore() {
+        val state = _uiState.value
+        if (state.isLoading || state.isLoadingMore || !state.hasMore || state.feedVideos.isEmpty()) return
+
+        _uiState.value = state.copy(isLoadingMore = true)
+        viewModelScope.launch(Dispatchers.IO) {
+            val more = try {
+                subscriptionRepository.getFeed(offset = state.feedVideos.size)
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to load more feed", e)
+                emptyList()
+            }
+            val combined = (state.feedVideos + more).distinctBy { it.id }
+            _uiState.value = _uiState.value.copy(
+                feedVideos = combined,
+                isLoadingMore = false,
+                hasMore = more.isNotEmpty()
+            )
+        }
+    }
+
     private fun loadData() {
         viewModelScope.launch {
-            _uiState.value = _uiState.value.copy(isLoading = true, error = null)
+            _uiState.value = _uiState.value.copy(isLoading = true, error = null, hasMore = true, isLoadingMore = false)
 
             // Load subs and feed in parallel
             val subsDeferred = async(Dispatchers.IO) {
@@ -77,6 +101,7 @@ class SubscriptionsViewModel @Inject constructor(
                 subscriptions = sortedSubs,
                 feedVideos = feed,
                 isLoading = false,
+                hasMore = feed.isNotEmpty(),
                 error = if (sortedSubs.isEmpty() && feed.isEmpty()) "No subscriptions found" else null
             )
 

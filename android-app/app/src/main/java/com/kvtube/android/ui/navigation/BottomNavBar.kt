@@ -189,11 +189,16 @@ fun BottomNavBar(
                             indication = null
                         ) {
                             onTabClick(item.route)
-                            if (currentRoute != item.route) {
+                            if (currentRoute?.startsWith(item.route) == true) {
+                                // Already on this tab: reset its content to the first item
+                                TabReselect.notify(item.route)
+                            } else if (navController.popBackStack(item.route, inclusive = false)) {
+                                // Tab root exists deeper in the stack (e.g. Account under
+                                // Subscriptions/History): jump straight back to it instantly
+                            } else {
                                 navController.navigate(item.route) {
-                                    popUpTo(Screen.Home.route) { saveState = true }
+                                    popUpTo(Screen.Home.route)
                                     launchSingleTop = true
-                                    restoreState = true
                                 }
                             }
                         }

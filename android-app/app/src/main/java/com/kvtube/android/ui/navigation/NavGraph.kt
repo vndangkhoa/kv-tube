@@ -18,7 +18,10 @@ import com.kvtube.android.ui.screens.watch.WatchScreen
 import com.kvtube.android.ui.SettingsScreen
 
 @Composable
-fun NavGraph(navController: NavHostController) {
+fun NavGraph(
+    navController: NavHostController,
+    onOpenSearch: () -> Unit = {}
+) {
     NavHost(
         navController = navController,
         startDestination = Screen.Home.route
@@ -37,6 +40,10 @@ fun NavGraph(navController: NavHostController) {
 
         composable(Screen.Downloads.route) {
             DownloadsScreen(navController = navController)
+        }
+
+        composable(Screen.History.route) {
+            com.kvtube.android.ui.screens.history.HistoryScreen(navController = navController)
         }
 
         composable(
@@ -69,7 +76,10 @@ fun NavGraph(navController: NavHostController) {
         }
 
         composable(Screen.Shorts.route) {
-            ShortsScreen(navController = navController)
+            ShortsScreen(
+                navController = navController,
+                onOpenSearch = onOpenSearch
+            )
         }
 
         composable(

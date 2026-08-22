@@ -56,6 +56,9 @@ class MainActivity : ComponentActivity() {
     @Inject
     lateinit var settingsDataStore: SettingsDataStore
 
+    @Inject
+    lateinit var playbackManager: com.kvtube.android.player.PlaybackManager
+
     private val _isInPipMode = MutableStateFlow(false)
     val isInPipMode: StateFlow<Boolean> = _isInPipMode
 
@@ -82,17 +85,26 @@ class MainActivity : ComponentActivity() {
 
             KVTubeTheme(themeMode = themeMode) {
                 Surface(modifier = Modifier.fillMaxSize()) {
-                    if (isInPip && pipVideoUrl != null) {
-                        // PiP mode: show only the video player, no app chrome
-                        ExoPlayerView(
-                            videoUrl = pipVideoUrl!!,
-                            audioUrl = pipAudioUrl,
-                            isFullscreen = true,
-                            modifier = Modifier.fillMaxSize()
-                        )
-                    } else {
-                        AppEntry()
+                if (isInPip && pipVideoUrl != null) {
+                    // PiP mode: reattach to the app-wide player instead of
+                    // creating a second one — avoids double audio and makes the
+                    // fullscreen <-> PiP switch seamless.
+                    LaunchedEffect(pipVideoUrl, pipAudioUrl) {
+                        val url = pipVideoUrl!!
+                        if (!playbackManager.isLoadedFor(url)) {
+                            playbackManager.play("pip", url, pipAudioUrl)
+                        }
                     }
+                    ExoPlayerView(
+                        videoUrl = pipVideoUrl!!,
+                        audioUrl = pipAudioUrl,
+                        sharedPlayer = playbackManager.player,
+                        isFullscreen = true,
+                        modifier = Modifier.fillMaxSize()
+                    )
+                } else {
+                    AppEntry()
+                }
                 }
             }
         }

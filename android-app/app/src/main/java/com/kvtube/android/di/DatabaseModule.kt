@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.room.Room
 import com.kvtube.android.data.local.AppDatabase
 import com.kvtube.android.data.local.DownloadedVideoDao
+import com.kvtube.android.data.local.WatchHistoryDao
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -27,6 +28,13 @@ object DatabaseModule {
     }
 
     @Provides
+    @Singleton
+    fun provideWatchHistoryDao(database: AppDatabase): WatchHistoryDao {
+        return database.watchHistoryDao()
+    }
+
+    @Provides
+    @Singleton
     fun provideDownloadedVideoDao(database: AppDatabase): DownloadedVideoDao {
         return database.downloadedVideoDao()
     }

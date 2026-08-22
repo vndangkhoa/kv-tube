@@ -1,4 +1,4 @@
-package com.kvtube.android.ui.screens.library
+package com.kvtube.android.ui.screens.history
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -11,28 +11,27 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
-data class LibraryUiState(
-    val history: List<VideoData> = emptyList(),
-    val isLoading: Boolean = true
-)
-
 @HiltViewModel
-class LibraryViewModel @Inject constructor(
+class HistoryViewModel @Inject constructor(
     private val historyRepository: HistoryRepository
 ) : ViewModel() {
 
-    private val _uiState = MutableStateFlow(LibraryUiState())
-    val uiState: StateFlow<LibraryUiState> = _uiState.asStateFlow()
+    private val _history = MutableStateFlow<List<VideoData>>(emptyList())
+    val history: StateFlow<List<VideoData>> = _history.asStateFlow()
 
     init {
-        // Live observation: history updates instantly while videos are watched
         viewModelScope.launch {
             historyRepository.observeAll().collect { videos ->
-                _uiState.value = LibraryUiState(
-                    history = videos.take(20),
-                    isLoading = false
-                )
+                _history.value = videos
             }
         }
+    }
+
+    fun remove(videoId: String) {
+        viewModelScope.launch { historyRepository.remove(videoId) }
+    }
+
+    fun clearAll() {
+        viewModelScope.launch { historyRepository.clearAll() }
     }
 }

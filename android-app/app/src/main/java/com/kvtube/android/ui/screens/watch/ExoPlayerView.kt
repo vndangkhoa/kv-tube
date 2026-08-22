@@ -94,6 +94,10 @@ private const val USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleW
 fun ExoPlayerView(
     videoUrl: String,
     audioUrl: String? = null,
+    /** When provided, this composable only renders/controls the player; media
+     *  loading is owned externally (PlaybackManager) so playback survives
+     *  navigation between watch page and mini player. */
+    sharedPlayer: ExoPlayer? = null,
     isFullscreen: Boolean = false,
     availableFormats: List<PlaybackFormat> = emptyList(),
     selectedFormatId: String? = null,
@@ -108,24 +112,27 @@ fun ExoPlayerView(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
 
-    val exoPlayer = remember {
-        val loadControl = DefaultLoadControl.Builder()
-            .setBufferDurationsMs(
-                /* minBufferMs = */ 15_000,
-                /* maxBufferMs = */ 60_000,
-                /* bufferForPlaybackMs = */ 2_500,
-                /* bufferForPlaybackAfterRebufferMs = */ 5_000
-            )
-            .build()
+    val exoPlayer = remember(sharedPlayer) {
+        sharedPlayer ?: run {
+            val loadControl = DefaultLoadControl.Builder()
+                .setBufferDurationsMs(
+                    /* minBufferMs = */ 15_000,
+                    /* maxBufferMs = */ 60_000,
+                    /* bufferForPlaybackMs = */ 2_500,
+                    /* bufferForPlaybackAfterRebufferMs = */ 5_000
+                )
+                .build()
 
-        ExoPlayer.Builder(context)
-            .setLoadControl(loadControl)
-            .build()
-            .apply {
-                playWhenReady = true
-                volume = 1f
-            }
+            ExoPlayer.Builder(context)
+                .setLoadControl(loadControl)
+                .build()
+                .apply {
+                    playWhenReady = true
+                    volume = 1f
+                }
+        }
     }
+    val ownsPlayer = sharedPlayer == null
 
     val dataSourceFactory = remember {
         DefaultHttpDataSource.Factory()
@@ -136,24 +143,26 @@ fun ExoPlayerView(
             )
     }
 
-    LaunchedEffect(videoUrl, audioUrl) {
-        if (videoUrl.isNotBlank()) {
-            val currentPos = exoPlayer.currentPosition
-            val videoSource = ProgressiveMediaSource.Factory(dataSourceFactory)
-                .createMediaSource(MediaItem.fromUri(Uri.parse(videoUrl)))
-            val mediaSource = if (!audioUrl.isNullOrBlank()) {
-                val audioSource = ProgressiveMediaSource.Factory(dataSourceFactory)
-                    .createMediaSource(MediaItem.fromUri(Uri.parse(audioUrl)))
-                MergingMediaSource(videoSource, audioSource)
-            } else {
-                videoSource
+    if (sharedPlayer == null) {
+        LaunchedEffect(videoUrl, audioUrl) {
+            if (videoUrl.isNotBlank()) {
+                val currentPos = exoPlayer.currentPosition
+                val videoSource = ProgressiveMediaSource.Factory(dataSourceFactory)
+                    .createMediaSource(MediaItem.fromUri(Uri.parse(videoUrl)))
+                val mediaSource = if (!audioUrl.isNullOrBlank()) {
+                    val audioSource = ProgressiveMediaSource.Factory(dataSourceFactory)
+                        .createMediaSource(MediaItem.fromUri(Uri.parse(audioUrl)))
+                    MergingMediaSource(videoSource, audioSource)
+                } else {
+                    videoSource
+                }
+                exoPlayer.setMediaSource(mediaSource)
+                exoPlayer.prepare()
+                if (currentPos > 0) {
+                    exoPlayer.seekTo(currentPos)
+                }
+                exoPlayer.playWhenReady = true
             }
-            exoPlayer.setMediaSource(mediaSource)
-            exoPlayer.prepare()
-            if (currentPos > 0) {
-                exoPlayer.seekTo(currentPos)
-            }
-            exoPlayer.playWhenReady = true
         }
     }
 
@@ -227,7 +236,9 @@ fun ExoPlayerView(
         exoPlayer.addListener(listener)
         onDispose {
             exoPlayer.removeListener(listener)
-            exoPlayer.release()
+            if (ownsPlayer) {
+                exoPlayer.release()
+            }
         }
     }
 
