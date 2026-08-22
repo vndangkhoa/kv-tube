@@ -8,9 +8,15 @@ import com.kvtube.android.data.model.PlaybackInfo
 import com.kvtube.android.data.model.Subscription
 import com.kvtube.android.data.model.VideoData
 import io.ktor.client.HttpClient
+import io.ktor.client.request.delete
 import io.ktor.client.request.get
+import io.ktor.client.request.header
 import io.ktor.client.request.parameter
+import io.ktor.client.request.post
+import io.ktor.client.request.setBody
 import io.ktor.client.statement.bodyAsText
+import io.ktor.http.ContentType
+import io.ktor.http.contentType
 import io.ktor.http.isSuccess
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
@@ -47,6 +53,11 @@ class KVApi(
     @Volatile
     private var baseUrl: String = DEFAULT_BASE_URL
 
+    /** Invidious session token (SID cookie value or JSON token). Required for
+     *  subscriptions; empty = anonymous mode. Set from the Settings screen. */
+    @Volatile
+    private var authToken: String = ""
+
     /** null = not probed yet; false = raw Invidious; true = KV-Tube web gateway
      *  (the Next.js frontend exposes Invidious under /api/invidious/api/v1). */
     @Volatile
@@ -57,6 +68,21 @@ class KVApi(
         if (clean != baseUrl) gatewayMode = null
         baseUrl = if (clean.isNotEmpty()) clean else DEFAULT_BASE_URL
         Log.d(TAG, "Server URL set to: $baseUrl")
+    }
+
+    fun setToken(token: String) {
+        authToken = token.trim()
+        Log.d(TAG, "Invidious token ${if (authToken.isBlank()) "cleared" else "set"}")
+    }
+
+    private fun applyAuth(b: io.ktor.client.request.HttpRequestBuilder) {
+        if (authToken.isBlank()) return
+        b.header("x-invidious-token", authToken)
+        if (authToken.startsWith("{")) {
+            b.header("Authorization", "Bearer $authToken")
+        } else {
+            b.header("Cookie", "SID=$authToken")
+        }
     }
 
     fun getServerUrl(): String = baseUrl
@@ -97,10 +123,11 @@ class KVApi(
         }
     }
 
-    private suspend fun getBody(path: String, params: Map<String, String> = emptyMap()): String? {
+    private suspend fun getBody(path: String, params: Map<String, String> = emptyMap(), auth: Boolean = false): String? {
         return try {
             val resp = client.get(api(path)) {
                 params.forEach { (k, v) -> parameter(k, v) }
+                if (auth) applyAuth(this)
             }
             if (!resp.status.isSuccess()) {
                 Log.w(TAG, "GET $path -> HTTP ${resp.status.value}")
@@ -125,8 +152,8 @@ class KVApi(
     }
 
     /** GETs a JSON array response; also unwraps common wrapper keys. */
-    private suspend fun getJsonArray(path: String, params: Map<String, String> = emptyMap()): List<JsonObject> {
-        val body = getBody(path, params) ?: return emptyList()
+    private suspend fun getJsonArray(path: String, params: Map<String, String> = emptyMap(), auth: Boolean = false): List<JsonObject> {
+        val body = getBody(path, params, auth) ?: return emptyList()
         return try {
             when (val el = json.parseToJsonElement(body)) {
                 is JsonArray -> el.jsonArray.mapNotNull { it as? JsonObject }
@@ -193,6 +220,7 @@ class KVApi(
             uploaderId = str("authorId"),
             channelId = str("authorId"),
             channelTitle = str("author"),
+            channelThumbnail = thumbList("authorThumbnails"),
             isLive = bool("liveNow")
         )
     }
@@ -353,9 +381,9 @@ class KVApi(
     }
 
     // --- personal storage --------------------------------------------------------
-    // History and likes are tracked locally (Room); subscriptions require an
-    // authenticated Invidious token which this client does not manage yet, so
-    // these endpoints answer gracefully without a backend.
+    // History and likes are tracked locally (Room). Subscriptions use the
+    // Invidious authenticated endpoints when a token is configured in Settings;
+    // without one they answer gracefully in anonymous mode.
 
     suspend fun getHistory(limit: Int = 50): List<VideoData> = emptyList()
 
@@ -363,15 +391,62 @@ class KVApi(
 
     suspend fun getLiked(limit: Int = 50): List<VideoData> = emptyList()
 
-    suspend fun getSubscriptions(): List<Subscription> = emptyList()
+    /** Authenticated channel list: GET /auth/subscriptions. */
+    suspend fun getSubscriptions(): List<Subscription> {
+        if (authToken.isBlank()) return emptyList()
+        return getJsonArray("auth/subscriptions", auth = true)
+            .mapNotNull { o ->
+                val id = o.str("authorId")
+                if (id.isBlank()) null else Subscription(
+                    channelId = id,
+                    channelName = o.str("author"),
+                    channelAvatar = o.thumbList("authorThumbnails")
+                )
+            }
+    }
 
-    suspend fun getSubscriptionFeed(perChannel: Int = 5, channels: Int = 20, offset: Int = 0): List<VideoData> = emptyList()
+    /** Authenticated subscription feed: GET /auth/feed?max_results=N. */
+    suspend fun getSubscriptionFeed(perChannel: Int = 5, channels: Int = 20, offset: Int = 0): List<VideoData> {
+        if (authToken.isBlank()) return emptyList()
+        val maxResults = (perChannel * channels).coerceIn(10, 100)
+        return getJsonArray(
+            "auth/feed",
+            mapOf("max_results" to maxResults.toString()),
+            auth = true
+        ).map { it.toVideo() }.drop(offset)
+    }
 
-    suspend fun subscribe(channelId: String, channelName: String, channelAvatar: String): Boolean = true
+    suspend fun subscribe(channelId: String, channelName: String, channelAvatar: String): Boolean {
+        if (authToken.isBlank()) return true
+        return try {
+            client.post(api("auth/subscriptions")) {
+                applyAuth(this)
+                contentType(ContentType.Application.Json)
+                setBody(mapOf("channel_id" to channelId))
+            }.status.isSuccess()
+        } catch (e: Exception) {
+            Log.e(TAG, "subscribe error: ${e.message}")
+            false
+        }
+    }
 
-    suspend fun unsubscribe(channelId: String): Boolean = true
+    suspend fun unsubscribe(channelId: String): Boolean {
+        if (authToken.isBlank()) return true
+        return try {
+            client.delete(api("auth/subscriptions/$channelId")) {
+                applyAuth(this)
+            }.status.isSuccess()
+        } catch (e: Exception) {
+            Log.e(TAG, "unsubscribe error: ${e.message}")
+            false
+        }
+    }
 
-    suspend fun isSubscribed(channelId: String): Boolean = false
+    suspend fun isSubscribed(channelId: String): Boolean {
+        if (authToken.isBlank()) return false
+        return getJsonArray("auth/subscriptions", auth = true)
+            .any { it.str("authorId") == channelId }
+    }
 
     suspend fun checkServerStatus(): Boolean {
         return try {

@@ -202,6 +202,7 @@ fun WatchScreen(
                         VideoInfoSection(
                             video = video,
                             playbackFormats = uiState.playbackInfo?.videoFormats ?: emptyList(),
+                            selectedQuality = uiState.selectedQualityLabel,
                             isSubscribed = uiState.isSubscribed,
                             onSubscribeClick = { viewModel.toggleSubscription() },
                             onFormatSelected = { format -> viewModel.selectQuality(format) },
@@ -341,6 +342,7 @@ fun WatchScreen(
 private fun VideoInfoSection(
     video: VideoData,
     playbackFormats: List<PlaybackFormat>,
+    selectedQuality: String?,
     isSubscribed: Boolean,
     onSubscribeClick: () -> Unit,
     onFormatSelected: (PlaybackFormat) -> Unit,
@@ -430,6 +432,37 @@ private fun VideoInfoSection(
                 isSubscribed = isSubscribed,
                 onToggle = onSubscribeClick
             )
+        }
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        // Save pill — sits right next to the channel/subscribe row
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.End
+        ) {
+            Row(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(18.dp))
+                    .background(MaterialTheme.colorScheme.surfaceVariant)
+                    .clickable { isSaved = !isSaved }
+                    .padding(horizontal = 14.dp, vertical = 7.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                Icon(
+                    imageVector = if (isSaved) Icons.Filled.Bookmark else Icons.Filled.BookmarkBorder,
+                    contentDescription = "Save",
+                    tint = if (isSaved) Color(0xFF3EA6FF) else MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.size(18.dp)
+                )
+                Text(
+                    text = if (isSaved) "Saved" else "Save",
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Medium,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+            }
         }
 
         Spacer(modifier = Modifier.height(12.dp))
@@ -562,31 +595,7 @@ private fun VideoInfoSection(
                     modifier = Modifier.size(18.dp)
                 )
                 Text(
-                    text = "Quality",
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Medium,
-                    color = MaterialTheme.colorScheme.onSurface
-                )
-            }
-
-            // Save pill
-            Row(
-                modifier = Modifier
-                    .clip(RoundedCornerShape(18.dp))
-                    .background(MaterialTheme.colorScheme.surfaceVariant)
-                    .clickable { isSaved = !isSaved }
-                    .padding(horizontal = 14.dp, vertical = 7.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
-            ) {
-                Icon(
-                    imageVector = if (isSaved) Icons.Filled.Bookmark else Icons.Filled.BookmarkBorder,
-                    contentDescription = "Save",
-                    tint = if (isSaved) Color(0xFF3EA6FF) else MaterialTheme.colorScheme.onSurface,
-                    modifier = Modifier.size(18.dp)
-                )
-                Text(
-                    text = if (isSaved) "Saved" else "Save",
+                    text = selectedQuality?.let { "Quality • $it" } ?: "Quality",
                     fontSize = 12.sp,
                     fontWeight = FontWeight.Medium,
                     color = MaterialTheme.colorScheme.onSurface

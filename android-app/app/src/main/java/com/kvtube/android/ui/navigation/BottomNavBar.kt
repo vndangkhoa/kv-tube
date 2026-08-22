@@ -121,32 +121,20 @@ data class BottomNavItem(
 
 val bottomNavItems = listOf(
     BottomNavItem(
-        route = Screen.Home.route,
-        label = "Home",
-        selectedIcon = Icons.Filled.Home,
-        unselectedIcon = Icons.Outlined.Home
-    ),
-    BottomNavItem(
         route = Screen.Shorts.route,
         label = "Shorts",
         selectedIcon = ShortsFilledIcon,
         unselectedIcon = ShortsOutlinedIcon
     ),
     BottomNavItem(
-        route = Screen.Subscriptions.route,
-        label = "Subscriptions",
-        selectedIcon = Icons.Filled.Subscriptions,
-        unselectedIcon = Icons.Outlined.Subscriptions
-    ),
-    BottomNavItem(
-        route = Screen.Downloads.route,
-        label = "Downloads",
-        selectedIcon = Icons.Filled.Download,
-        unselectedIcon = Icons.Outlined.Download
+        route = Screen.Home.route,
+        label = "Home",
+        selectedIcon = Icons.Filled.Home,
+        unselectedIcon = Icons.Outlined.Home
     ),
     BottomNavItem(
         route = Screen.Library.route,
-        label = "You",
+        label = "Account",
         selectedIcon = Icons.Filled.Person,
         unselectedIcon = Icons.Outlined.Person
     )

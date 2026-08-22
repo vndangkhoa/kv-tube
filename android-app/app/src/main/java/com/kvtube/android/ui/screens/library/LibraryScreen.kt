@@ -25,6 +25,7 @@ import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Subscriptions
 import androidx.compose.material.icons.filled.ThumbUp
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -118,6 +119,55 @@ fun LibraryScreen(
                     )
                 }
 
+                // Account action cards
+                item {
+                    Spacer(modifier = Modifier.height(20.dp))
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        LibraryActionCard(
+                            icon = Icons.Default.Subscriptions,
+                            title = "Subscriptions",
+                            subtitle = "Latest videos from your channels",
+                            onClick = { navController.navigate(Screen.Subscriptions.route) }
+                        )
+
+                        LibraryActionCard(
+                            icon = Icons.Default.Download,
+                            title = "Downloads",
+                            subtitle = "Watch downloaded videos offline",
+                            onClick = { navController.navigate(Screen.Downloads.route) }
+                        )
+
+                        LibraryActionCard(
+                            icon = Icons.Default.ThumbUp,
+                            title = "Liked videos",
+                            subtitle = "${uiState.liked.size} videos",
+                            onClick = {}
+                        )
+                    }
+                }
+
+                // Settings entry (moved here from the top-bar gear)
+                item {
+                    Spacer(modifier = Modifier.height(10.dp))
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp)
+                    ) {
+                        LibraryActionCard(
+                            icon = Icons.Default.Settings,
+                            title = "Settings",
+                            subtitle = "Server, Invidious token, region, theme & updates",
+                            onClick = { navController.navigate(Screen.Settings.route) }
+                        )
+                    }
+                }
+
                 // History Section
                 item {
                     Row(
@@ -162,38 +212,6 @@ fun LibraryScreen(
                                 )
                             }
                         }
-                    }
-                }
-
-                // Quick Navigation Cards (Settings, Downloads, Liked Videos)
-                item {
-                    Spacer(modifier = Modifier.height(20.dp))
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 16.dp),
-                        verticalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        LibraryActionCard(
-                            icon = Icons.Default.Settings,
-                            title = "Settings",
-                            subtitle = "Server, region, theme & updates",
-                            onClick = { navController.navigate(Screen.Settings.route) }
-                        )
-
-                        LibraryActionCard(
-                            icon = Icons.Default.Download,
-                            title = "Downloads",
-                            subtitle = "Watch downloaded videos offline",
-                            onClick = { navController.navigate(Screen.Downloads.route) }
-                        )
-
-                        LibraryActionCard(
-                            icon = Icons.Default.ThumbUp,
-                            title = "Liked videos",
-                            subtitle = "${uiState.liked.size} videos",
-                            onClick = {}
-                        )
                     }
                 }
 

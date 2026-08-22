@@ -47,12 +47,13 @@ class KVTubeApp : Application(), Configuration.Provider, SingletonImageLoader.Fa
 
     override fun onCreate() {
         super.onCreate()
-        // Blocking init to ensure server URL is set before any API call
+        // Blocking init to ensure server URL + token are set before any API call
         runBlocking {
             val url = settingsDataStore.serverUrl.first()
             if (url.isNotBlank()) {
                 kvApi.setServerUrl(url)
             }
+            kvApi.setToken(settingsDataStore.invidiousToken.first())
         }
 
         // Create notification channel for downloads (needed for WorkManager setForeground)

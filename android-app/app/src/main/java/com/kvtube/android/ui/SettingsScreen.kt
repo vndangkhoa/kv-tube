@@ -136,10 +136,13 @@ fun SettingsScreen(
             // Server Section
             SettingsCard(
                 icon = Icons.Default.Cloud,
-                title = "Server"
+                title = "Server & Account"
             ) {
                 var serverUrl by remember(uiState.serverUrl) {
                     mutableStateOf(uiState.serverUrl)
+                }
+                var invidiousToken by remember(uiState.invidiousToken) {
+                    mutableStateOf(uiState.invidiousToken)
                 }
 
                 OutlinedTextField(
@@ -156,12 +159,36 @@ fun SettingsScreen(
                     shape = RoundedCornerShape(12.dp)
                 )
 
-                Spacer(modifier = Modifier.height(8.dp))
+                Spacer(modifier = Modifier.height(10.dp))
+
+                OutlinedTextField(
+                    value = invidiousToken,
+                    onValueChange = { invidiousToken = it },
+                    label = { Text("Invidious Token (for subscriptions)") },
+                    placeholder = { Text("SID cookie value or JSON token") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = MaterialTheme.colorScheme.primary,
+                        unfocusedBorderColor = MaterialTheme.colorScheme.outline,
+                    ),
+                    shape = RoundedCornerShape(12.dp)
+                )
+
+                Text(
+                    text = "Paste your Invidious session token to enable the Subscriptions feed. Get it from your instance: Preferences → Tokens.",
+                    style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 6.dp)
+                )
+
+                Spacer(modifier = Modifier.height(10.dp))
 
                 Button(
                     onClick = {
                         scope.launch {
                             viewModel.saveServerUrl(serverUrl)
+                            viewModel.saveInvidiousToken(invidiousToken)
                         }
                     },
                     modifier = Modifier.fillMaxWidth(),
@@ -173,7 +200,7 @@ fun SettingsScreen(
                         modifier = Modifier.size(18.dp)
                     )
                     Spacer(modifier = Modifier.width(8.dp))
-                    Text("Save Server Address")
+                    Text("Save Server & Token")
                 }
             }
 

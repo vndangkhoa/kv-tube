@@ -33,6 +33,7 @@ data class WatchUiState(
     val error: String? = null,
     val selectedUrl: String? = null,
     val audioUrl: String? = null,
+    val selectedQualityLabel: String? = null,
     val showComments: Boolean = false,
     val isSubscribed: Boolean = false,
     /** True when stream extraction failed and the UI should render the
@@ -77,7 +78,8 @@ class WatchViewModel @Inject constructor(
         val audioUrl = if (format.hasAudio) null else _uiState.value.playbackInfo?.audioFormat?.url
         _uiState.value = _uiState.value.copy(
             selectedUrl = format.url,
-            audioUrl = audioUrl
+            audioUrl = audioUrl,
+            selectedQualityLabel = format.qualityLabel
         )
     }
 
@@ -196,7 +198,7 @@ class WatchViewModel @Inject constructor(
                     audioUrl = audioUrl
                 )
 
-                // Background enrichment (info, related, comments, history)
+                // Background enrichment (info, related, comments, history, quality list)
                 launch {
                     val video = runCatching { videoRepository.getVideoInfo(videoId) }.getOrNull()
                     if (video != null && video.title.isNotBlank()) {
@@ -204,6 +206,19 @@ class WatchViewModel @Inject constructor(
                             video = video,
                             isSubscribed = subscriptionRepository.isSubscribed(video.displayChannelId)
                         )
+                    }
+                }
+                // Populate the quality menu even when the fast NewPipe path
+                // produced the stream (server formats are richer).
+                launch {
+                    val info = kotlinx.coroutines.withTimeoutOrNull(4_000L) {
+                        runCatching { videoRepository.getPlaybackInfo(videoId) }.getOrNull()
+                    }
+                    if (info != null && info.videoFormats.isNotEmpty()) {
+                        val current = _uiState.value
+                        if (current.playbackInfo == null || current.playbackInfo.videoFormats.isEmpty()) {
+                            _uiState.value = current.copy(playbackInfo = info)
+                        }
                     }
                 }
                 launch {

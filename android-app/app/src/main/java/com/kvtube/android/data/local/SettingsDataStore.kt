@@ -20,6 +20,7 @@ class SettingsDataStore @Inject constructor(
 ) {
     companion object {
         val SERVER_URL = stringPreferencesKey("server_url")
+        val INVIDIOUS_TOKEN = stringPreferencesKey("invidious_token")
         val THEME_MODE = stringPreferencesKey("theme_mode")
         val REGION = stringPreferencesKey("region")
 
@@ -30,6 +31,16 @@ class SettingsDataStore @Inject constructor(
 
     val serverUrl: Flow<String> = context.dataStore.data.map { preferences ->
         preferences[SERVER_URL]?.trim()?.removeSuffix("/")?.ifEmpty { DEFAULT_SERVER_URL } ?: DEFAULT_SERVER_URL
+    }
+
+    val invidiousToken: Flow<String> = context.dataStore.data.map { preferences ->
+        preferences[INVIDIOUS_TOKEN]?.trim() ?: ""
+    }
+
+    suspend fun setInvidiousToken(token: String) {
+        context.dataStore.edit { preferences ->
+            preferences[INVIDIOUS_TOKEN] = token.trim()
+        }
     }
 
     val themeMode: Flow<String> = context.dataStore.data.map { preferences ->

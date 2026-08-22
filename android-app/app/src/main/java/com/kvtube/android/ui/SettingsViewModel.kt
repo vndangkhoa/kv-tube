@@ -18,6 +18,7 @@ import javax.inject.Inject
 
 data class SettingsUiState(
     val serverUrl: String = "",
+    val invidiousToken: String = "",
     val themeMode: String = "dark",
     val region: String = "GLOBAL",
     val updateInfo: UpdateInfo? = null,
@@ -41,6 +42,7 @@ class SettingsViewModel @Inject constructor(
         viewModelScope.launch {
             _uiState.value = SettingsUiState(
                 serverUrl = settingsDataStore.serverUrl.first(),
+                invidiousToken = settingsDataStore.invidiousToken.first(),
                 themeMode = settingsDataStore.themeMode.first(),
                 region = settingsDataStore.region.first()
             )
@@ -52,6 +54,14 @@ class SettingsViewModel @Inject constructor(
             settingsDataStore.setServerUrl(url)
             api.setServerUrl(url)
             _uiState.value = _uiState.value.copy(serverUrl = url)
+        }
+    }
+
+    fun saveInvidiousToken(token: String) {
+        viewModelScope.launch {
+            settingsDataStore.setInvidiousToken(token)
+            api.setToken(token)
+            _uiState.value = _uiState.value.copy(invidiousToken = token)
         }
     }
 

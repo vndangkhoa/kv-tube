@@ -129,6 +129,11 @@ fun DownloadsScreen(
     ) {
         // Storage Card (YouTube Mobile Style)
         val totalBytes = uiState.downloads.sumOf { it.fileSize }
+        val activeCount = uiState.activeProgress.values.count {
+            it.status != DownloadStatus.COMPLETED &&
+                it.status != DownloadStatus.ERROR &&
+                it.status != DownloadStatus.CANCELLED
+        }
         Surface(
             modifier = Modifier
                 .fillMaxWidth()
@@ -136,33 +141,43 @@ fun DownloadsScreen(
             shape = RoundedCornerShape(12.dp),
             color = MaterialTheme.colorScheme.surfaceVariant
         ) {
-            Column(modifier = Modifier.padding(12.dp)) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Text(
-                        text = "Downloaded videos (${uiState.downloads.size})",
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 14.dp, vertical = 12.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = if (uiState.downloads.isEmpty()) "No downloaded videos yet"
+                    else "${uiState.downloads.size} videos available offline",
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (activeCount > 0) {
+                        LinearProgressIndicator(
+                            modifier = Modifier
+                                .padding(end = 10.dp)
+                                .size(width = 42.dp, height = 4.dp)
+                                .clip(RoundedCornerShape(2.dp)),
+                            color = Color(0xFF3EA6FF),
+                            trackColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.2f)
+                        )
+                        Text(
+                            text = "$activeCount active",
+                            fontSize = 11.sp,
+                            color = Color(0xFF3EA6FF)
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(8.dp))
                     Text(
                         text = formatFileSize(totalBytes),
                         fontSize = 12.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
-                Spacer(modifier = Modifier.height(8.dp))
-                LinearProgressIndicator(
-                    progress = { 0.25f },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(4.dp)
-                        .clip(RoundedCornerShape(2.dp)),
-                    color = YTBrandRed,
-                    trackColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.2f)
-                )
             }
         }
 
