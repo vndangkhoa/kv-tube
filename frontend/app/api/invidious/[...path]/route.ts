@@ -138,6 +138,7 @@ async function handleProxy(req: NextRequest, pathParts: string[]) {
     // complete body with a correct content-length (blind streaming can drop
     // trailing bytes, producing truncated JSON in the browser).
     const buf = await res.arrayBuffer();
+    responseHeaders.set('Cache-Control', 'no-store');
     return new NextResponse(buf, {
       status: res.status,
       headers: responseHeaders,

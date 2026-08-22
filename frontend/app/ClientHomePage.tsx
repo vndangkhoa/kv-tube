@@ -134,14 +134,58 @@ export default function ClientHomePage() {
     try {
       let items: any[] = [];
 
-      if (cat.id === 'All') {
-        // Home shows the most recent videos in the selected region.
+      if (cat.id === 'All' && pageNum > 1) {
         items = await invidious.search(rc.trending, {
           page: pageNum,
           type: 'video',
           region: regionCode,
           sort_by: 'upload_date',
         });
+      } else if (cat.id === 'All') {
+        // Fresh-first home feed: newest regional uploads blended with what is
+        // trending right now, so every visit surfaces new content up front.
+        const [latestRes, trendingRes] = await Promise.allSettled([
+          invidious.search(rc.trending, {
+            page: 1,
+            type: 'video',
+            region: regionCode,
+            sort_by: 'upload_date',
+          }),
+          invidious.getTrending(regionCode),
+        ]);
+        const latest =
+          latestRes.status === 'fulfilled'
+            ? (latestRes.value || []).filter((v: any) => (v.videoId || v.id) && v.title)
+            : [];
+        const trendingNow =
+          trendingRes.status === 'fulfilled'
+            ? (trendingRes.value || []).filter((v: any) => (v.videoId || v.id) && v.title)
+            : [];
+
+        const seen = new Set<string>();
+        const merged: any[] = [];
+        let li = 0;
+        let ti = 0;
+        while (merged.length < Math.min(latest.length + trendingNow.length, 40)) {
+          for (let k = 0; k < 3 && li < latest.length; k++) {
+            const id = latest[li].videoId || latest[li].id;
+            if (!seen.has(id)) {
+              seen.add(id);
+              merged.push(latest[li]);
+            }
+            li++;
+          }
+          if (ti < trendingNow.length) {
+            const id = trendingNow[ti].videoId || trendingNow[ti].id;
+            if (!seen.has(id)) {
+              seen.add(id);
+              merged.push(trendingNow[ti]);
+            }
+            ti++;
+          }
+          if (li >= latest.length && ti >= trendingNow.length) break;
+        }
+        items = merged;
       } else if (cat.id === 'Trending') {
         // Trending is the collection of the most viewed videos.
         items = await invidious.getTrending(regionCode);
