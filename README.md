@@ -148,13 +148,20 @@ docker run -d -p 3241:3000 -p 8080:8080 -v ./data:/app/data kv-tube:latest
 
 ### 📥 Container Images
 
-Pre-built container images are published to multiple registries:
+Two images are published, one per deployment mode:
 
-| Registry | Unified image (backend + frontend) | Frontend-only image (Invidious stack) |
-|----------|-----------------------------------|----------------------------------------|
-| **Docker Hub** | `vndangkhoa/kv-tube:latest` | `vndangkhoa/kv-tube-ui:latest` |
-| **GitHub Container Registry** | `ghcr.io/vndangkhoa/kv-tube:latest` | `ghcr.io/vndangkhoa/kv-tube-ui:latest` |
-| **Forgejo** | `git.khoavo.myds.me/vndangkhoa/kv-tube:latest` | `git.khoavo.myds.me/vndangkhoa/kv-tube-ui:latest` |
+| Image | Contents | Use it for |
+|-------|----------|------------|
+| `kv-tube-ui` (~485 MB) | Next.js frontend only | The **recommended 4-container stack** (`docker-compose.yml` above) — talks to your Invidious + Companion containers |
+| `kv-tube` (~1.1 GB) | Frontend + Go backend + yt-dlp + ffmpeg (supervisord) | **Classic all-in-one mode** — a single standalone container with no Invidious dependency |
+
+Each is available on:
+
+| Registry | Frontend-only (`kv-tube-ui`) | Unified (`kv-tube`) |
+|----------|------------------------------|----------------------|
+| **Docker Hub** | `vndangkhoa/kv-tube-ui:latest` | `vndangkhoa/kv-tube:latest` |
+| **GitHub Container Registry** | `ghcr.io/vndangkhoa/kv-tube-ui:latest` | `ghcr.io/vndangkhoa/kv-tube:latest` |
+| **Forgejo** | `git.khoavo.myds.me/vndangkhoa/kv-tube-ui:latest` | `git.khoavo.myds.me/vndangkhoa/kv-tube:latest` |
 
 ### 🌐 Source Repositories
 
