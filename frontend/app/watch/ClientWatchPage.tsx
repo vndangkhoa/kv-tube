@@ -2,7 +2,6 @@
 
 import { useEffect, useState, useCallback, lazy, Suspense, useRef } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
-import YouTubePlayer from './YouTubePlayer';
 import DownloadSheet from './DownloadSheet';
 import { getVideoDetailsClient, getRelatedVideosClient, getCommentsClient, searchVideosClient } from '../clientActions';
 import { VideoData } from '../constants';
@@ -118,7 +117,6 @@ import {
     IoPlaySkipForward,
     IoRepeat,
     IoExpandOutline,
-    IoLogoYoutube,
 } from 'react-icons/io5';
 
 // Video Info Section with Material 3 & Return YouTube Dislike (RYD)
@@ -133,8 +131,6 @@ function VideoInfo({
     onToggleLoop,
     wideMode,
     onToggleWide,
-    playerMode,
-    onTogglePlayerMode,
 }: {
     video: any;
     onOpenDownload?: () => void;
@@ -146,8 +142,6 @@ function VideoInfo({
     onToggleLoop?: () => void;
     wideMode?: boolean;
     onToggleWide?: () => void;
-    playerMode?: 'iframe' | 'hd';
-    onTogglePlayerMode?: () => void;
 }) {
     const [expanded, setExpanded] = useState(false);
     const [subscribed, setSubscribed] = useState(false);
@@ -462,23 +456,6 @@ function VideoInfo({
                         >
                             <IoExpandOutline size={16} />
                             <span className="watch-btn-text">Wide</span>
-                        </button>
-                    )}
-
-                    {/* Player Source Toggle */}
-                    {onTogglePlayerMode && (
-                        <button
-                            onClick={onTogglePlayerMode}
-                            title={playerMode === 'iframe' ? 'Switch to Invidious player' : 'Switch to YouTube embed player'}
-                            className="watch-action-pill watch-action-playermode"
-                            style={{
-                                backgroundColor: playerMode === 'iframe' ? 'var(--yt-brand-red, #ff0000)' : undefined,
-                                color: playerMode === 'iframe' ? '#ffffff' : undefined,
-                                borderColor: playerMode === 'iframe' ? 'transparent' : undefined,
-                            }}
-                        >
-                            <IoLogoYoutube size={16} />
-                            <span className="watch-btn-text">{playerMode === 'iframe' ? 'YouTube' : 'Invidious'}</span>
                         </button>
                     )}
                 </div>
@@ -895,7 +872,7 @@ export default function ClientWatchPage() {
     const searchParams = useSearchParams();
     const router = useRouter();
     const videoId = searchParams.get('v');
-    const { setPlayingVideo, setIsPlaying, playerMode, setPlayerMode, loopMode, setLoopMode, watchHandlersRef } = usePlayer();
+    const { setPlayingVideo, setIsPlaying, loopMode, setLoopMode, watchHandlersRef } = usePlayer();
     const [videoInfo, setVideoInfo] = useState<any>(null);
     const [relatedVideos, setRelatedVideos] = useState<VideoData[]>([]);
     const [mixPlaylist, setMixPlaylist] = useState<VideoData[]>([]);
@@ -905,20 +882,6 @@ export default function ClientWatchPage() {
     const [apiError, setApiError] = useState<string | null>(null);
 	const [wideMode, setWideMode] = useState(false);
 	const [showDownload, setShowDownload] = useState(false);
-    // Player source: 'iframe' (YouTube embed, instant + always works) vs 'hd'
-    // (Invidious's own web player embedded directly — no separate audio element
-    // or A/V synchronization needed). Lives in PlayerContext so the persistent
-    // player in the layout can render the correct engine. Persisted in
-    // localStorage.
-    const togglePlayerMode = useCallback(() => {
-        setPlayerMode((prev) => {
-            const next = prev === 'iframe' ? 'hd' : 'iframe';
-            try {
-                window.localStorage.setItem('kv-player-mode', next);
-            } catch {}
-            return next;
-        });
-    }, [setPlayerMode]);
 
     // Hover prefetch: debounce 220ms, prefetch Next.js route for instant navigation
     const prefetchTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
@@ -1121,15 +1084,13 @@ export default function ClientWatchPage() {
     };
 
     // Publish the watch-page handlers to the persistent player (layout), which
-    // drives next/prev/loop/fallback for both the full player and the miniplayer.
+    // drives next/prev/loop for both the full player and the miniplayer.
     watchHandlersRef.current = {
         onNext: handleNext,
         onPrev: handlePrevious,
         onVideoEnd: handleVideoEnd,
-        onUseIframe: () => setPlayerMode('iframe'),
         onError: () => {
-            console.warn('[Watch] player error, falling back to YouTube iframe player');
-            setPlayerMode('iframe');
+            console.warn('[Watch] player error');
         },
         loopMode,
     };
@@ -1158,21 +1119,12 @@ export default function ClientWatchPage() {
             }}>
                 {/* Main Content */}
                 <div className="watch-main">
-                    {/* Video Player */}
+                    {/* Video Player — rendered by the persistent player in the
+                        layout, which positions itself over this slot */}
 					<div style={{ position: 'relative', width: '100%', aspectRatio: '16/9', backgroundColor: '#000000', borderRadius: '16px', overflow: 'hidden' }}>
-				{playerMode === 'iframe' ? (
-					<YouTubePlayer
-						videoId={videoId}
-						title={videoInfo?.title}
-						autoplay={true}
-						loop={loopMode}
-						onVideoEnd={handleVideoEnd}
-					/>
-				) : (
 					<div id="watch-player-slot" style={{ width: '100%', height: '100%' }} />
-				)}
 					</div>
- 
+
                     {/* Video Info and Comments Body */}
                     <div className="watch-main-body" style={{ width: '100%' }}>
                         <VideoInfo
@@ -1186,8 +1138,6 @@ export default function ClientWatchPage() {
                             onToggleLoop={() => setLoopMode(!loopMode)}
                             wideMode={wideMode}
                             onToggleWide={() => setWideMode(!wideMode)}
-                            playerMode={playerMode}
-                            onTogglePlayerMode={togglePlayerMode}
                         />
 
                         {/* Comments */}

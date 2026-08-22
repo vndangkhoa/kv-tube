@@ -17,7 +17,6 @@ export default function PersistentPlayer() {
   const {
     currentVideo,
     isMiniPlayerOpen,
-    playerMode,
     loopMode,
     watchHandlersRef,
   } = usePlayer();
@@ -26,7 +25,7 @@ export default function PersistentPlayer() {
   const [slotRect, setSlotRect] = useState<{ top: number; left: number; width: number; height: number } | null>(null);
 
   const isWatchPage = pathname === '/watch';
-  const showFull = isWatchPage && playerMode === 'hd';
+  const showFull = isWatchPage;
   const showMini = isMiniPlayerOpen && !isWatchPage;
   const hidden = !showMini && !showFull;
 
@@ -147,7 +146,6 @@ export default function PersistentPlayer() {
         onVideoEnd={() => watchHandlersRef.current.onVideoEnd?.()}
         onNext={() => watchHandlersRef.current.onNext?.()}
         onPrev={() => watchHandlersRef.current.onPrev?.()}
-        onUseIframe={() => watchHandlersRef.current.onUseIframe?.()}
         onError={() => watchHandlersRef.current.onError?.()}
       />
     </div>

@@ -18,7 +18,6 @@ export interface WatchHandlers {
   onNext?: () => void;
   onPrev?: () => void;
   onVideoEnd?: () => void;
-  onUseIframe?: () => void;
   onError?: () => void;
   loopMode?: boolean;
 }
@@ -30,8 +29,6 @@ interface PlayerContextType {
   currentTime: number;
   duration: number;
   isMiniPlayerOpen: boolean;
-  playerMode: 'iframe' | 'hd';
-  setPlayerMode: React.Dispatch<React.SetStateAction<'iframe' | 'hd'>>;
   loopMode: boolean;
   setLoopMode: React.Dispatch<React.SetStateAction<boolean>>;
   watchHandlersRef: React.MutableRefObject<WatchHandlers>;
@@ -54,7 +51,6 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
   const [isDismissed, setIsDismissed] = useState(false);
-  const [playerMode, setPlayerMode] = useState<'iframe' | 'hd'>('hd');
   const [loopMode, setLoopMode] = useState(false);
   const watchHandlersRef = useRef<WatchHandlers>({});
 
@@ -67,16 +63,6 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
       setIsPlaying(false);
     }
   }, [pathname]);
-
-  // Restore the persisted player source (iframe vs self-hosted HD)
-  useEffect(() => {
-    try {
-      const saved = window.localStorage.getItem('kv-player-mode');
-      if (saved === 'iframe' || saved === 'hd') {
-        setPlayerMode(saved);
-      }
-    } catch {}
-  }, []);
 
   // Reset dismissed state and timestamp when a new video is loaded; preserve existing non-empty metadata if the same video is refreshed
   const setPlayingVideo = useCallback((video: PlayingVideoInfo | null) => {
@@ -117,8 +103,6 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
         currentTime,
         duration,
         isMiniPlayerOpen,
-        playerMode,
-        setPlayerMode,
         loopMode,
         setLoopMode,
         watchHandlersRef,

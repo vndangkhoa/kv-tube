@@ -84,7 +84,6 @@ interface MaterialiousPlayerProps {
   onNext?: () => void;
   onPrev?: () => void;
   onError?: () => void;
-  onUseIframe?: () => void;
 }
 
 function formatTime(seconds: number): string {
@@ -154,7 +153,6 @@ export default function MaterialiousPlayer({
   onNext,
   onPrev,
   onError,
-  onUseIframe,
 }: MaterialiousPlayerProps) {
   const searchParams = useSearchParams();
   const router = useRouter();
@@ -491,7 +489,7 @@ export default function MaterialiousPlayer({
         setIsBuffering(false);
       } catch (err: any) {
         console.error('[MaterialiousPlayer] Stream load error:', err);
-        setErrorMsg('Unable to load video stream from Invidious. You can switch to YouTube player.');
+        setErrorMsg('Unable to load video stream from Invidious.');
         setIsBuffering(false);
       }
     }
@@ -1688,23 +1686,6 @@ export default function MaterialiousPlayer({
             >
               Retry
             </button>
-            {onUseIframe && (
-              <button
-                onClick={onUseIframe}
-                style={{
-                  padding: '8px 16px',
-                  borderRadius: '18px',
-                  backgroundColor: 'var(--md-sys-color-primary, var(--yt-blue))',
-                  color: '#fff',
-                  border: 'none',
-                  cursor: 'pointer',
-                  fontWeight: 600,
-                  fontSize: '12px',
-                }}
-              >
-                Use YouTube Player
-              </button>
-            )}
           </div>
         </div>
       )}
