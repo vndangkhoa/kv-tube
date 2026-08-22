@@ -48,11 +48,18 @@ fun DetailScreen(
         Box(Modifier.fillMaxSize().background(Color(0xFF0F0F0F)), contentAlignment = Alignment.Center) { Text("Loading…", color = Color.White) }
         return
     }
-    state.error?.let {
+    state.error?.let { err ->
+        val isInvidiousBroken = err.contains("This content isn't available", ignoreCase = true)
         Box(Modifier.fillMaxSize().background(Color(0xFF0F0F0F)).padding(32.dp), contentAlignment = Alignment.Center) {
             Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text(it, color = Color(0xFFFF8A80), style = MaterialTheme.typography.titleSmall)
-                Text("The Invidious backend (https://yt.khoavo.myds.me) may be rate-limiting or the companion is restarting. Try another video.", color = Color(0xFFAAAAAA), style = MaterialTheme.typography.bodySmall)
+                Text(err, color = Color(0xFFFF8A80), style = MaterialTheme.typography.titleSmall)
+                Text(
+                    if (isInvidiousBroken)
+                        "This video failed on the Invidious backend, and the direct YouTube fallback also failed. Try another video or check your network."
+                    else
+                        "The Invidious backend (https://yt.khoavo.myds.me) may be rate-limiting or the companion is restarting. The app tried a direct YouTube fallback as well. Try another video.",
+                    color = Color(0xFFAAAAAA), style = MaterialTheme.typography.bodySmall
+                )
                 Button(onClick = { vm.load(videoId) }) { Text("Retry") }
             }
         }

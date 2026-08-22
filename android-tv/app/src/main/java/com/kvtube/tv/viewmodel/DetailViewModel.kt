@@ -24,6 +24,11 @@ class DetailViewModel : ViewModel() {
     private val _state = MutableStateFlow(DetailUiState())
     val state: StateFlow<DetailUiState> = _state
 
+    private fun extractJsonError(body: String): String? = try {
+        val j = org.json.JSONObject(body)
+        j.optString("error").takeIf { it.isNotBlank() } ?: j.toString().take(300)
+    } catch (_: Exception) { body.take(400) }
+
     fun load(videoId: String) {
         val id = videoId.trim()
         if (id.isBlank()) {
@@ -39,10 +44,13 @@ class DetailViewModel : ViewModel() {
                 _state.value = DetailUiState(video = v, tvVideo = tv, related = related, isLoading = false)
                 historyRepo.recordWatch(tv)
             } catch (e: retrofit2.HttpException) {
-                val body = try { e.response()?.errorBody()?.string()?.take(400) } catch (_: Exception) { null }
-                _state.value = DetailUiState(isLoading = false, error = body ?: "Video unavailable (HTTP ${e.code()}: ${e.message()})")
+                val body = try { e.response()?.errorBody()?.string()?.take(500) } catch (_: Exception) { null }
+                // Body is often JSON {"error":"..."} — extract the message for TV overlay
+                val msg = body?.let { extractJsonError(it) } ?: body
+                _state.value = DetailUiState(isLoading = false, error = msg ?: "Video unavailable (HTTP ${e.code()}: ${e.message()})")
             } catch (e: Exception) {
-                _state.value = DetailUiState(isLoading = false, error = e.message ?: "Failed to load video")
+                // InnerTube fallback throws IllegalStateException with reason (e.g. "Video unavailable")
+                _state.value = DetailUiState(isLoading = false, error = e.message?.take(500) ?: "Failed to load video")
             }
         }
     }
