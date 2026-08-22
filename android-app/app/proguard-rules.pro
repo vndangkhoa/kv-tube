@@ -42,3 +42,8 @@
 # Keep data models for serialization
 -keep class com.kvtube.android.data.model.** { *; }
 -keep class com.kvtube.android.data.api.** { *; }
+
+# NewPipeExtractor 0.26+ bundles Rhino (JS engine) which references
+# JDK-only reflection/scripting classes that do not exist on Android.
+-dontwarn java.beans.**
+-dontwarn javax.script.**

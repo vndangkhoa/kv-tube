@@ -63,20 +63,28 @@ class KVApi(
 
     // --- low-level helpers ---------------------------------------------------
 
-    /** Probes once whether [baseUrl] is raw Invidious or the KV-Tube gateway. */
+    /** Probes once whether [baseUrl] is raw Invidious or the KV-Tube gateway.
+     *  Detection is content-based: SPA fallbacks answer HTTP 200 for any path
+     *  with an HTML body, so status codes alone cannot be trusted. */
     private suspend fun resolveGateway() {
         if (gatewayMode != null) return
-        gatewayMode = try {
-            if (client.get("$baseUrl/api/v1/stats").status.isSuccess()) {
-                false
-            } else {
-                client.get("$baseUrl/api/invidious/api/v1/stats").status.isSuccess()
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "gateway probe failed: ${e.message}")
-            false
+        gatewayMode = when {
+            invidiousOk("/api/v1") -> false
+            invidiousOk("/api/invidious/api/v1") -> true
+            else -> false
         }
         Log.d(TAG, "Server mode: ${if (gatewayMode == true) "kv-tube gateway" else "raw invidious"}")
+    }
+
+    private suspend fun invidiousOk(prefix: String): Boolean {
+        return try {
+            val body = client.get("$baseUrl$prefix/stats").bodyAsText()
+            val o = json.parseToJsonElement(body) as? JsonObject
+            o?.containsKey("version") == true
+        } catch (e: Exception) {
+            Log.d(TAG, "probe $prefix/stats: not invidious (${e.message})")
+            false
+        }
     }
 
     private suspend fun api(path: String): String {
