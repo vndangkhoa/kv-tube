@@ -23,7 +23,7 @@ class SettingsDataStore @Inject constructor(
         val THEME_MODE = stringPreferencesKey("theme_mode")
         val REGION = stringPreferencesKey("region")
 
-        const val DEFAULT_SERVER_URL = "https://ut.khoavo.myds.me"
+        const val DEFAULT_SERVER_URL = "https://yt.khoavo.myds.me"
         const val DEFAULT_THEME_MODE = "dark"
         const val DEFAULT_REGION = "GLOBAL"
     }

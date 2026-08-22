@@ -299,8 +299,8 @@ private fun DownloadListItem(
             ) {
                 val thumbUrl = when {
                     video.thumbnail.startsWith("http") -> video.thumbnail
-                    video.thumbnail.isNotBlank() -> "https://ut.khoavo.myds.me${video.thumbnail}"
-                    else -> "https://i.ytimg.com/vi/${video.videoId}/mqdefault.jpg"
+                    video.videoId.isNotBlank() -> "https://i.ytimg.com/vi/${video.videoId}/mqdefault.jpg"
+                    else -> ""
                 }
 
                 AsyncImage(

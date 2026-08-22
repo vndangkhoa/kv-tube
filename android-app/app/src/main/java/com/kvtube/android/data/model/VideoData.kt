@@ -49,7 +49,6 @@ data class VideoData(
     val displayThumbnail: String
         get() = when {
             thumbnail.startsWith("http") -> thumbnail
-            thumbnail.startsWith("/") -> "https://ut.khoavo.myds.me$thumbnail"
             id.isNotBlank() -> "https://i.ytimg.com/vi/$id/hqdefault.jpg"
             else -> ""
         }
