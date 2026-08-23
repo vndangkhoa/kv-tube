@@ -1,0 +1,9 @@
+# Build context exclusions — the frontend dir lives on a CIFS share where
+# node_modules loses exec bits; copying it over the npm-ci layer breaks
+# `next` (Permission denied) and bloats the context to ~850MB.
+node_modules
+.next
+.git
+.gitignore
+.env*
+*.log
