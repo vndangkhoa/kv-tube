@@ -25,8 +25,16 @@ enum class QualityTier(val label: String) {
  */
 object QualityTiers {
 
-    /** Tier applied when opening a video. */
-    val DEFAULT = QualityTier.HIGH
+    /**
+     * Tier applied when opening a video.
+     *
+     * Mid (~720p) instead of High (~1080p): 720p usually resolves to a
+     * combined H264/AAC MP4 that every device decodes in hardware, while
+     * 1080p+ is a video-only VP9/AV1 adaptive stream that low-end and older
+     * (<Android 8) devices must decode in software — a known source of
+     * freezes and native crashes. Users can still pick a higher tier.
+     */
+    val DEFAULT = QualityTier.MID
 
     fun maxHeightOf(tier: QualityTier): Int = when (tier) {
         QualityTier.LOW -> 360

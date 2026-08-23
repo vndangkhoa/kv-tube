@@ -1,9 +1,12 @@
 package com.kvtube.android.player
 
+import android.app.PendingIntent
 import android.content.Intent
+import android.util.Log
 import androidx.media3.common.Player
 import androidx.media3.session.MediaSession
 import androidx.media3.session.MediaSessionService
+import com.kvtube.android.MainActivity
 import dagger.hilt.android.AndroidEntryPoint
 import javax.inject.Inject
 
@@ -26,7 +29,20 @@ class PlaybackService : MediaSessionService() {
 
     override fun onCreate() {
         super.onCreate()
-        mediaSession = MediaSession.Builder(this, playbackManager.player).build()
+        try {
+            val sessionActivity = PendingIntent.getActivity(
+                this,
+                0,
+                Intent(this, MainActivity::class.java),
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+            mediaSession = MediaSession.Builder(this, playbackManager.player)
+                .setSessionActivity(sessionActivity)
+                .build()
+        } catch (t: Throwable) {
+            Log.w("PlaybackService", "Session with activity intent failed: ${t.message}")
+            mediaSession = MediaSession.Builder(this, playbackManager.player).build()
+        }
     }
 
     override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? =

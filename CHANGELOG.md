@@ -5,6 +5,33 @@ All notable changes to KV-Tube are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.3] - 2026-08-23
+
+### Fixed
+- **Android app: quality switching could still kill the app** — the default
+  opening tier is now Mid (~720p) instead of High (~1080p). At/below 720p
+  YouTube serves a combined H264/AAC MP4 that every device decodes in
+  hardware, while 1080p+ is a video-only VP9/AV1 adaptive stream that older
+  (< Android 8) and low-end devices must decode in software — a known source
+  of freezes and native crashes. Higher tiers remain fully selectable.
+- **Hardened every quality switch** — `PlaybackManager.play()` now swallows
+  player exceptions (a bad stream can never take the process down), clamps
+  the resume position to before the last 5 seconds (no more landing in
+  STATE_ENDED when switching near the end), and debounces tier re-taps within
+  350 ms to bound MediaCodec teardown/rebuild churn.
+- **Media card reliability** — the media-session service now starts as soon
+  as a video page opens instead of at first video frame, tapping the card
+  re-opens KV-Tube (`setSessionActivity`), and start failures are logged
+  instead of being silently swallowed. Note: on Android 13+ the card also
+  requires the notification permission granted for KV-Tube (Settings → Apps
+  → KV-Tube → Notifications).
+- **Quality switch after Picture-in-Picture restarted the video from 0** —
+  PiP playback used a placeholder id, so the next tier change no longer
+  recognised the item as "same video" and dropped the resume position.
+
+### Changed
+- Android app version bumped to `1.5.3` (versionCode 10).
+
 ## [1.5.2] - 2026-08-23
 
 ### Fixed

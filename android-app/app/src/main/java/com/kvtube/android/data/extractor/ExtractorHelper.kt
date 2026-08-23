@@ -80,7 +80,12 @@ class ExtractorHelper @Inject constructor(
         }
     }
 
-    suspend fun extractStreamUrl(videoId: String, quality: Quality): ExtractedStream = withContext(Dispatchers.IO) {
+    suspend fun extractStreamUrl(
+        videoId: String,
+        quality: Quality,
+        /** When set, hard-caps the stream height regardless of [quality]. */
+        maxHeightOverride: Int? = null
+    ): ExtractedStream = withContext(Dispatchers.IO) {
         initNewPipe()
         // Try on-device NewPipeExtractor first (Direct client-side, immune to server IP ban)
         try {
@@ -89,7 +94,7 @@ class ExtractorHelper @Inject constructor(
             if (extractor != null) {
                 extractor.fetchPage()
 
-                val maxHeight = when (quality) {
+                val maxHeight = maxHeightOverride ?: when (quality) {
                     Quality.LOW -> 360
                     Quality.RECOMMENDED -> 1080
                     Quality.BEST -> Int.MAX_VALUE
@@ -139,7 +144,7 @@ class ExtractorHelper @Inject constructor(
                 api.getPlaybackInfo(videoId)
             }
             if (playback != null) {
-                val maxHeight = when (quality) {
+                val maxHeight = maxHeightOverride ?: when (quality) {
                     Quality.LOW -> 360
                     Quality.RECOMMENDED -> 1080
                     Quality.BEST -> Int.MAX_VALUE

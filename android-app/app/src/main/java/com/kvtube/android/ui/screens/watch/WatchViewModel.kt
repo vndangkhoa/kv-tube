@@ -207,10 +207,15 @@ class WatchViewModel @Inject constructor(
 
                 try {
                     // Bounded: a blocked YouTube/server must not stall the
-                    // iframe fallback for long. RECOMMENDED caps at 1080p,
-                    // matching the default High tier.
+                    // iframe fallback for long. Capped at 720p — a combined
+                    // H264 stream every device decodes in hardware (see
+                    // QualityTiers.DEFAULT). Higher tiers remain selectable.
                     val extracted = kotlinx.coroutines.withTimeoutOrNull(10_000L) {
-                        extractorHelper.extractStreamUrl(videoId, Quality.RECOMMENDED)
+                        extractorHelper.extractStreamUrl(
+                            videoId,
+                            Quality.RECOMMENDED,
+                            maxHeightOverride = QualityTiers.maxHeightOf(QualityTiers.DEFAULT)
+                        )
                     }
                     if (extracted != null && extracted.videoUrl.isNotBlank()) {
                         videoUrl = extracted.videoUrl

@@ -110,7 +110,11 @@ class MainActivity : ComponentActivity() {
                     LaunchedEffect(pipVideoUrl, pipAudioUrl) {
                         val url = pipVideoUrl!!
                         if (!playbackManager.isLoadedFor(url)) {
-                            playbackManager.play("pip", url, pipAudioUrl)
+                            // Keep the real video id so later quality switches
+                            // still recognise the item as "same video" and
+                            // preserve the playback position.
+                            val id = playbackManager.nowPlaying.value?.videoId?.ifBlank { null } ?: "pip"
+                            playbackManager.play(id, url, pipAudioUrl)
                         }
                     }
                     ExoPlayerView(
