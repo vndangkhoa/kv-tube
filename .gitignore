@@ -62,3 +62,7 @@ nul
 
 # release apk handoff copies
 *.apk
+
+# Local Invidious live-test credentials (never commit)
+android-app/.invidious-test.env
+.invidious-test.env

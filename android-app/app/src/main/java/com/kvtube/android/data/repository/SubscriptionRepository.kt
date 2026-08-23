@@ -7,6 +7,7 @@ import com.kvtube.android.data.local.SubscribedChannelDao
 import com.kvtube.android.data.local.SubscribedChannelEntity
 import com.kvtube.android.data.model.Subscription
 import com.kvtube.android.data.model.VideoData
+import com.kvtube.android.data.relativeRecencyMinutes
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -34,7 +35,7 @@ class SubscriptionRepository @Inject constructor(
     private var localFeedCache: List<VideoData>? = null
 
     suspend fun getSubscriptions(): List<Subscription> {
-        val remote = bounded(8_000L) { api.getSubscriptions() } ?: emptyList()
+        val remote = bounded(15_000L) { api.getSubscriptions() } ?: emptyList()
         val local = subscribedChannelDao.getAll().map { it.toModel() }
         return mergeSubs(remote, local)
     }
@@ -45,7 +46,7 @@ class SubscriptionRepository @Inject constructor(
      * newest uploads of every subscribed channel (works without any token).
      */
     suspend fun getFeed(offset: Int = 0, pageSize: Int = 24): List<VideoData> {
-        val authFeed = bounded(10_000L) {
+        val authFeed = bounded(20_000L) {
             api.getSubscriptionFeed(perChannel = PER_CHANNEL_DEPTH, channels = 30)
         } ?: emptyList()
 
@@ -120,23 +121,3 @@ internal fun mergeSubs(remote: List<Subscription>, local: List<Subscription>): L
     (remote + local)
         .distinctBy { it.channelId }
         .sortedBy { it.channelName.lowercase() }
-
-/**
- * Rough recency score (in minutes) parsed from Invidious "publishedText"
- * labels like "3 hours ago", "2 weeks ago", "Streamed 1 day ago".
- * Newer videos yield smaller values (0 = just now / live).
- */
-internal fun String.relativeRecencyMinutes(): Long {
-    val text = lowercase()
-    val number = Regex("(\\d+)").find(text)?.groupValues?.get(1)?.toLongOrNull() ?: 0L
-    return when {
-        "second" in text -> number / 60L
-        "minute" in text -> number
-        "hour" in text -> number * 60L
-        "day" in text -> number * 60L * 24L
-        "week" in text -> number * 60L * 24L * 7L
-        "month" in text -> number * 60L * 24L * 30L
-        "year" in text -> number * 60L * 24L * 365L
-        else -> 0L // live now or unknown → treat as freshest
-    }
-}

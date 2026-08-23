@@ -15,8 +15,8 @@ android {
         applicationId = "com.kvtube.android"
         minSdk = 21
         targetSdk = 34
-        versionCode = 7
-        versionName = "1.5.0"
+        versionCode = 8
+        versionName = "1.5.1"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -61,6 +61,12 @@ android {
             isReturnDefaultValues = true
         }
     }
+}
+
+// Forward Invidious live-test credentials (-D flags) into the test JVM.
+tasks.withType<Test>().configureEach {
+    systemProperty("test.invidious.url", System.getProperty("test.invidious.url") ?: "")
+    systemProperty("test.invidious.token", System.getProperty("test.invidious.token") ?: "")
 }
 
 dependencies {

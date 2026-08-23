@@ -7,6 +7,7 @@ import com.kvtube.android.data.model.PlaybackFormat
 import com.kvtube.android.data.model.PlaybackInfo
 import com.kvtube.android.data.model.Subscription
 import com.kvtube.android.data.model.VideoData
+import com.kvtube.android.data.relativeRecencyMinutes
 import io.ktor.client.HttpClient
 import io.ktor.client.request.delete
 import io.ktor.client.request.get
@@ -410,14 +411,29 @@ class KVApi(
             }
     }
 
-    /** Authenticated subscription feed: GET /auth/feed?max_results=N. */
+    /**
+     * Authenticated subscription feed: GET /auth/feed?max_results=N.
+     *
+     * Invidious puts most fresh uploads under "notifications" instead of
+     * "videos" (with many subscriptions nearly everything arrives as a
+     * notification), so both lists are merged, deduped and sorted
+     * newest-first — otherwise the feed looks almost empty.
+     */
     suspend fun getSubscriptionFeed(perChannel: Int = 5, channels: Int = 20, offset: Int = 0): List<VideoData> {
         val maxResults = (perChannel * channels).coerceIn(10, 100)
-        return getJsonArray(
-            "auth/feed",
-            mapOf("max_results" to maxResults.toString()),
-            auth = true
-        ).map { it.toVideo() }.drop(offset)
+        val body = getBody("auth/feed", mapOf("max_results" to maxResults.toString()), auth = true)
+            ?: return emptyList()
+        val element = try {
+            json.parseToJsonElement(body)
+        } catch (e: Exception) {
+            Log.e(TAG, "GET auth/feed parse error: ${e.message}")
+            return emptyList()
+        }
+        return parseSubscriptionFeed(element)
+            .distinctBy { it.str("videoId") }
+            .sortedBy { it.str("publishedText").relativeRecencyMinutes() }
+            .map { it.toVideo() }
+            .drop(offset)
     }
 
     suspend fun subscribe(channelId: String, channelName: String, channelAvatar: String): Boolean {

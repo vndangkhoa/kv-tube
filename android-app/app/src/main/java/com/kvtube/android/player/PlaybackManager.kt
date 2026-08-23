@@ -1,8 +1,11 @@
 package com.kvtube.android.player
 
 import android.content.Context
+import android.content.Intent
+import androidx.core.content.ContextCompat
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.MediaItem
+import androidx.media3.common.MediaMetadata
 import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.ExoPlayer
@@ -32,7 +35,7 @@ data class NowPlaying(
  */
 @Singleton
 class PlaybackManager @Inject constructor(
-    @ApplicationContext context: Context
+    @ApplicationContext private val context: Context
 ) {
     companion object {
         private const val USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
@@ -84,6 +87,31 @@ class PlaybackManager @Inject constructor(
         } else {
             _nowPlaying.value = current.copy(title = title, channelTitle = channelTitle, thumbnail = thumbnail)
         }
+
+        // Reflect enriched metadata (title/artwork arrive async after the
+        // first play()) straight into the active media item so the media
+        // card in the notification / lock screen shows the real info.
+        reflectMetadataIntoPlayer(videoId, title, channelTitle, thumbnail)
+    }
+
+    private fun reflectMetadataIntoPlayer(videoId: String, title: String, channelTitle: String, thumbnail: String) {
+        val p = player
+        if (loadedKey?.startsWith("$videoId|") != true || p.mediaItemCount == 0) return
+        try {
+            val item = p.getMediaItemAt(0)
+            val old = item.mediaMetadata
+            val updated = old.buildUpon()
+                .setTitle(title.ifBlank { old.title })
+                .setArtist(channelTitle.ifBlank { old.artist })
+                .setArtworkUri(
+                    thumbnail.takeIf { it.isNotBlank() }?.let { Uri.parse(it) } ?: old.artworkUri
+                )
+                .build()
+            val newItem = item.buildUpon().setMediaMetadata(updated).build()
+            p.replaceMediaItem(0, newItem)
+        } catch (_: Exception) {
+            // best-effort — never disturb playback for cosmetics
+        }
     }
 
     /** Loads (or resumes) a stream. Switching quality of the same video keeps position. */
@@ -106,8 +134,21 @@ class PlaybackManager @Inject constructor(
         } else 0L
 
         val keyOfLoaded = key
+        val nowPlayingMeta = _nowPlaying.value
+        val mediaMetadata = MediaMetadata.Builder()
+            .setTitle(nowPlayingMeta?.title.orEmpty())
+            .setArtist(nowPlayingMeta?.channelTitle.orEmpty())
+            .setArtworkUri(
+                nowPlayingMeta?.thumbnail?.takeIf { it.isNotBlank() }?.let { Uri.parse(it) }
+            )
+            .build()
+        val videoItem = MediaItem.Builder()
+            .setUri(Uri.parse(videoUrl))
+            .setMediaMetadata(mediaMetadata)
+            .build()
+
         val videoSource = ProgressiveMediaSource.Factory(httpFactory)
-            .createMediaSource(MediaItem.fromUri(Uri.parse(videoUrl)))
+            .createMediaSource(videoItem)
         val mediaSource = if (!audioUrl.isNullOrBlank()) {
             val audioSource = ProgressiveMediaSource.Factory(httpFactory)
                 .createMediaSource(MediaItem.fromUri(Uri.parse(audioUrl)))
@@ -121,6 +162,19 @@ class PlaybackManager @Inject constructor(
         player.prepare()
         if (resumePosition > 0) player.seekTo(resumePosition)
         player.playWhenReady = true
+
+        // Spin up the MediaSessionService so Android shows the media card
+        // (notification + lock screen) with playback controls.
+        ensureMediaServiceStarted()
+    }
+
+    private fun ensureMediaServiceStarted() {
+        runCatching {
+            ContextCompat.startForegroundService(
+                context,
+                Intent(context, PlaybackService::class.java)
+            )
+        }
     }
 
     /** True when this exact stream URL is already prepared in the player. */

@@ -1,8 +1,8 @@
 package com.kvtube.android
 
 import com.kvtube.android.data.model.Subscription
+import com.kvtube.android.data.relativeRecencyMinutes
 import com.kvtube.android.data.repository.mergeSubs
-import com.kvtube.android.data.repository.relativeRecencyMinutes
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
