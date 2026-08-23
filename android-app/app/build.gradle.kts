@@ -15,8 +15,8 @@ android {
         applicationId = "com.kvtube.android"
         minSdk = 21
         targetSdk = 34
-        versionCode = 8
-        versionName = "1.5.1"
+        versionCode = 9
+        versionName = "1.5.2"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -45,6 +45,10 @@ android {
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
+        // Media3/NewPipe use java.time & co. (API 26+) — without desugaring
+        // any device below Android 8 crashes with NoClassDefFoundError as soon
+        // as the watch screen loads player classes.
+        isCoreLibraryDesugaringEnabled = true
     }
 
     kotlinOptions {
@@ -70,6 +74,9 @@ tasks.withType<Test>().configureEach {
 }
 
 dependencies {
+    // Core library desugaring (java.time & friends on API < 26)
+    coreLibraryDesugaring(libs.desugar.jdk.libs)
+
     // Core
     implementation(libs.core.ktx)
 

@@ -50,6 +50,12 @@ object NetworkModule {
             }
             install(Logging) {
                 level = LogLevel.BODY
+                // Session credentials must never reach logcat
+                sanitizeHeader { header ->
+                    header.equals("Cookie", ignoreCase = true) ||
+                        header.equals("Authorization", ignoreCase = true) ||
+                        header.equals("x-invidious-token", ignoreCase = true)
+                }
             }
             defaultRequest {
                 contentType(ContentType.Application.Json)

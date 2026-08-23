@@ -31,6 +31,14 @@ class SubscriptionRepository @Inject constructor(
         private const val PER_CHANNEL_DEPTH = 10
     }
 
+    /** Outcome of the last authenticated feed fetch — used to explain an
+     *  empty Subscriptions page to the user. */
+    enum class AuthFeedState { OK_WITH_ITEMS, OK_EMPTY, FAILED }
+
+    @Volatile
+    var lastAuthFeedState: AuthFeedState = AuthFeedState.FAILED
+        private set
+
     /** Cached aggregated local feed so paging doesn't refetch every channel. */
     private var localFeedCache: List<VideoData>? = null
 
@@ -48,12 +56,14 @@ class SubscriptionRepository @Inject constructor(
     suspend fun getFeed(offset: Int = 0, pageSize: Int = 24): List<VideoData> {
         val authFeed = bounded(20_000L) {
             api.getSubscriptionFeed(perChannel = PER_CHANNEL_DEPTH, channels = 30)
-        } ?: emptyList()
+        }
 
-        if (authFeed.isNotEmpty()) {
+        if (authFeed != null && authFeed.isNotEmpty()) {
+            lastAuthFeedState = AuthFeedState.OK_WITH_ITEMS
             localFeedCache = null
             return authFeed.drop(offset).take(pageSize)
         }
+        lastAuthFeedState = if (authFeed != null) AuthFeedState.OK_EMPTY else AuthFeedState.FAILED
 
         return getLocalAggregatedFeed(offset, pageSize)
     }

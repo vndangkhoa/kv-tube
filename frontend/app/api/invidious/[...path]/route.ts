@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { tokenWantsBearer } from '../../../services/invidiousToken';
 
 export const dynamic = 'force-dynamic';
 
@@ -71,16 +72,18 @@ async function handleProxy(req: NextRequest, pathParts: string[]) {
   if (customCookie) {
     headers['Cookie'] = customCookie;
   } else if (customToken) {
-    if (customToken.startsWith('{')) {
-      headers['Authorization'] = `Bearer ${customToken}`;
+    const t = customToken.trim();
+    if (tokenWantsBearer(t)) {
+      headers['Authorization'] = `Bearer ${t}`;
     } else {
-      headers['Cookie'] = `SID=${customToken}`;
+      headers['Cookie'] = `SID=${t}`;
     }
   } else if (defaultToken) {
-    if (defaultToken.startsWith('{')) {
-      headers['Authorization'] = `Bearer ${defaultToken}`;
+    const t = defaultToken.trim();
+    if (tokenWantsBearer(t)) {
+      headers['Authorization'] = `Bearer ${t}`;
     } else {
-      headers['Cookie'] = `SID=${defaultToken}`;
+      headers['Cookie'] = `SID=${t}`;
     }
   }
 

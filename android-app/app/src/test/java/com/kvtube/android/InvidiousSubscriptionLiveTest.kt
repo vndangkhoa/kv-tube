@@ -7,6 +7,7 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.Json
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Assume.assumeTrue
 import org.junit.Before
@@ -15,7 +16,7 @@ import org.junit.Test
 /**
  * Live test against a real Invidious instance. Verifies the exact flow the
  * Subscriptions screen uses: account channel list + merged notifications/videos
- * feed.
+ * feed + remote subscribe/unsubscribe round-trip.
  *
  * Credentials are NOT hardcoded. Provide them via system properties:
  *
@@ -29,6 +30,11 @@ import org.junit.Test
  * skipped, so plain `gradlew test` stays green.
  */
 class InvidiousSubscriptionLiveTest {
+
+    companion object {
+        /** Well-known disposable channel used for the write round-trip. */
+        private const val TEST_CHANNEL_ID = "UCX6OQ3DkcsbYNE6H8uQQuVA"
+    }
 
     private val url = System.getProperty("test.invidious.url").orEmpty().trim()
     private val token = System.getProperty("test.invidious.token").orEmpty().trim()
@@ -64,19 +70,22 @@ class InvidiousSubscriptionLiveTest {
     }
 
     @Test
-    fun `02 - token grants access to account subscriptions`() = runBlocking {
-        val subs = api.getSubscriptions()
-        assertTrue(
-            "auth/subscriptions returned no channels — check token validity",
-            subs.isNotEmpty()
+    fun `02 - token is accepted by the account endpoints`() = runBlocking {
+        assertEquals(
+            "token should authenticate against $url (check it is an SID cookie value or an Invidious token)",
+            KVApi.TokenCheck.VALID,
+            api.checkToken()
         )
-        println("subscribed channels: ${subs.size}, first: ${subs.first().channelName}")
+        val subs = api.getSubscriptions()
+        println("subscribed channels: ${subs.size}, first: ${subs.firstOrNull()?.channelName}")
         assertTrue(subs.all { it.channelId.isNotBlank() })
     }
 
     @Test
     fun `03 - feed merges notifications + videos and is newest-first`() = runBlocking {
-        val feed = api.getSubscriptionFeed()
+        assumeTrue("account has no subscriptions — nothing to feed", api.getSubscriptions().isNotEmpty())
+
+        val feed = api.getSubscriptionFeed() ?: throw AssertionError("auth/feed request failed")
         println("feed items: ${feed.size}")
         assertTrue("feed came back empty", feed.isNotEmpty())
 
@@ -93,13 +102,31 @@ class InvidiousSubscriptionLiveTest {
 
     @Test
     fun `04 - repository-level flow yields channels and videos`() = runBlocking {
-        // Exercises the same call sequence as SubscriptionRepository.getFeed:
-        // auth feed first; local aggregation only as fallback.
         val subs = api.getSubscriptions()
+        assumeTrue("account has no subscriptions — repository flow would fall back locally", subs.isNotEmpty())
+
         val feed = api.getSubscriptionFeed(perChannel = 10, channels = 30)
-        assertTrue(subs.isNotEmpty())
+            ?: throw AssertionError("auth/feed request failed")
         assertTrue(feed.isNotEmpty())
         println("channels=${subs.size} feed=${feed.size} firstVideo=${feed.firstOrNull()?.title}")
+    }
+
+    @Test
+    fun `05 - subscribe and unsubscribe round-trip syncs to the account`() = runBlocking {
+        assertTrue("subscribe request failed", api.subscribe(TEST_CHANNEL_ID, "RoundTrip Test", ""))
+        val afterSubscribe = api.getSubscriptions()
+        assertTrue(
+            "channel list should contain the test channel after subscribe",
+            afterSubscribe.any { it.channelId == TEST_CHANNEL_ID }
+        )
+
+        assertTrue("unsubscribe request failed", api.unsubscribe(TEST_CHANNEL_ID))
+        val afterUnsubscribe = api.getSubscriptions()
+        assertFalse(
+            "channel list should no longer contain the test channel after unsubscribe",
+            afterUnsubscribe.any { it.channelId == TEST_CHANNEL_ID }
+        )
+        println("round-trip ok (subs now: ${afterUnsubscribe.size})")
     }
 
     /** Mirrors data.relativeRecencyMinutes without widening its visibility. */

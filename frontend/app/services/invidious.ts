@@ -4,6 +4,8 @@
  * Full implementation covering all Invidious /api/v1 endpoints and data structures
  */
 
+import { tokenWantsBearer } from './invidiousToken';
+
 export interface InvidiousThumbnail {
   quality?: string;
   url: string;
@@ -319,11 +321,11 @@ export class InvidiousService {
       const trimmed = token.trim();
       if (isBrowser) {
         headers['x-invidious-token'] = trimmed;
-        if (trimmed.startsWith('{')) {
+        if (tokenWantsBearer(trimmed)) {
           headers['Authorization'] = `Bearer ${trimmed}`;
         }
       } else {
-        if (trimmed.startsWith('{')) {
+        if (tokenWantsBearer(trimmed)) {
           headers['Authorization'] = `Bearer ${trimmed}`;
         } else {
           headers['Cookie'] = `SID=${trimmed}`;
@@ -786,16 +788,20 @@ export class InvidiousService {
 
   // Push a single subscription to Invidious user account
   async pushSubscriptionToInvidious(channelId: string, customToken?: string): Promise<boolean> {
-    const token = customToken || this.getToken();
+    const token = (customToken || this.getToken())?.trim();
     if (!token) return false;
+    // Invidious fails hard (403) when the Bearer header cannot be decoded,
+    // even if a valid SID cookie is present too — send exactly one credential.
+    const headers: Record<string, string> = { 'Accept': 'application/json' };
+    if (tokenWantsBearer(token)) {
+      headers['Authorization'] = `Bearer ${token}`;
+    } else {
+      headers['Cookie'] = `SID=${token}`;
+    }
     try {
       const res = await fetch(`${this.instanceUrl}/api/v1/auth/subscriptions/${encodeURIComponent(channelId)}`, {
         method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Cookie': `SID=${token}`,
-          'Accept': 'application/json',
-        },
+        headers,
       });
       return res.ok;
     } catch {

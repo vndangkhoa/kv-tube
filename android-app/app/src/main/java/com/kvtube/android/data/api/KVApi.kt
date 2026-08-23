@@ -14,10 +14,7 @@ import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.request.parameter
 import io.ktor.client.request.post
-import io.ktor.client.request.setBody
 import io.ktor.client.statement.bodyAsText
-import io.ktor.http.ContentType
-import io.ktor.http.contentType
 import io.ktor.http.isSuccess
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
@@ -26,6 +23,8 @@ import kotlinx.serialization.json.booleanOrNull
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.longOrNull
+import kotlin.io.encoding.Base64
+import kotlin.io.encoding.ExperimentalEncodingApi
 
 /**
  * Invidious-direct API client.
@@ -41,6 +40,36 @@ class KVApi(
     companion object {
         private const val TAG = "KVApi"
         private const val DEFAULT_BASE_URL = "https://yt.khoavo.myds.me"
+
+        /**
+         * Invidious accepts two credentials on the /auth/ endpoints:
+         *  - `Authorization: Bearer <token>` where the token is a JSON payload
+         *    (raw, or base64/base64url encoded) containing a session id;
+         *  - a raw session id sent as `Cookie: SID=<sid>`.
+         *
+         * A Bearer header that the instance cannot decode makes it fail hard
+         * with 403 even when a valid SID cookie is present too — so exactly
+         * one of them may be sent. Tokens generated via Preferences → Tokens
+         * are base64-encoded JSON; SID cookie values are opaque strings.
+         */
+        @OptIn(ExperimentalEncodingApi::class)
+        internal fun usesBearerToken(rawToken: String): Boolean {
+            val token = rawToken.trim().removeSurrounding("\"")
+            if (token.startsWith("{")) return true
+
+            val compact = token.replace("-", "+").replace("_", "/")
+                .filterNot { it.isWhitespace() }
+                .trimEnd('=')
+            // 4 chars encode 3 bytes; re-pad so the decoder accepts unpadded input
+            val padded = compact + "=".repeat((4 - compact.length % 4) % 4)
+            if (padded.length < 16) return false
+            return try {
+                val decoded = Base64.decode(padded).toString(Charsets.UTF_8).trim()
+                decoded.startsWith("{") && decoded.contains("\"session\"")
+            } catch (e: Exception) {
+                false
+            }
+        }
     }
 
     @Volatile
@@ -71,7 +100,7 @@ class KVApi(
     private fun applyAuth(b: io.ktor.client.request.HttpRequestBuilder) {
         if (authToken.isBlank()) return
         b.header("x-invidious-token", authToken)
-        if (authToken.startsWith("{")) {
+        if (usesBearerToken(authToken)) {
             b.header("Authorization", "Bearer $authToken")
         } else {
             b.header("Cookie", "SID=$authToken")
@@ -418,16 +447,20 @@ class KVApi(
      * "videos" (with many subscriptions nearly everything arrives as a
      * notification), so both lists are merged, deduped and sorted
      * newest-first — otherwise the feed looks almost empty.
+     *
+     * Returns null when the request itself failed (network problem, timeout,
+     * or the instance rejected the credentials); an empty list means the
+     * instance answered but the account has no feed items.
      */
-    suspend fun getSubscriptionFeed(perChannel: Int = 5, channels: Int = 20, offset: Int = 0): List<VideoData> {
+    suspend fun getSubscriptionFeed(perChannel: Int = 5, channels: Int = 20, offset: Int = 0): List<VideoData>? {
         val maxResults = (perChannel * channels).coerceIn(10, 100)
         val body = getBody("auth/feed", mapOf("max_results" to maxResults.toString()), auth = true)
-            ?: return emptyList()
+            ?: return null
         val element = try {
             json.parseToJsonElement(body)
         } catch (e: Exception) {
             Log.e(TAG, "GET auth/feed parse error: ${e.message}")
-            return emptyList()
+            return null
         }
         return parseSubscriptionFeed(element)
             .distinctBy { it.str("videoId") }
@@ -436,12 +469,15 @@ class KVApi(
             .drop(offset)
     }
 
+    /**
+     * Remote subscribe: POST /auth/subscriptions/{channel_id} (204 on success).
+     * Invidious reads the channel from the URL path — a JSON body on the
+     * collection URL is rejected.
+     */
     suspend fun subscribe(channelId: String, channelName: String, channelAvatar: String): Boolean {
         return try {
-            client.post(api("auth/subscriptions")) {
+            client.post(api("auth/subscriptions/$channelId")) {
                 applyAuth(this)
-                contentType(ContentType.Application.Json)
-                setBody(mapOf("channel_id" to channelId))
             }.status.isSuccess()
         } catch (e: Exception) {
             Log.e(TAG, "subscribe error: ${e.message}")
@@ -463,6 +499,27 @@ class KVApi(
     suspend fun isSubscribed(channelId: String): Boolean {
         return getJsonArray("auth/subscriptions", auth = true)
             .any { it.str("authorId") == channelId }
+    }
+
+    /** Outcome of an authenticated request against the instance. */
+    enum class TokenCheck { VALID, REJECTED, UNREACHABLE }
+
+    /**
+     * Cheap authenticated probe (GET /auth/preferences, ~1 KB) used only when
+     * the subscriptions page came back empty, to tell an expired/invalid
+     * token apart from a server that is simply unreachable.
+     */
+    suspend fun checkToken(): TokenCheck {
+        return try {
+            val resp = client.get(api("auth/preferences")) { applyAuth(this) }
+            when {
+                resp.status.isSuccess() -> TokenCheck.VALID
+                resp.status.value == 401 || resp.status.value == 403 -> TokenCheck.REJECTED
+                else -> TokenCheck.UNREACHABLE
+            }
+        } catch (e: Exception) {
+            TokenCheck.UNREACHABLE
+        }
     }
 
     suspend fun checkServerStatus(): Boolean {

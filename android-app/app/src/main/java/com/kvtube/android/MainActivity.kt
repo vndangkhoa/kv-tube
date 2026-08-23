@@ -1,12 +1,15 @@
 package com.kvtube.android
 
+import android.Manifest
 import android.app.PictureInPictureParams
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.content.res.Configuration
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
@@ -73,9 +76,24 @@ class MainActivity : ComponentActivity() {
         _pipAudioUrl.value = audioUrl
     }
 
+    /** Asks once for the notification permission — without it Android 13+
+     *  silently hides the media card (notification + lock screen controls). */
+    private val notificationPermissionRequest = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { /* denied → the media card simply stays hidden */ }
+
+    private fun ensureNotificationPermission() {
+        if (android.os.Build.VERSION.SDK_INT >= 33 &&
+            checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+        ) {
+            notificationPermissionRequest.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        ensureNotificationPermission()
         window.decorView.setBackgroundColor(0xFF000000.toInt())
         setContent {
             val themeMode by settingsDataStore.themeMode.collectAsState(initial = "dark")

@@ -88,17 +88,20 @@ fun SubscriptionsScreen(
                         modifier = Modifier.padding(horizontal = 32.dp)
                     ) {
                         Text(
-                            text = "No subscriptions yet",
+                            text = uiState.error ?: "No subscriptions yet",
+                            textAlign = TextAlign.Center,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             fontWeight = FontWeight.Medium
                         )
-                        Spacer(modifier = Modifier.height(8.dp))
-                        Text(
-                            text = "Subscribe to channels from search or any video page — the latest uploads will appear here. Signing in with an Invidious token (Settings → Server & Account) also syncs your account's channel list.",
-                            textAlign = TextAlign.Center,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.outline
-                        )
+                        if (uiState.error == null) {
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text(
+                                text = "Subscribe to channels from search or any video page — the latest uploads will appear here. Signing in with an Invidious token (Settings → Server & Account) also syncs your account's channel list.",
+                                textAlign = TextAlign.Center,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.outline
+                            )
+                        }
                         Spacer(modifier = Modifier.height(16.dp))
                         OutlinedButton(
                             onClick = { viewModel.refresh() },

@@ -5,10 +5,69 @@ All notable changes to KV-Tube are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.2] - 2026-08-23
+
+### Fixed
+- **Android app: crash while watching videos** — the app advertised Android
+  5.0+ support but never enabled core-library desugaring. Media3 (ExoPlayer)
+  uses `java.time` & other API 26+ classes, so on any device below Android 8
+  the process died instantly (`NoClassDefFoundError`) the moment the watch
+  screen loaded player classes — typically right as playback or a quality
+  switch started. Core-library desugaring is now enabled
+  (`desugar_jdk_libs_nio`), making the player safe down to minSdk 21.
+- **Android app: Picture-in-Picture crashed devices below Android 8** — the
+  PiP button was shown unconditionally, but `PictureInPictureParams` is an
+  API 26+ class; tapping it killed the process. The button is now only
+  offered on API 26+.
+- **Android app: media card missing from notification shade / lock screen** —
+  `POST_NOTIFICATIONS` existed in the manifest but was never requested at
+  runtime, so Android 13+ silently suppressed the MediaSession notification.
+  The permission is now requested when the app starts; granting it restores
+  the media card with play/pause and seek controls.
+- **Quality switch hardening** — resuming position across a quality change
+  now uses ExoPlayer's positional `setMediaSource(source, positionMs)`
+  overload, so the resume seek is applied atomically with the new stream
+  instead of racing the re-prepare.
+
+### Changed
+- Android app version bumped to `1.5.2` (versionCode 9).
+
 ## [1.0.1] - 2026-08-23
 
+### Fixed
+- **Android app: Invidious subscriptions never showed** — three root causes,
+  all verified against a live instance:
+  - *Wrong auth credential type.* Tokens from Preferences → Tokens are
+    base64-encoded JSON and must be sent as `Authorization: Bearer`, while SID
+    cookie values must be sent as `Cookie: SID=…`. The old `startsWith("{")`
+    heuristic mis-classified standard tokens, and Invidious fails hard (403)
+    when an undecodable Bearer header is present even alongside a valid SID
+    cookie. The client now decodes the token to decide the correct single
+    credential (`KVApi.usesBearerToken`).
+  - *Remote subscribe was rejected.* The app POSTed a JSON body to
+    `/auth/subscriptions`; Invidious only accepts
+    `POST /auth/subscriptions/{channel_id}` (path parameter). Subscribes now
+    sync to the Invidious account correctly.
+  - *Silent empty state.* An expired token or unreachable server looked
+    identical to "no subscriptions". The feed fetch now distinguishes request
+    failure from a genuinely empty account, and the Subscriptions screen shows
+    a precise explanation (token rejected / server unreachable / account has
+    no subscriptions yet).
+- **Web frontend: same auth bugs** — the `/api/invidious` proxy route and
+  `pushSubscriptionToInvidious` (which sent Bearer **and** SID together)
+  shared the broken `{`-prefix heuristic; both now use the shared classifier
+  (`frontend/app/services/invidiousToken.ts`).
+- **Android app: session credentials leaked to logcat** — the Ktor logging
+  plugin at `BODY` level wrote `Cookie`/`Authorization` headers to logcat;
+  sensitive headers are now masked.
+
 ### Added
-- **Android TV keep-screen-on** — the TV app now holds `FLAG_KEEP_SCREEN_ON`
+- Android app: live subscription test suite extended with an authenticated
+  subscribe/unsubscribe round-trip (`InvidiousSubscriptionLiveTest`), plus a
+  pure unit test for token classification (`TokenAuthTest`).
+
+### Changed
+- Android TV keep-screen-on — the TV app now holds `FLAG_KEEP_SCREEN_ON`
   for its whole foreground lifetime, so the display stays on and the TV's
   sleep screen/screensaver never covers kv-tube while it is open. Normal
   sleep resumes as soon as the app is left.

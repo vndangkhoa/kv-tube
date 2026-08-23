@@ -35,7 +35,7 @@ class ApiLiveIntegrationTest {
         }
 
         api = KVApi(httpClient, json)
-        api.setServerUrl("https://ut.khoavo.myds.me")
+        api.setServerUrl("https://yt.khoavo.myds.me")
     }
 
     @After

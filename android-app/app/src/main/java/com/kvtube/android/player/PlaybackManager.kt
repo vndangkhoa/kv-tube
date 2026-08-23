@@ -158,9 +158,15 @@ class PlaybackManager @Inject constructor(
         }
 
         loadedKey = keyOfLoaded
-        player.setMediaSource(mediaSource)
+        // Positional overload: the resume seek is applied atomically with the
+        // new source, avoiding a post-prepare seekTo racing an in-flight
+        // quality switch.
+        if (resumePosition > 0) {
+            player.setMediaSource(mediaSource, resumePosition)
+        } else {
+            player.setMediaSource(mediaSource)
+        }
         player.prepare()
-        if (resumePosition > 0) player.seekTo(resumePosition)
         player.playWhenReady = true
 
         // Spin up the MediaSessionService so Android shows the media card

@@ -42,6 +42,25 @@ class SubscriptionsViewModel @Inject constructor(
         loadData()
     }
 
+    /**
+     * Explains an empty Subscriptions page: token rejected vs server
+     * unreachable vs a healthy account that simply has no subscriptions.
+     * The cheap /auth/preferences probe runs only in this dead-end case.
+     */
+    private suspend fun emptyStateMessage(): String {
+        if (subscriptionRepository.lastAuthFeedState != SubscriptionRepository.AuthFeedState.FAILED) {
+            return "Your Invidious account answered, but it has no subscriptions yet. Subscribe to channels or import them on the web — they will appear here."
+        }
+        return when (api.checkToken()) {
+            KVApi.TokenCheck.REJECTED ->
+                "Your Invidious token was rejected (expired or invalid). Update it in Settings → Server & Account."
+            KVApi.TokenCheck.UNREACHABLE ->
+                "Couldn't reach ${api.getServerUrl()} — check your connection and the server URL in Settings."
+            KVApi.TokenCheck.VALID ->
+                "Your Invidious account has no subscriptions yet. Subscribe to channels here or on the web — the latest uploads will appear in this feed."
+        }
+    }
+
     /** Appends the next page of the subscription feed ("Show more videos"). */
     fun loadMore() {
         val state = _uiState.value
@@ -99,7 +118,7 @@ class SubscriptionsViewModel @Inject constructor(
                 isLoading = false,
                 hasMore = feed.isNotEmpty(),
                 error = if (sortedSubs.isEmpty() && feed.isEmpty()) {
-                    "No subscriptions found"
+                    emptyStateMessage()
                 } else null
             )
 

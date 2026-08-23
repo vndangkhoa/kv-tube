@@ -127,6 +127,25 @@ fun WatchScreen(
         isFullscreen = false
     }
 
+    // Picture-in-Picture requires API 26 — on older devices even touching
+    // PictureInPictureParams kills the process (NoClassDefFoundError), so the
+    // button simply isn't offered below Android 8.
+    val pipAction: (() -> Unit)? =
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+            {
+                activity?.let { act ->
+                    (act as? com.kvtube.android.MainActivity)?.setPipVideo(
+                        videoUrl = uiState.selectedUrl.orEmpty(),
+                        audioUrl = uiState.audioUrl
+                    )
+                    val params = PictureInPictureParams.Builder()
+                        .setAspectRatio(Rational(16, 9))
+                        .build()
+                    act.enterPictureInPictureMode(params)
+                }
+            }
+        } else null
+
     if (uiState.isLoading) {
         LoadingSpinner(fullScreen = true)
         return
@@ -165,18 +184,7 @@ fun WatchScreen(
                         isFullscreen = true,
                         onFullscreenToggle = { isFullscreen = false },
                         onError = { viewModel.fallbackToIframe() },
-                        onEnterPip = {
-                            activity?.let { act ->
-                                (act as? com.kvtube.android.MainActivity)?.setPipVideo(
-                                    videoUrl = url,
-                                    audioUrl = uiState.audioUrl
-                                )
-                                val params = PictureInPictureParams.Builder()
-                                    .setAspectRatio(Rational(16, 9))
-                                    .build()
-                                act.enterPictureInPictureMode(params)
-                            }
-                        },
+                        onEnterPip = pipAction,
                         onBackClick = { isFullscreen = false },
                         modifier = Modifier.fillMaxSize()
                     )
@@ -203,18 +211,7 @@ fun WatchScreen(
                         isFullscreen = false,
                         onFullscreenToggle = { isFullscreen = true },
                         onError = { viewModel.fallbackToIframe() },
-                        onEnterPip = {
-                            activity?.let { act ->
-                                (act as? com.kvtube.android.MainActivity)?.setPipVideo(
-                                    videoUrl = url,
-                                    audioUrl = uiState.audioUrl
-                                )
-                                val params = PictureInPictureParams.Builder()
-                                    .setAspectRatio(Rational(16, 9))
-                                    .build()
-                                act.enterPictureInPictureMode(params)
-                            }
-                        },
+                        onEnterPip = pipAction,
                         onBackClick = { navController.popBackStack() },
                         modifier = Modifier.fillMaxWidth()
                     )
