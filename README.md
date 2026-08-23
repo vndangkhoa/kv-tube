@@ -424,6 +424,8 @@ networks:
 
 ### 🖥️ Synology NAS (DSM 7.2+) — Complete Setup Guide
 
+> 👶 **New to Synology/Docker?** Follow the simplified beginner guide instead: **[README-SYNOLOGY.md](README-SYNOLOGY.md)** — 6 easy steps, no terminal needed. *(Có bản tiếng Việt bên trong!)*
+
 This is the recommended way to run KV-Tube at home. Everything runs in Docker via **Container Manager**, no manual builds required.
 
 #### 📋 Requirements
@@ -850,6 +852,8 @@ Stack đầy đủ được định nghĩa trong [`docker-compose.yml`](docker-c
 ---
 
 ### 🖥️ Synology NAS (DSM 7.2+) — Hướng dẫn đầy đủ
+
+> 👶 **Mới dùng Synology/Docker?** Hãy theo dõi hướng dẫn đơn giản dành cho người mới: **[README-SYNOLOGY.md](README-SYNOLOGY.md)** — 6 bước dễ dàng, không cần terminal.
 
 Đây là cách khuyến nghị để chạy KV-Tube tại nhà. Mọi thứ chạy trong Docker thông qua **Container Manager**, không cần build thủ công.
 
