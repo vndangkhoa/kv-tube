@@ -58,12 +58,14 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.activity.compose.BackHandler
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavController
 import com.kvtube.android.data.model.Comment
+import com.kvtube.android.data.model.QualityTier
 import com.kvtube.android.data.model.VideoData
 import com.kvtube.android.ui.components.ChannelAvatar
 import com.kvtube.android.ui.components.DownloadBottomSheet
@@ -95,6 +97,11 @@ fun WatchScreen(
             controller.hide(WindowInsetsCompat.Type.systemBars())
             controller.systemBarsBehavior =
                 WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            // Draw under display cutouts/notches in landscape
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
+                window.attributes.layoutInDisplayCutoutMode =
+                    android.view.WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
+            }
             activity.requestedOrientation =
                 android.content.pm.ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
         } else {
@@ -102,14 +109,22 @@ fun WatchScreen(
             activity.requestedOrientation =
                 android.content.pm.ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
         }
+        // Let MainScreen know so it hides/shows its top & bottom chrome
+        viewModel.setPlayerFullscreen(isFullscreen)
     }
 
-    // Always restore orientation when leaving the watch page
+    // Always restore orientation + app chrome when leaving the watch page
     DisposableEffect(Unit) {
         onDispose {
+            viewModel.setPlayerFullscreen(false)
             activity?.requestedOrientation =
                 android.content.pm.ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
         }
+    }
+
+    // System back exits fullscreen first instead of leaving the watch page
+    BackHandler(enabled = isFullscreen) {
+        isFullscreen = false
     }
 
     if (uiState.isLoading) {

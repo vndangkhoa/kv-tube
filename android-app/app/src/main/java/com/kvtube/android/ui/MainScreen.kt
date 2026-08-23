@@ -76,7 +76,8 @@ import javax.inject.Inject
 /** Thin wrapper so composables can grab the singleton PlaybackManager. */
 @HiltViewModel
 class PlaybackViewModel @Inject constructor(
-    val playbackManager: PlaybackManager
+    val playbackManager: PlaybackManager,
+    val fullscreenController: FullscreenController
 ) : ViewModel()
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -98,6 +99,10 @@ fun MainScreen() {
     val playbackViewModel: PlaybackViewModel = hiltViewModel()
     val playbackManager = playbackViewModel.playbackManager
     val nowPlaying by playbackManager.nowPlaying.collectAsState()
+
+    // When the watch player goes fullscreen the whole scaffold chrome hides so
+    // the video fills the entire screen.
+    val isPlayerFullscreen by playbackViewModel.fullscreenController.isFullscreen.collectAsState()
 
     val showMiniPlayer = remember(nowPlaying, currentRoute) {
         nowPlaying != null &&
@@ -128,7 +133,8 @@ fun MainScreen() {
 
     Scaffold(
         topBar = {
-            Box(modifier = Modifier.animateContentSize()) {
+            if (!isPlayerFullscreen) {
+                Box(modifier = Modifier.animateContentSize()) {
                 if (isSearchActive) {
                     // Compact expanding search field — just enough space to type
                     TopAppBar(
@@ -234,39 +240,42 @@ fun MainScreen() {
                     )
                 }
                 // Shorts route: chromeless — no top bar, the video is full page (#6)
+                }
             }
         },
         bottomBar = {
-            Column {
-                // Mini player: keeps playing after leaving the watch page
-                AnimatedVisibility(
-                    visible = showMiniPlayer,
-                    enter = slideInVertically(initialOffsetY = { it }) + fadeIn(),
-                    exit = slideOutVertically(targetOffsetY = { it }) + fadeOut()
-                ) {
-                    nowPlaying?.let { np ->
-                        MiniPlayer(
-                            nowPlaying = np,
-                            player = playbackManager.player,
-                            onOpen = {
-                                navController.navigate(Screen.Watch.createRoute(np.videoId)) {
-                                    launchSingleTop = true
-                                }
-                            },
-                            onClose = { playbackManager.stopAndClear() }
-                        )
+            if (!isPlayerFullscreen) {
+                Column {
+                    // Mini player: keeps playing after leaving the watch page
+                    AnimatedVisibility(
+                        visible = showMiniPlayer,
+                        enter = slideInVertically(initialOffsetY = { it }) + fadeIn(),
+                        exit = slideOutVertically(targetOffsetY = { it }) + fadeOut()
+                    ) {
+                        nowPlaying?.let { np ->
+                            MiniPlayer(
+                                nowPlaying = np,
+                                player = playbackManager.player,
+                                onOpen = {
+                                    navController.navigate(Screen.Watch.createRoute(np.videoId)) {
+                                        launchSingleTop = true
+                                    }
+                                },
+                                onClose = { playbackManager.stopAndClear() }
+                            )
+                        }
                     }
-                }
 
-                BottomNavBar(
-                    navController = navController,
-                    activeDownloadsCount = activeDownloadsCount,
-                    onTabClick = {
-                        isSearchActive = false
-                        searchViewModel.onQueryChanged("")
-                        focusManager.clearFocus()
-                    }
-                )
+                    BottomNavBar(
+                        navController = navController,
+                        activeDownloadsCount = activeDownloadsCount,
+                        onTabClick = {
+                            isSearchActive = false
+                            searchViewModel.onQueryChanged("")
+                            focusManager.clearFocus()
+                        }
+                    )
+                }
             }
         },
         containerColor = MaterialTheme.colorScheme.background
@@ -274,7 +283,7 @@ fun MainScreen() {
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(innerPadding)
+                .then(if (isPlayerFullscreen) Modifier else Modifier.padding(innerPadding))
         ) {
             if (showFullResults) {
                 SearchResultsContent(

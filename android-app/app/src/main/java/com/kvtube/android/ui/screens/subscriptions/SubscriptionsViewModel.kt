@@ -38,10 +38,6 @@ class SubscriptionsViewModel @Inject constructor(
     private val _uiState = MutableStateFlow(SubscriptionsUiState())
     val uiState: StateFlow<SubscriptionsUiState> = _uiState.asStateFlow()
 
-    init {
-        loadData()
-    }
-
     fun refresh() {
         loadData()
     }
@@ -102,7 +98,9 @@ class SubscriptionsViewModel @Inject constructor(
                 feedVideos = feed,
                 isLoading = false,
                 hasMore = feed.isNotEmpty(),
-                error = if (sortedSubs.isEmpty() && feed.isEmpty()) "No subscriptions found" else null
+                error = if (sortedSubs.isEmpty() && feed.isEmpty()) {
+                    "No subscriptions found"
+                } else null
             )
 
             // Fetch avatars for first 20 visible channels only

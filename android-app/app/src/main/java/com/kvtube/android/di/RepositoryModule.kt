@@ -33,8 +33,11 @@ object RepositoryModule {
 
     @Provides
     @Singleton
-    fun provideSubscriptionRepository(api: KVApi): SubscriptionRepository {
-        return SubscriptionRepository(api)
+    fun provideSubscriptionRepository(
+        api: KVApi,
+        subscribedChannelDao: com.kvtube.android.data.local.SubscribedChannelDao
+    ): SubscriptionRepository {
+        return SubscriptionRepository(api, subscribedChannelDao)
     }
 
     @Provides

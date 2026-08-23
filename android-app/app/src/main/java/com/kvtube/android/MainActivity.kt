@@ -76,7 +76,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
-        window.decorView.setBackgroundColor(0xFFFF0000.toInt())
+        window.decorView.setBackgroundColor(0xFF000000.toInt())
         setContent {
             val themeMode by settingsDataStore.themeMode.collectAsState(initial = "dark")
             val isInPip by isInPipMode.collectAsState()

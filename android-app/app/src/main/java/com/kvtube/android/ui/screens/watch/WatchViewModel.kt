@@ -9,15 +9,17 @@ import com.kvtube.android.data.extractor.ExtractorHelper
 import com.kvtube.android.data.local.SettingsDataStore
 import com.kvtube.android.data.model.Comment
 import com.kvtube.android.data.model.DownloadProgress
-import com.kvtube.android.data.model.PlaybackFormat
 import com.kvtube.android.data.model.PlaybackInfo
 import com.kvtube.android.data.model.Quality
+import com.kvtube.android.data.model.QualityTier
+import com.kvtube.android.data.model.QualityTiers
 import com.kvtube.android.data.model.VideoData
 import com.kvtube.android.data.repository.DownloadRepository
 import com.kvtube.android.data.repository.HistoryRepository
 import com.kvtube.android.data.repository.SubscriptionRepository
 import com.kvtube.android.data.repository.VideoRepository
 import com.kvtube.android.player.PlaybackManager
+import com.kvtube.android.ui.FullscreenController
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -28,12 +30,6 @@ import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 /** YouTube-style quality tiers shown on the watch page. */
-enum class QualityTier(val label: String) {
-    AUTO("Auto"),
-    LOW("Low"),
-    MAXIMUM("Maximum")
-}
-
 data class WatchUiState(
     val video: VideoData? = null,
     val playbackInfo: PlaybackInfo? = null,
@@ -43,7 +39,7 @@ data class WatchUiState(
     val error: String? = null,
     val selectedUrl: String? = null,
     val audioUrl: String? = null,
-    val selectedTier: QualityTier = QualityTier.AUTO,
+    val selectedTier: QualityTier = QualityTiers.DEFAULT,
     /** Resolved resolution of the active stream, e.g. "1080p". */
     val selectedQualityLabel: String? = null,
     /** Resolved per-tier descriptions, e.g. "Auto • 720p". */
@@ -66,6 +62,7 @@ class WatchViewModel @Inject constructor(
     private val subscriptionRepository: SubscriptionRepository,
     private val settingsDataStore: SettingsDataStore,
     private val playbackManager: PlaybackManager,
+    private val fullscreenController: FullscreenController,
     private val extractorHelper: ExtractorHelper
 ) : ViewModel() {
 
@@ -80,6 +77,14 @@ class WatchViewModel @Inject constructor(
 
     /** Shared app-wide player so the watch page and mini player stay in sync. */
     val playbackManagerRef: PlaybackManager get() = playbackManager
+
+    /**
+     * Tells MainScreen to hide its chrome (top bar / bottom bar / padding)
+     * while the player is fullscreen so the video fills the whole display.
+     */
+    fun setPlayerFullscreen(active: Boolean) {
+        fullscreenController.setFullscreen(active)
+    }
 
     val activeDownloads: Flow<Map<String, DownloadProgress>> = downloadRepository.activeDownloads
 
@@ -100,25 +105,22 @@ class WatchViewModel @Inject constructor(
     }
 
     /**
-     * Applies a quality tier:
-     *  - Auto  → best combined (video+audio) progressive stream, falls back to
-     *            highest video-only stream merged with best audio.
-     *  - Low   → ~360p for data saving (audio always merged in).
-     *  - Maximum → highest resolution video-only stream merged with the best
-     *            audio track — like the webapp's custom player.
+     * Applies a quality tier (Low 360p / Mid 720p / High 1080p / Maximum).
+     * [QualityTiers.resolve] picks the stream and guarantees an audio track
+     * is merged in, so switching tiers never drops the sound. Switching
+     * quality of the same video keeps the playback position.
      */
     fun selectQualityTier(tier: QualityTier) {
-        val info = _uiState.value.playbackInfo ?: return
-        val target = pickFormatForTier(tier, info) ?: return
+        val resolved = QualityTiers.resolve(tier, _uiState.value.playbackInfo) ?: return
+        val (format, audioUrl) = resolved
 
-        val audioUrl = if (target.hasAudio) null else info.audioFormat?.url?.takeIf { it.isNotBlank() }
-        playbackManager.play(videoId, target.url, audioUrl)
+        playbackManager.play(videoId, format.url, audioUrl)
 
         _uiState.value = _uiState.value.copy(
-            selectedUrl = target.url,
+            selectedUrl = format.url,
             audioUrl = audioUrl,
             selectedTier = tier,
-            selectedQualityLabel = target.qualityLabel
+            selectedQualityLabel = format.qualityLabel
         )
     }
 
@@ -180,28 +182,10 @@ class WatchViewModel @Inject constructor(
 
     // --- internal ------------------------------------------------------------
 
-    private fun pickFormatForTier(tier: QualityTier, info: PlaybackInfo): PlaybackFormat? {
-        val all = info.videoFormats.filter { it.url.isNotBlank() }
-        if (all.isEmpty()) return null
-        val progressive = all.filter { it.hasAudio }.sortedByDescending { it.height }
-        val videoOnly = all.filter { !it.hasAudio }.sortedByDescending { it.height }
-
-        return when (tier) {
-            QualityTier.AUTO ->
-                progressive.firstOrNull() ?: videoOnly.firstOrNull()
-            QualityTier.LOW ->
-                progressive.lastOrNull { it.height <= 480 }
-                    ?: progressive.lastOrNull()
-                    ?: videoOnly.lastOrNull()
-            QualityTier.MAXIMUM ->
-                videoOnly.firstOrNull() ?: progressive.firstOrNull()
-        }
-    }
-
     private fun refreshTierDescriptions(info: PlaybackInfo?): Map<QualityTier, String> {
         info ?: return emptyMap()
         return QualityTier.entries.associateWith { tier ->
-            val format = pickFormatForTier(tier, info)
+            val format = QualityTiers.resolve(tier, info)?.first
             when {
                 format == null -> tier.label
                 format.height > 0 -> "${tier.label} • ${format.qualityLabel}"
@@ -219,16 +203,19 @@ class WatchViewModel @Inject constructor(
                 var videoUrl: String? = null
                 var audioUrl: String? = null
                 var playback: PlaybackInfo? = null
+                var extractedHeight = 0
 
                 try {
                     // Bounded: a blocked YouTube/server must not stall the
-                    // iframe fallback for long.
+                    // iframe fallback for long. RECOMMENDED caps at 1080p,
+                    // matching the default High tier.
                     val extracted = kotlinx.coroutines.withTimeoutOrNull(10_000L) {
-                        extractorHelper.extractStreamUrl(videoId, Quality.BEST)
+                        extractorHelper.extractStreamUrl(videoId, Quality.RECOMMENDED)
                     }
                     if (extracted != null && extracted.videoUrl.isNotBlank()) {
                         videoUrl = extracted.videoUrl
                         audioUrl = extracted.audioUrl
+                        extractedHeight = extracted.height
                         Log.d(TAG, "Fast on-device stream extraction succeeded for $videoId")
                     }
                 } catch (e: Exception) {
@@ -241,9 +228,12 @@ class WatchViewModel @Inject constructor(
                         runCatching { videoRepository.getPlaybackInfo(videoId) }.getOrNull()
                     }
                     if (playback != null && playback.videoFormats.isNotEmpty()) {
-                        val auto = pickFormatForTier(QualityTier.AUTO, playback)
-                        videoUrl = auto?.url
-                        audioUrl = if (auto?.hasAudio == true) null else playback.audioFormat?.url
+                        val resolved = QualityTiers.resolve(QualityTiers.DEFAULT, playback)
+                        if (resolved != null && resolved.first.url.isNotBlank()) {
+                            videoUrl = resolved.first.url
+                            audioUrl = resolved.second
+                            extractedHeight = resolved.first.height
+                        }
                     }
                 }
 
@@ -272,7 +262,8 @@ class WatchViewModel @Inject constructor(
                     isLoading = false,
                     selectedUrl = videoUrl,
                     audioUrl = audioUrl,
-                    selectedTier = QualityTier.AUTO,
+                    selectedTier = QualityTiers.DEFAULT,
+                    selectedQualityLabel = extractedHeight.takeIf { it > 0 }?.let { "${it}p" },
                     tierDescriptions = refreshTierDescriptions(playback),
                     serverBaseUrl = _uiState.value.serverBaseUrl
                 )
@@ -303,7 +294,10 @@ class WatchViewModel @Inject constructor(
                     }
                 }
                 // Populate the quality menu even when the fast NewPipe path
-                // produced the stream (server formats are richer).
+                // produced the stream (server formats are richer). If the
+                // currently playing stream doesn't match the selected tier,
+                // seamlessly switch (position is preserved) so the displayed
+                // quality is the one actually playing.
                 launch {
                     val info = kotlinx.coroutines.withTimeoutOrNull(4_000L) {
                         runCatching { videoRepository.getPlaybackInfo(videoId) }.getOrNull()
@@ -317,8 +311,21 @@ class WatchViewModel @Inject constructor(
                             playbackInfo = updatedInfo,
                             tierDescriptions = refreshTierDescriptions(updatedInfo),
                             selectedQualityLabel = current.selectedQualityLabel
-                                ?: pickFormatForTier(current.selectedTier, updatedInfo)?.qualityLabel
+                                ?: QualityTiers.resolve(current.selectedTier, updatedInfo)?.first?.qualityLabel
                         )
+
+                        if (!current.useIframeFallback) {
+                            QualityTiers.resolve(current.selectedTier, updatedInfo)?.let { (format, audioUrl) ->
+                                if (format.url.isNotBlank() && format.url != current.selectedUrl) {
+                                    playbackManager.play(videoId, format.url, audioUrl)
+                                    _uiState.value = _uiState.value.copy(
+                                        selectedUrl = format.url,
+                                        audioUrl = audioUrl,
+                                        selectedQualityLabel = format.qualityLabel
+                                    )
+                                }
+                            }
+                        }
                     }
                 }
                 launch {
