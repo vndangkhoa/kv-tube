@@ -314,7 +314,7 @@ private fun DownloadListItem(
             ) {
                 val thumbUrl = when {
                     video.thumbnail.startsWith("http") -> video.thumbnail
-                    video.videoId.isNotBlank() -> "https://i.ytimg.com/vi/${video.videoId}/mqdefault.jpg"
+                    video.videoId.isNotBlank() -> com.kvtube.android.data.local.ThumbnailRouter.video(video.videoId, "mqdefault")
                     else -> ""
                 }
 

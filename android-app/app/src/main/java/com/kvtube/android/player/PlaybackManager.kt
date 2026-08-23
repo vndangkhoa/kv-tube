@@ -14,6 +14,7 @@ import androidx.media3.exoplayer.source.MergingMediaSource
 import androidx.media3.exoplayer.source.ProgressiveMediaSource
 import android.net.Uri
 import dagger.hilt.android.qualifiers.ApplicationContext
+import com.kvtube.android.data.local.logToFile
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -82,6 +83,15 @@ class PlaybackManager @Inject constructor(
                         // expired URL, codec problems) so crashes-in-waiting
                         // are diagnosable from logcat.
                         Log.e(TAG, "Player error: ${error.errorCodeName}", error)
+                        logToFile(
+                            TAG,
+                            "player error ${error.errorCodeName} url=${currentMediaItem?.localConfiguration?.uri?.host}",
+                            error
+                        )
+                    }
+
+                    override fun onIsPlayingChanged(isPlaying: Boolean) {
+                        if (isPlaying) ensureMediaServiceStarted()
                     }
                 })
             }
@@ -92,6 +102,7 @@ class PlaybackManager @Inject constructor(
 
     private var loadedKey: String? = null
     private var lastSwitchAt: Long = 0L
+    private var mediaServiceRequested = false
 
     fun setMetadata(videoId: String, title: String, channelTitle: String, thumbnail: String) {
         val current = _nowPlaying.value
@@ -104,8 +115,11 @@ class PlaybackManager @Inject constructor(
             )
             loadedKey = null
             // Bring the MediaSessionService up as soon as a new video page
-            // opens (not just when the first frame plays) so the media card
-            // appears reliably.
+            // opens so the media card machinery is alive before playback
+            // events fire. Safe because PlaybackService.onCreate() calls
+            // startForeground() synchronously — it never depends on a later
+            // player event, so Android's start-foreground deadline can no
+            // longer expire (ForegroundServiceDidNotStartInTimeException).
             ensureMediaServiceStarted()
         } else {
             _nowPlaying.value = current.copy(title = title, channelTitle = channelTitle, thumbnail = thumbnail)
@@ -200,6 +214,7 @@ class PlaybackManager @Inject constructor(
 
             loadedKey = keyOfLoaded
             lastSwitchAt = now
+            logToFile(TAG, "play($videoId) stream host=${Uri.parse(videoUrl).host} audio=${audioUrl?.let { Uri.parse(it).host }}")
             // Positional overload: the resume seek is applied atomically with
             // the new source, avoiding a post-prepare seekTo racing an
             // in-flight quality switch.
@@ -210,10 +225,9 @@ class PlaybackManager @Inject constructor(
             }
             player.prepare()
             player.playWhenReady = true
-
-            // Spin up the MediaSessionService so Android shows the media card
-            // (notification + lock screen) with playback controls.
-            ensureMediaServiceStarted()
+            // No explicit service start here: setMetadata() already brought the
+            // service up at page open, and onIsPlayingChanged covers recovery
+            // if the system killed it in between.
         } catch (t: Throwable) {
             // A failed source switch must degrade gracefully (the player error
             // listener / UI retry path handles recovery), never crash.
@@ -222,12 +236,15 @@ class PlaybackManager @Inject constructor(
     }
 
     private fun ensureMediaServiceStarted() {
+        if (mediaServiceRequested) return
+        mediaServiceRequested = true
         try {
             ContextCompat.startForegroundService(
                 context,
                 Intent(context, PlaybackService::class.java)
             )
         } catch (t: Throwable) {
+            mediaServiceRequested = false
             // Background-start restrictions etc. — the card simply stays
             // hidden; playback is unaffected.
             Log.w(TAG, "Could not start PlaybackService: ${t.message}")
@@ -253,6 +270,7 @@ class PlaybackManager @Inject constructor(
         }
         loadedKey = null
         lastSwitchAt = 0L
+        mediaServiceRequested = false
         _nowPlaying.value = null
     }
 }

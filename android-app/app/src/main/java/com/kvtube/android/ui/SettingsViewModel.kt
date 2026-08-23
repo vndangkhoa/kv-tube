@@ -53,6 +53,7 @@ class SettingsViewModel @Inject constructor(
         viewModelScope.launch {
             settingsDataStore.setServerUrl(url)
             api.setServerUrl(url)
+            com.kvtube.android.data.local.ThumbnailRouter.setServer(url)
             _uiState.value = _uiState.value.copy(serverUrl = url)
         }
     }

@@ -199,7 +199,7 @@ class ExtractorHelper @Inject constructor(
                     channelId = extractor.uploaderUrl?.substringAfterLast("/") ?: "",
                     channelThumbnail = avatar,
                     thumbnail = extractor.thumbnails.maxByOrNull { it.height }?.url
-                        ?: "https://i.ytimg.com/vi/$videoId/hqdefault.jpg",
+                        ?: com.kvtube.android.data.local.ThumbnailRouter.video(videoId),
                     duration = formatSeconds(extractor.length),
                     viewCount = extractor.viewCount,
                     views = if (extractor.viewCount >= 0) formatViewCount(extractor.viewCount) else "",
@@ -232,7 +232,7 @@ class ExtractorHelper @Inject constructor(
                                 channelId = item.uploaderUrl?.substringAfterLast("/") ?: "",
                                 channelThumbnail = item.uploaderAvatars.maxByOrNull { it.height }?.url ?: "",
                                 thumbnail = item.thumbnails.maxByOrNull { it.height }?.url
-                                    ?: "https://i.ytimg.com/vi/$vid/hqdefault.jpg",
+                                    ?: com.kvtube.android.data.local.ThumbnailRouter.video(vid),
                                 duration = formatSeconds(item.duration),
                                 viewCount = item.viewCount,
                                 views = if (item.viewCount >= 0) formatViewCount(item.viewCount) else "",
@@ -293,7 +293,7 @@ class ExtractorHelper @Inject constructor(
                             channelTitle = item.uploaderName ?: "",
                             channelId = item.uploaderUrl?.substringAfterLast("/") ?: "",
                             thumbnail = item.thumbnails.maxByOrNull { it.height }?.url
-                                ?: "https://i.ytimg.com/vi/$vid/hqdefault.jpg",
+                                ?: com.kvtube.android.data.local.ThumbnailRouter.video(vid),
                             duration = formatSeconds(item.duration),
                             viewCount = item.viewCount,
                             views = if (item.viewCount >= 0) formatViewCount(item.viewCount) else "",
@@ -325,7 +325,7 @@ class ExtractorHelper @Inject constructor(
                             channelTitle = item.uploaderName ?: "",
                             channelId = item.uploaderUrl?.substringAfterLast("/") ?: "",
                             thumbnail = item.thumbnails.maxByOrNull { it.height }?.url
-                                ?: "https://i.ytimg.com/vi/$vid/hqdefault.jpg",
+                                ?: com.kvtube.android.data.local.ThumbnailRouter.video(vid),
                             duration = formatSeconds(item.duration),
                             viewCount = item.viewCount,
                             views = if (item.viewCount >= 0) formatViewCount(item.viewCount) else "",

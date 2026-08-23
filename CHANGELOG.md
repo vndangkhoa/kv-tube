@@ -5,6 +5,150 @@ All notable changes to KV-Tube are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.6.3] - 2026-08-23
+
+### Fixed
+- **Android app: Related videos missing on the watch page** — the related /
+  comments / history loaders lived inside the stream-resolution flow and were
+  skipped entirely whenever playback took the iframe-fallback path (common on
+  networks where Google endpoints are blocked). Enrichment now runs as an
+  independent coroutine launched at the start of `loadVideo()`: related
+  videos appear below every video regardless of which playback path wins,
+  with the trending fallback kept, and concurrent results are preserved
+  across state resets.
+- Android app version bumped to `1.6.3` (versionCode 21).
+
+## [1.6.7] - 2026-08-23
+
+### Changed
+- **Android app: strict Invidious-only playback** — by design, with zero
+  fallbacks:
+  * Watch flow resolves streams **only** from the user-configured Invidious
+    server (proxied via `local=true`). The NewPipe direct-YouTube path and the
+    YouTube-embed iframe fallback are gone from the loading flow; failures now
+    show a clear message with a Retry button instead of silently switching
+    sources.
+  * `VideoRepository` no longer falls back to on-device extraction for search,
+    home feed, trending, video info, related videos or comments — server
+    results only.
+  * Server URL is exactly what the user saved in Settings (no built-in
+    default host anywhere in the app).
+  * Faster taps: no more guaranteed NewPipe timeout burning ~10s before the
+    server is consulted.
+
+## [1.6.1] - 2026-08-23
+
+### Changed
+- **Android app: strict Invidious-only images** — every thumbnail in the app
+  (cards, mini player, downloads, search, subscriptions, notifications) is now
+  routed through the configured Invidious server (`/vi/{id}/...` proxy) via a
+  central `ThumbnailRouter`. Direct i.ytimg.com links returned by on-device
+  extraction are rewritten to the proxy; the app makes **zero** connections to
+  Google image hosts. The server URL is picked up at startup and whenever it
+  is changed in Settings.
+- Android app version bumped to `1.6.1` (versionCode 19).
+
+## [1.5.9] - 2026-08-23
+
+### Fixed
+- **Android app: missing thumbnails when the Invidious server is down** —
+  thumbnails now come from YouTube's own CDN (`i.ytimg.com`, derived from the
+  video id) with the server proxy demoted to fallback. Works on every screen
+  and keeps rendering through server outages.
+- **Android app: notification bell no longer hammers a failing server** —
+  background polling backs off (5 → 10 → 20 → 30 min) after consecutive empty
+  results instead of retrying at full rate during an outage.
+
+### Changed
+- **Compact Subscriptions page** — title row tightened, "Channels"/"Latest"
+  section labels removed, avatars shrunk to 34 dp with fixed-width name
+  labels: noticeably more feed above the fold.
+- Android app version bumped to `1.5.9` (versionCode 17).
+
+## [1.5.8] - 2026-08-23
+
+### Added
+- **Android app: subscription-updates bell next to the search bar** — a
+  notification icon with an unread badge showing how many new videos arrived
+  in your subscription feed since you last checked. Polls every 5 minutes
+  while the app is open; tapping it opens a panel with the newest uploads,
+  red **NEW** chips on unseen items, and direct playback / channel navigation.
+  The badge clears on open (last-seen timestamp persisted via DataStore).
+
+### Changed
+- Android app version bumped to `1.5.8` (versionCode 16).
+
+## [1.5.7] - 2026-08-23
+
+### Fixed
+- **Android app: spurious red error while searching** — fast typing / repeated
+  searches cancel the previous request; the `CancellationException`
+  ("…was cancelled") leaked into the UI as a red error banner instead of
+  being treated as normal flow control. It is now rethrown, and starting a
+  new search clears any stale error.
+- **Android app: loading GIF pinned to top-left** — `LoadingSpinner` ignored
+  its layout modifier in inline mode, so the search loading GIF rendered in
+  the corner. It now centers itself in whatever space it is given.
+- **Related videos now always present on every video** — recommendation
+  sources (server → on-device extractor) fall back to trending content when
+  they come up empty, the currently playing video is filtered out of the
+  list, and a transient failure no longer leaves the section blank.
+
+### Changed
+- Android app version bumped to `1.5.7` (versionCode 15).
+
+## [1.5.6] - 2026-08-23
+
+### Changed
+- **Android app: media card redesign** — the notification / lock-screen card
+  is now linked to the `MediaSession` compat token, unlocking the native media
+  treatment: seek bar, SystemUI-rendered rich template with artwork on
+  Android 13+, and themed controls on the lock screen. Custom white vector
+  action icons (rewind / play-pause / forward), accent-tinted gradient card on
+  older devices (`setColorized`), small icon reflects play state, and tapping
+  the card re-opens KV-Tube.
+- Android app version bumped to `1.5.6` (versionCode 14).
+
+## [1.5.5] - 2026-08-23
+
+### Fixed
+- **Android app: media card never appeared** (stuck on "Preparing playback…") —
+  media3's `DefaultMediaNotificationProvider` only starts painting after the
+  first `MediaController` connects to the service. On some devices (verified:
+  nubia NX769J / Android 16) no controller ever connects, so media3 never
+  posted its card even while playback was running. KV-Tube now renders the
+  media card itself — title, channel, artwork, play/pause and ±10s actions,
+  attached to the `MediaSession` so Android's lock-screen / quick-settings
+  media controls work — driven by its own player listeners which are
+  guaranteed registered before any playback event fires. Artwork loads
+  asynchronously and repaints the card when ready.
+
+### Changed
+- Android app version bumped to `1.5.5` (versionCode 13).
+
+## [1.5.4] - 2026-08-23
+
+### Fixed
+- **Android app: app killed ~10s after opening a video** (`ForegroundServiceDidNotStartInTimeException`) —
+  a `MediaSessionService` only promotes itself to the foreground when one of
+  its internally-registered listeners observes a playback transition. Two
+  timing holes both hit that deadline and killed the whole process (verified
+  via device crash logs on Android 16):
+  * v1.5.3 started `PlaybackService` at page open, but stream resolution +
+    buffering regularly took longer than Android's ~10s start-foreground
+    deadline — worst on slow networks or a slow Invidious server.
+  * Starting the service exactly when playback began raced worse: the service
+    was created *after* ExoPlayer's buffering→ready events had already fired,
+    media3's notification manager never saw a transition, and never promoted.
+- **The fix**: `PlaybackService.onCreate()` now discharges the foreground
+  obligation itself, synchronously, with a minimal silent notification that is
+  retired once real playback flows. The start→foreground gap is now zero no
+  matter what the player or network does; media3's rich media card still takes
+  over during playback as before.
+
+### Changed
+- Android app version bumped to `1.5.4` (versionCode 12).
+
 ## [1.5.3] - 2026-08-23
 
 ### Fixed

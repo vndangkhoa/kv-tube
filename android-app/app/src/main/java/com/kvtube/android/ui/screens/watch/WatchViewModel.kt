@@ -7,6 +7,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.kvtube.android.data.extractor.ExtractorHelper
 import com.kvtube.android.data.local.SettingsDataStore
+import com.kvtube.android.data.local.logToFile
 import com.kvtube.android.data.model.Comment
 import com.kvtube.android.data.model.DownloadProgress
 import com.kvtube.android.data.model.PlaybackInfo
@@ -124,16 +125,17 @@ class WatchViewModel @Inject constructor(
         )
     }
 
-    /** Called when ExoPlayer fails mid-playback: switch to the YouTube embed. */
+    /** Called when ExoPlayer fails mid-playback. Strict Invidious-only: no
+     *  iframe fallback — surface the failure and let the user retry. */
     fun fallbackToIframe() {
-        if (!_uiState.value.useIframeFallback) {
-            playbackManager.stopAndClear()
-            _uiState.value = _uiState.value.copy(
-                useIframeFallback = true,
-                error = "Playback error — switched to embedded player"
-            )
-        }
+        logToFile(TAG, "player failed mid-playback for $videoId — surfacing error (strict server mode)")
+        _uiState.value = _uiState.value.copy(
+            error = "Playback failed. The stream from your Invidious server could not be played."
+        )
     }
+
+    /** Re-runs the whole load (used by the Retry button on the watch page). */
+    fun retry() = loadVideo()
 
     fun startDownload(
         context: Context,
@@ -196,60 +198,47 @@ class WatchViewModel @Inject constructor(
 
     private fun loadVideo() {
         viewModelScope.launch {
+            // Related videos / comments / history load INDEPENDENTLY of the
+            // playback path: they must appear even when the stream comes from
+            // NewPipe, the server, or the iframe fallback (which returns
+            // early — previously related stayed empty in that case).
+            loadEnrichment()
             try {
                 _uiState.value = _uiState.value.copy(isLoading = true)
 
-                // 1. Fast path: extract stream URL on-device using NewPipe (~300-600ms, completely immune to server delays)
+                // 1. PRIMARY AND ONLY: the user-configured Invidious server.
+                // Streams are proxied through it (local=true) — the app makes
+                // ZERO direct connections to YouTube/Google. No fallbacks: if
+                // the server cannot serve a stream we say so plainly.
                 var videoUrl: String? = null
                 var audioUrl: String? = null
                 var playback: PlaybackInfo? = null
                 var extractedHeight = 0
 
-                try {
-                    // Bounded: a blocked YouTube/server must not stall the
-                    // iframe fallback for long. Capped at 720p — a combined
-                    // H264 stream every device decodes in hardware (see
-                    // QualityTiers.DEFAULT). Higher tiers remain selectable.
-                    val extracted = kotlinx.coroutines.withTimeoutOrNull(10_000L) {
-                        extractorHelper.extractStreamUrl(
-                            videoId,
-                            Quality.RECOMMENDED,
-                            maxHeightOverride = QualityTiers.maxHeightOf(QualityTiers.DEFAULT)
+                val serverStarted = android.os.SystemClock.elapsedRealtime()
+                playback = kotlinx.coroutines.withTimeoutOrNull(12_000L) {
+                    runCatching { videoRepository.getPlaybackInfo(videoId) }.getOrNull()
+                }
+                if (playback != null && playback.videoFormats.isNotEmpty()) {
+                    val resolved = QualityTiers.resolve(QualityTiers.DEFAULT, playback)
+                    if (resolved != null && resolved.first.url.isNotBlank()) {
+                        videoUrl = resolved.first.url
+                        audioUrl = resolved.second
+                        extractedHeight = resolved.first.height
+                        logToFile(
+                            TAG,
+                            "stream via server in ${android.os.SystemClock.elapsedRealtime() - serverStarted}ms for $videoId"
                         )
                     }
-                    if (extracted != null && extracted.videoUrl.isNotBlank()) {
-                        videoUrl = extracted.videoUrl
-                        audioUrl = extracted.audioUrl
-                        extractedHeight = extracted.height
-                        Log.d(TAG, "Fast on-device stream extraction succeeded for $videoId")
-                    }
-                } catch (e: Exception) {
-                    Log.w(TAG, "On-device stream extraction failed, falling back to server: ${e.message}")
-                }
-
-                // 2. Fallback path: server playback-info with bounded 2.5s timeout
-                if (videoUrl.isNullOrBlank()) {
-                    playback = kotlinx.coroutines.withTimeoutOrNull(2500L) {
-                        runCatching { videoRepository.getPlaybackInfo(videoId) }.getOrNull()
-                    }
-                    if (playback != null && playback.videoFormats.isNotEmpty()) {
-                        val resolved = QualityTiers.resolve(QualityTiers.DEFAULT, playback)
-                        if (resolved != null && resolved.first.url.isNotBlank()) {
-                            videoUrl = resolved.first.url
-                            audioUrl = resolved.second
-                            extractedHeight = resolved.first.height
-                        }
-                    }
                 }
 
                 if (videoUrl.isNullOrBlank()) {
-                    // No stream could be extracted (NewPipe + server both
-                    // failed/blocked) -> fall back to the YouTube embed iframe
-                    // so the video still plays.
+                    // Strict Invidious-only mode: no NewPipe, no iframe. Tell
+                    // the user plainly and offer retry.
+                    logToFile(TAG, "server returned no playable stream for $videoId")
                     _uiState.value = _uiState.value.copy(
                         isLoading = false,
-                        useIframeFallback = true,
-                        error = "Direct playback unavailable — using embedded player"
+                        error = "Your Invidious server did not return a playable stream for this video."
                     )
                     return@launch
                 }
@@ -270,7 +259,11 @@ class WatchViewModel @Inject constructor(
                     selectedTier = QualityTiers.DEFAULT,
                     selectedQualityLabel = extractedHeight.takeIf { it > 0 }?.let { "${it}p" },
                     tierDescriptions = refreshTierDescriptions(playback),
-                    serverBaseUrl = _uiState.value.serverBaseUrl
+                    serverBaseUrl = _uiState.value.serverBaseUrl,
+                    // Preserve anything the independent enrichment coroutines
+                    // already delivered while streams were resolving.
+                    relatedVideos = _uiState.value.relatedVideos,
+                    comments = _uiState.value.comments
                 )
 
                 // Background enrichment (info, related, comments, history, quality list)
@@ -333,26 +326,50 @@ class WatchViewModel @Inject constructor(
                         }
                     }
                 }
-                launch {
-                    val related = runCatching { videoRepository.getRelatedVideos(videoId) }
-                        .getOrNull() ?: emptyList()
-                    _uiState.value = _uiState.value.copy(relatedVideos = related)
-                }
-                launch {
-                    val comments = runCatching { videoRepository.getComments(videoId) }
-                        .getOrNull() ?: emptyList()
-                    _uiState.value = _uiState.value.copy(comments = comments)
-                }
-                launch {
-                    historyRepository.record(videoId = videoId)
-                }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                // Leaving the page / reloading cancels this job — normal flow,
+                // not an error.
+                throw e
             } catch (e: Exception) {
                 Log.e(TAG, "Error loading watch video: ${e.message}", e)
+                logToFile(TAG, "loadVideo($videoId) failed", e)
                 _uiState.value = _uiState.value.copy(
                     isLoading = false,
                     error = e.message ?: "Failed to load video"
                 )
             }
+        }
+    }
+
+    /**
+     * Loads everything that is NOT the video stream: related videos,
+     * comments, history. Runs independently of playback resolution so the
+     * related section is always populated — even when playback ends up on
+     * the iframe fallback path (which returns early from loadVideo).
+     */
+    private fun loadEnrichment() {
+        viewModelScope.launch {
+            // Related videos must ALWAYS be present: if the per-video
+            // recommendation sources fail or come up empty, fall back to
+            // trending so the section is never blank.
+            var related = runCatching { videoRepository.getRelatedVideos(videoId) }
+                .getOrNull().orEmpty()
+            if (related.isEmpty()) {
+                related = runCatching { videoRepository.getTrending(15) }
+                    .getOrNull().orEmpty()
+            }
+            val filtered = related.filter { it.id != videoId && it.id.isNotBlank() }
+            if (filtered.isNotEmpty()) {
+                _uiState.value = _uiState.value.copy(relatedVideos = filtered)
+            }
+
+            val comments = runCatching { videoRepository.getComments(videoId) }
+                .getOrNull().orEmpty()
+            if (comments.isNotEmpty()) {
+                _uiState.value = _uiState.value.copy(comments = comments)
+            }
+
+            runCatching { historyRepository.record(videoId = videoId) }
         }
     }
 }

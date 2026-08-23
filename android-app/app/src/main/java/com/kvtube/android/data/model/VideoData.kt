@@ -48,8 +48,13 @@ data class VideoData(
 
     val displayThumbnail: String
         get() = when {
-            thumbnail.startsWith("http") -> thumbnail
-            id.isNotBlank() -> "https://i.ytimg.com/vi/$id/hqdefault.jpg"
+            // EVERYTHING routes through the Invidious server — including
+            // rewriting any direct i.ytimg.com links that come back from
+            // extractors, so no connection to Google hosts is ever made.
+            thumbnail.startsWith("http") ->
+                com.kvtube.android.data.local.ThumbnailRouter.route(thumbnail, id)
+                    .ifBlank { com.kvtube.android.data.local.ThumbnailRouter.video(id) }
+            id.isNotBlank() -> com.kvtube.android.data.local.ThumbnailRouter.video(id)
             else -> ""
         }
 

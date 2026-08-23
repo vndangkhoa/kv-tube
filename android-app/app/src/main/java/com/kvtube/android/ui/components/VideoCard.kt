@@ -31,6 +31,21 @@ import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
 import com.kvtube.android.data.model.VideoData
 
+/** Thumbnail — the URL is already Invidious-proxied upstream (see
+ *  VideoData.displayThumbnail); nothing here ever touches Google hosts. */
+@Composable
+private fun VideoThumb(
+    video: VideoData,
+    modifier: Modifier
+) {
+    AsyncImage(
+        model = video.displayThumbnail,
+        contentDescription = video.title,
+        modifier = modifier,
+        contentScale = ContentScale.Crop
+    )
+}
+
 @Composable
 fun VideoCard(
     video: VideoData,
@@ -54,11 +69,9 @@ fun VideoCard(
                 .aspectRatio(16f / 9f)
                 .clip(RoundedCornerShape(12.dp))
         ) {
-            AsyncImage(
-                model = video.displayThumbnail,
-                contentDescription = video.title,
-                modifier = Modifier.fillMaxWidth(),
-                contentScale = ContentScale.Crop
+            VideoThumb(
+                video = video,
+                modifier = Modifier.fillMaxWidth()
             )
 
             if (video.duration.isNotBlank()) {

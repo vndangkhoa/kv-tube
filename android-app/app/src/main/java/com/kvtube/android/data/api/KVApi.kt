@@ -39,7 +39,8 @@ class KVApi(
 ) {
     companion object {
         private const val TAG = "KVApi"
-        private const val DEFAULT_BASE_URL = "https://yt.khoavo.myds.me"
+        /** Set exclusively from user input (Settings). Empty = not configured. */
+        private const val DEFAULT_BASE_URL = ""
 
         /**
          * Invidious accepts two credentials on the /auth/ endpoints:
@@ -88,8 +89,8 @@ class KVApi(
     fun setServerUrl(url: String) {
         val clean = url.trim().removeSuffix("/")
         if (clean != baseUrl) gatewayMode = null
-        baseUrl = if (clean.isNotEmpty()) clean else DEFAULT_BASE_URL
-        Log.d(TAG, "Server URL set to: $baseUrl")
+        baseUrl = clean
+        Log.d(TAG, "Server URL set to: ${if (baseUrl.isBlank()) "<not configured>" else baseUrl}")
     }
 
     fun setToken(token: String) {
@@ -246,7 +247,7 @@ class KVApi(
             viewCount = num("viewCount"),
             published = str("publishedText"),
             uploadedAt = str("publishedText"),
-            thumbnail = if (id.isNotBlank()) "https://i.ytimg.com/vi/$id/hqdefault.jpg" else "",
+            thumbnail = com.kvtube.android.data.local.ThumbnailRouter.video(id),
             uploader = str("author"),
             uploaderId = str("authorId"),
             channelId = str("authorId"),
@@ -305,13 +306,29 @@ class KVApi(
      *  - highest-bitrate audio/mp4 becomes audio_format
      */
     suspend fun getPlaybackInfo(videoId: String, audio: String = "opus"): PlaybackInfo {
-        val o = getObject("videos/$videoId") ?: return PlaybackInfo()
+        // local=true → Invidious rewrites stream URLs to itself
+        // (/latest_version?...), so video+audio bytes are proxied through the
+        // user's server instead of connecting to googlevideo.com directly.
+        val o = getObject("videos/$videoId?local=true") ?: return PlaybackInfo()
 
         fun heightOf(vararg labels: String): Int {
             for (label in labels) {
                 Regex("(\\d+)p").find(label)?.groupValues?.get(1)?.toIntOrNull()?.let { return it }
             }
             return 0
+        }
+
+        // With local=true Invidious may return RELATIVE proxy paths like
+        // "/latest_version?id=...". Prefix them with the server base so the
+        // player gets an absolute URL — otherwise ExoPlayer fails instantly
+        // with ERROR_CODE_IO_NETWORK_CONNECTION_FAILED ("Source error").
+        fun JsonObject.absoluteStreamUrl(): String {
+            val raw = str("url")
+            return when {
+                raw.startsWith("http://") || raw.startsWith("https://") -> raw
+                raw.startsWith("/") && baseUrl.isNotBlank() -> baseUrl + raw
+                else -> raw
+            }
         }
 
         fun JsonObject.format(hasAudio: Boolean): PlaybackFormat = PlaybackFormat(
@@ -323,7 +340,7 @@ class KVApi(
             ext = str("type").substringAfter('/').substringBefore(';'),
             bandwidth = num("bitrate").toInt(),
             filesize = num("filesize", "clen"),
-            url = str("url"),
+            url = absoluteStreamUrl(),
             hasAudio = hasAudio
         )
 
@@ -351,7 +368,7 @@ class KVApi(
                     filesize = f.num("filesize", "clen"),
                     acodec = f.str("type").substringAfter("codecs=").trim('"', ' ', ';'),
                     ext = f.str("type").substringAfter('/').substringBefore(';'),
-                    url = f.str("url"),
+                    url = f.absoluteStreamUrl(),
                     hasAudio = true
                 )
             }

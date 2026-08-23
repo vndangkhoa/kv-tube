@@ -78,7 +78,7 @@ class SearchViewModel @Inject constructor(
     private suspend fun searchInternal(query: String) {
         if (query.isBlank()) return
         try {
-            _uiState.value = _uiState.value.copy(isLoading = true, hasSearched = true)
+            _uiState.value = _uiState.value.copy(isLoading = true, hasSearched = true, error = null)
             val region = settingsDataStore.region.first()
             val results = videoRepository.search(query, 30, region)
             _uiState.value = _uiState.value.copy(
@@ -86,6 +86,10 @@ class SearchViewModel @Inject constructor(
                 isLoading = false,
                 error = null
             )
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            // Typing fast / re-searching cancels the previous request — that is
+            // normal flow control, never an error worth showing in red.
+            throw e
         } catch (e: Exception) {
             _uiState.value = _uiState.value.copy(
                 isLoading = false,

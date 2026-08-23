@@ -33,6 +33,11 @@ fun LoadingSpinner(
             content()
         }
     } else {
-        content()
+        Box(
+            modifier = modifier,
+            contentAlignment = Alignment.Center
+        ) {
+            content()
+        }
     }
 }

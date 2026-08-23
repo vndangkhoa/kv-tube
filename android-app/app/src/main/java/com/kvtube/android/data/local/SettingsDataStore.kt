@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -23,14 +24,18 @@ class SettingsDataStore @Inject constructor(
         val INVIDIOUS_TOKEN = stringPreferencesKey("invidious_token")
         val THEME_MODE = stringPreferencesKey("theme_mode")
         val REGION = stringPreferencesKey("region")
+        val LAST_SUB_SEEN = longPreferencesKey("last_subscription_seen_ms")
 
-        const val DEFAULT_SERVER_URL = "https://yt.khoavo.myds.me"
+        // No hardcoded host: the app only ever talks to the server the user
+        // enters in Settings. Empty means "not configured yet".
+        const val DEFAULT_SERVER_URL = ""
         const val DEFAULT_THEME_MODE = "dark"
         const val DEFAULT_REGION = "GLOBAL"
     }
 
+    /** Exactly what the user saved — never silently replaced by a default. */
     val serverUrl: Flow<String> = context.dataStore.data.map { preferences ->
-        preferences[SERVER_URL]?.trim()?.removeSuffix("/")?.ifEmpty { DEFAULT_SERVER_URL } ?: DEFAULT_SERVER_URL
+        preferences[SERVER_URL]?.trim()?.removeSuffix("/") ?: ""
     }
 
     val invidiousToken: Flow<String> = context.dataStore.data.map { preferences ->
@@ -54,7 +59,7 @@ class SettingsDataStore @Inject constructor(
     suspend fun setServerUrl(url: String) {
         val cleanUrl = url.trim().removeSuffix("/")
         context.dataStore.edit { preferences ->
-            preferences[SERVER_URL] = cleanUrl.ifEmpty { DEFAULT_SERVER_URL }
+            preferences[SERVER_URL] = cleanUrl
         }
     }
 
@@ -67,6 +72,17 @@ class SettingsDataStore @Inject constructor(
     suspend fun setRegion(region: String) {
         context.dataStore.edit { preferences ->
             preferences[REGION] = region
+        }
+    }
+
+    /** When the user last looked at the subscription "new videos" panel. */
+    val lastSubscriptionSeenMillis: Flow<Long> = context.dataStore.data.map { preferences ->
+        preferences[LAST_SUB_SEEN] ?: 0L
+    }
+
+    suspend fun setLastSubscriptionSeenMillis(millis: Long) {
+        context.dataStore.edit { preferences ->
+            preferences[LAST_SUB_SEEN] = millis
         }
     }
 }

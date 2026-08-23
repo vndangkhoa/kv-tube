@@ -8,6 +8,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -29,7 +30,10 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material3.Badge
+import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -68,6 +72,8 @@ import com.kvtube.android.ui.navigation.BottomNavBar
 import com.kvtube.android.ui.navigation.NavGraph
 import com.kvtube.android.ui.navigation.Screen
 import com.kvtube.android.player.PlaybackManager
+import com.kvtube.android.ui.notifications.NotificationsUiState
+import com.kvtube.android.ui.notifications.NotificationsViewModel
 import com.kvtube.android.ui.screens.search.SearchViewModel
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.delay
@@ -100,6 +106,14 @@ fun MainScreen() {
     val playbackManager = playbackViewModel.playbackManager
     val nowPlaying by playbackManager.nowPlaying.collectAsState()
 
+    // Subscription updates: bell next to search + slide-in panel
+    val notifViewModel: NotificationsViewModel = hiltViewModel()
+    val notifUiState by notifViewModel.uiState.collectAsState()
+    var isNotificationsOpen by remember { mutableStateOf(false) }
+    // Snapshot of unseen ids captured when the panel opens — the badge clears
+    // immediately but the red "NEW" chips stay for the videos you came to see.
+    var highlightNewIds by remember { mutableStateOf(setOf<String>()) }
+
     // When the watch player goes fullscreen the whole scaffold chrome hides so
     // the video fills the entire screen.
     val isPlayerFullscreen by playbackViewModel.fullscreenController.isFullscreen.collectAsState()
@@ -129,6 +143,10 @@ fun MainScreen() {
         } else {
             isSearchActive = false
         }
+    }
+
+    BackHandler(enabled = isNotificationsOpen) {
+        isNotificationsOpen = false
     }
 
     Scaffold(
@@ -224,7 +242,32 @@ fun MainScreen() {
                             }
                         },
                         actions = {
+                            // Subscription updates: badge shows how many feed
+                            // videos arrived since the panel was last opened.
                             IconButton(onClick = {
+                                isNotificationsOpen = true
+                                isSearchActive = false
+                                focusManager.clearFocus()
+                                highlightNewIds = notifUiState.unseenIds
+                                notifViewModel.markAllSeen()
+                                notifViewModel.refresh()
+                            }) {
+                                BadgedBox(badge = {
+                                    val unseen = notifUiState.unseenIds.size
+                                    if (unseen > 0) {
+                                        Badge {
+                                            Text(if (unseen > 99) "99+" else unseen.toString())
+                                        }
+                                    }
+                                }) {
+                                    Icon(
+                                        imageVector = Icons.Filled.Notifications,
+                                        contentDescription = "New subscription videos"
+                                    )
+                                }
+                            }
+                            IconButton(onClick = {
+                                isNotificationsOpen = false
                                 isSearchActive = true
                             }) {
                                 Icon(
@@ -285,28 +328,46 @@ fun MainScreen() {
                 .fillMaxSize()
                 .then(if (isPlayerFullscreen) Modifier else Modifier.padding(innerPadding))
         ) {
-            if (showFullResults) {
-                SearchResultsContent(
-                    uiState = searchUiState,
-                    onVideoClick = { videoId ->
-                        isSearchActive = false
-                        searchViewModel.onQueryChanged("")
-                        navController.navigate(Screen.Watch.createRoute(videoId))
-                    },
-                    onChannelClick = { channelId ->
-                        isSearchActive = false
-                        searchViewModel.onQueryChanged("")
-                        navController.navigate(Screen.Channel.createRoute(channelId))
-                    }
-                )
-            } else {
-                NavGraph(
-                    navController = navController,
-                    onOpenSearch = {
-                        isSearchActive = true
-                        searchViewModel.onQueryChanged("")
-                    }
-                )
+            when {
+                showFullResults -> {
+                    SearchResultsContent(
+                        uiState = searchUiState,
+                        onVideoClick = { videoId ->
+                            isSearchActive = false
+                            searchViewModel.onQueryChanged("")
+                            navController.navigate(Screen.Watch.createRoute(videoId))
+                        },
+                        onChannelClick = { channelId ->
+                            isSearchActive = false
+                            searchViewModel.onQueryChanged("")
+                            navController.navigate(Screen.Channel.createRoute(channelId))
+                        }
+                    )
+                }
+                isNotificationsOpen -> {
+                    NotificationsPanel(
+                        uiState = notifUiState,
+                        highlightIds = highlightNewIds,
+                        onClose = { isNotificationsOpen = false },
+                        onVideoClick = { videoId ->
+                            isNotificationsOpen = false
+                            navController.navigate(Screen.Watch.createRoute(videoId))
+                        },
+                        onChannelClick = { channelId ->
+                            isNotificationsOpen = false
+                            navController.navigate(Screen.Channel.createRoute(channelId))
+                        }
+                    )
+                }
+                else -> {
+                    NavGraph(
+                        navController = navController,
+                        onOpenSearch = {
+                            isSearchActive = true
+                            searchViewModel.onQueryChanged("")
+                        }
+                    )
+                }
             }
         }
     }
@@ -329,7 +390,7 @@ private fun SearchResultsContent(
 ) {
     when {
         uiState.isLoading -> {
-            LoadingSpinner(modifier = Modifier.fillMaxSize())
+            LoadingSpinner(modifier = Modifier.fillMaxSize(), fullScreen = true)
         }
 
         uiState.error != null -> {
@@ -382,6 +443,94 @@ private fun SearchResultsContent(
                     text = "Search for videos",
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
+            }
+        }
+    }
+}
+
+/** Panel behind the bell: newest videos from the subscription feed, with red
+ *  "NEW" chips on the ones that arrived since the last visit. */
+@Composable
+private fun NotificationsPanel(
+    uiState: com.kvtube.android.ui.notifications.NotificationsUiState,
+    highlightIds: Set<String>,
+    onClose: () -> Unit,
+    onVideoClick: (String) -> Unit,
+    onChannelClick: (String) -> Unit
+) {
+    Column(modifier = Modifier.fillMaxSize()) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = "New from your subscriptions",
+                fontWeight = FontWeight.Bold,
+                fontSize = 18.sp,
+                modifier = Modifier.weight(1f)
+            )
+            IconButton(onClick = onClose) {
+                Icon(
+                    imageVector = Icons.Filled.Close,
+                    contentDescription = "Close"
+                )
+            }
+        }
+
+        when {
+            uiState.isLoading && uiState.latest.isEmpty() -> {
+                LoadingSpinner(modifier = Modifier.fillMaxSize(), fullScreen = true)
+            }
+
+            uiState.latest.isEmpty() -> {
+                Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = if (uiState.hasSubscriptionsHint) {
+                            "Subscribe to channels — their newest videos will appear here."
+                        } else {
+                            "No videos right now."
+                        },
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                        modifier = Modifier.padding(24.dp)
+                    )
+                }
+            }
+
+            else -> {
+                LazyVerticalGrid(
+                    columns = GridCells.Adaptive(minSize = 180.dp),
+                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    items(uiState.latest, key = { it.id }) { video ->
+                        Column {
+                            if (video.id in highlightIds || video.id in uiState.unseenIds) {
+                                Text(
+                                    text = "NEW",
+                                    color = Color.White,
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    modifier = Modifier
+                                        .padding(start = 12.dp, bottom = 4.dp)
+                                        .background(Color(0xFFD32F2F), RoundedCornerShape(4.dp))
+                                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                                )
+                            }
+                            VideoCard(
+                                video = video,
+                                onVideoClick = { onVideoClick(video.id) },
+                                onChannelClick = { onChannelClick(video.displayChannelId) }
+                            )
+                        }
+                    }
+                }
             }
         }
     }

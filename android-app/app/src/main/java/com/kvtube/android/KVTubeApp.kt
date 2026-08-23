@@ -15,6 +15,7 @@ import coil3.gif.GifDecoder
 import coil3.network.okhttp.OkHttpNetworkFetcherFactory
 import com.kvtube.android.data.api.KVApi
 import com.kvtube.android.data.local.SettingsDataStore
+import com.kvtube.android.data.local.logToFile
 import dagger.hilt.android.HiltAndroidApp
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -38,6 +39,9 @@ class KVTubeApp : Application(), Configuration.Provider, SingletonImageLoader.Fa
     @Inject
     lateinit var settingsDataStore: SettingsDataStore
 
+    @Inject
+    lateinit var fileLogger: com.kvtube.android.data.local.FileLogger
+
     private val applicationScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     override val workManagerConfiguration: Configuration
@@ -47,6 +51,10 @@ class KVTubeApp : Application(), Configuration.Provider, SingletonImageLoader.Fa
 
     override fun onCreate() {
         super.onCreate()
+        // Persist diagnostics to a pullable file — adb logcat is restricted on
+        // some devices this app runs on.
+        fileLogger.installCrashHandler()
+
         // Blocking init to ensure server URL + token are set before any API call
         runBlocking {
             val url = settingsDataStore.serverUrl.first()
@@ -54,6 +62,9 @@ class KVTubeApp : Application(), Configuration.Provider, SingletonImageLoader.Fa
                 kvApi.setServerUrl(url)
             }
             kvApi.setToken(settingsDataStore.invidiousToken.first())
+            // All images route through the Invidious proxy too.
+            com.kvtube.android.data.local.ThumbnailRouter.setServer(url)
+            logToFile("Startup", "server=$url token=${settingsDataStore.invidiousToken.first().isNotBlank()}")
         }
 
         // Create notification channel for downloads (needed for WorkManager setForeground)

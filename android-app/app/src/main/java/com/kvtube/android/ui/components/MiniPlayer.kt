@@ -82,7 +82,7 @@ fun MiniPlayer(
         ) {
             AsyncImage(
                 model = nowPlaying.thumbnail.ifBlank {
-                    if (nowPlaying.videoId.isNotBlank()) "https://i.ytimg.com/vi/${nowPlaying.videoId}/hqdefault.jpg" else ""
+                    com.kvtube.android.data.local.ThumbnailRouter.video(nowPlaying.videoId)
                 },
                 contentDescription = nowPlaying.title,
                 contentScale = ContentScale.Crop,
