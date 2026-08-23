@@ -1,7 +1,8 @@
 <h1 align="center">🎬 KV-Tube</h1>
 
 <p align="center">
-  <strong>Your personal YouTube · Self-hosted, private, lightweight</strong>
+  <strong>Your own private YouTube — self-hosted, ad-free, private.</strong><br/>
+  <sub>Runs on your NAS or home server · Watch in any browser · No tracking</sub>
 </p>
 
 <p align="center">
@@ -11,107 +12,80 @@
   <img src="https://img.shields.io/badge/Next.js-16-000000?style=flat-square&logo=nextdotjs" alt="Next.js" />
   <img src="https://img.shields.io/badge/React-19-61DAFB?style=flat-square&logo=react" alt="React" />
   <img src="https://img.shields.io/badge/Invidious-API-000000?style=flat-square&logo=crystal" alt="Invidious" />
-  <img src="https://img.shields.io/badge/Go-1.25-00ADD8?style=flat-square&logo=go" alt="Go" />
   <img src="https://img.shields.io/badge/Docker-Ready-2496ED?style=flat-square&logo=docker" alt="Docker" />
   <img src="https://img.shields.io/badge/PWA-Ready-5A0FC8?style=flat-square&logo=pwa" alt="PWA" />
   <img src="https://img.shields.io/badge/Android-5.0+-3DDC84?style=flat-square&logo=android" alt="Android" />
   <img src="https://img.shields.io/badge/Android%20TV-7.0+-00838F?style=flat-square&logo=android" alt="Android TV" />
-  <img src="https://img.shields.io/badge/Kotlin-2.1-7F52FF?style=flat-square&logo=kotlin" alt="Kotlin" />
-</p>
-
-<p align="center">
-  <a href="https://github.com/vndangkhoa/kv-tube">
-    <img src="https://img.shields.io/badge/Source-GitHub-181717?style=flat-square&logo=github" alt="GitHub" />
-  </a>
-  <a href="https://git.khoavo.myds.me/vndangkhoa/kv-tube">
-    <img src="https://img.shields.io/badge/Source-Forgejo-FF4F4F?style=flat-square&logo=forgejo" alt="Forgejo" />
-  </a>
 </p>
 
 <p align="center">
   🌐 <b>Language / Ngôn ngữ:</b>
-  <a href="#-features"><b>🇬🇧 English</b></a> •
+  <a href="#-what-is-kv-tube"><b>🇬🇧 English</b></a> •
   <a href="#tieng-viet"><b>🇻🇳 Tiếng Việt</b></a>
 </p>
 
 ---
 
-<p align="center">
-  <i>Watch, search, and subscribe — just like YouTube, but fully under your control.</i>
-</p>
+# 🇬🇧 English
 
-**Navigation:** [Features](#-features) • [Quick Start](#-quick-start) • [Why KV-Tube?](#-why-kv-tube) • [Architecture](#%EF%B8%8F-architecture) • [Native Apps](#-native-apps-mobile--tv) • [Deployment](#-deployment) • [🖥️ Synology NAS Setup](#%EF%B8%8F-synology-nas-dsm-72) • [Configuration](#%EF%B8%8F-configuration) • [Development](#-development) • [Support](#-support-the-project) • [Contributing](#-contributing)
+**On this page:** [What is KV-Tube?](#-what-is-kv-tube) • [Features](#-features) • [Quick Start](#-quick-start) • [Synology NAS](#-setting-up-on-a-synology-nas) • [How It Works](#%EF%B8%8F-how-it-works-architecture) • [Data Flow](#-data-flow) • [Other Deployments](#-other-ways-to-deploy) • [Configuration](#%EF%B8%8F-configuration) • [Apps](#-mobile--tv-apps) • [Developers](#-for-developers)
+
+---
+
+## 📖 What is KV-Tube?
+
+KV-Tube is a website **you host yourself** that looks and works like YouTube — but without ads, without tracking, and under your control.
+
+With KV-Tube you can:
+
+- 🔍 **Search & watch** any YouTube video
+- 🔔 **Subscribe** to channels and get your own feed
+- 🚫 **Skip ads & sponsors automatically** (built-in SponsorBlock)
+- 📜 **Save watch history** on *your* server — not Google's
+- 📱 Watch on **phone, TV, tablet** via apps or browser
+- 🎵 Listen in the **background** with screen locked
+
+> 💡 In short: think *"Netflix-style YouTube front page, running at home"*.
+
+---
 
 ## ✨ Features
 
-<table>
-<tr>
-  <td width="50%">
-    <h3>🎞️ Adaptive Video Playback</h3>
-    HLS and DASH streaming with adaptive quality selector — from 144p up to 4K, including variable playback speeds and subtitle support.
-  </td>
-  <td width="50%">
-    <h3>📜 Watch History & Feed</h3>
-    Automatically tracked watch history and personalized feed. Always in sync, never lose your place.
-  </td>
-</tr>
-<tr>
-  <td width="50%">
-    <h3>🔔 Subscriptions & Channels</h3>
-    Follow any YouTube channel. Rich channel pages with banners, avatars, subscriber/video counts, and infinite-scrolling video lists.
-  </td>
-  <td width="50%">
-    <h3>🔍 Full-Text Search</h3>
-    Fast search across videos, channels, and playlists with category filter chips.
-  </td>
-</tr>
-<tr>
-  <td width="50%">
-    <h3>🎵 Background Audio & PWA</h3>
-    Keep listening with your screen locked. Installable PWA with full-screen experience and offline UI caching.
-  </td>
-  <td width="50%">
-    <h3>🌓 Themes & Region Tuning</h3>
-    Modern Materialious-inspired design with Dark, Light, and System themes. Tailor trending content to any region.
-  </td>
-</tr>
-<tr>
-  <td width="50%">
-    <h3>💬 Comments & Engagement</h3>
-    Real YouTube comments, like/dislike counts via <b>Return YouTube Dislike (RYD)</b>, and automatic segment skipping powered by <b>SponsorBlock</b>.
-  </td>
-  <td width="50%">
-    <h3>📥 Server & Client Downloads</h3>
-    Download videos straight to your device as MP4 with live progress. Multi-tier quality selection: <b>Low</b> (≤360p), <b>Recommended</b> (≤1080p), or <b>Best</b>.
-  </td>
-</tr>
-<tr>
-  <td width="50%">
-    <h3>📱 Native Android Mobile App</h3>
-    Kotlin &amp; Jetpack Compose with Material 3. Media3 ExoPlayer, on-device NewPipeExtractor downloads via WorkManager, Room DB history, and auto-updates.
-  </td>
-  <td width="50%">
-    <h3>📺 Native Android TV App</h3>
-    10-foot Leanback interface built with Compose for TV. D-pad navigation, Media3 ExoPlayer (HLS/DASH), and customizable Invidious server connection.
-  </td>
-</tr>
-<tr>
-  <td width="50%">
-    <h3>🔐 Invidious Account Sync</h3>
-    Connect your Invidious account to sync subscriptions, feed, and watch history across all devices with import/export support.
-  </td>
-  <td width="50%">
-    <h3>⚡ Fast, Resilient & Self-cleaning</h3>
-    Stream signature decryption via companion, aggressive caching, multi-client fallback, and automated temp file cache purging.
-  </td>
-</tr>
-</table>
+| | Feature | What it means for you |
+|---|---------|----------------------|
+| 🎞️ | **Adaptive playback** | Quality from 144p up to 4K, playback speed, subtitles |
+| 🔔 | **Subscriptions & channels** | Follow any channel, rich channel pages, infinite feed |
+| 🔍 | **Fast search** | Search videos, channels and playlists with filters |
+| 📜 | **Watch history** | Resume where you left off, on every device |
+| 🚫 | **No ads & no sponsors** | SponsorBlock segments skipped, dislike counts shown (RYD) |
+| 🎵 | **Background audio + PWA** | Keep listening when the screen is off, installable as an app |
+| 🌓 | **Dark / Light / System theme** | Trending region selectable per user |
+| 📥 | **Downloads** | Save videos as MP4 — Low (≤360p), Recommended (≤1080p), Best |
+| 🔐 | **Invidious account sync** | Sync subscriptions, feed and history across devices |
+| 📱 | **Native Android app** | Kotlin + Material 3, offline downloads, auto-update |
+| 📺 | **Native Android TV app** | Remote-friendly UI (D-pad), HLS/DASH playback |
+
+<details>
+<summary>🖼️ See all features in detail (click to expand)</summary>
+
+- **Adaptive Video Playback** — HLS and DASH streaming with adaptive quality selector, variable playback speeds and subtitle support.
+- **Watch History & Feed** — Automatically tracked history and a personalized feed, always in sync.
+- **Subscriptions & Channels** — Channel pages with banners, avatars, subscriber counts and infinite-scrolling video lists.
+- **Full-Text Search** — Fast search across videos, channels and playlists with category filter chips.
+- **Background Audio & PWA** — Installable PWA with full-screen experience and offline UI caching.
+- **Themes & Region Tuning** — Dark, Light and System themes; trending region per user (persisted in cookie).
+- **Comments & Engagement** — Real YouTube comments, like/dislike counts via Return YouTube Dislike, automatic segment skipping powered by SponsorBlock.
+- **Server & Client Downloads** — MP4 downloads with live progress and 3 quality tiers.
+- **Invidious Account Sync** — Sync subscriptions, feed and watch history across devices, with import/export support.
+- **Fast & Self-cleaning** — Stream signature decryption via companion, aggressive caching, multi-client fallback, automated temp-file purging.
+
+</details>
 
 ---
 
 ## 🚀 Quick Start
 
-The recommended production deployment is the **4-container Invidious stack** — Invidious (YouTube backend), PostgreSQL 16, Invidious Companion (stream signature decryptor), and the KV-Tube Next.js frontend. Everything pulls pre-built images, so only the compose file is needed:
+One recipe file + one command. That's it.
 
 ```bash
 mkdir -p kv-tube && cd kv-tube
@@ -119,87 +93,51 @@ curl -O https://raw.githubusercontent.com/vndangkhoa/kv-tube/main/docker-compose
 docker compose up -d
 ```
 
-Access the services:
-- **KV-Tube Web UI:** [http://localhost:3241](http://localhost:3241)
-- **Invidious Backend API:** [http://localhost:7601](http://localhost:7601)
+Then open:
 
-The frontend talks to Invidious server-to-server over an internal Docker bridge network (`172.42.0.0/24`), so no API key is required.
+| What | Address |
+|------|---------|
+| 🎬 **KV-Tube (the website)** | http://localhost:3241 |
+| 🔌 Invidious API (backend) | http://localhost:7601 |
 
-<p align="center">
-  <b>Frontend:</b> <a href="http://localhost:3241">http://localhost:3241</a> &nbsp;•&nbsp;
-  <b>Invidious API:</b> <a href="http://localhost:7601">http://localhost:7601</a>
-</p>
+> ⚠️ **Watching from another device** (phone, laptop)? Edit `NEXT_PUBLIC_INVIDIOUS_URL` in `docker-compose.yml` and replace `127.0.0.1` with your server's IP, e.g. `http://192.168.1.10:7601`, then run `docker compose up -d` again.
 
-### 📦 Classic All-in-One Image (Legacy Go Backend)
-
-Prefer running everything inside a single standalone container? The classic image (Go/Gin backend + Next.js + yt-dlp managed by supervisord) is also supported:
-
-```bash
-git clone https://github.com/vndangkhoa/kv-tube.git
-cd kv-tube
-docker build -t kv-tube:latest .
-docker run -d -p 3241:3000 -p 8080:8080 -v ./data:/app/data kv-tube:latest
-```
-
-### 📥 Container Images
-
-Two images are published, one per deployment mode:
-
-| Image | Contents | Use it for |
-|-------|----------|------------|
-| `kv-tube-ui` (~485 MB) | Next.js frontend only | The **recommended 4-container stack** (`docker-compose.yml` above) — talks to your Invidious + Companion containers |
-| `kv-tube` (~1.1 GB) | Frontend + Go backend + yt-dlp + ffmpeg (supervisord) | **Classic all-in-one mode** — a single standalone container with no Invidious dependency |
-
-Each is available on:
-
-| Registry | Frontend-only (`kv-tube-ui`) | Unified (`kv-tube`) |
-|----------|------------------------------|----------------------|
-| **Docker Hub** | `vndangkhoa/kv-tube-ui:latest` | `vndangkhoa/kv-tube:latest` |
-| **GitHub Container Registry** | `ghcr.io/vndangkhoa/kv-tube-ui:latest` | `ghcr.io/vndangkhoa/kv-tube:latest` |
-| **Forgejo** | `git.khoavo.myds.me/vndangkhoa/kv-tube-ui:latest` | `git.khoavo.myds.me/vndangkhoa/kv-tube:latest` |
-
-### 🌐 Source Repositories
-
-The project is actively maintained and mirrored across:
-
-- **GitHub:** [https://github.com/vndangkhoa/kv-tube](https://github.com/vndangkhoa/kv-tube)
-- **Forgejo:** [https://git.khoavo.myds.me/vndangkhoa/kv-tube](https://git.khoavo.myds.me/vndangkhoa/kv-tube)
+This starts **4 containers** that work together (explained below in [How It Works](#%EF%B8%8F-how-it-works-architecture)).
 
 ---
 
-## 🤔 Why KV-Tube?
+## 🖥️ Setting Up on a Synology NAS
 
-YouTube is incredible — but it's also ad-ridden, tracks everything, and frequently changes recommendations based on algorithms rather than your intent.
+Using a Synology NAS? Two options:
 
-KV-Tube gives you:
+| Option | Best for | Guide |
+|--------|----------|-------|
+| 👶 **Beginner guide** | First time with Docker, GUI only, no terminal | **[README-SYNOLOGY.md](README-SYNOLOGY.md)** *(bilingual EN/VI)* |
+| 🛠️ Full guide | Comfortable with SSH, wants HTTPS/reverse proxy, troubleshooting | [Main deployment section](#-other-ways-to-deploy) below |
 
-- **Privacy** — No user tracking, no corporate telemetry. Your watch history and subscriptions stay on your instance.
-- **Zero Ads & Sponsors** — Integrated SponsorBlock and Return YouTube Dislike support out of the box.
-- **Ownership** — Run it on your NAS, home server, VPS, or Raspberry Pi.
-- **Multi-Platform** — Web, PWA, native Android mobile app, and native Android TV app.
+Quick version for DSM 7.2+:
+
+1. Install **Container Manager** from Package Center
+2. Create folder `/docker/kv-tube` in File Station, put [`docker-compose.yml`](docker-compose.yml) inside
+3. Container Manager → **Project** → **Create** → point to that folder
+4. Open `http://NAS-IP:3241` 🎉
+
+*(Prefer a native Package Center app? Try the community [KV-Tube SPK package](https://github.com/vndangkhoa/synology-spk).)*
 
 ---
 
-## 🏗️ Architecture
+## 🏗️ How It Works (Architecture)
 
-KV-Tube uses a modular architecture with a Next.js 16 frontend powered by a self-hosted Invidious backend:
+KV-Tube is not one big program. It's **4 small containers cooperating**:
 
-<p align="center">
-  <img src="https://img.shields.io/badge/Next.js-16-000000?style=flat&logo=nextdotjs" />
-  <img src="https://img.shields.io/badge/React-19-61DAFB?style=flat&logo=react" />
-  <img src="https://img.shields.io/badge/Invidious-000000?style=flat&logo=crystal" />
-  <img src="https://img.shields.io/badge/PostgreSQL-4169E1?style=flat&logo=postgresql" />
-  <img src="https://img.shields.io/badge/TailwindCSS-06B6D4?style=flat&logo=tailwindcss" />
-  <img src="https://img.shields.io/badge/Kotlin-7F52FF?style=flat&logo=kotlin" />
-</p>
+| Container | Plain words | Port |
+|-----------|-------------|------|
+| **kv-tube-ui** | The website you watch on (Next.js) | `3241` |
+| **invidious** | The middleman that talks to YouTube for you (no ads/tracking) | `7601` |
+| **invidious-db** | A small database remembering channels, playlists, tokens | internal |
+| **companion** | Helper that unlocks the real video streams | internal |
 
-| Service | Technology | Port | Role |
-|---------|------------|------|------|
-| **kv-tube** (frontend) | Next.js 16, React 19, TailwindCSS | `3241` (mapped to `:3000`) | SSR/PWA UI, media proxies, Invidious API gateway |
-| **invidious** | Invidious (Crystal) | `7601` (mapped to `:3000`) | YouTube API proxy, metadata extraction, auth |
-| **invidious-db** | PostgreSQL 16 Alpine | internal | Invidious database (channels, playlists, tokens) |
-| **companion** | invidious-companion | internal (`:8282`) | Decrypts YouTube stream signatures |
-| **backend** *(optional/dev)* | Go 1.25, Gin, SQLite, yt-dlp | `8080` | Standalone backend / development proxy |
+*(A legacy **all-in-one Go backend** also exists for single-container setups — see [Other Ways to Deploy](#-other-ways-to-deploy).)*
 
 ### 🔀 Data Flow
 
@@ -240,505 +178,20 @@ flowchart TD
     MOBILE -.-> SB
 ```
 
----
+**Reading the diagram, simply:**
 
-## 📱 Native Apps (Mobile & TV)
-
-KV-Tube provides two dedicated, native Android applications built with Kotlin and Jetpack Compose.
-
-### 📲 Android Mobile App (`android-app/`)
-
-A full-featured native client tailored for Android phones and tablets:
-
-- **UI & UX:** Modern Material 3 design matching the KV-Tube web interface.
-- **Playback:** Media3 ExoPlayer with adaptive streaming and background audio.
-- **On-Device Downloads:** Direct stream extraction using **NewPipeExtractor** with 3 quality tiers (Low ≤360p, Recommended ≤1080p, Best). Background downloads managed reliably via **WorkManager**.
-- **Download Manager:** Local Room database tracking with search, sorting (name, date, size, channel), renaming, and deletion.
-- **Features:** Subscriptions feed, channel pages, watch history, liked videos, native share sheet, and in-app auto-update checker via GitHub/Forgejo releases.
-- **Compatibility:** Android 5.0+ (minSdk 21, compileSdk 35).
-
-```bash
-cd android-app
-# Build debug APK
-./gradlew assembleDebug
-# Install on connected device/emulator
-adb install -r app/build/outputs/apk/debug/app-debug.apk
-```
-
-### 📺 Android TV App (`android-tv/`)
-
-A dedicated 10-foot Leanback experience built specifically for Android TV and Google TV devices:
-
-- **UI & Navigation:** Built with **Compose for TV** (`tv-material` + `tv-foundation`) with full D-pad remote support and intuitive focus handling.
-- **Playback:** Media3 ExoPlayer with seamless HLS and DASH stream support.
-- **Invidious Integration:** Connects directly to your self-hosted Invidious instance (default `https://yt.khoavo.myds.me` or configurable via in-app Settings).
-- **Authentication:** Invidious session token support for private subscription feeds and history sync.
-- **Compatibility:** Android 7.0+ (minSdk 24, compileSdk 35).
-
-```bash
-cd android-tv
-# Build debug APK
-./gradlew :app:assembleDebug
-# Install on Android TV
-adb install -r app/build/outputs/apk/debug/app-debug.apk
-```
+1. Your device asks **kv-tube-ui** (the website) for a video
+2. kv-tube-ui asks **invidious** behind the scenes
+3. invidious fetches metadata from **YouTube**, decrypting stream signatures via **companion**
+4. Video plays on your device — ads and tracking never enter the picture
 
 ---
 
-## 📦 Deployment
+## 📦 Other Ways to Deploy
 
-### 🐳 Docker Compose (Recommended)
+### Classic All-in-One (single container)
 
-The complete stack is defined in [`docker-compose.yml`](docker-compose.yml):
-
-```yaml
-services:
-  # 1. Invidious PostgreSQL Database
-  invidious-db:
-    image: postgres:16-alpine
-    container_name: Invidious-DB
-    hostname: invidious-db
-    security_opt:
-      - no-new-privileges:true
-    healthcheck:
-      test: ["CMD", "pg_isready", "-q", "-d", "invidious", "-U", "kemal"]
-      timeout: 45s
-      interval: 10s
-      retries: 10
-    volumes:
-      - ./data/invidious/db:/var/lib/postgresql/data:rw
-    environment:
-      POSTGRES_DB: invidious
-      POSTGRES_USER: kemal
-      POSTGRES_PASSWORD: kemalpw
-    restart: unless-stopped
-    networks:
-      - invidious-net
-
-  # 2. Invidious Companion (YouTube Token Decryptor)
-  companion:
-    image: quay.io/invidious/invidious-companion:latest
-    container_name: Invidious-COMPANION
-    hostname: companion
-    environment:
-      SERVER_SECRET_KEY: KXyzWwrtQlgMiJZA
-    cap_drop:
-      - ALL
-    read_only: false
-    tmpfs:
-      - /tmp
-    volumes:
-      - ./data/invidious/companion:/var/tmp:rw
-    security_opt:
-      - no-new-privileges:true
-    restart: unless-stopped
-    networks:
-      - invidious-net
-
-  # 3. Invidious Core Backend Service
-  invidious:
-    image: quay.io/invidious/invidious:master
-    container_name: Invidious
-    healthcheck:
-      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:3000 || exit 1"]
-      interval: 10s
-      timeout: 5s
-      retries: 3
-      start_period: 90s
-    hostname: invidious
-    user: 1026:100
-    security_opt:
-      - no-new-privileges:true
-    ports:
-      - "7601:3000"
-    environment:
-      INVIDIOUS_CONFIG: |
-        db:
-          dbname: invidious
-          user: kemal
-          password: kemalpw
-          host: invidious-db
-          port: 5432
-        check_tables: true
-        captcha_enabled: false
-        default_user_preferences:
-          locale: vn
-          region: VN
-        external_port: 443
-        invidious_companion:
-          - private_url: "http://companion:8282/companion"
-        invidious_companion_key: KXyzWwrtQlgMiJZA
-        hmac_key: e216a52a6d3f8ee752a0bbb4f6a4981b7287c4b39425d510ac86fe499fb8ec6f
-        domain: yt.khoavo.myds.me
-        https_only: true
-    restart: unless-stopped
-    depends_on:
-      invidious-db:
-        condition: service_healthy
-      companion:
-        condition: service_started
-    networks:
-      - invidious-net
-
-  # 4. KV-Tube Materialious-Inspired Frontend WebApp
-  # Pre-built image (no source build required). To build from source instead,
-  # uncomment the build section and run `docker compose up -d --build`.
-  kv-tube:
-    image: vndangkhoa/kv-tube-ui:latest
-    # build:
-    #   context: ./frontend
-    #   dockerfile: Dockerfile
-    #   args:
-    #     # Browser-facing Invidious URL, inlined into the client bundle at build time.
-    #     - NEXT_PUBLIC_INVIDIOUS_URL=http://127.0.0.1:7601
-    container_name: Invidious-Materialious-UI
-    restart: unless-stopped
-    ports:
-      - "3241:3000"
-    environment:
-      # Internal Invidious docker network URL (fast direct server-to-server)
-      - INVIDIOUS_URL=http://invidious:3000
-      # Public Invidious instance domain for client-side playback/thumbnails
-      - NEXT_PUBLIC_INVIDIOUS_URL=http://127.0.0.1:7601
-      - NEXT_PUBLIC_SITE_URL=https://youtube.khoavo.myds.me
-      - NEXT_PUBLIC_SPONSORBLOCK_URL=https://sponsor.ajay.app
-      - NEXT_PUBLIC_RYD_URL=https://returnyoutubedislikeapi.com
-      - NEXT_PUBLIC_DEFAULT_REGION=VN
-      - NODE_ENV=production
-    depends_on:
-      - invidious
-    networks:
-      - invidious-net
-
-# Bridge network with custom subnet to avoid IPAM conflicts
-networks:
-  invidious-net:
-    driver: bridge
-    ipam:
-      config:
-        - subnet: 172.42.0.0/24
-          gateway: 172.42.0.1
-```
-
----
-
-### 🖥️ Synology NAS (DSM 7.2+) — Complete Setup Guide
-
-> 👶 **New to Synology/Docker?** Follow the simplified beginner guide instead: **[README-SYNOLOGY.md](README-SYNOLOGY.md)** — 6 easy steps, no terminal needed. *(Có bản tiếng Việt bên trong!)*
-
-This is the recommended way to run KV-Tube at home. Everything runs in Docker via **Container Manager**, no manual builds required.
-
-#### 📋 Requirements
-
-| Requirement | Details |
-|-------------|---------|
-| **DSM version** | 7.2 or newer (needs **Container Manager**, which replaced the old Docker package) |
-| **RAM** | ~2 GB free (Invidious + PostgreSQL + Next.js frontend) |
-| **Disk** | ~3 GB for images + a few GB for the database/cache (grows over time) |
-| **Network** | Outbound internet access for pulling images and reaching YouTube |
-
-#### Method 1 — Container Manager GUI (no terminal required)
-
-1. **Create the folder**
-   Open **File Station** → navigate to your `docker` shared folder (create it if missing, e.g. on `volume1`) → create a sub-folder named `kv-tube`.
-   Final path example: `/volume1/docker/kv-tube`.
-
-2. **Download the compose file**
-   Download [`docker-compose.yml`](docker-compose.yml) from this repository and upload it into `/docker/kv-tube` via File Station.
-   *(Alternative: skip this and paste the YAML directly in step 3.)*
-
-3. **Create the project**
-   Open **Package Center** → confirm **Container Manager** is installed → open it → go to **Project** → click **Create**:
-   - **Project name:** `kv-tube`
-   - **Path:** `/docker/kv-tube`
-   - **Source:** choose **Upload docker-compose.yml** and pick the file you downloaded — or choose **Create docker-compose.yml** and paste its contents.
-
-4. **Review settings before finishing** (important):
-   - `domain` (inside `INVIDIOUS_CONFIG`) and `NEXT_PUBLIC_SITE_URL`: replace the author's values (`yt.khoavo.myds.me`, `youtube.khoavo.myds.me`) with **your own DDNS hostname** (e.g. `mynas.synology.me`), or leave them as-is if you only use the LAN.
-   - `hmac_key` and `SERVER_SECRET_KEY`: **generate your own random values** if you expose the instance publicly (e.g. `openssl rand -hex 32`).
-   - `user: 1026:100` (under the `invidious` service): this is the author's NAS UID/GID. Find yours via SSH with `id <your-username>` and adjust accordingly — otherwise the database folder will hit permission errors.
-   - Ports `3241` (web UI) and `7601` (Invidious API): change the left-hand side if they conflict with anything on your NAS.
-
-5. **Build & start**
-   Click **Next** → skip the *Web portal* setup (you can add a DSM shortcut later) → review the summary → click **Done**.
-   Container Manager now pulls the 4 images and starts the stack. First boot (PostgreSQL init + Invidious migrations) takes roughly **1–2 minutes**.
-
-6. **Verify**
-   In Container Manager → **Project** → `kv-tube`, all 4 containers should show **Running** (green). Then open:
-
-   | Service | URL |
-   |---------|-----|
-   | **KV-Tube Web UI** | `http://<NAS-IP>:3241` |
-   | **Invidious API** | `http://<NAS-IP>:7601` |
-
-#### Method 2 — SSH (for power users)
-
-Enable SSH in **Control Panel → Terminal & SNMP**, then:
-
-```bash
-ssh <admin-user>@<NAS-IP>
-sudo -i
-mkdir -p /volume1/docker/kv-tube && cd /volume1/docker/kv-tube
-curl -O https://raw.githubusercontent.com/vndangkhoa/kv-tube/main/docker-compose.yml
-docker compose up -d       # DSM 7.2 ships Compose v2
-docker compose logs -f     # watch startup until all services are healthy
-```
-
-#### 🔁 Optional: HTTPS via Synology Reverse Proxy
-
-To serve KV-Tube over HTTPS with a real certificate:
-
-1. **Control Panel → Security → Certificate**: import/obtain a certificate for your DDNS hostname (e.g. via Let's Encrypt) and set it as default.
-2. **Control Panel → Login Portal → Advanced → Reverse Proxy → Create**:
-   - *Source:* HTTPS · hostname `yt.example.com` · port `443`
-   - *Destination:* HTTP · `localhost` · port `3241`
-3. Update the compose file to match:
-   - `NEXT_PUBLIC_SITE_URL=https://yt.example.com`
-   - Inside `INVIDIOUS_CONFIG`: `domain: yt.example.com`
-4. Rebuild the project (**Project → kv-tube → Action → Build**) — or `docker compose up -d` over SSH.
-
-#### ⬆️ Updating on Synology
-
-Via SSH (simplest):
-
-```bash
-cd /volume1/docker/kv-tube
-docker compose pull            # pull latest images
-docker compose up -d           # recreate changed containers (data volumes persist)
-docker image prune -f          # optional: clean up old dangling images
-```
-
-Via GUI: **Container Manager → Project → kv-tube → Stop**, then **Action → Build** after editing the compose file — Container Manager re-pulls images during the build. Your data lives in `./data/`, so updates are safe.
-
-#### 🩺 Troubleshooting
-
-| Symptom | Cause & Fix |
-|---------|-------------|
-| `Invidious` container keeps restarting, log shows DB permission errors | `user: 1026:100` doesn't match your NAS account. Run `id <your-user>` via SSH, update the compose file, then `sudo chown -R <uid>:<gid> /volume1/docker/kv-tube/data` and rebuild. |
-| Port 3241 or 7601 already in use | Another package/container uses the port — remap the left side, e.g. `"8241:3000"`. |
-| Web UI loads but videos/thumbnails don't play | `NEXT_PUBLIC_INVIDIOUS_URL` must be reachable **from your client device**, not just from the NAS. Use `http://<NAS-IP>:7601` or your reverse-proxy domain. |
-| Playback stops working after days | YouTube rotates stream signatures — restart the `Invidious-COMPANION` container (and consider enabling auto-updates for it). |
-| Project fails to build with network errors | DSM DNS issues — try again, or set a DNS server in Control Panel → Network, then rebuild. |
-
-#### 📦 Alternative: Native SPK Package
-
-Prefer installing KV-Tube like a regular Package Center app? There is a community-maintained Synology package:
-
-👉 [KV-Tube SPK Package](https://github.com/vndangkhoa/synology-spk)
-
----
-
-## ⚙️ Configuration
-
-### Frontend Environment Variables (`docker-compose.yml` / `frontend/.env`)
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `INVIDIOUS_URL` | `http://invidious:3000` | Internal URL for server-side Next.js to Invidious communication |
-| `NEXT_PUBLIC_INVIDIOUS_URL` | `http://127.0.0.1:7601` | Public Invidious instance URL used by browsers for video streams/thumbnails. **Must be passed as a build arg** (`build.args`) — it is inlined into the client bundle at build time |
-| `INVIDIOUS_TOKEN` / `NEXT_PUBLIC_INVIDIOUS_TOKEN` | *empty* | Optional default Invidious session token for private feeds/history |
-| `NEXT_PUBLIC_SITE_URL` | `https://youtube.khoavo.myds.me` | Public canonical site URL used for Open Graph share previews |
-| `NEXT_PUBLIC_SPONSORBLOCK_URL` | `https://sponsor.ajay.app` | SponsorBlock API endpoint for segment skipping |
-| `NEXT_PUBLIC_RYD_URL` | `https://returnyoutubedislikeapi.com` | Return YouTube Dislike API endpoint |
-
-> Trending region is not driven by an environment variable — it defaults to `VN` and can be changed per user via the in-app Region Selector (persisted in a cookie).
-
-### Go Backend Environment Variables (`backend/.env` / `.env.example`)
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `PORT` | `8080` | Backend listening port |
-| `KVTUBE_DATA_DIR` | `./data` | Directory for SQLite database and cached files |
-| `GIN_MODE` | `release` | Gin framework mode (`release` or `debug`) |
-| `CORS_ALLOWED_ORIGINS` | `http://localhost:3000,...` | Comma-separated list of allowed origins or `*` |
-| `RATE_LIMIT_RATE` | `300` | API requests allowed per IP per interval (proxy endpoints are exempt) |
-| `RATE_LIMIT_INTERVAL` | `1m` | Rate-limit interval window (Go duration, e.g. `30s`, `1m`) |
-| `RATE_LIMIT_BURST` | `120` | Rate-limit burst capacity |
-| `YTDLP_PROXY` | *empty* | Optional HTTP/SOCKS5 proxy for yt-dlp (`socks5://user:pass@host:port`) |
-| `YTDLP_COOKIES` | *empty* | Path to a `cookies.txt` file (required for comments; helps bypass bot-check) |
-| `YTDLP_COOKIES_FROM_BROWSER` | *empty* | Export cookies from a local browser instead of a file (non-Docker only) |
-| `FORCE_IPV6` | *unset* | Force IPv6 for yt-dlp (`1` = force, `0` = disable, unset = auto-probe) |
-| `YTDLP_AUTO_UPDATE` | `true` | Auto-update yt-dlp nightly at startup and every 24h |
-
----
-
-## 💻 Development
-
-### Using the Unified Launch Script
-
-The repository includes a launcher script to start both Go backend and Next.js frontend concurrently:
-
-```bash
-# Start in development mode (hot reload enabled)
-./launch.sh dev
-
-# Start in production mode
-./launch.sh prod
-
-# Stop running services
-./stop.sh
-```
-
-### Running Manually
-
-```bash
-# 1. Start Frontend (Next.js)
-cd frontend
-npm install
-npm run dev
-
-# 2. Start Backend (Go)
-cd backend
-go run main.go
-
-# 3. Build Mobile App
-cd android-app
-./gradlew assembleDebug
-
-# 4. Build TV App
-cd android-tv
-./gradlew :app:assembleDebug
-```
-
----
-
-## 💖 Support the Project
-
-KV-Tube is free, open source, and ad-free — developed and maintained with care. If it saves you from ads or brings you joy, your support is deeply appreciated:
-
-<p align="center">
-  <img src="frontend/public/donation.jpg" alt="Donate to support KV-Tube" width="360" />
-</p>
-
-<p align="center">
-  Every contribution — no matter how small — helps keep the servers running and development active. Thank you! ❤️
-</p>
-
----
-
-## 🤝 Contributing
-
-Contributions, issues, and feature suggestions are always welcome!
-
-1. Fork the repository
-2. Create your feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'feat: add amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
-
----
-
-## 📄 License
-
-Distributed under the **MIT License**. See [`LICENSE`](LICENSE) for more details.
-
----
----
-
-<h1 align="center" id="tieng-viet">🇻🇳 Tiếng Việt</h1>
-
-<p align="center">
-  <strong>YouTube cá nhân của bạn · Tự lưu trữ, riêng tư, siêu nhẹ</strong>
-</p>
-
-<p align="center">
-  <i>Xem, tìm kiếm và đăng ký kênh — giống hệt YouTube, nhưng hoàn toàn nằm trong tầm kiểm soát của bạn.</i>
-</p>
-
-<p align="center">
-  🌐 <b>Ngôn ngữ / Language:</b>
-  <a href="#-features"><b>🇬🇧 English</b></a> •
-  <a href="#tieng-viet"><b>🇻🇳 Tiếng Việt</b></a>
-</p>
-
-**Mục lục:** [Tính năng](#-tính-năng) • [Bắt đầu nhanh](#-bắt-đầu-nhanh) • [Tại sao chọn KV-Tube?](#-tại-sao-chọn-kv-tube) • [Kiến trúc](#️-kiến-trúc) • [Ứng dụng gốc](#-ứng-dụng-gốc-di-động--tv) • [Triển khai](#-triển-khai) • [🖥️ Cài đặt trên Synology NAS](#️-synology-nas-dsm-72--hướng-dẫn-đầy-đủ) • [Cấu hình](#️-cấu-hình) • [Phát triển](#-phát-triển) • [Ủng hộ](#-ủng-hộ-dự-án) • [Đóng góp](#-đóng-góp)
-
-## ✨ Tính năng
-
-<table>
-<tr>
-  <td width="50%">
-    <h3>🎞️ Phát video thích ứng</h3>
-    Stream HLS và DASH với bộ chọn chất lượng thích ứng — từ 144p đến 4K, kèm tốc độ phát linh hoạt và hỗ trợ phụ đề.
-  </td>
-  <td width="50%">
-    <h3>📜 Lịch sử xem & Bảng tin</h3>
-    Tự động ghi lại lịch sử xem và bảng tin cá nhân hóa. Luôn đồng bộ, không bao giờ mất vị trí đang xem.
-  </td>
-</tr>
-<tr>
-  <td width="50%">
-    <h3>🔔 Đăng ký kênh & Trang kênh</h3>
-    Theo dõi bất kỳ kênh YouTube nào. Trang kênh đầy đủ với banner, ảnh đại diện, số người theo dõi/video và danh sách video cuộn vô hạn.
-  </td>
-  <td width="50%">
-    <h3>🔍 Tìm kiếm toàn văn</h3>
-    Tìm kiếm nhanh trên video, kênh và danh sách phát với các chip lọc theo danh mục.
-  </td>
-</tr>
-<tr>
-  <td width="50%">
-    <h3>🎵 Nhạc nền & PWA</h3>
-    Nghe tiếp nhạc ngay cả khi khóa màn hình. Cài đặt được dưới dạng PWA với trải nghiệm toàn màn hình và cache giao diện offline.
-  </td>
-  <td width="50%">
-    <h3>🌓 Giao diện & Khu vực</h3>
-    Thiết kế hiện đại lấy cảm hứng Materialious với chế độ Tối, Sáng và Theo hệ thống. Tùy chỉnh nội dung thịnh hành theo từng khu vực.
-  </td>
-</tr>
-<tr>
-  <td width="50%">
-    <h3>💬 Bình luận & Tương tác</h3>
-    Bình luận YouTube thật, số lượt thích/dislike qua <b>Return YouTube Dislike (RYD)</b>, và tự động bỏ qua phân đoạn quảng cáo nhờ <b>SponsorBlock</b>.
-  </td>
-  <td width="50%">
-    <h3>📥 Tải video trên server & thiết bị</h3>
-    Tải video về thiết bị dạng MP4 với thanh tiến trình trực tiếp. Ba mức chất lượng: <b>Thấp</b> (≤360p), <b>Đề xuất</b> (≤1080p) hoặc <b>Tốt nhất</b>.
-  </td>
-</tr>
-<tr>
-  <td width="50%">
-    <h3>📱 Ứng dụng di động Android gốc</h3>
-    Kotlin &amp; Jetpack Compose với Material 3. Media3 ExoPlayer, tải video ngay trên thiết bị qua NewPipeExtractor + WorkManager, lịch sử bằng Room DB và tự động cập nhật.
-  </td>
-  <td width="50%">
-    <h3>📺 Ứng dụng Android TV gốc</h3>
-    Giao diện Leanback "10-foot" xây bằng Compose for TV. Điều khiển D-pad, Media3 ExoPlayer (HLS/DASH), kết nối máy chủ Invidious tùy chỉnh.
-  </td>
-</tr>
-<tr>
-  <td width="50%">
-    <h3>🔐 Đồng bộ tài khoản Invidious</h3>
-    Kết nối tài khoản Invidious để đồng bộ đăng ký kênh, bảng tin và lịch sử xem trên mọi thiết bị, hỗ trợ nhập/xuất dữ liệu.
-  </td>
-  <td width="50%">
-    <h3>⚡ Nhanh, bền bỉ & tự dọn dẹp</h3>
-    Giải mã chữ ký stream qua companion, caching tích cực, fallback đa client và tự động dọn dẹp cache tạm định kỳ.
-  </td>
-</tr>
-</table>
-
----
-
-## 🚀 Bắt đầu nhanh
-
-Triển khai production được khuyến nghị là **stack Invidious 4 container** — Invidious (backend YouTube), PostgreSQL 16, Invidious Companion (giải mã chữ ký stream) và frontend Next.js của KV-Tube. Mọi thứ đều dùng image dựng sẵn nên chỉ cần file compose:
-
-```bash
-mkdir -p kv-tube && cd kv-tube
-curl -O https://raw.githubusercontent.com/vndangkhoa/kv-tube/main/docker-compose.yml
-docker compose up -d
-```
-
-Truy cập các dịch vụ:
-- **Giao diện web KV-Tube:** [http://localhost:3241](http://localhost:3241)
-- **API backend Invidious:** [http://localhost:7601](http://localhost:7601)
-
-Frontend nói chuyện với Invidious theo kiểu server-to-server qua mạng bridge nội bộ của Docker (`172.42.0.0/24`), nên **không cần API key**.
-
-### 📦 Image All-in-One cổ điển (backend Go cũ)
-
-Thích chạy tất cả trong một container độc lập? Image cổ điển (backend Go/Gin + Next.js + yt-dlp quản lý bởi supervisord) vẫn được hỗ trợ:
+Prefer everything inside one container (Go/Gin backend + Next.js + yt-dlp)? No Invidious needed:
 
 ```bash
 git clone https://github.com/vndangkhoa/kv-tube.git
@@ -747,323 +200,351 @@ docker build -t kv-tube:latest .
 docker run -d -p 3241:3000 -p 8080:8080 -v ./data:/app/data kv-tube:latest
 ```
 
-### 📥 Container Image
+### Pre-built Images
 
-Có 2 image được phát hành, tương ứng với mỗi chế độ triển khai:
+| Image | Contents | Use it for |
+|-------|----------|------------|
+| `kv-tube-ui` (~485 MB) | Next.js frontend only | The recommended 4-container stack (`docker-compose.yml`) |
+| `kv-tube` (~1.1 GB) | Frontend + Go backend + yt-dlp + ffmpeg | Classic all-in-one mode |
 
-| Image | Nội dung | Dùng khi nào |
-|-------|----------|--------------|
-| `kv-tube-ui` (~485 MB) | Chỉ frontend Next.js | **Stack 4 container được khuyến nghị** (xem `docker-compose.yml`) — giao tiếp với container Invidious + Companion của bạn |
-| `kv-tube` (~1.1 GB) | Frontend + backend Go + yt-dlp + ffmpeg (supervisord) | **Chế độ all-in-one cổ điển** — một container độc lập, không phụ thuộc Invidious |
+Available on **Docker Hub** (`vndangkhoa/kv-tube[-ui]:latest`), **GHCR** (`ghcr.io/vndangkhoa/...`) and **Forgejo** (`git.khoavo.myds.me/vndangkhoa/...`).
 
-Mỗi image đều có sẵn trên:
-
-| Registry | Chỉ frontend (`kv-tube-ui`) | Đầy đủ (`kv-tube`) |
-|----------|------------------------------|----------------------|
-| **Docker Hub** | `vndangkhoa/kv-tube-ui:latest` | `vndangkhoa/kv-tube:latest` |
-| **GitHub Container Registry** | `ghcr.io/vndangkhoa/kv-tube-ui:latest` | `ghcr.io/vndangkhoa/kv-tube:latest` |
-| **Forgejo** | `git.khoavo.myds.me/vndangkhoa/kv-tube-ui:latest` | `git.khoavo.myds.me/vndangkhoa/kv-tube:latest` |
-
-### 🌐 Kho mã nguồn
-
-Dự án được bảo trì liên tục và nhân bản trên:
+### Source Repositories
 
 - **GitHub:** [https://github.com/vndangkhoa/kv-tube](https://github.com/vndangkhoa/kv-tube)
 - **Forgejo:** [https://git.khoavo.myds.me/vndangkhoa/kv-tube](https://git.khoavo.myds.me/vndangkhoa/kv-tube)
 
 ---
 
-## 🤔 Tại sao chọn KV-Tube?
+## ⚙️ Configuration
 
-YouTube rất tuyệt — nhưng cũng đầy quảng cáo, theo dõi mọi hoạt động và thường xuyên đề xuất dựa trên thuật toán thay vì ý muốn của bạn.
+Most people don't need to change anything. Common tweaks go in `docker-compose.yml`.
 
-KV-Tube mang lại cho bạn:
+### Frontend (`kv-tube` service / `frontend/.env`)
 
-- **Quyền riêng tư** — Không theo dõi người dùng, không telemetry. Lịch sử xem và đăng ký kênh nằm trên instance của chính bạn.
-- **Không quảng cáo & không sponsor** — Tích hợp sẵn SponsorBlock và Return YouTube Dislike ngay từ đầu.
-- **Sở hữu** — Chạy trên NAS, home server, VPS hoặc Raspberry Pi của bạn.
-- **Đa nền tảng** — Web, PWA, ứng dụng Android di động gốc và ứng dụng Android TV gốc.
+| Variable | Default | Meaning |
+|----------|---------|---------|
+| `INVIDIOUS_URL` | `http://invidious:3000` | Internal address between containers — leave as-is |
+| `NEXT_PUBLIC_INVIDIOUS_URL` | `http://127.0.0.1:7601` | Where browsers find Invidious. **Change `127.0.0.1` to your server IP** for other devices to work |
+| `INVIDIOUS_TOKEN` / `NEXT_PUBLIC_INVIDIOUS_TOKEN` | *empty* | Optional session token for private feeds/history sync |
+| `NEXT_PUBLIC_SITE_URL` | `https://youtube.khoavo.myds.me` | Public site URL (used for share previews) |
+| `NEXT_PUBLIC_SPONSORBLOCK_URL` | `https://sponsor.ajay.app` | SponsorBlock API endpoint |
+| `NEXT_PUBLIC_RYD_URL` | `https://returnyoutubedislikeapi.com` | Return YouTube Dislike API endpoint |
+
+> Trending region defaults to `VN`; each user can change it in-app (saved in a cookie).
+
+### Legacy Go Backend (`backend/.env`) — all-in-one mode only
+
+| Variable | Default | Meaning |
+|----------|---------|---------|
+| `PORT` | `8080` | Backend listening port |
+| `KVTUBE_DATA_DIR` | `./data` | SQLite database + cache folder |
+| `GIN_MODE` | `release` | `release` or `debug` |
+| `CORS_ALLOWED_ORIGINS` | `http://localhost:3000,...` | Allowed origins, comma-separated, or `*` |
+| `RATE_LIMIT_RATE` / `_INTERVAL` / `_BURST` | `300` / `1m` / `120` | Per-IP rate limiting |
+| `YTDLP_PROXY` | *empty* | Optional HTTP/SOCKS5 proxy for yt-dlp |
+| `YTDLP_COOKIES` | *empty* | Path to `cookies.txt` (needed for comments, bypasses bot-check) |
+| `FORCE_IPV6` | *unset* | `1` force IPv6, `0` disable, unset = auto-probe |
+| `YTDLP_AUTO_UPDATE` | `true` | Auto-update yt-dlp daily |
 
 ---
 
-## 🏗️ Kiến trúc
+## 📱 Mobile & TV Apps
 
-KV-Tube dùng kiến trúc mô-đun với frontend Next.js 16 vận hành trên backend Invidious tự host:
+Two native Android apps are included (Kotlin + Jetpack Compose):
 
-| Dịch vụ | Công nghệ | Cổng | Vai trò |
-|---------|-----------|------|---------|
-| **kv-tube** (frontend) | Next.js 16, React 19, TailwindCSS | `3241` (map vào `:3000`) | UI SSR/PWA, proxy media, cổng API Invidious |
-| **invidious** | Invidious (Crystal) | `7601` (map vào `:3000`) | Proxy API YouTube, trích xuất metadata, xác thực |
-| **invidious-db** | PostgreSQL 16 Alpine | nội bộ | Cơ sở dữ liệu Invidious (kênh, playlist, token) |
-| **companion** | invidious-companion | nội bộ (`:8282`) | Giải mã chữ ký stream YouTube |
-| **backend** *(tùy chọn/dev)* | Go 1.25, Gin, SQLite, yt-dlp | `8080` | Backend độc lập / proxy môi trường dev |
+| App | Highlights | Compatibility |
+|-----|------------|---------------|
+| 📲 **Phone/Tablet** ([`android-app/`](android-app)) | Material 3, background audio, on-device MP4 downloads (NewPipeExtractor + WorkManager), download manager, auto-update | Android 5.0+ |
+| 📺 **Android TV** ([`android-tv/`](android-tv)) | Compose for TV, D-pad remote navigation, HLS/DASH playback, connects to your Invidious instance | Android 7.0+ |
 
-*(Sơ đồ luồng dữ liệu chi tiết — xem phần tiếng Anh bên trên.)*
-
----
-
-## 📱 Ứng dụng gốc (Di động & TV)
-
-KV-Tube cung cấp 2 ứng dụng Android gốc, xây bằng Kotlin và Jetpack Compose.
-
-### 📲 Ứng dụng di động Android (`android-app/`)
-
-Client native đầy đủ tính năng dành cho điện thoại và tablet Android:
-
-- **UI & UX:** Thiết kế Material 3 hiện đại, khớp với giao diện web KV-Tube.
-- **Phát media:** Media3 ExoPlayer với adaptive streaming và nghe nền.
-- **Tải ngay trên thiết bị:** Trích stream trực tiếp bằng **NewPipeExtractor** với 3 mức chất lượng (Thấp ≤360p, Đề xuất ≤1080p, Tốt nhất). Tải nền đáng tin cậy qua **WorkManager**.
-- **Trình quản lý tải:** Room database cục bộ với tìm kiếm, sắp xếp (tên, ngày, dung lượng, kênh), đổi tên và xóa.
-- **Tính năng:** Feed đăng ký kênh, trang kênh, lịch sử xem, video đã thích, share sheet hệ thống và trình tự động kiểm tra cập nhật qua bản phát hành GitHub/Forgejo.
-- **Tương thích:** Android 5.0+ (minSdk 21, compileSdk 35).
+Build them yourself:
 
 ```bash
-cd android-app
-# Build APK debug
-./gradlew assembleDebug
-# Cài lên thiết bị/emulator đang kết nối
-adb install -r app/build/outputs/apk/debug/app-debug.apk
-```
-
-### 📺 Ứng dụng Android TV (`android-tv/`)
-
-Trải nghiệm Leanback "10-foot" được xây riêng cho Android TV và Google TV:
-
-- **UI & Điều hướng:** Xây bằng **Compose for TV** (`tv-material` + `tv-foundation`), hỗ trợ đầy đủ remote D-pad và xử lý focus trực quan.
-- **Phát media:** Media3 ExoPlayer hỗ trợ mượt mà cả stream HLS và DASH.
-- **Tích hợp Invidious:** Kết nối thẳng tới Invidious tự host của bạn (mặc định `https://yt.khoavo.myds.me`, có thể đổi trong Cài đặt trên ứng dụng).
-- **Xác thực:** Hỗ trợ token phiên Invidious cho feed đăng ký riêng tư và đồng bộ lịch sử xem.
-- **Tương thích:** Android 7.0+ (minSdk 24, compileSdk 35).
-
-```bash
-cd android-tv
-# Build APK debug
-./gradlew :app:assembleDebug
-# Cài lên Android TV
+cd android-app && ./gradlew assembleDebug          # phone APK
+cd android-tv  && ./gradlew :app:assembleDebug     # TV APK
 adb install -r app/build/outputs/apk/debug/app-debug.apk
 ```
 
 ---
 
-## 📦 Triển khai
+## 💻 For Developers
 
-Stack đầy đủ được định nghĩa trong [`docker-compose.yml`](docker-compose.yml) — xem nội dung YAML chi tiết ở [phần tiếng Anh](#-deployment) bên trên.
+```bash
+./launch.sh dev      # frontend + backend with hot reload
+./launch.sh prod     # production mode
+./stop.sh            # stop everything
+```
+
+Manual:
+
+```bash
+cd frontend && npm install && npm run dev   # Next.js on :3000
+cd backend && go run main.go                # Go backend on :8080
+```
 
 ---
 
-### 🖥️ Synology NAS (DSM 7.2+) — Hướng dẫn đầy đủ
+## 💖 Support the Project
 
-> 👶 **Mới dùng Synology/Docker?** Hãy theo dõi hướng dẫn đơn giản dành cho người mới: **[README-SYNOLOGY.md](README-SYNOLOGY.md)** — 6 bước dễ dàng, không cần terminal.
+KV-Tube is free, open source and ad-free. If it saves you from ads, consider supporting development:
 
-Đây là cách khuyến nghị để chạy KV-Tube tại nhà. Mọi thứ chạy trong Docker thông qua **Container Manager**, không cần build thủ công.
+<p align="center">
+  <img src="frontend/public/donation.jpg" alt="Donate to support KV-Tube" width="360" />
+</p>
 
-#### 📋 Yêu cầu
+<p align="center">Every contribution helps keep the servers running. Thank you! ❤️</p>
 
-| Yêu cầu | Chi tiết |
-|---------|----------|
-| **Phiên bản DSM** | 7.2 trở lên (cần **Container Manager** — gói mới thay thế Docker cũ) |
-| **RAM** | Trống ~2 GB (Invidious + PostgreSQL + frontend Next.js) |
-| **Ổ đĩa** | ~3 GB cho image + vài GB cho database/cache (sẽ tăng dần) |
-| **Mạng** | Có kết nối internet ra ngoài để kéo image và truy cập YouTube |
+---
 
-#### Cách 1 — Giao diện Container Manager (không cần terminal)
+## 🤝 Contributing
 
-1. **Tạo thư mục**
-   Mở **File Station** → vào thư mục chia sẻ `docker` (tạo mới nếu chưa có, ví dụ trên `volume1`) → tạo thư mục con tên `kv-tube`.
-   Đường dẫn ví dụ: `/volume1/docker/kv-tube`.
+Contributions are always welcome!
 
-2. **Tải file compose**
-   Tải [`docker-compose.yml`](docker-compose.yml) từ repository này rồi upload vào `/docker/kv-tube` qua File Station.
-   *(Hoặc bỏ qua bước này và dán trực tiếp YAML ở bước 3.)*
+1. Fork the repository
+2. Create a branch (`git checkout -b feature/amazing-feature`)
+3. Commit changes (`git commit -m 'feat: add amazing feature'`)
+4. Push (`git push origin feature/amazing-feature`)
+5. Open a Pull Request
 
-3. **Tạo Project**
-   Mở **Trung tâm gói (Package Center)** → chắc chắn **Container Manager** đã cài → mở nó → chọn **Project** → bấm **Create**:
-   - **Tên project:** `kv-tube`
-   - **Đường dẫn:** `/docker/kv-tube`
-   - **Nguồn:** chọn **Upload docker-compose.yml** và trỏ tới file vừa tải — hoặc chọn **Create docker-compose.yml** rồi dán nội dung vào.
+## 📄 License
 
-4. **Kiểm tra thiết lập trước khi hoàn tất** (quan trọng):
-   - `domain` (bên trong `INVIDIOUS_CONFIG`) và `NEXT_PUBLIC_SITE_URL`: thay giá trị của tác giả (`yt.khoavo.myds.me`, `youtube.khoavo.myds.me`) bằng **hostname DDNS của bạn** (ví dụ `mynas.synology.me`), hoặc giữ nguyên nếu chỉ dùng trong mạng LAN.
-   - `hmac_key` và `SERVER_SECRET_KEY`: **tự sinh giá trị ngẫu nhiên riêng** nếu bạn public ra internet (ví dụ lệnh `openssl rand -hex 32`).
-   - `user: 1026:100` (trong service `invidious`): đây là UID/GID trên NAS của tác giả. Xem UID/GID của bạn qua SSH bằng lệnh `id <tên-user>` rồi chỉnh lại — nếu không, thư mục database sẽ bị lỗi quyền.
-   - Cổng `3241` (web UI) và `7601` (API Invidious): đổi phía trái nếu bị trùng với dịch vụ khác trên NAS.
+Distributed under the **MIT License**. See [`LICENSE`](LICENSE).
 
-5. **Build & khởi động**
-   Bấm **Next** → bỏ qua bước *Web portal* (có thể tạo shortcut DSM sau) → xem lại tổng kết → bấm **Done**.
-   Container Manager sẽ kéo 4 image và khởi động stack. Lần chạy đầu (khởi tạo PostgreSQL + migration của Invidious) mất khoảng **1–2 phút**.
+---
+---
 
-6. **Kiểm tra**
-   Trong Container Manager → **Project** → `kv-tube`, cả 4 container phải hiển thị **Running** (màu xanh). Sau đó mở:
+# 🇻🇳 Tiếng Việt
 
-   | Dịch vụ | Địa chỉ |
-   |---------|---------|
-   | **Giao diện web KV-Tube** | `http://<IP-NAS>:3241` |
-   | **API Invidious** | `http://<IP-NAS>:7601` |
+<h2 align="center" id="tieng-viet">📖 KV-Tube là gì?</h2>
 
-#### Cách 2 — SSH (dành cho người dùng nâng cao)
+KV-Tube là một trang web **bạn tự lưu trữ** — nhìn và dùng giống YouTube nhưng không quảng cáo, không theo dõi, và nằm dưới sự kiểm soát của bạn.
 
-Bật SSH trong **Control Panel → Terminal & SNMP**, rồi:
+Với KV-Tube bạn có thể:
+
+- 🔍 **Tìm & xem** bất kỳ video YouTube nào
+- 🔔 **Đăng ký kênh** và có bảng tin riêng
+- 🚫 **Tự động bỏ quảng cáo & phân đoạn tài trợ** (tích hợp SponsorBlock)
+- 📜 **Lưu lịch sử xem** trên máy chủ *của bạn* — không phải của Google
+- 📱 Xem trên **điện thoại, TV, tablet** qua ứng dụng hoặc trình duyệt
+- 🎵 Nghe **nhạc nền** khi khóa màn hình
+
+> 💡 Tóm gọn: hãy nghĩ *"trang YouTube phong cách Netflix, chạy ngay tại nhà"*.
+
+---
+
+## ✨ Tính năng
+
+| | Tính năng | Lợi ích cho bạn |
+|---|-----------|-----------------|
+| 🎞️ | **Phát video thích ứng** | Chất lượng từ 144p đến 4K, đổi tốc độ phát, phụ đề |
+| 🔔 | **Đăng ký kênh & trang kênh** | Theo dõi mọi kênh, feed cuộn vô hạn |
+| 🔍 | **Tìm kiếm nhanh** | Tìm video, kênh, playlist kèm bộ lọc |
+| 📜 | **Lịch sử xem** | Tiếp tục nơi bạn đã dừng, trên mọi thiết bị |
+| 🚫 | **Không quảng cáo & sponsor** | Tự bỏ phân đoạn SponsorBlock, hiện số dislike (RYD) |
+| 🎵 | **Nhạc nền + PWA** | Nghe tiếp khi tắt màn hình, cài như ứng dụng |
+| 🌓 | **Giao diện Tối / Sáng / Hệ thống** | Chọn khu vực thịnh hành theo từng người dùng |
+| 📥 | **Tải video** | Lưu MP4 — Thấp (≤360p), Đề xuất (≤1080p), Tốt nhất |
+| 🔐 | **Đồng bộ tài khoản Invidious** | Đồng bộ đăng ký kênh, feed, lịch sử giữa các thiết bị |
+| 📱 | **Ứng dụng Android gốc** | Kotlin + Material 3, tải offline, tự cập nhật |
+| 📺 | **Ứng dụng Android TV gốc** | Giao diện thân thiện remote (D-pad), phát HLS/DASH |
+
+---
+
+## 🚀 Bắt đầu nhanh
+
+Một file công thức + một câu lệnh. Xong.
 
 ```bash
-ssh <user-admin>@<IP-NAS>
-sudo -i
-mkdir -p /volume1/docker/kv-tube && cd /volume1/docker/kv-tube
+mkdir -p kv-tube && cd kv-tube
 curl -O https://raw.githubusercontent.com/vndangkhoa/kv-tube/main/docker-compose.yml
-docker compose up -d       # DSM 7.2 có sẵn Compose v2
-docker compose logs -f     # theo dõi khởi động tới khi mọi dịch vụ healthy
+docker compose up -d
 ```
 
-#### 🔁 Tùy chọn: HTTPS qua Reverse Proxy của Synology
+Sau đó mở:
 
-Để chạy KV-Tube qua HTTPS với chứng chỉ thật:
+| Cái gì | Địa chỉ |
+|--------|---------|
+| 🎬 **KV-Tube (trang web)** | http://localhost:3241 |
+| 🔌 API Invidious (backend) | http://localhost:7601 |
 
-1. **Control Panel → Security → Certificate**: nhập/tạo chứng chỉ cho hostname DDNS của bạn (qua Let's Encrypt) và đặt làm mặc định.
-2. **Control Panel → Login Portal → Advanced → Reverse Proxy → Create**:
-   - *Nguồn:* HTTPS · hostname `yt.example.com` · cổng `443`
-   - *Đích:* HTTP · `localhost` · cổng `3241`
-3. Cập nhật file compose cho khớp:
-   - `NEXT_PUBLIC_SITE_URL=https://yt.example.com`
-   - Trong `INVIDIOUS_CONFIG`: `domain: yt.example.com`
-4. Build lại project (**Project → kv-tube → Action → Build**) — hoặc chạy `docker compose up -d` qua SSH.
+> ⚠️ **Xem từ thiết bị khác** (điện thoại, laptop)? Sửa `NEXT_PUBLIC_INVIDIOUS_URL` trong `docker-compose.yml`, thay `127.0.0.1` bằng IP máy chủ, ví dụ `http://192.168.1.10:7601`, rồi chạy lại `docker compose up -d`.
 
-#### ⬆️ Cập nhật trên Synology
+Lệnh trên khởi động **4 container** phối hợp với nhau (giải thích ở phần [Kiến trúc](#%EF%B8%8F-how-it-works-architecture)).
 
-Qua SSH (đơn giản nhất):
+---
+
+## 🖥️ Cài đặt trên Synology NAS
+
+Dùng NAS Synology? Có 2 lựa chọn:
+
+| Lựa chọn | Phù hợp với | Hướng dẫn |
+|----------|-------------|-----------|
+| 👶 **Hướng dẫn cho người mới** | Lần đầu dùng Docker, chỉ cần giao diện, không cần terminal | **[README-SYNOLOGY.md](README-SYNOLOGY.md)** *(song ngữ Anh/Việt)* |
+| 🛠️ Hướng dẫn đầy đủ | quen SSH, muốn HTTPS/reverse proxy, xử lý lỗi | [Phần triển khai](#-other-ways-to-deploy) bên dưới |
+
+Bản rút gọn cho DSM 7.2+:
+
+1. Cài **Container Manager** từ Trung tâm gói
+2. Tạo thư mục `/docker/kv-tube` trong File Station, đưa [`docker-compose.yml`](docker-compose.yml) vào trong
+3. Container Manager → **Project** → **Create** → trỏ tới thư mục đó
+4. Mở `http://IP-NAS:3241` 🎉
+
+*(Thích cài như ứng dụng Package Center? Dùng [gói KV-Tube SPK](https://github.com/vndangkhoa/synology-spk) do cộng đồng duy trì.)*
+
+---
+
+## 🏗️ Kiến trúc hoạt động
+
+KV-Tube không phải một chương trình lớn mà là **4 container nhỏ phối hợp**:
+
+| Container | Vai trò | Cổng |
+|-----------|---------|------|
+| **kv-tube-ui** | Trang web bạn xem video (Next.js) | `3241` |
+| **invidious** | "Người môi giới" thay bạn nói chuyện với YouTube (không quảng cáo/theo dõi) | `7601` |
+| **invidious-db** | Database nhỏ nhớ kênh, playlist, token | nội bộ |
+| **companion** | Trợ giúp mở khóa luồng video thật | nội bộ |
+
+*(Vẫn còn **backend Go all-in-one** cũ cho ai muốn chạy 1 container duy nhất — xem [Các cách triển khai khác](#-other-ways-to-deploy).)*
+
+### 🔀 Luồng dữ liệu (Data Flow)
+
+Xem sơ đồ chi tiết tại [phần tiếng Anh](#-data-flow). Tóm tắt đơn giản:
+
+1. Thiết bị của bạn gửi yêu cầu tới **kv-tube-ui** (trang web)
+2. kv-tube-ui hỏi **invidious** phía sau
+3. invidious lấy dữ liệu từ **YouTube**, giải mã chữ ký stream qua **companion**
+4. Video phát trên thiết bị của bạn — quảng cáo và theo dõi không bao giờ xuất hiện
+
+---
+
+## 📦 Các cách triển khai khác
+
+### All-in-One cổ điển (1 container)
+
+Muốn gói tất cả vào một container duy nhất (backend Go/Gin + Next.js + yt-dlp)? Không cần Invidious:
 
 ```bash
-cd /volume1/docker/kv-tube
-docker compose pull            # kéo image mới nhất
-docker compose up -d           # tạo lại các container thay đổi (volume dữ liệu được giữ nguyên)
-docker image prune -f          # tùy chọn: dọn image cũ rác
+git clone https://github.com/vndangkhoa/kv-tube.git
+cd kv-tube
+docker build -t kv-tube:latest .
+docker run -d -p 3241:3000 -p 8080:8080 -v ./data:/app/data kv-tube:latest
 ```
 
-Qua giao diện: **Container Manager → Project → kv-tube → Stop**, sau đó sửa file compose rồi **Action → Build** — Container Manager sẽ tự kéo lại image khi build. Dữ liệu nằm trong `./data/` nên việc cập nhật an toàn.
+### Image dựng sẵn
 
-#### 🩺 Xử lý sự cố
+| Image | Nội dung | Dùng cho |
+|-------|----------|----------|
+| `kv-tube-ui` (~485 MB) | Chỉ frontend Next.js | Stack 4 container được khuyến nghị (`docker-compose.yml`) |
+| `kv-tube` (~1.1 GB) | Frontend + backend Go + yt-dlp + ffmpeg | Chế độ all-in-one cổ điển |
 
-| Hiện tượng | Nguyên nhân & cách khắc phục |
-|------------|------------------------------|
-| Container `Invidious` liên tục restart, log báo lỗi quyền DB | `user: 1026:100` không khớp tài khoản NAS của bạn. Chạy `id <tên-user>` qua SSH, sửa lại compose, rồi `sudo chown -R <uid>:<gid> /volume1/docker/kv-tube/data` và build lại. |
-| Cổng 3241 hoặc 7601 bị chiếm | Gói/container khác đang dùng cổng đó — đổi map, ví dụ `"8241:3000"`. |
-| Web UI load được nhưng video/thumbnail không chạy | `NEXT_PUBLIC_INVIDIOUS_URL` phải truy cập được **từ thiết bị khách**, không chỉ từ NAS. Dùng `http://<IP-NAS>:7601` hoặc domain reverse-proxy của bạn. |
-| Xem video được vài ngày rồi lỗi | YouTube xoay vòng chữ ký stream — restart container `Invidious-COMPANION` (nên bật tự động cập nhật cho nó). |
-| Build project lỗi mạng | Lỗi DNS của DSM — thử lại, hoặc đặt DNS trong Control Panel → Network rồi build lại. |
+Có sẵn trên **Docker Hub** (`vndangkhoa/kv-tube[-ui]:latest`), **GHCR** (`ghcr.io/vndangkhoa/...`) và **Forgejo** (`git.khoavo.myds.me/vndangkhoa/...`).
 
-#### 📦 Lựa chọn khác: Gói SPK native
+### Kho mã nguồn
 
-Muốn cài KV-Tube như ứng dụng thường trong Package Center? Có gói Synology được bảo trì riêng:
-
-👉 [Gói KV-Tube SPK](https://github.com/vndangkhoa/synology-spk)
+- **GitHub:** [https://github.com/vndangkhoa/kv-tube](https://github.com/vndangkhoa/kv-tube)
+- **Forgejo:** [https://git.khoavo.myds.me/vndangkhoa/kv-tube](https://git.khoavo.myds.me/vndangkhoa/kv-tube)
 
 ---
 
 ## ⚙️ Cấu hình
 
-### Biến môi trường Frontend (`docker-compose.yml` / `frontend/.env`)
+Phần lớn người dùng không cần sửa gì. Các chỉnh sửa thường gặp nằm trong `docker-compose.yml`.
 
-| Biến | Mặc định | Mô tả |
-|------|----------|-------|
-| `INVIDIOUS_URL` | `http://invidious:3000` | URL nội bộ để Next.js phía server giao tiếp với Invidious |
-| `NEXT_PUBLIC_INVIDIOUS_URL` | `http://127.0.0.1:7601` | URL Invidious công khai mà trình duyệt dùng để lấy stream/thumbnail. **Phải truyền qua build arg** (`build.args`) — được nhúng vào bundle client lúc build |
-| `INVIDIOUS_TOKEN` / `NEXT_PUBLIC_INVIDIOUS_TOKEN` | *trống* | Token phiên Invidious mặc định (tùy chọn) cho feed/lịch sử riêng tư |
-| `NEXT_PUBLIC_SITE_URL` | `https://youtube.khoavo.myds.me` | URL công khai của site, dùng cho preview chia sẻ Open Graph |
-| `NEXT_PUBLIC_SPONSORBLOCK_URL` | `https://sponsor.ajay.app` | Endpoint SponsorBlock để tự bỏ phân đoạn quảng cáo |
+### Frontend (service `kv-tube` / `frontend/.env`)
+
+| Biến | Mặc định | Ý nghĩa |
+|------|----------|---------|
+| `INVIDIOUS_URL` | `http://invidious:3000` | Địa chỉ nội bộ giữa các container — giữ nguyên |
+| `NEXT_PUBLIC_INVIDIOUS_URL` | `http://127.0.0.1:7601` | Nơi trình duyệt tìm thấy Invidious. **Thay `127.0.0.1` bằng IP máy chủ** để các thiết bị khác dùng được |
+| `INVIDIOUS_TOKEN` / `NEXT_PUBLIC_INVIDIOUS_TOKEN` | *trống* | Token phiên (tùy chọn) cho feed/lịch sử riêng tư |
+| `NEXT_PUBLIC_SITE_URL` | `https://youtube.khoavo.myds.me` | URL công khai của site (dùng cho preview chia sẻ) |
+| `NEXT_PUBLIC_SPONSORBLOCK_URL` | `https://sponsor.ajay.app` | Endpoint API SponsorBlock |
 | `NEXT_PUBLIC_RYD_URL` | `https://returnyoutubedislikeapi.com` | Endpoint API Return YouTube Dislike |
 
-> Khu vực thịnh hành không điều khiển bằng biến môi trường — mặc định là `VN` và người dùng có thể đổi qua Region Selector trong ứng dụng (lưu vào cookie).
+> Khu vực thịnh hành mặc định là `VN`; mỗi người dùng có thể tự đổi trong ứng dụng (lưu bằng cookie).
 
-### Biến môi trường Backend Go (`backend/.env` / `.env.example`)
+### Backend Go cũ (`backend/.env`) — chỉ chế độ all-in-one
 
-| Biến | Mặc định | Mô tả |
-|------|----------|-------|
-| `PORT` | `8080` | Cổng lắng nghe của backend |
-| `KVTUBE_DATA_DIR` | `./data` | Thư mục chứa SQLite database và file cache |
-| `GIN_MODE` | `release` | Chế độ framework Gin (`release` hoặc `debug`) |
-| `CORS_ALLOWED_ORIGINS` | `http://localhost:3000,...` | Danh sách origin được phép, phân cách bởi dấu phẩy, hoặc `*` |
-| `RATE_LIMIT_RATE` | `300` | Số request API tối đa mỗi IP trong một chu kỳ (riêng endpoint proxy được miễn) |
-| `RATE_LIMIT_INTERVAL` | `1m` | Chu kỳ giới hạn (định dạng duration của Go, vd `30s`, `1m`) |
-| `RATE_LIMIT_BURST` | `120` | Dung lượng burst của giới hạn |
-| `YTDLP_PROXY` | *trống* | Proxy HTTP/SOCKS5 tùy chọn cho yt-dlp (`socks5://user:pass@host:port`) |
-| `YTDLP_COOKIES` | *trống* | Đường dẫn tới file `cookies.txt` (bắt buộc cho bình luận; giúp qua màn bot-check) |
-| `YTDLP_COOKIES_FROM_BROWSER` | *trống* | Xuất cookies từ trình duyệt local thay vì file (chỉ chạy ngoài Docker) |
-| `FORCE_IPV6` | *bỏ trống* | Ép IPv6 cho yt-dlp (`1` = ép, `0` = tắt, bỏ trống = tự dò) |
-| `YTDLP_AUTO_UPDATE` | `true` | Tự cập nhật yt-dlp khi khởi động và mỗi 24 giờ |
+| Biến | Mặc định | Ý nghĩa |
+|------|----------|---------|
+| `PORT` | `8080` | Cổng lắng nghe backend |
+| `KVTUBE_DATA_DIR` | `./data` | Thư mục SQLite database + cache |
+| `GIN_MODE` | `release` | `release` hoặc `debug` |
+| `CORS_ALLOWED_ORIGINS` | `http://localhost:3000,...` | Origin được phép, cách nhau bởi dấu phẩy, hoặc `*` |
+| `RATE_LIMIT_RATE` / `_INTERVAL` / `_BURST` | `300` / `1m` / `120` | Giới hạn tốc độ theo IP |
+| `YTDLP_PROXY` | *trống* | Proxy HTTP/SOCKS5 tùy chọn cho yt-dlp |
+| `YTDLP_COOKIES` | *trống* | Đường dẫn `cookies.txt` (cần cho bình luận, qua màn bot-check) |
+| `FORCE_IPV6` | *bỏ trống* | `1` ép IPv6, `0` tắt, bỏ trống = tự dò |
+| `YTDLP_AUTO_UPDATE` | `true` | Tự cập nhật yt-dlp hằng ngày |
 
 ---
 
-## 💻 Phát triển
+## 📱 Ứng dụng Di động & TV
 
-### Dùng script khởi chạy thống nhất
+Hai ứng dụng Android gốc đi kèm (Kotlin + Jetpack Compose):
 
-Repository có sẵn script khởi chạy để bật đồng thời backend Go và frontend Next.js:
+| Ứng dụng | Điểm nổi bật | Tương thích |
+|----------|--------------|-------------|
+| 📲 **Điện thoại/Tablet** ([`android-app/`](android-app)) | Material 3, nghe nền, tải MP4 ngay trên thiết bị (NewPipeExtractor + WorkManager), trình quản lý tải, tự cập nhật | Android 5.0+ |
+| 📺 **Android TV** ([`android-tv/`](android-tv)) | Compose for TV, điều khiển D-pad, phát HLS/DASH, kết nối Invidious của bạn | Android 7.0+ |
+
+Tự build:
 
 ```bash
-# Chạy chế độ dev (hot reload)
-./launch.sh dev
-
-# Chạy chế độ production
-./launch.sh prod
-
-# Dừng các dịch vụ đang chạy
-./stop.sh
+cd android-app && ./gradlew assembleDebug          # APK điện thoại
+cd android-tv  && ./gradlew :app:assembleDebug     # APK TV
+adb install -r app/build/outputs/apk/debug/app-debug.apk
 ```
 
-### Chạy thủ công
+---
+
+## 💻 Dành cho lập trình viên
 
 ```bash
-# 1. Khởi động Frontend (Next.js)
-cd frontend
-npm install
-npm run dev
+./launch.sh dev      # frontend + backend có hot reload
+./launch.sh prod     # chế độ production
+./stop.sh            # dừng tất cả
+```
 
-# 2. Khởi động Backend (Go)
-cd backend
-go run main.go
+Thủ công:
 
-# 3. Build ứng dụng di động
-cd android-app
-./gradlew assembleDebug
-
-# 4. Build ứng dụng TV
-cd android-tv
-./gradlew :app:assembleDebug
+```bash
+cd frontend && npm install && npm run dev   # Next.js ở cổng :3000
+cd backend && go run main.go                # backend Go ở cổng :8080
 ```
 
 ---
 
 ## 💖 Ủng hộ dự án
 
-KV-Tube miễn phí, mã nguồn mở và không quảng cáo — được phát triển và bảo trì bằng cả tâm huyết. Nếu nó giúp bạn thoát khỏi quảng cáo hoặc mang lại niềm vui, mọi đóng góp đều đáng trân quý:
+KV-Tube miễn phí, mã nguồn mở và không quảng cáo. Nếu nó giúp bạn thoát quảng cáo, hãy cân nhắc ủng hộ:
 
 <p align="center">
   <img src="frontend/public/donation.jpg" alt="Ủng hộ KV-Tube" width="360" />
 </p>
 
-<p align="center">
-  Mỗi đóng góp — dù nhỏ — giúp duy trì máy chủ và phát triển liên tục. Cảm ơn bạn! ❤️
-</p>
+<p align="center">Mỗi đóng góp giúp duy trì máy chủ hoạt động. Cảm ơn bạn! ❤️</p>
 
 ---
 
 ## 🤝 Đóng góp
 
-Các đóng góp, báo lỗi và đề xuất tính năng luôn được chào đón!
+Mọi đóng góp đều được chào đón!
 
 1. Fork repository
-2. Tạo nhánh tính năng (`git checkout -b feature/amazing-feature`)
-3. Commit thay đổi (`git commit -m 'feat: add amazing feature'`)
-4. Push lên nhánh (`git push origin feature/amazing-feature`)
+2. Tạo nhánh mới (`git checkout -b feature/amazing-feature`)
+3. Commit (`git commit -m 'feat: add amazing feature'`)
+4. Push (`git push origin feature/amazing-feature`)
 5. Mở Pull Request
-
----
 
 ## 📄 Giấy phép
 
-Phân phối theo **Giấy phép MIT**. Xem [`LICENSE`](LICENSE) để biết thêm chi tiết.
+Phân phối theo **Giấy phép MIT**. Xem [`LICENSE`](LICENSE).
+
+---
 
 <p align="center">
-  <br />
-  <sub>Nếu dự án hữu ích với bạn, hãy <a href="https://github.com/vndangkhoa/kv-tube">⭐ star trên GitHub</a> nhé!</sub>
-  <br />
+  <sub>Nếu dự án hữu ích, hãy <a href="https://github.com/vndangkhoa/kv-tube">⭐ star trên GitHub</a> nhé!</sub><br/>
   <sub>Xây dựng với ❤️ bởi <a href="https://github.com/vndangkhoa">Khoa Vo</a></sub>
 </p>
