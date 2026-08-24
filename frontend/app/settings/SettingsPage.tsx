@@ -17,6 +17,7 @@ import {
   IoCloudDownloadOutline,
   IoServerOutline,
   IoRefreshOutline,
+  IoTvOutline,
 } from 'react-icons/io5';
 
 const API_BASE = '/api';
@@ -89,6 +90,11 @@ export default function SettingsPage() {
   const [tokenStatus, setTokenStatus] = useState<'idle' | 'testing' | 'ok' | 'fail'>('idle');
   const [tokenMessage, setTokenMessage] = useState<string | null>(null);
 
+  // Android TV pairing
+  const [tvPairCode, setTvPairCode] = useState('');
+  const [pairTvStatus, setPairTvStatus] = useState<'idle' | 'sending' | 'ok' | 'fail'>('idle');
+  const [pairTvMessage, setPairTvMessage] = useState<string | null>(null);
+
   // Initialize Client Preferences
   useEffect(() => {
     setInvidiousUrl(invidious.getInstanceUrl());
@@ -141,6 +147,35 @@ export default function SettingsPage() {
     } catch (e: any) {
       setTokenStatus('fail');
       setTokenMessage(e?.message || 'Authentication error');
+    }
+  };
+
+  const handlePairTv = async () => {
+    setPairTvStatus('sending');
+    setPairTvMessage(null);
+    try {
+      const code = tvPairCode.trim().toUpperCase();
+      if (code.length < 4) throw new Error('Enter the 6-character code shown on your TV');
+      const res = await fetch('/api/tv-pair', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'link',
+          code,
+          instanceUrl: invidious.getInstanceUrl(),
+          token: invidious.getToken() || '',
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+      setPairTvStatus('ok');
+      setPairTvMessage('✓ Sent! Your TV is now signed in.');
+      setTvPairCode('');
+    } catch (e: any) {
+      setPairTvStatus('fail');
+      setPairTvMessage(e?.message || 'Failed to send to TV');
+    } finally {
+      setTimeout(() => setPairTvStatus('idle'), 6000);
     }
   };
 
@@ -479,6 +514,75 @@ export default function SettingsPage() {
                 }}
               >
                 {tokenMessage}
+              </div>
+            )}
+          </div>
+
+          <div>
+            <label style={{ fontSize: '13px', fontWeight: 600, color: 'var(--yt-text-secondary)', display: 'block', marginBottom: '6px' }}>
+              PAIR ANDROID TV DEVICE:
+            </label>
+            <p style={{ fontSize: '12px', color: 'var(--yt-text-secondary)', margin: '0 0 8px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <IoTvOutline size={14} />
+              No token typing on the remote — open KV-Tube on your TV → Settings → Connection → “Pair device”, then enter the code it shows:
+            </p>
+            <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+              <input
+                type="text"
+                value={tvPairCode}
+                onChange={(e) => setTvPairCode(e.target.value.toUpperCase())}
+                onKeyDown={(e) => { if (e.key === 'Enter') handlePairTv(); }}
+                placeholder="e.g. K7M2XQ"
+                maxLength={8}
+                autoComplete="off"
+                style={{
+                  width: '160px',
+                  padding: '10px 14px',
+                  borderRadius: '14px',
+                  border: '1.5px solid var(--yt-border)',
+                  backgroundColor: 'var(--yt-background)',
+                  color: 'var(--yt-text-primary)',
+                  fontSize: '16px',
+                  fontFamily: 'monospace',
+                  letterSpacing: '4px',
+                  textTransform: 'uppercase',
+                  outline: 'none',
+                }}
+              />
+              <button
+                type="button"
+                onClick={handlePairTv}
+                disabled={pairTvStatus === 'sending'}
+                style={{
+                  padding: '10px 20px',
+                  borderRadius: '14px',
+                  border: 'none',
+                  backgroundColor:
+                    pairTvStatus === 'ok'
+                      ? '#00c853'
+                      : pairTvStatus === 'fail'
+                      ? '#ff334b'
+                      : 'var(--md-sys-color-primary, var(--yt-blue))',
+                  color: '#ffffff',
+                  fontSize: '13px',
+                  fontWeight: 600,
+                  cursor: pairTvStatus === 'sending' ? 'wait' : 'pointer',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                {pairTvStatus === 'sending' ? 'Sending…' : pairTvStatus === 'ok' ? '✓ Sent to TV' : 'Send to TV'}
+              </button>
+            </div>
+            {pairTvMessage && (
+              <div
+                style={{
+                  marginTop: '8px',
+                  fontSize: '12px',
+                  fontWeight: 500,
+                  color: pairTvStatus === 'ok' ? '#00c853' : '#ff334b',
+                }}
+              >
+                {pairTvMessage}
               </div>
             )}
           </div>

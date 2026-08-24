@@ -5,6 +5,25 @@ All notable changes to KV-Tube are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [TV 1.1.0] - 2026-08-24
+
+### Added
+- **Android TV: device pairing — no more token typing** — Settings → Connection →
+  "Pair device" shows a 6-character code; enter it once in Web → Settings →
+  "Pair Android TV" and the TV receives your instance URL + Invidious token
+  automatically. New `frontend/app/api/tv-pair` route (create / link / status,
+  one-time credential hand-over, 15-min TTL) and `TvPairApi` client on the TV.
+
+### Changed
+- **Android TV: settings redesigned as a two-pane layout** — section menu on
+  the left (Connection / Updates) switches panel on focus, details pane on the
+  right uses large focusable rows. Editing happens in modal dialogs so the
+  main list can never trap focus.
+- **Android TV: D-pad can always leave text fields** — new `TvTextField`
+  guarantees escape routes (Up/Down always move focus out, Left/Right exit at
+  text boundaries). Applied to settings dialogs and the search bar.
+- TV version bumped to `1.1.0-tv` (versionCode 3).
+
 ## [1.6.3] - 2026-08-23
 
 ### Fixed

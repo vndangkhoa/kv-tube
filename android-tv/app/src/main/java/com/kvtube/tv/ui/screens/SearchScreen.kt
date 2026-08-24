@@ -4,8 +4,6 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.KeyboardActions
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.TrendingUp
 import androidx.compose.material.icons.filled.Clear
@@ -13,7 +11,6 @@ import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Whatshot
-import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -65,15 +62,13 @@ fun SearchScreen(
             horizontalArrangement = Arrangement.spacedBy(16.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            androidx.compose.material3.OutlinedTextField(
+            com.kvtube.tv.ui.components.TvTextField(
                 value = text,
                 onValueChange = {
                     text = it
                     vm.onQueryChange(it)
                 },
-                modifier = Modifier
-                    .weight(1f)
-                    .height(56.dp),
+                modifier = Modifier.weight(1f),
                 placeholder = { Text("Tìm kiếm YouTube — bài hát, nghệ sĩ, phim, chủ đề…", color = Color(0xFFAAAAAA)) },
                 leadingIcon = {
                     Icon(
@@ -93,21 +88,8 @@ fun SearchScreen(
                         }
                     }
                 },
-                singleLine = true,
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedTextColor = Color.White,
-                    unfocusedTextColor = Color.White,
-                    cursorColor = Color.White,
-                    focusedBorderColor = Color.White.copy(alpha = 0.6f),
-                    unfocusedBorderColor = Color.White.copy(alpha = 0.22f),
-                    focusedContainerColor = Color(0xFF212121),
-                    unfocusedContainerColor = Color(0xFF212121),
-                    focusedPlaceholderColor = Color(0xFFAAAAAA),
-                    unfocusedPlaceholderColor = Color(0xFFAAAAAA),
-                ),
-                shape = RoundedCornerShape(28.dp),
-                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                keyboardActions = KeyboardActions(onSearch = { vm.searchNow() }),
+                imeAction = ImeAction.Search,
+                onImeAction = { vm.searchNow() },
             )
 
             Button(
