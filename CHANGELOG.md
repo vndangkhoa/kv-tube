@@ -5,6 +5,16 @@ All notable changes to KV-Tube are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.7.1] - 2026-08-25
+
+### Fixed
+- **Android app & TV: Pairing code network fixes & robust fallback** — Fixed HTTP 302
+  redirects and connection failures when generating/sending pairing codes:
+  - Migrated `PairApi` to `OkHttpClient` with SSL redirect following and candidate endpoint fallback.
+  - Added primary production web instance fallback (`https://ut.khoavo.myds.me`).
+  - Added CORS headers and OPTIONS preflight handler to `/api/tv-pair`.
+  - Bumped Android mobile app to `1.7.1` (versionCode 28) and Android TV to `1.1.1-tv` (versionCode 4).
+
 ## [1.7.0] - 2026-08-25
 
 ### Added

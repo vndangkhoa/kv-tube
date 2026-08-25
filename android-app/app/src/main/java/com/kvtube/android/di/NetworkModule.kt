@@ -71,9 +71,10 @@ object NetworkModule {
         val cache = Cache(cacheDir, 50L * 1024 * 1024)
         return OkHttpClient.Builder()
             .cache(cache)
-            .connectTimeout(8, TimeUnit.SECONDS)
-            .readTimeout(12, TimeUnit.SECONDS)
+            .connectTimeout(10, TimeUnit.SECONDS)
+            .readTimeout(15, TimeUnit.SECONDS)
             .followRedirects(true)
+            .followSslRedirects(true)
             .build()
     }
 
@@ -85,7 +86,7 @@ object NetworkModule {
 
     @Provides
     @Singleton
-    fun providePairApi(client: HttpClient, json: Json): PairApi {
-        return PairApi(client, json)
+    fun providePairApi(okHttpClient: OkHttpClient, json: Json): PairApi {
+        return PairApi(okHttpClient, json)
     }
 }

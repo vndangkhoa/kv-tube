@@ -52,24 +52,44 @@ function normalizeCode(raw: unknown): string {
     .replace(/[^A-Z0-9]/g, '');
 }
 
+const CORS_HEADERS: Record<string, string> = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type, Authorization, x-invidious-token',
+};
+
+function jsonResponse(data: unknown, init?: { status?: number }) {
+  return NextResponse.json(data, {
+    status: init?.status ?? 200,
+    headers: CORS_HEADERS,
+  });
+}
+
+export async function OPTIONS() {
+  return new NextResponse(null, {
+    status: 204,
+    headers: CORS_HEADERS,
+  });
+}
+
 export async function GET(req: NextRequest) {
   cleanup();
   const code = normalizeCode(req.nextUrl.searchParams.get('code'));
-  if (!code) return NextResponse.json({ error: 'Missing code' }, { status: 400 });
+  if (!code) return jsonResponse({ error: 'Missing code' }, { status: 400 });
 
   const entry = store.get(code);
-  if (!entry) return NextResponse.json({ status: 'waiting' });
+  if (!entry) return jsonResponse({ status: 'waiting' });
   if (Date.now() > entry.expiresAt) {
     store.delete(code);
-    return NextResponse.json({ status: 'expired' });
+    return jsonResponse({ status: 'expired' });
   }
-  if (entry.consumed) return NextResponse.json({ status: 'consumed' });
-  if (!entry.linked) return NextResponse.json({ status: 'waiting' });
+  if (entry.consumed) return jsonResponse({ status: 'consumed' });
+  if (!entry.linked) return jsonResponse({ status: 'waiting' });
 
   // Hand the credentials over exactly once, then mark consumed so they do not
   // linger on the server.
   entry.consumed = true;
-  return NextResponse.json({
+  return jsonResponse({
     status: 'linked',
     instanceUrl: entry.instanceUrl || '',
     token: entry.token || '',
@@ -82,7 +102,7 @@ export async function POST(req: NextRequest) {
   try {
     body = await req.json();
   } catch {
-    return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 });
+    return jsonResponse({ error: 'Invalid JSON' }, { status: 400 });
   }
 
   const action = body.action;
@@ -97,7 +117,7 @@ export async function POST(req: NextRequest) {
       linked: false,
       consumed: false,
     });
-    return NextResponse.json({ code, expiresIn: TTL_MS / 1000 });
+    return jsonResponse({ code, expiresIn: TTL_MS / 1000 });
   }
 
   if (action === 'link') {
@@ -106,25 +126,25 @@ export async function POST(req: NextRequest) {
     const token = typeof body.token === 'string' ? body.token.trim() : '';
 
     if (!instanceUrl && !token) {
-      return NextResponse.json({ error: 'Nothing to send — set up your instance or token first' }, { status: 400 });
+      return jsonResponse({ error: 'Nothing to send — set up your instance or token first' }, { status: 400 });
     }
     const entry = store.get(code);
     if (!entry) {
-      return NextResponse.json({ error: 'Unknown code — check the code shown on your TV' }, { status: 404 });
+      return jsonResponse({ error: 'Unknown code — check the code shown on your TV' }, { status: 404 });
     }
     if (entry.consumed) {
-      return NextResponse.json({ error: 'Code already used — generate a new one on the TV' }, { status: 409 });
+      return jsonResponse({ error: 'Code already used — generate a new one on the TV' }, { status: 409 });
     }
     if (Date.now() > entry.expiresAt) {
       store.delete(code);
-      return NextResponse.json({ error: 'Code expired — press Close on the TV and start again' }, { status: 410 });
+      return jsonResponse({ error: 'Code expired — press Close on the TV and start again' }, { status: 410 });
     }
 
     entry.instanceUrl = instanceUrl.replace(/\/$/, '');
     entry.token = token;
     entry.linked = true;
-    return NextResponse.json({ ok: true });
+    return jsonResponse({ ok: true });
   }
 
-  return NextResponse.json({ error: 'Unknown action' }, { status: 400 });
+  return jsonResponse({ error: 'Unknown action' }, { status: 400 });
 }

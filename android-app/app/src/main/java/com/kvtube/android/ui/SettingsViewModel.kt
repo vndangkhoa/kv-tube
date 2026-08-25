@@ -39,8 +39,8 @@ class SettingsViewModel @Inject constructor(
 
     companion object {
         /** Pairing codes live on the KV-Tube web frontend, not on raw
-         *  Invidious — fall back to the production instance like the TV app. */
-        const val PAIR_FALLBACK_BASE = "https://yt.khoavo.myds.me"
+         *  Invidious — fall back to the production web instance like the TV app. */
+        const val PAIR_FALLBACK_BASE = "https://ut.khoavo.myds.me"
     }
 
     private val _uiState = MutableStateFlow(SettingsUiState())
