@@ -5,6 +5,24 @@ All notable changes to KV-Tube are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.7.0] - 2026-08-25
+
+### Added
+- **Pairing codes everywhere** — the 6-character pairing flow introduced with
+  the TV app now works in every client, in both directions:
+  - **Android app**: Settings → "Pairing code" → "Pair this device" shows a
+    code and receives the instance URL + Invidious token automatically
+    (same protocol as the TV); "Send to device" pushes this phone's saved
+    connection to a TV or browser by entering its code. New `PairApi`
+    (Ktor) + Hilt wiring; credentials persist through the existing save path.
+  - **Webapp**: Settings → "Pair this browser" shows a code and polls until a
+    TV, phone or another signed-in browser hands over credentials, then signs
+    in and reloads (no token pasting on a new device). The send form is
+    generalized from "Pair Android TV" to any device.
+- No backend changes — all clients reuse `frontend/app/api/tv-pair`
+  (one-time hand-over, 15-min TTL, expired-code regeneration).
+- Android app version bumped to `1.7.0` (versionCode 27).
+
 ## [TV 1.1.0] - 2026-08-24
 
 ### Added

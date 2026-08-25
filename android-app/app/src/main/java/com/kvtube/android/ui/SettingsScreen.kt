@@ -26,11 +26,13 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Cloud
 import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.Public
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.LightMode
 import androidx.compose.material.icons.filled.PhoneAndroid
 import androidx.compose.material.icons.filled.Save
+import androidx.compose.material.icons.filled.Send
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -47,6 +49,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -57,13 +60,18 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavController
 import com.kvtube.android.BuildConfig
+import com.kvtube.android.data.api.PairApi
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 private data class RegionEntry(
@@ -95,6 +103,8 @@ fun SettingsScreen(
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val scope = rememberCoroutineScope()
+    var showReceivePairing by remember { mutableStateOf(false) }
+    var showSendPairing by remember { mutableStateOf(false) }
 
     Column(
         modifier = Modifier
@@ -174,6 +184,62 @@ fun SettingsScreen(
                     Spacer(modifier = Modifier.width(8.dp))
                     Text("Save Server & Token")
                 }
+
+                Spacer(modifier = Modifier.height(14.dp))
+
+                HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.4f))
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                Text(
+                    text = "PAIRING CODE",
+                    style = MaterialTheme.typography.labelSmall.copy(
+                        fontWeight = FontWeight.SemiBold,
+                        letterSpacing = 1.2.sp
+                    ),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    OutlinedButton(
+                        onClick = { showReceivePairing = true },
+                        modifier = Modifier.weight(1f),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Link,
+                            contentDescription = null,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Pair this device", maxLines = 1)
+                    }
+                    OutlinedButton(
+                        onClick = { showSendPairing = true },
+                        modifier = Modifier.weight(1f),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Send,
+                            contentDescription = null,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Send to device", maxLines = 1)
+                    }
+                }
+
+                Text(
+                    text = "No typing: show a code here and send your sign-in from your TV or web browser — or enter a code from another device to sign in instantly.",
+                    style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(top = 8.dp)
+                )
             }
 
             Spacer(modifier = Modifier.height(12.dp))
@@ -471,6 +537,251 @@ fun SettingsScreen(
             }
 
             Spacer(modifier = Modifier.height(24.dp))
+    }
+
+    if (showReceivePairing) {
+        ReceivePairingDialog(
+            viewModel = viewModel,
+            onDismiss = { showReceivePairing = false }
+        )
+    }
+    if (showSendPairing) {
+        SendPairingDialog(
+            viewModel = viewModel,
+            onDismiss = { showSendPairing = false }
+        )
+    }
+}
+
+// ── Pairing dialogs ──────────────────────────────────────────────────────────
+
+/**
+ * Shows a short code and polls until another device (TV, web browser or
+ * phone) pushes this server's instance URL + Invidious token over.
+ */
+@Composable
+private fun ReceivePairingDialog(
+    viewModel: SettingsViewModel,
+    onDismiss: () -> Unit
+) {
+    var code by remember { mutableStateOf<String?>(null) }
+    // loading | waiting | paired | failed
+    var phase by remember { mutableStateOf("loading") }
+
+    LaunchedEffect(Unit) {
+        var localCode: String? = null
+        val deadline = System.currentTimeMillis() + 10 * 60_000L
+        while (System.currentTimeMillis() < deadline && phase != "paired") {
+            try {
+                if (localCode == null) {
+                    localCode = viewModel.createPairCode()
+                    code = localCode
+                    phase = "waiting"
+                } else {
+                    when (val s = viewModel.checkPairStatus(localCode)) {
+                        is PairApi.Status.Paired -> {
+                            viewModel.applyPairedCredentials(s.instanceUrl, s.token)
+                            phase = "paired"
+                            return@LaunchedEffect
+                        }
+                        PairApi.Status.Expired -> localCode = null
+                        PairApi.Status.Waiting -> Unit
+                    }
+                }
+            } catch (_: Exception) {
+                // transient network errors — keep polling until deadline
+            }
+            delay(3000)
+        }
+        if (phase != "paired") phase = "failed"
+    }
+
+    Dialog(onDismissRequest = onDismiss) {
+        Surface(
+            shape = RoundedCornerShape(20.dp),
+            color = MaterialTheme.colorScheme.surface,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(
+                modifier = Modifier.padding(24.dp).fillMaxWidth(),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
+                Text(
+                    text = "Pair this device",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold
+                )
+
+                when (phase) {
+                    "loading" -> {
+                        CircularProgressIndicator(modifier = Modifier.size(28.dp), strokeWidth = 3.dp)
+                        Text(
+                            text = "Generating code…",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    "waiting" -> {
+                        Text(
+                            text = code ?: "",
+                            style = MaterialTheme.typography.displaySmall.copy(
+                                fontFamily = FontFamily.Monospace,
+                                letterSpacing = 6.sp,
+                                fontWeight = FontWeight.Bold
+                            ),
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier
+                                .background(
+                                    MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
+                                    RoundedCornerShape(14.dp)
+                                )
+                                .padding(horizontal = 24.dp, vertical = 12.dp)
+                        )
+                        Text(
+                            text = "On your TV, in Web → Settings → “Pair Android TV”, or on another phone → Settings → “Send to device”, enter this code.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            textAlign = TextAlign.Center
+                        )
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(14.dp),
+                                strokeWidth = 2.dp
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "Waiting for link…",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                    "paired" -> {
+                        Text(
+                            text = "✓ Paired! You're signed in.",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    }
+                    else -> {
+                        Text(
+                            text = "Could not reach the pairing service.\nMake sure this device points at your KV-Tube web frontend (Server Address).",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error,
+                            textAlign = TextAlign.Center
+                        )
+                    }
+                }
+
+                Button(
+                    onClick = onDismiss,
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Text(if (phase == "paired") "Done" else "Cancel")
+                }
+            }
+        }
+    }
+}
+
+/** Pushes this device's saved connection to a code shown on another device. */
+@Composable
+private fun SendPairingDialog(
+    viewModel: SettingsViewModel,
+    onDismiss: () -> Unit
+) {
+    val scope = rememberCoroutineScope()
+    var code by remember { mutableStateOf("") }
+    var sending by remember { mutableStateOf(false) }
+    var resultMessage by remember { mutableStateOf<String?>(null) }
+    var isError by remember { mutableStateOf(false) }
+    // Codes are one-time: once credentials were handed over, stop editing.
+    val sent = resultMessage != null && !isError
+
+    Dialog(onDismissRequest = onDismiss) {
+        Surface(
+            shape = RoundedCornerShape(20.dp),
+            color = MaterialTheme.colorScheme.surface,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(
+                modifier = Modifier.padding(24.dp).fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Text(
+                    text = "Send to another device",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold
+                )
+                Text(
+                    text = "Enter the 6-character code shown on your TV (“Pair device”) or in Web → Settings. Your saved server address and token will be sent.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+
+                OutlinedTextField(
+                    value = code,
+                    onValueChange = {
+                        code = it.uppercase().filter { c -> c.isLetterOrDigit() }.take(8)
+                    },
+                    label = { Text("Pairing code") },
+                    placeholder = { Text("e.g. K7M2XQ") },
+                    singleLine = true,
+                    enabled = !sending && !sent,
+                    isError = isError,
+                    textStyle = TextStyle(
+                        fontFamily = FontFamily.Monospace,
+                        fontSize = 20.sp,
+                        letterSpacing = 4.sp
+                    ),
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp)
+                )
+
+                resultMessage?.let {
+                    Text(
+                        text = it,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = if (isError) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
+                    )
+                }
+
+                Button(
+                    onClick = {
+                        sending = true
+                        resultMessage = null
+                        scope.launch {
+                            when (val r = viewModel.sendPairing(code)) {
+                                is PairApi.SendResult.Ok -> {
+                                    isError = false
+                                    resultMessage = "✓ Sent! The other device is now signed in."
+                                }
+                                is PairApi.SendResult.Error -> {
+                                    isError = true
+                                    resultMessage = r.message
+                                }
+                            }
+                            sending = false
+                        }
+                    },
+                    enabled = !sending && code.trim().length >= 4 && !sent,
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Text(if (sending) "Sending…" else "Send")
+                }
+
+                TextButton(
+                    onClick = onDismiss,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(if (sent) "Done" else "Cancel")
+                }
+            }
+        }
     }
 }
 

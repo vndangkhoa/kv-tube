@@ -18,6 +18,8 @@ import {
   IoServerOutline,
   IoRefreshOutline,
   IoTvOutline,
+  IoPhonePortraitOutline,
+  IoLaptopOutline,
 } from 'react-icons/io5';
 
 const API_BASE = '/api';
@@ -90,10 +92,16 @@ export default function SettingsPage() {
   const [tokenStatus, setTokenStatus] = useState<'idle' | 'testing' | 'ok' | 'fail'>('idle');
   const [tokenMessage, setTokenMessage] = useState<string | null>(null);
 
-  // Android TV pairing
+  // Device pairing — send credentials to a TV / phone / other browser
   const [tvPairCode, setTvPairCode] = useState('');
   const [pairTvStatus, setPairTvStatus] = useState<'idle' | 'sending' | 'ok' | 'fail'>('idle');
   const [pairTvMessage, setPairTvMessage] = useState<string | null>(null);
+
+  // Pair this browser — receive credentials from an already-signed-in device
+  const [pairingActive, setPairingActive] = useState(false);
+  const [pairCode, setPairCode] = useState<string | null>(null);
+  const [pairStatus, setPairStatus] = useState<'idle' | 'ok' | 'fail'>('idle');
+  const [pairMessage, setPairMessage] = useState<string | null>(null);
 
   // Initialize Client Preferences
   useEffect(() => {
@@ -169,7 +177,7 @@ export default function SettingsPage() {
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
       setPairTvStatus('ok');
-      setPairTvMessage('✓ Sent! Your TV is now signed in.');
+      setPairTvMessage('✓ Sent! The device is now signed in.');
       setTvPairCode('');
     } catch (e: any) {
       setPairTvStatus('fail');
@@ -177,6 +185,79 @@ export default function SettingsPage() {
     } finally {
       setTimeout(() => setPairTvStatus('idle'), 6000);
     }
+  };
+
+  // Pair this browser: show a code and poll until another device (TV app,
+  // phone app or a signed-in web session) pushes its credentials over.
+  // Same protocol as the TV app — create → poll every 3s → one-time hand-over,
+  // with automatic code regeneration on expiry (15 min TTL).
+  useEffect(() => {
+    if (!pairingActive) return;
+    let cancelled = false;
+    let code: string | null = null;
+    const deadline = Date.now() + 10 * 60 * 1000;
+    const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+    const applyCredentials = (instanceUrl: string, token: string) => {
+      invidious.setInstanceUrl(instanceUrl);
+      invidious.setToken(token || null);
+      setInvidiousUrl(instanceUrl);
+      setInvidiousToken(token);
+    };
+
+    (async () => {
+      while (!cancelled && Date.now() < deadline) {
+        try {
+          if (!code) {
+            const res = await fetch('/api/tv-pair', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ action: 'create' }),
+            });
+            const d = await res.json().catch(() => ({}));
+            if (d.code) {
+              code = d.code;
+              if (!cancelled) setPairCode(d.code);
+            }
+          } else {
+            const res = await fetch(`/api/tv-pair?code=${encodeURIComponent(code)}`);
+            const d = await res.json().catch(() => ({}));
+            if (d.status === 'linked' && !cancelled) {
+              applyCredentials(d.instanceUrl || '', d.token || '');
+              setPairStatus('ok');
+              setPairMessage('✓ Paired! This browser is now signed in.');
+              setTimeout(() => window.location.reload(), 2500);
+              return;
+            }
+            // expired AND consumed both mean the code can never link now →
+            // regenerate a fresh one
+            if (d.status === 'expired' || d.status === 'consumed') code = null;
+          }
+        } catch {
+          // transient network errors — keep polling until the deadline
+        }
+        await sleep(3000);
+      }
+      if (!cancelled) {
+        setPairStatus('fail');
+        setPairMessage(
+          code === null
+            ? 'Could not reach the pairing service. Check your connection and try again.'
+            : 'Pairing timed out — press “Show pairing code” to start again.',
+        );
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [pairingActive]);
+
+  const stopPairing = () => {
+    setPairingActive(false);
+    setPairCode(null);
+    setPairStatus('idle');
+    setPairMessage(null);
   };
 
   const handleQualityChange = (q: string) => {
@@ -520,11 +601,11 @@ export default function SettingsPage() {
 
           <div>
             <label style={{ fontSize: '13px', fontWeight: 600, color: 'var(--yt-text-secondary)', display: 'block', marginBottom: '6px' }}>
-              PAIR ANDROID TV DEVICE:
+              SEND SIGN-IN TO A DEVICE:
             </label>
             <p style={{ fontSize: '12px', color: 'var(--yt-text-secondary)', margin: '0 0 8px', display: 'flex', alignItems: 'center', gap: '6px' }}>
               <IoTvOutline size={14} />
-              No token typing on the remote — open KV-Tube on your TV → Settings → Connection → “Pair device”, then enter the code it shows:
+              No token typing on a remote — open KV-Tube on your TV (Settings → “Pair device”) or phone app (Settings → “Pair this device”), then enter the code it shows:
             </p>
             <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
               <input
@@ -570,7 +651,7 @@ export default function SettingsPage() {
                   whiteSpace: 'nowrap',
                 }}
               >
-                {pairTvStatus === 'sending' ? 'Sending…' : pairTvStatus === 'ok' ? '✓ Sent to TV' : 'Send to TV'}
+                {pairTvStatus === 'sending' ? 'Sending…' : pairTvStatus === 'ok' ? '✓ Sent!' : 'Send'}
               </button>
             </div>
             {pairTvMessage && (
@@ -585,6 +666,120 @@ export default function SettingsPage() {
                 {pairTvMessage}
               </div>
             )}
+          </div>
+
+          <div style={{ borderTop: '1px solid var(--yt-border)' }} />
+
+          <div>
+            <label style={{ fontSize: '13px', fontWeight: 600, color: 'var(--yt-text-secondary)', display: 'block', marginBottom: '6px' }}>
+              PAIR THIS BROWSER:
+            </label>
+            <p style={{ fontSize: '12px', color: 'var(--yt-text-secondary)', margin: '0 0 8px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <IoLaptopOutline size={14} />
+              Sign in here without pasting a token — from an already signed-in device (TV app, phone app → Settings → “Send to device”, or another browser) send this code:
+            </p>
+            {!pairingActive ? (
+              <button
+                type="button"
+                onClick={() => {
+                  setPairStatus('idle');
+                  setPairMessage(null);
+                  setPairingActive(true);
+                }}
+                style={{
+                  padding: '10px 20px',
+                  borderRadius: '14px',
+                  border: 'none',
+                  backgroundColor: 'var(--md-sys-color-primary, var(--yt-blue))',
+                  color: '#ffffff',
+                  fontSize: '13px',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                Show pairing code
+              </button>
+            ) : (
+              <div style={{ display: 'flex', gap: '12px', alignItems: 'center', flexWrap: 'wrap' }}>
+                {pairCode && pairStatus !== 'ok' && (
+                  <span
+                    style={{
+                      padding: '10px 20px',
+                      borderRadius: '14px',
+                      backgroundColor: 'var(--yt-background)',
+                      border: '1.5px solid var(--yt-border)',
+                      color: 'var(--yt-text-primary)',
+                      fontSize: '24px',
+                      fontFamily: 'monospace',
+                      letterSpacing: '8px',
+                      fontWeight: 700,
+                    }}
+                  >
+                    {pairCode}
+                  </span>
+                )}
+                {pairStatus !== 'ok' && (
+                  <span
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '8px',
+                      fontSize: '12px',
+                      color: 'var(--yt-text-secondary)',
+                    }}
+                  >
+                    <span
+                      className="kv-spinner"
+                      style={{
+                        width: '14px',
+                        height: '14px',
+                        borderRadius: '50%',
+                        border: '2px solid var(--yt-border)',
+                        borderTopColor: 'var(--md-sys-color-primary, var(--yt-blue))',
+                        animation: 'spin 1s linear infinite',
+                        display: 'inline-block',
+                      }}
+                    />
+                    Waiting for link…
+                  </span>
+                )}
+                {pairStatus !== 'ok' && (
+                  <button
+                    type="button"
+                    onClick={stopPairing}
+                    style={{
+                      padding: '8px 16px',
+                      borderRadius: '14px',
+                      border: '1px solid var(--yt-border)',
+                      backgroundColor: 'transparent',
+                      color: 'var(--yt-text-primary)',
+                      fontSize: '12px',
+                      fontWeight: 600,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    Cancel
+                  </button>
+                )}
+              </div>
+            )}
+            {pairMessage && (
+              <div
+                style={{
+                  marginTop: '8px',
+                  fontSize: '12px',
+                  fontWeight: 500,
+                  color: pairStatus === 'ok' ? '#00c853' : '#ff334b',
+                }}
+              >
+                {pairMessage}
+              </div>
+            )}
+            <p style={{ margin: '6px 0 0', fontSize: '11px', color: 'var(--yt-text-secondary)', display: 'flex', alignItems: 'center', gap: '6px' }}>
+              <IoPhonePortraitOutline size={12} />
+              Codes refresh automatically and expire after 15 minutes. Credentials are transferred once and never stored on the server.
+            </p>
           </div>
         </div>
       </section>

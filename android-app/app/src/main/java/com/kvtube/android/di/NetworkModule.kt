@@ -2,6 +2,7 @@ package com.kvtube.android.di
 
 import android.content.Context
 import com.kvtube.android.data.api.KVApi
+import com.kvtube.android.data.api.PairApi
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -80,5 +81,11 @@ object NetworkModule {
     @Singleton
     fun provideKVApi(client: HttpClient, json: Json): KVApi {
         return KVApi(client, json)
+    }
+
+    @Provides
+    @Singleton
+    fun providePairApi(client: HttpClient, json: Json): PairApi {
+        return PairApi(client, json)
     }
 }

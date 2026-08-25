@@ -5,6 +5,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.kvtube.android.BuildConfig
 import com.kvtube.android.data.api.KVApi
+import com.kvtube.android.data.api.PairApi
 import com.kvtube.android.data.local.SettingsDataStore
 import com.kvtube.android.data.update.UpdateInfo
 import com.kvtube.android.data.update.UpdateManager
@@ -32,8 +33,15 @@ data class SettingsUiState(
 class SettingsViewModel @Inject constructor(
     private val settingsDataStore: SettingsDataStore,
     private val api: KVApi,
+    private val pairApi: PairApi,
     private val updateManager: UpdateManager
 ) : ViewModel() {
+
+    companion object {
+        /** Pairing codes live on the KV-Tube web frontend, not on raw
+         *  Invidious — fall back to the production instance like the TV app. */
+        const val PAIR_FALLBACK_BASE = "https://yt.khoavo.myds.me"
+    }
 
     private val _uiState = MutableStateFlow(SettingsUiState())
     val uiState: StateFlow<SettingsUiState> = _uiState.asStateFlow()
@@ -78,6 +86,44 @@ class SettingsViewModel @Inject constructor(
             settingsDataStore.setRegion(region)
             _uiState.value = _uiState.value.copy(region = region)
         }
+    }
+
+    /** Base URL of the KV-Tube web frontend that brokers pairing codes. */
+    fun pairingBaseUrl(): String =
+        _uiState.value.serverUrl.trim().removeSuffix("/")
+            .ifBlank { PAIR_FALLBACK_BASE }
+
+    // --- Device pairing -------------------------------------------------------
+
+    suspend fun createPairCode(): String = pairApi.createCode(pairingBaseUrl())
+
+    suspend fun checkPairStatus(code: String): PairApi.Status =
+        pairApi.checkStatus(pairingBaseUrl(), code)
+
+    /**
+     * Receives credentials handed over for [code] and persists them like a
+     * manual save (DataStore + live KVApi + thumbnail router).
+     */
+    fun applyPairedCredentials(url: String?, token: String?) {
+        val cleanUrl = url?.trim()?.removeSuffix("/").orEmpty()
+        saveServerUrl(cleanUrl)
+        saveInvidiousToken(token?.trim().orEmpty())
+    }
+
+    /** Pushes this device's saved connection to a code shown elsewhere. */
+    suspend fun sendPairing(rawCode: String): PairApi.SendResult {
+        val code = rawCode.trim().uppercase().replace(Regex("[^A-Z0-9]"), "")
+        if (code.length < 4) return PairApi.SendResult.Error("Enter the 6-character code shown on the other device")
+        val state = _uiState.value
+        if (state.serverUrl.isBlank()) {
+            return PairApi.SendResult.Error("Save a server address first — nothing to send")
+        }
+        return pairApi.sendCredentials(
+            baseUrl = pairingBaseUrl(),
+            code = code,
+            instanceUrl = state.serverUrl,
+            token = state.invidiousToken,
+        )
     }
 
     fun checkForUpdate() {
