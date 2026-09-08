@@ -183,9 +183,9 @@ Your watch history and subscriptions are **safe** — they are stored in `/docke
 
 ### ❗ Problem 1: `Invidious` container keeps stopping (red)
 
-Log mentions *"permission denied"*.
+Log mentions *"permission denied"* on an older setup.
 
-**Cause:** the file contains `user: 1026:100` — that's the author's NAS account ID, yours is different.
+**Cause:** old recipe files contained `user: 1026:100` — that's the author's NAS account ID, yours is different. (Current files no longer contain this line; if yours doesn't, skip this fix.)
 
 **Fix:**
 1. Enable SSH: Control Panel → Terminal & SNMP → enable SSH
@@ -401,7 +401,7 @@ Lịch sử xem và đăng ký kênh **an toàn tuyệt đối** — chúng nằ
 
 Log có chữ *"permission denied"*.
 
-**Nguyên nhân:** trong file có dòng `user: 1026:100` — đó là ID tài khoản NAS của tác giả, còn của bạn thì khác.
+**Nguyên nhân:** các file công thức cũ có dòng `user: 1026:100` — đó là ID tài khoản NAS của tác giả, còn của bạn thì khác. (File mới không còn dòng này; nếu file của bạn không có thì bỏ qua cách sửa này.)
 
 **Cách sửa:**
 1. Bật SSH: Control Panel → Terminal & SNMP → bật SSH

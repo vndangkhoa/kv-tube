@@ -27,7 +27,14 @@ services:
     container_name: Invidious-COMPANION
     hostname: companion
     environment:
+      # Must stay identical to invidious_companion_key below.
       SERVER_SECRET_KEY: KXyzWwrtQlgMiJZA
+    # Explicit DNS: the companion must always resolve youtube.com even when
+    # the host/NAS DNS is broken (otherwise: "Temporary failure in name
+    # resolution" → player 500s, no PO token, no playable streams).
+    dns:
+      - 8.8.8.8
+      - 1.1.1.1
     cap_drop:
       - ALL
     read_only: false
@@ -52,7 +59,12 @@ services:
       retries: 3
       start_period: 90s
     hostname: invidious
-    user: 1026:100
+    # NOTE: no `user:` mapping here on purpose — a hardcoded uid:gid (e.g. the
+    # author's 1026:100) breaks on any other NAS with "permission denied" and
+    # takes the whole backend down. The service needs no host volume writes.
+    dns:
+      - 8.8.8.8
+      - 1.1.1.1
     security_opt:
       - no-new-privileges:true
     ports:
@@ -116,11 +128,13 @@ services:
     networks:
       - invidious-net
 
-# Bridge network with custom subnet to avoid IPAM conflicts
+# Bridge network with custom subnet to avoid IPAM conflicts.
+# NOTE: must be RFC1918 private space — 172.42.0.0/24 is public (T-Mobile) and
+# breaks routing/DNS for the stack.
 networks:
   invidious-net:
     driver: bridge
     ipam:
       config:
-        - subnet: 172.42.0.0/24
-          gateway: 172.42.0.1
+        - subnet: 172.28.0.0/24
+          gateway: 172.28.0.1

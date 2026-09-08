@@ -211,6 +211,45 @@ export class InvidiousService {
     return this.instanceUrl;
   }
 
+  /**
+   * Rewrite an Invidious-hosted stream/manifest URL through the same-origin
+   * `/api/invidious` proxy; leave third-party CDN URLs (googlevideo,
+   * i.ytimg, ggpht, …) untouched so media keeps streaming direct.
+   *
+   * Why: Invidious returns absolute manifest URLs bound to its configured
+   * `domain` (e.g. https://yt.example.com/api/manifest/…). Loading those
+   * direct breaks as soon as the browser can't reach that host — DDNS-only
+   * setups, reverse-proxy gaps, or HTTP/HTTPS mixed content on phones.
+   * The server-side proxy only needs INVIDIOUS_URL (container network), so
+   * routing manifests through it works on every client.
+   */
+  public proxyUrl(raw?: string | null): string {
+    if (!raw) return '';
+    if (raw.startsWith('/api/invidious')) return raw;
+    if (raw.startsWith('/')) return `/api/invidious${raw}`;
+    if (!/^https?:\/\//i.test(raw)) return `/api/invidious/${raw}`;
+    let u: URL;
+    try {
+      u = new URL(raw);
+    } catch {
+      return raw;
+    }
+    const path = `${u.pathname}${u.search}`;
+    try {
+      if (this.instanceUrl && u.host === new URL(this.instanceUrl).host) {
+        return `/api/invidious${path}`;
+      }
+    } catch {
+      // Unparseable instance URL — fall through to path-based detection.
+    }
+    // Invidious/companion API + manifest paths on any host are served by our
+    // backend; everything else (googlevideo, ytimg, ggpht, …) stays direct.
+    if (/^\/(api|companion)\//.test(u.pathname)) {
+      return `/api/invidious${path}`;
+    }
+    return raw;
+  }
+
   public getToken(): string | null {
     if (typeof window === 'undefined') {
       return process.env.INVIDIOUS_TOKEN || process.env.NEXT_PUBLIC_INVIDIOUS_TOKEN || null;

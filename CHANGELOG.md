@@ -5,6 +5,30 @@ All notable changes to KV-Tube are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.7.2] - 2026-09-08
+
+### Fixed
+- **Webapp: route Invidious-hosted streams through the same-origin proxy** —
+  new `InvidiousService.proxyUrl()` helper (`frontend/app/services/invidious.ts`)
+  rewrites absolute manifest/stream/caption URLs that live on the Invidious
+  host (`/api/…`, `/companion/…`, or the configured instance domain) to
+  `/api/invidious/…`, while third-party CDN URLs (googlevideo, i.ytimg, ggpht)
+  keep streaming direct. `MaterialiousPlayer` uses it for DASH/HLS manifests,
+  progressive streams, quality switching, background audio and captions.
+  Fixes black-screen playback on phones behind DDNS/reverse-proxy setups and
+  HTTP/HTTPS mixed-content blocks when the Invidious `domain` isn't directly
+  reachable from the client.
+- **Deploy: companion/invidious DNS + private network ranges** — explicit
+  `8.8.8.8`/`1.1.1.1` DNS for both backend services (fixes companion
+  `Temporary failure in name resolution` → player HTTP 500, missing PO token),
+  moved bridge subnets into RFC1918 space (`172.28.0.0/24` compose,
+  `172.29.0.0/24` SPK), and removed the hardcoded `user: 1026:100` mapping
+  that broke Invidious with `permission denied` on any other NAS.
+- **SPK: companion cache volume + permissions** — cache now mounts at
+  `/var/tmp` (matching `docker-compose.yml` and the companion default) with
+  writable permissions, fixing `unable to open database file
+  .../kv_cache.sqlite3`.
+
 ## [1.7.1] - 2026-08-25
 
 ### Fixed

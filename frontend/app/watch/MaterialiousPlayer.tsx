@@ -277,7 +277,7 @@ export default function MaterialiousPlayer({
           const validCaps: CaptionOption[] = videoData.captions.map((c: any) => ({
             label: c.label || c.name || c.language || 'English',
             lang: c.languageCode || c.lang || 'en',
-            url: c.url?.startsWith('http') ? c.url : `/api/invidious${c.url}`,
+            url: invidious.proxyUrl(c.url),
           }));
           setCaptions(validCaps);
         }
@@ -295,9 +295,7 @@ export default function MaterialiousPlayer({
           adaptiveFormats[0];
 
         const extractedAudioUrl = audioFormat?.url
-          ? audioFormat.url.startsWith('http')
-            ? audioFormat.url
-            : `/api/invidious${audioFormat.url}`
+          ? invidious.proxyUrl(audioFormat.url)
           : `/api/invidious/latest_version?id=${videoId}&itag=140`;
 
         setBestAudioUrl(extractedAudioUrl);
@@ -417,10 +415,11 @@ export default function MaterialiousPlayer({
             },
           });
 
-          // Attempt loading DASH or HLS manifest
+          // Attempt loading DASH or HLS manifest (always via same-origin proxy
+          // when the manifest lives on the Invidious host — see proxyUrl).
           if (dashManifest) {
             try {
-              const dashUrl = dashManifest.startsWith('http') ? dashManifest : `/api/invidious${dashManifest}`;
+              const dashUrl = invidious.proxyUrl(dashManifest);
               await player.load(dashUrl);
               setNeedsSeparateAudio(false);
               
@@ -456,7 +455,7 @@ export default function MaterialiousPlayer({
 
           if (hlsManifest) {
             try {
-              const hlsUrl = hlsManifest.startsWith('http') ? hlsManifest : `/api/invidious${hlsManifest}`;
+              const hlsUrl = invidious.proxyUrl(hlsManifest);
               await player.load(hlsUrl);
               setNeedsSeparateAudio(false);
               if (autoplay) vid.play().catch(() => {});
@@ -469,9 +468,10 @@ export default function MaterialiousPlayer({
         }
 
         // Direct Progressive Format Streams (720p/360p MP4) Fallback
+        // (googlevideo URLs stay direct; Invidious-host URLs go via proxy)
         const progressive = formatStreams.find((f: any) => f.url && f.container === 'mp4') || formatStreams[0];
         if (progressive?.url) {
-          const directUrl = progressive.url.startsWith('http') ? progressive.url : `/api/invidious${progressive.url}`;
+          const directUrl = invidious.proxyUrl(progressive.url);
           setNeedsSeparateAudio(false);
           vid.src = directUrl;
           vid.load();
@@ -919,7 +919,7 @@ export default function MaterialiousPlayer({
 
         let newSrc = '';
         if (matchFormat?.url) {
-          newSrc = matchFormat.url.startsWith('http') ? matchFormat.url : `/api/invidious${matchFormat.url}`;
+          newSrc = invidious.proxyUrl(matchFormat.url);
         } else if (q.itag) {
           newSrc = `/api/invidious/latest_version?id=${videoId}&itag=${q.itag}`;
         } else if (q.height) {
