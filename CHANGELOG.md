@@ -5,6 +5,19 @@ All notable changes to KV-Tube are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.7.3] - 2026-09-08
+
+### Added
+- **Docs: Synology troubleshooting for phone access + Invidious DNS failures**
+  (`README-SYNOLOGY.md`) — two real cases seen on a live NAS:
+  - Phone reaches DSM `:5000` but times out on `:3241`: DSM Firewall was
+    dropping TCP `3240:3259` (covers `3241`). Fix: Allow rule for
+    `3241,7601,443` from the LAN placed above the deny rule.
+  - Invidious `Hostname lookup for www.youtube.com failed`: NAS had
+    `net.ipv4.ip_forward=0`, so no Docker container had outbound access
+    (ping/DNS 100% loss on every bridge). Fix: `sysctl -w
+    net.ipv4.ip_forward=1` plus a boot-up Task Scheduler task to persist it.
+
 ## [1.7.2] - 2026-09-08
 
 ### Fixed

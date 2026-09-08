@@ -215,6 +215,23 @@ YouTube changes things on their side regularly.
 
 **Fix:** restart the stack: Container Manager → Project → `kv-tube` → **Restart**. If still broken, do an **update** (section above) — newer versions usually include the fix.
 
+### ❗ Problem 5: DSM page (`:5000`) opens on my phone, but `:3241` times out
+
+**Cause:** DSM Firewall is dropping TCP ports `3240:3259` — that range covers KV-Tube's `3241`. Check via SSH: `sudo iptables -S INPUT_FIREWALL` shows a `DROP ... dports ...3240:3259...` line.
+
+**Fix:** Control Panel → Security → Firewall → Edit Rules → Create an **Allow** rule for TCP ports `3241,7601,443` from source Subnet `192.168.1.0` / `24`, and move it **above** the deny rule. Then retry `http://NAS-IP:3241` on the phone (incognito, with explicit `http://` — port 3241 is HTTP-only).
+
+### ❗ Problem 6: Invidious error `Hostname lookup for www.youtube.com failed`
+
+**Cause:** IP forwarding is disabled on the NAS (`cat /proc/sys/net/ipv4/ip_forward` returns `0`), so *no* Docker container has outbound internet (ping and DNS fail on every bridge, while the NAS itself resolves fine).
+
+**Fix via SSH:**
+```bash
+sudo sysctl -w net.ipv4.ip_forward=1
+sudo docker restart kvtube-invidious kvtube-companion  # or your Invidious containers
+```
+Verify with `sudo docker exec kvtube-db ping -c2 8.8.8.8`. Persist it: Control Panel → Task Scheduler → Create → Triggered Task → Boot-up (as root): `sysctl -w net.ipv4.ip_forward=1` — DSM resets this on reboot.
+
 ### 🆘 Still stuck?
 
 Open an issue: https://github.com/vndangkhoa/kv-tube/issues
@@ -430,6 +447,23 @@ Bạn đã bỏ qua **Bước 3①** — quay lại thay `127.0.0.1` bằng IP c
 YouTube hay thay đổi phía họ.
 
 **Cách sửa:** khởi động lại: Container Manager → Project → `kv-tube` → **Restart**. Vẫn lỗi thì làm bước **cập nhật** (phần trên) — bản mới thường đã vá sẵn.
+
+### ❗ Vấn đề 5: Mở trang DSM (`:5000`) được trên điện thoại, nhưng `:3241` báo timeout
+
+**Nguyên nhân:** DSM Firewall đang chặn dải cổng TCP `3240:3259` — trong đó có cổng `3241` của KV-Tube. Kiểm tra qua SSH: `sudo iptables -S INPUT_FIREWALL` sẽ thấy dòng `DROP ... dports ...3240:3259...`.
+
+**Cách sửa:** Control Panel → Security → Firewall → Edit Rules → Create rule **Allow** cho cổng TCP `3241,7601,443`, nguồn Subnet `192.168.1.0` / `24`, rồi kéo rule này **lên trên** rule deny. Sau đó thử lại `http://IP-NAS:3241` trên điện thoại (tab ẩn danh, gõ rõ `http://` — cổng 3241 chỉ chạy HTTP).
+
+### ❗ Vấn đề 6: Invidious báo `Hostname lookup for www.youtube.com failed`
+
+**Nguyên nhân:** NAS đang tắt IP forwarding (`cat /proc/sys/net/ipv4/ip_forward` trả về `0`) nên *mọi* container Docker đều mất mạng ra ngoài (ping/DNS đều fail, dù ngay trên NAS vẫn phân giải bình thường).
+
+**Sửa qua SSH:**
+```bash
+sudo sysctl -w net.ipv4.ip_forward=1
+sudo docker restart kvtube-invidious kvtube-companion  # hoặc container Invidious của bạn
+```
+Kiểm tra bằng `sudo docker exec kvtube-db ping -c2 8.8.8.8`. Để bền vững: Control Panel → Task Scheduler → Create → Triggered Task → Boot-up (quyền root): `sysctl -w net.ipv4.ip_forward=1` — vì DSM reset cài đặt này mỗi khi reboot.
 
 ### 🆘 Vẫn kẹt?
 
