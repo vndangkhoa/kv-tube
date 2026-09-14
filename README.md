@@ -1,21 +1,17 @@
 <h1 align="center">🎬 KV-Tube</h1>
 
 <p align="center">
-  <strong>Your own private YouTube — self-hosted, ad-free, private.</strong><br/>
-  <sub>Runs on your NAS or home server · Watch in any browser · No tracking</sub>
+  <strong>Your own private, self-hosted, ad-free YouTube portal with Android TV.</strong><br/>
+  <i>Stream 4K videos, skip sponsors, synchronize watch history, and listen in the background without Google tracking.</i>
 </p>
 
 <p align="center">
-  <a href="https://github.com/vndangkhoa/kv-tube/blob/main/LICENSE">
-    <img src="https://img.shields.io/github/license/vndangkhoa/kv-tube?style=flat-square" alt="License" />
-  </a>
-  <img src="https://img.shields.io/badge/Next.js-16-000000?style=flat-square&logo=nextdotjs" alt="Next.js" />
-  <img src="https://img.shields.io/badge/React-19-61DAFB?style=flat-square&logo=react" alt="React" />
-  <img src="https://img.shields.io/badge/Invidious-API-000000?style=flat-square&logo=crystal" alt="Invidious" />
-  <img src="https://img.shields.io/badge/Docker-Ready-2496ED?style=flat-square&logo=docker" alt="Docker" />
-  <img src="https://img.shields.io/badge/PWA-Ready-5A0FC8?style=flat-square&logo=pwa" alt="PWA" />
-  <img src="https://img.shields.io/badge/Android-5.0+-3DDC84?style=flat-square&logo=android" alt="Android" />
-  <img src="https://img.shields.io/badge/Android%20TV-7.0+-00838F?style=flat-square&logo=android" alt="Android TV" />
+  <a href="https://github.com/vndangkhoa/kv-tube/stargazers"><img src="https://img.shields.io/github/stars/vndangkhoa/kv-tube?style=for-the-badge&logo=apachespark&color=f59e0b" alt="GitHub Stars" /></a>
+  <img src="https://img.shields.io/badge/Next.js-16-000000?style=for-the-badge&logo=nextdotjs&logoColor=white" alt="Next.js 16" />
+  <img src="https://img.shields.io/badge/React-19-61DAFB?style=for-the-badge&logo=react&logoColor=black" alt="React 19" />
+  <img src="https://img.shields.io/badge/Android_TV-7.0+-00838F?style=for-the-badge&logo=android&logoColor=white" alt="Android TV" />
+  <img src="https://img.shields.io/badge/Docker-Ready-2496ED?style=for-the-badge&logo=docker&logoColor=white" alt="Docker" />
+  <a href="#license"><img src="https://img.shields.io/badge/License-MIT-gray?style=for-the-badge" alt="License MIT" /></a>
 </p>
 
 <p align="center">
@@ -23,6 +19,33 @@
   <a href="#-what-is-kv-tube"><b>🇬🇧 English</b></a> •
   <a href="#tieng-viet"><b>🇻🇳 Tiếng Việt</b></a>
 </p>
+
+<p align="center">
+  <a href="#-quick-start"><b>Quick Start</b></a> •
+  <a href="#-why-kv-tube"><b>Why KV-Tube?</b></a> •
+  <a href="#-features"><b>Features</b></a> •
+  <a href="#%EF%B8%8F-how-it-works-architecture"><b>Architecture</b></a> •
+  <a href="#-setting-up-on-a-synology-nas"><b>Synology NAS</b></a> •
+  <a href="#-star-history"><b>Star History</b></a>
+</p>
+
+---
+
+## ⚡ Why KV-Tube?
+
+The official YouTube experience is overwhelmed with unskippable ads, sponsored segments, and opaque recommendation algorithms that harvest your viewing telemetry.
+
+**KV-Tube** delivers a clean, home-hosted sanctuary for video streaming:
+
+| Capability | 🎬 **KV-Tube** | 📱 Official YouTube | 🌐 Invidious Web | 🟣 Piped |
+| :--- | :---: | :---: | :---: | :---: |
+| **Advertisements** | **❌ 100% Ad-Free** | ⚠️ Heavy Ads | ❌ Ad-free | ❌ Ad-free |
+| **Sponsor Skipping** | **✅ Built-in SponsorBlock** | ❌ No | ⚠️ Instance dependent | ⚠️ Instance dependent |
+| **Dislike Counts** | **✅ Return YouTube Dislike (RYD)** | ❌ Removed | ⚠️ Basic | ⚠️ Basic |
+| **Native Android TV App** | **✅ Kotlin Compose + D-Pad** | ⚠️ Official TV app | ❌ Web browser only | ❌ Unofficial |
+| **Background Audio & PWA** | **✅ Yes (Screen off playback)** | ⚠️ Premium Paywall | ⚠️ Web browser | ⚠️ Web browser |
+| **Synology 1-Click Setup** | **✅ Docker Container Manager** | ❌ Cloud only | ⚠️ Complex stack | ⚠️ Complex stack |
+| **Tracking & Telemetry** | **Zero Google Tracking** | Massive telemetry | Zero | Zero |
 
 ---
 
@@ -537,6 +560,18 @@ Mọi đóng góp đều được chào đón!
 3. Commit (`git commit -m 'feat: add amazing feature'`)
 4. Push (`git push origin feature/amazing-feature`)
 5. Mở Pull Request
+
+## 🌟 Support & Community
+
+If you find KV-Tube valuable, please consider giving the repository a **Star ⭐** to support future development!
+
+<p align="center">
+  <a href="https://star-history.com/#vndangkhoa/kv-tube&Date">
+    <img src="https://api.star-history.com/svg?repos=vndangkhoa/kv-tube&type=Date" alt="KV-Tube Star History" width="75%" />
+  </a>
+</p>
+
+---
 
 ## 📄 Giấy phép
 
