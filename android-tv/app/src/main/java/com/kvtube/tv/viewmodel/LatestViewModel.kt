@@ -23,10 +23,24 @@ class LatestViewModel : ViewModel() {
 
     private val defaultRegion = "VN"
 
-    init { refresh() }
+    private var refreshJob: kotlinx.coroutines.Job? = null
+
+    init {
+        refresh()
+        viewModelScope.launch {
+            var lastInstance = com.kvtube.tv.data.api.ApiClient.instanceFlow.value
+            com.kvtube.tv.data.api.ApiClient.instanceFlow.collect { newInst ->
+                if (newInst != lastInstance) {
+                    lastInstance = newInst
+                    refresh()
+                }
+            }
+        }
+    }
 
     fun refresh() {
-        viewModelScope.launch {
+        refreshJob?.cancel()
+        refreshJob = viewModelScope.launch {
             _state.value = _state.value.copy(isLoading = true, error = null)
             try {
                 // Fetch latest videos across categories using upload_date sorting

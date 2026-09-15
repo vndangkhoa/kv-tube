@@ -29,30 +29,20 @@ class InvidiousRepository {
     } catch (_: Exception) { emptyList() }
 
     // Resilient video fetch: try Invidious first, then fall back to direct InnerTube ANDROID client
-    // when Invidious returns 500 "This content isn't available" (broken companion signature).
     suspend fun video(videoId: String): InvidiousVideo {
         val id = videoId.trim()
         require(id.isNotBlank()) { "Empty videoId" }
         var lastInvidiousError: Exception? = null
         var invidiousVideo: InvidiousVideo? = null
         try {
-            invidiousVideo = api.getVideo(id)
-            // Invidious sometimes returns 200 but with no playable streams (companion silently failed).
-            // Treat that as broken and fall through to InnerTube.
+            invidiousVideo = try {
+                api.getVideo(id, local = true)
+            } catch (_: Exception) {
+                api.getVideo(id)
+            }
             if (hasPlayableStreams(invidiousVideo)) return invidiousVideo
             lastInvidiousError = IllegalStateException("Invidious returned no playable streams")
-        } catch (e: retrofit2.HttpException) {
-            val body = try { e.response()?.errorBody()?.string() } catch (_: Exception) { null }
-            val isInvidiousBroken = e.code() == 500 && body != null && (
-                body.contains("This content isn't available", ignoreCase = true) ||
-                body.contains("companion", ignoreCase = true) ||
-                body.contains("rate-limit", ignoreCase = true)
-            )
-            val isRetriable = isInvidiousBroken || e.code() == 429 || e.code() == 502 || e.code() == 503 || e.code() == 403
-            if (!isRetriable) throw e
-            lastInvidiousError = e
         } catch (e: Exception) {
-            // Network failure talking to Invidious — try InnerTube before giving up
             lastInvidiousError = e
         }
 
@@ -60,7 +50,7 @@ class InvidiousRepository {
         try {
             val fallback = com.kvtube.tv.data.api.InnerTubeApi.getVideo(id)
             // If Invidious gave us metadata (title/channel) but no streams, merge it
-            if (invidiousVideo != null && fallback.title.isBlank().not() ) {
+            if (invidiousVideo != null && fallback.title.isNotBlank()) {
                 // Prefer Invidious metadata (more complete) + InnerTube streams
                 return invidiousVideo.copy(
                     dashUrl = fallback.dashUrl ?: invidiousVideo.dashUrl,

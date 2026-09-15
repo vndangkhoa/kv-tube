@@ -41,6 +41,19 @@ class SearchViewModel : ViewModel() {
         viewModelScope.launch {
             keywordsRepo.refreshTrendingKeywords(force = false)
         }
+        viewModelScope.launch {
+            var lastInstance = com.kvtube.tv.data.api.ApiClient.instanceFlow.value
+            com.kvtube.tv.data.api.ApiClient.instanceFlow.collect { newInst ->
+                if (newInst != lastInstance) {
+                    lastInstance = newInst
+                    keywordsRepo.refreshTrendingKeywords(force = true)
+                    val q = _query.value.trim()
+                    if (q.isNotBlank()) {
+                        executeSearch(q)
+                    }
+                }
+            }
+        }
     }
 
     fun onQueryChange(q: String) {

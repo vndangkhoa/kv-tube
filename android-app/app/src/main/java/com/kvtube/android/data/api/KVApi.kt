@@ -42,6 +42,18 @@ class KVApi(
         /** Set exclusively from user input (Settings). Empty = not configured. */
         private const val DEFAULT_BASE_URL = ""
 
+        fun normalizeUrl(raw: String): String {
+            var s = raw.trim().trimEnd('/')
+            if (s.isBlank()) return ""
+            if (!s.startsWith("http://") && !s.startsWith("https://")) {
+                s = "https://$s"
+            }
+            if (s.startsWith("http://") && !s.contains("192.168.") && !s.contains("127.0.0.1") && !s.contains("localhost")) {
+                s = s.replaceFirst("http://", "https://")
+            }
+            return s
+        }
+
         /**
          * Invidious accepts two credentials on the /auth/ endpoints:
          *  - `Authorization: Bearer <token>` where the token is a JSON payload
@@ -87,11 +99,16 @@ class KVApi(
     private var gatewayMode: Boolean? = null
 
     fun setServerUrl(url: String) {
-        val clean = url.trim().removeSuffix("/")
-        if (clean != baseUrl) gatewayMode = null
+        val clean = normalizeUrl(url)
+        if (clean != baseUrl) {
+            gatewayMode = null
+        }
         baseUrl = clean
+        com.kvtube.android.data.local.ThumbnailRouter.setServer(clean, gatewayMode == true)
         Log.d(TAG, "Server URL set to: ${if (baseUrl.isBlank()) "<not configured>" else baseUrl}")
     }
+
+    fun isGateway(): Boolean = gatewayMode == true
 
     fun setToken(token: String) {
         authToken = token.trim()
@@ -110,12 +127,70 @@ class KVApi(
 
     fun getServerUrl(): String = baseUrl
 
+    data class ServerCheckResult(
+        val ok: Boolean,
+        val isGateway: Boolean = false,
+        val version: String = "",
+        val latencyMs: Long = 0L,
+        val message: String = ""
+    )
+
+    suspend fun testServerConnection(testUrl: String): ServerCheckResult {
+        val clean = normalizeUrl(testUrl)
+        if (clean.isBlank()) {
+            return ServerCheckResult(ok = false, message = "URL is empty")
+        }
+        val start = android.os.SystemClock.elapsedRealtime()
+        return try {
+            // 1. Try direct Invidious /api/v1/stats
+            val directStats = try {
+                client.get("$clean/api/v1/stats").bodyAsText()
+            } catch (_: Exception) { null }
+            val directObj = directStats?.let { runCatching { json.parseToJsonElement(it) as? JsonObject }.getOrNull() }
+            if (directObj?.containsKey("version") == true) {
+                val latency = android.os.SystemClock.elapsedRealtime() - start
+                val ver = directObj.str("version")
+                return ServerCheckResult(
+                    ok = true,
+                    isGateway = false,
+                    version = ver,
+                    latencyMs = latency,
+                    message = "Invidious v$ver (${latency}ms)"
+                )
+            }
+
+            // 2. Try KV-Tube Gateway /api/invidious/api/v1/stats
+            val gatewayStats = try {
+                client.get("$clean/api/invidious/api/v1/stats").bodyAsText()
+            } catch (_: Exception) { null }
+            val gatewayObj = gatewayStats?.let { runCatching { json.parseToJsonElement(it) as? JsonObject }.getOrNull() }
+            if (gatewayObj?.containsKey("version") == true) {
+                val latency = android.os.SystemClock.elapsedRealtime() - start
+                val ver = gatewayObj.str("version")
+                return ServerCheckResult(
+                    ok = true,
+                    isGateway = true,
+                    version = ver,
+                    latencyMs = latency,
+                    message = "KV-Tube Web Gateway (Invidious v$ver, ${latency}ms)"
+                )
+            }
+
+            ServerCheckResult(ok = false, message = "No Invidious API detected at this address")
+        } catch (e: Exception) {
+            ServerCheckResult(ok = false, message = e.message ?: "Connection failed")
+        }
+    }
+
     /** Accepts absolute, protocol-relative and instance-relative URLs. */
     private fun absoluteUrl(raw: String): String = when {
         raw.isBlank() -> ""
         raw.startsWith("https://") || raw.startsWith("http://") -> raw
         raw.startsWith("//") -> "https:$raw"
-        raw.startsWith("/") -> "$baseUrl$raw"
+        raw.startsWith("/") -> {
+            if (gatewayMode == true) "$baseUrl/api/invidious$raw"
+            else "$baseUrl$raw"
+        }
         else -> "https://$raw"
     }
 
@@ -125,12 +200,13 @@ class KVApi(
      *  Detection is content-based: SPA fallbacks answer HTTP 200 for any path
      *  with an HTML body, so status codes alone cannot be trusted. */
     private suspend fun resolveGateway() {
-        if (gatewayMode != null) return
+        if (gatewayMode != null || baseUrl.isBlank()) return
         gatewayMode = when {
             invidiousOk("/api/v1") -> false
             invidiousOk("/api/invidious/api/v1") -> true
             else -> false
         }
+        com.kvtube.android.data.local.ThumbnailRouter.setGatewayMode(gatewayMode == true)
         Log.d(TAG, "Server mode: ${if (gatewayMode == true) "kv-tube gateway" else "raw invidious"}")
     }
 
@@ -306,10 +382,24 @@ class KVApi(
      *  - highest-bitrate audio/mp4 becomes audio_format
      */
     suspend fun getPlaybackInfo(videoId: String, audio: String = "opus"): PlaybackInfo {
-        // local=true → Invidious rewrites stream URLs to itself
-        // (/latest_version?...), so video+audio bytes are proxied through the
-        // user's server instead of connecting to googlevideo.com directly.
-        val o = getObject("videos/$videoId?local=true") ?: return PlaybackInfo()
+        resolveGateway()
+        // 1. Try local=true first (proxies video/audio bytes via Invidious)
+        var o = getObject("videos/$videoId?local=true")
+
+        // 2. Fallback to direct without local=true if local=true failed or gave no streams
+        fun hasStreams(obj: JsonObject?): Boolean {
+            if (obj == null) return false
+            val progressive = (obj["formatStreams"] as? JsonArray)?.isNotEmpty() == true
+            val adaptive = (obj["adaptiveFormats"] as? JsonArray)?.isNotEmpty() == true
+            return progressive || adaptive
+        }
+
+        if (!hasStreams(o)) {
+            Log.d(TAG, "getPlaybackInfo($videoId): local=true returned no formats, falling back to direct video info")
+            o = getObject("videos/$videoId")
+        }
+
+        if (o == null) return PlaybackInfo()
 
         fun heightOf(vararg labels: String): Int {
             for (label in labels) {
@@ -320,13 +410,32 @@ class KVApi(
 
         // With local=true Invidious may return RELATIVE proxy paths like
         // "/latest_version?id=...". Prefix them with the server base so the
-        // player gets an absolute URL — otherwise ExoPlayer fails instantly
-        // with ERROR_CODE_IO_NETWORK_CONNECTION_FAILED ("Source error").
+        // player gets an absolute URL. If in gateway mode, route Invidious
+        // streams through the Next.js /api/invidious proxy.
         fun JsonObject.absoluteStreamUrl(): String {
             val raw = str("url")
+            if (raw.isBlank()) return ""
+            if (gatewayMode == true) {
+                if (raw.startsWith("/api/invidious")) return "$baseUrl$raw"
+                if (raw.startsWith("/")) return "$baseUrl/api/invidious$raw"
+
+                // For absolute URLs, if it's hosted by Invidious (not Google CDN), proxy through gateway
+                val uri = runCatching { android.net.Uri.parse(raw) }.getOrNull()
+                val host = uri?.host?.lowercase().orEmpty()
+                val isGoogleCdn = host.contains("googlevideo.com") || host.contains("ytimg.com") || host.contains("youtube.com")
+                val path = uri?.path.orEmpty()
+                val query = uri?.query?.let { "?$it" }.orEmpty()
+                if (!isGoogleCdn && (path.startsWith("/videoplayback") || path.startsWith("/latest_version") || path.startsWith("/api/"))) {
+                    return "$baseUrl/api/invidious$path$query"
+                }
+            } else {
+                if (raw.startsWith("/")) {
+                    return if (baseUrl.isNotBlank()) "$baseUrl$raw" else raw
+                }
+            }
             return when {
                 raw.startsWith("http://") || raw.startsWith("https://") -> raw
-                raw.startsWith("/") && baseUrl.isNotBlank() -> baseUrl + raw
+                raw.startsWith("//") -> "https:$raw"
                 else -> raw
             }
         }

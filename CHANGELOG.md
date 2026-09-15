@@ -5,6 +5,17 @@ All notable changes to KV-Tube are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.7.4] - 2026-09-15
+
+### Added
+- **Android Phone & TV: Dynamic instance switching & normalization** — seamless server switching without app restart:
+  - Instance URLs are automatically normalized (trailing slashes handled, default scheme prepended).
+  - Feeds, subscriptions, and trending keywords immediately refresh upon instance change.
+  - Gateway mode detection (`/api/invidious/` proxy endpoint) with automatic thumbnail routing.
+- **Settings: Interactive connection tester** — "Test connection" button in Settings checks endpoint reachability, gateway mode, and video availability with detailed feedback.
+- **Resilient stream playback** — watch flows automatically fall back to on-device extraction / InnerTube when the configured Invidious instance is rate-limited, unreachable, or returns no playable streams.
+- **Android Phone bumped to 1.7.4** (versionCode 29) and **Android TV bumped to 1.1.2-tv** (versionCode 5).
+
 ## [1.7.3] - 2026-09-08
 
 ### Added

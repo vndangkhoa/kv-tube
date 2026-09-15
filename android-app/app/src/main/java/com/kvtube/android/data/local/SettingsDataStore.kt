@@ -57,7 +57,7 @@ class SettingsDataStore @Inject constructor(
     }
 
     suspend fun setServerUrl(url: String) {
-        val cleanUrl = url.trim().removeSuffix("/")
+        val cleanUrl = com.kvtube.android.data.api.KVApi.normalizeUrl(url)
         context.dataStore.edit { preferences ->
             preferences[SERVER_URL] = cleanUrl
         }

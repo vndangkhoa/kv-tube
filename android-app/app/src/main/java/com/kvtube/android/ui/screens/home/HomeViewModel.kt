@@ -45,19 +45,23 @@ class HomeViewModel @Inject constructor(
 
     init {
         viewModelScope.launch {
-            settingsDataStore.region
-                .distinctUntilChanged()
-                .collect { region ->
-                    currentRegion = region
-                    currentPage = 0
-                    _uiState.value = _uiState.value.copy(
-                        currentRegion = region,
-                        isLoading = true,
-                        hasMore = true,
-                        error = null
-                    )
-                    loadVideos()
-                }
+            kotlinx.coroutines.flow.combine(
+                settingsDataStore.region.distinctUntilChanged(),
+                settingsDataStore.serverUrl.distinctUntilChanged()
+            ) { region, serverUrl ->
+                Pair(region, serverUrl)
+            }.collect { (region, _) ->
+                currentRegion = region
+                currentPage = 0
+                _uiState.value = _uiState.value.copy(
+                    currentRegion = region,
+                    videos = emptyList(),
+                    isLoading = true,
+                    hasMore = true,
+                    error = null
+                )
+                loadVideos()
+            }
         }
     }
 

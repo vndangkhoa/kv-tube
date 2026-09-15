@@ -62,6 +62,7 @@ import androidx.tv.material3.Surface
 import androidx.tv.material3.Text
 import com.kvtube.tv.viewmodel.PlayerViewModel
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 @OptIn(UnstableApi::class)
 @ExperimentalTvMaterial3Api
@@ -198,11 +199,27 @@ fun PlayerScreen(
         }
     }
 
+    val coroutineScope = rememberCoroutineScope()
+    var triedInnerTubeFallback by remember { mutableStateOf(false) }
+
     LaunchedEffect(state.video) {
         val v = state.video ?: return@LaunchedEffect
         val cfg = vm.getPlaybackConfig(v)
         if (cfg is PlayerViewModel.PlaybackConfig.Unavailable) {
-            playerError = "No playable high-res stream found (Invidious only). Try another video."
+            if (!triedInnerTubeFallback) {
+                triedInnerTubeFallback = true
+                val fallbackVideo = vm.fallbackToInnerTube(videoId)
+                if (fallbackVideo != null) {
+                    val fCfg = vm.getPlaybackConfig(fallbackVideo)
+                    if (fCfg !is PlayerViewModel.PlaybackConfig.Unavailable) {
+                        fallbackList = vm.getFallbackConfigs(fallbackVideo, fCfg)
+                        fallbackIndex = 0
+                        playWithConfig(fallbackVideo, fCfg)
+                        return@LaunchedEffect
+                    }
+                }
+            }
+            playerError = "No playable stream found. Try another video."
             return@LaunchedEffect
         }
         fallbackList = vm.getFallbackConfigs(v, cfg)
@@ -235,7 +252,7 @@ fun PlayerScreen(
             override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
                 android.util.Log.e("PlayerScreen", "ExoPlayer error: ${error.message} code=${error.errorCodeName} cause=${error.cause?.message}", error)
                 val v = state.video
-                // Try next fallback config (lower resolution, Invidious only, no WebView)
+                // Try next fallback config (lower resolution)
                 if (v != null && fallbackIndex < fallbackList.size) {
                     val next = fallbackList[fallbackIndex]
                     fallbackIndex++
@@ -245,6 +262,27 @@ fun PlayerScreen(
                         return
                     } catch (_: Exception) {}
                 }
+
+                // If Invidious fallbacks exhausted, seamlessly fall back to InnerTube
+                if (!triedInnerTubeFallback && videoId.isNotBlank()) {
+                    triedInnerTubeFallback = true
+                    android.util.Log.w("PlayerScreen", "Invidious stream playback failed. Falling back to direct InnerTube streams...")
+                    coroutineScope.launch {
+                        val fallbackVideo = vm.fallbackToInnerTube(videoId)
+                        if (fallbackVideo != null) {
+                            val fCfg = vm.getPlaybackConfig(fallbackVideo)
+                            if (fCfg !is PlayerViewModel.PlaybackConfig.Unavailable) {
+                                fallbackList = vm.getFallbackConfigs(fallbackVideo, fCfg)
+                                fallbackIndex = 0
+                                playWithConfig(fallbackVideo, fCfg)
+                                return@launch
+                            }
+                        }
+                        playerError = error.message ?: "Playback failed (${error.errorCodeName})"
+                    }
+                    return
+                }
+
                 playerError = error.message ?: "Playback failed (${error.errorCodeName})"
             }
         }

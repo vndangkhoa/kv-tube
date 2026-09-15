@@ -60,13 +60,24 @@ class PlayerViewModel : ViewModel() {
         data object Unavailable : PlaybackConfig()
     }
 
-    private fun fixUrl(u: String): String {
-        val base = com.kvtube.tv.data.api.ApiClient.baseUrl.trimEnd('/')
-        return when {
-            u.startsWith("//") -> "https:$u"
-            u.startsWith("/") -> "$base$u"
-            u.startsWith("http://") -> u.replace("http://", "https://")
-            else -> u
+    fun fixUrl(u: String): String = com.kvtube.tv.data.api.ApiClient.rewriteStreamUrl(u)
+
+    suspend fun fallbackToInnerTube(videoId: String): InvidiousVideo? {
+        return try {
+            val fallback = com.kvtube.tv.data.api.InnerTubeApi.getVideo(videoId)
+            val current = _state.value.video
+            val merged = if (current != null) {
+                current.copy(
+                    dashUrl = fallback.dashUrl ?: current.dashUrl,
+                    hlsUrl = fallback.hlsUrl ?: current.hlsUrl,
+                    formatStreams = fallback.formatStreams,
+                    adaptiveFormats = fallback.adaptiveFormats
+                )
+            } else fallback
+            _state.value = _state.value.copy(video = merged)
+            merged
+        } catch (_: Exception) {
+            null
         }
     }
 

@@ -88,27 +88,27 @@ fun SettingsScreen() {
 
     fun persistConnection(url: String, tok: String, doneMessage: String) {
         scope.launch {
-            val cleanUrl = url.trim().removeSuffix("/").ifBlank { "https://yt.khoavo.myds.me" }
+            val cleanUrl = com.kvtube.tv.data.api.ApiClient.normalizeInstanceUrl(url)
+            val cleanTok = tok.trim().ifBlank { null }
             ctx.tvDataStore.edit {
                 it[stringPreferencesKey("kv_invidious_instance")] = cleanUrl
-                if (tok.isBlank()) it.remove(stringPreferencesKey("kv_invidious_token"))
-                else it[stringPreferencesKey("kv_invidious_token")] = tok.trim()
+                if (cleanTok == null) it.remove(stringPreferencesKey("kv_invidious_token"))
+                else it[stringPreferencesKey("kv_invidious_token")] = cleanTok
             }
-            com.kvtube.tv.data.api.ApiClient.baseUrl = "$cleanUrl/"
-            com.kvtube.tv.data.api.ApiClient.token = tok.trim().ifBlank { null }
+            com.kvtube.tv.data.api.ApiClient.setInstance(cleanUrl, cleanTok)
             instanceUrl = cleanUrl
-            token = tok.trim()
+            token = cleanTok.orEmpty()
             snackbar.showSnackbar(doneMessage)
         }
     }
 
     LaunchedEffect(Unit) {
         val prefs = ctx.tvDataStore.data.first()
-        instanceUrl = prefs[stringPreferencesKey("kv_invidious_instance")] ?: "https://yt.khoavo.myds.me"
+        val rawInst = prefs[stringPreferencesKey("kv_invidious_instance")] ?: com.kvtube.tv.data.api.ApiClient.DEFAULT_INSTANCE
+        instanceUrl = com.kvtube.tv.data.api.ApiClient.normalizeInstanceUrl(rawInst)
         token = prefs[stringPreferencesKey("kv_invidious_token")] ?: ""
         loaded = true
-        com.kvtube.tv.data.api.ApiClient.baseUrl = if (instanceUrl.endsWith("/")) instanceUrl else "$instanceUrl/"
-        com.kvtube.tv.data.api.ApiClient.token = token.ifBlank { null }
+        com.kvtube.tv.data.api.ApiClient.setInstance(instanceUrl, token.ifBlank { null })
     }
 
     fun checkForUpdate() {
@@ -322,7 +322,7 @@ fun SettingsScreen() {
             onDismiss = { showEditInstance = false },
             onSave = { url ->
                 showEditInstance = false
-                persistConnection(url, token, "Saved — restart Home to refresh feed")
+                persistConnection(url, token, "Instance updated — feeds refreshed ✓")
             },
         )
     }
@@ -486,9 +486,10 @@ private fun TestConnectionRow(snackbar: SnackbarHostState) {
                     result = null
                     try {
                         val r = com.kvtube.tv.data.api.ApiClient.api.getTrending("VN")
-                        result = "✓ Connected — trending: ${r.size} videos"
+                        val modeStr = if (com.kvtube.tv.data.api.ApiClient.isGatewayMode) " (gateway mode)" else ""
+                        result = "✓ Connected$modeStr — trending: ${r.size} videos"
                     } catch (e: Exception) {
-                        result = "✗ Failed: ${e.message ?: e.javaClass.simpleName}"
+                        result = "✗ Failed: ${e.message ?: e.javaClass.simpleName} (${com.kvtube.tv.data.api.ApiClient.baseUrl})"
                     } finally {
                         testing = false
                     }

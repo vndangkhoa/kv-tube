@@ -42,6 +42,11 @@ class SubscriptionRepository @Inject constructor(
     /** Cached aggregated local feed so paging doesn't refetch every channel. */
     private var localFeedCache: List<VideoData>? = null
 
+    fun clearCache() {
+        localFeedCache = null
+        lastAuthFeedState = AuthFeedState.FAILED
+    }
+
     suspend fun getSubscriptions(): List<Subscription> {
         val remote = bounded(15_000L) { api.getSubscriptions() } ?: emptyList()
         val local = subscribedChannelDao.getAll().map { it.toModel() }

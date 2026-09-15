@@ -24,8 +24,8 @@ class VideoRepository @Inject constructor(
         private const val TAG = "VideoRepository"
         // Server calls are bounded so a slow/blocked backend can never hang
         // the UI forever.
-        private const val SERVER_TIMEOUT_MS = 8_000L
-        @Deprecated("Strict server-only mode — retained only for compile compat")
+        private const val SERVER_TIMEOUT_MS = 10_000L
+        private const val PLAYBACK_TIMEOUT_MS = 15_000L
         private const val EXTRACTOR_TIMEOUT_MS = 10_000L
     }
 
@@ -54,15 +54,66 @@ class VideoRepository @Inject constructor(
         } ?: emptyList()
 
     suspend fun getVideoInfo(videoId: String): VideoData {
-        return bounded(SERVER_TIMEOUT_MS) {
+        val info = bounded(SERVER_TIMEOUT_MS) {
             api.getVideoInfo(videoId)
-        } ?: VideoData(id = videoId)
+        }
+        if (info != null && info.title.isNotBlank()) {
+            return info
+        }
+        val fallback = runCatching { extractorHelper.getVideoDetails(videoId) }.getOrNull()
+        return fallback ?: info ?: VideoData(id = videoId)
     }
 
     suspend fun getPlaybackInfo(videoId: String, audio: String = "opus"): PlaybackInfo {
-        return bounded(SERVER_TIMEOUT_MS) {
+        val serverInfo = bounded(PLAYBACK_TIMEOUT_MS) {
             api.getPlaybackInfo(videoId, audio)
-        } ?: PlaybackInfo()
+        }
+        if (serverInfo != null && serverInfo.videoFormats.isNotEmpty()) {
+            return serverInfo
+        }
+
+        // Resilient fallback: If the server is offline, rate-limited, or returned no streams,
+        // fall back to extractorHelper so playback is never blocked.
+        Log.w(TAG, "Server playback info unavailable for $videoId, falling back to on-device extractor")
+        return try {
+            val stream = extractorHelper.extractStreamUrl(videoId, com.kvtube.android.data.model.Quality.BEST)
+            if (stream.videoUrl.isNotBlank()) {
+                val format = com.kvtube.android.data.model.PlaybackFormat(
+                    formatId = "extractor",
+                    height = stream.height,
+                    width = 0,
+                    vcodec = "mp4v",
+                    acodec = if (stream.audioUrl.isNullOrBlank()) "mp4a" else "",
+                    ext = "mp4",
+                    bandwidth = 0,
+                    filesize = 0L,
+                    url = stream.videoUrl,
+                    hasAudio = stream.audioUrl.isNullOrBlank()
+                )
+                val audioFormat = stream.audioUrl?.takeIf { it.isNotBlank() }?.let {
+                    com.kvtube.android.data.model.PlaybackFormat(
+                        formatId = "extractor_audio",
+                        height = 0,
+                        bandwidth = 0,
+                        filesize = 0L,
+                        acodec = "mp4a",
+                        ext = "m4a",
+                        url = it,
+                        hasAudio = true
+                    )
+                }
+                PlaybackInfo(
+                    title = "",
+                    videoFormats = listOf(format),
+                    audioFormat = audioFormat
+                )
+            } else {
+                PlaybackInfo()
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Extractor fallback failed for $videoId: ${e.message}")
+            PlaybackInfo()
+        }
     }
 
     suspend fun getRelatedVideos(videoId: String, limit: Int = 15): List<VideoData> {

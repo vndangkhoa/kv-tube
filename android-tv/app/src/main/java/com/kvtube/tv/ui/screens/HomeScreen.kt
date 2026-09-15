@@ -29,9 +29,13 @@ fun HomeScreen(
     val categories = remember { listOf("All", "Music", "Gaming", "Movies", "News", "Tech", "Sports", "Live", "Comedy") }
     var selected by remember { mutableStateOf("All") }
 
-    // Refresh content when screen is first entered
-    LaunchedEffect(Unit) {
-        vm.refresh()
+    val currentInstance by com.kvtube.tv.data.api.ApiClient.instanceFlow.collectAsState()
+
+    // Refresh content when screen is entered or instance changed
+    LaunchedEffect(currentInstance) {
+        if (state.hero.isEmpty() && state.rows.isEmpty()) {
+            vm.refresh()
+        }
     }
 
     TvLazyColumn(
@@ -62,8 +66,15 @@ fun HomeScreen(
 
         state.error?.let { msg ->
             item {
-                Box(Modifier.fillMaxWidth().padding(24.dp), contentAlignment = androidx.compose.ui.Alignment.Center) {
+                Column(
+                    Modifier.fillMaxWidth().padding(24.dp),
+                    horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
                     Text(msg, color = MaterialTheme.colorScheme.error)
+                    androidx.tv.material3.Button(onClick = { vm.refresh() }) {
+                        Text("Retry")
+                    }
                 }
             }
         }

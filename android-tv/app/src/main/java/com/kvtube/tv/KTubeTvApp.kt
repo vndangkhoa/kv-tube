@@ -21,16 +21,12 @@ class KTubeTvApp : Application() {
     override fun onCreate() {
         super.onCreate()
         instance = this
-        scope.launch {
-            try {
-                val prefs = tvDataStore.data.first()
-                val inst = prefs[stringPreferencesKey("kv_invidious_instance")]?.trim()?.removeSuffix("/")?.ifBlank { "https://yt.khoavo.myds.me" } ?: "https://yt.khoavo.myds.me"
-                val token = prefs[stringPreferencesKey("kv_invidious_token")]?.trim()?.ifBlank { null }
-                ApiClient.baseUrl = if (inst.endsWith("/")) inst else "$inst/"
-                ApiClient.token = token
-            } catch (_: Exception) {
-                ApiClient.baseUrl = "https://yt.khoavo.myds.me/"
+        try {
+            kotlinx.coroutines.runBlocking(Dispatchers.IO) {
+                com.kvtube.tv.data.local.TvPrefs(this@KTubeTvApp).bootstrap()
             }
+        } catch (_: Exception) {
+            ApiClient.setInstance(ApiClient.DEFAULT_INSTANCE)
         }
     }
 }

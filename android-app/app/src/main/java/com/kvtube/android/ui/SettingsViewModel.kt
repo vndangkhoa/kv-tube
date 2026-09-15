@@ -26,7 +26,11 @@ data class SettingsUiState(
     val isCheckingUpdate: Boolean = false,
     val isDownloading: Boolean = false,
     val downloadProgress: Float = 0f,
-    val updateError: String? = null
+    val updateError: String? = null,
+    val isTestingConnection: Boolean = false,
+    val testSuccess: Boolean? = null,
+    val testStatus: String? = null,
+    val saveMessage: String? = null
 )
 
 @HiltViewModel
@@ -34,13 +38,20 @@ class SettingsViewModel @Inject constructor(
     private val settingsDataStore: SettingsDataStore,
     private val api: KVApi,
     private val pairApi: PairApi,
-    private val updateManager: UpdateManager
+    private val updateManager: UpdateManager,
+    private val subscriptionRepository: com.kvtube.android.data.repository.SubscriptionRepository,
+    private val playbackManager: com.kvtube.android.player.PlaybackManager
 ) : ViewModel() {
 
     companion object {
         /** Pairing codes live on the KV-Tube web frontend, not on raw
          *  Invidious — fall back to the production web instance like the TV app. */
         const val PAIR_FALLBACK_BASE = "https://ut.khoavo.myds.me"
+
+        val PRESET_INSTANCES = listOf(
+            "https://ut.khoavo.myds.me" to "KV-Tube Web (Gateway)",
+            "https://yt.khoavo.myds.me" to "KV-Tube Direct (Invidious)"
+        )
     }
 
     private val _uiState = MutableStateFlow(SettingsUiState())
@@ -58,20 +69,73 @@ class SettingsViewModel @Inject constructor(
     }
 
     fun saveServerUrl(url: String) {
+        val clean = KVApi.normalizeUrl(url)
         viewModelScope.launch {
-            settingsDataStore.setServerUrl(url)
-            api.setServerUrl(url)
-            com.kvtube.android.data.local.ThumbnailRouter.setServer(url)
-            _uiState.value = _uiState.value.copy(serverUrl = url)
+            settingsDataStore.setServerUrl(clean)
+            api.setServerUrl(clean)
+            com.kvtube.android.data.local.ThumbnailRouter.setServer(clean, api.isGateway())
+            subscriptionRepository.clearCache()
+            playbackManager.stopAndClear()
+            _uiState.value = _uiState.value.copy(serverUrl = clean, saveMessage = "Server URL saved")
         }
     }
 
     fun saveInvidiousToken(token: String) {
+        val clean = token.trim()
         viewModelScope.launch {
-            settingsDataStore.setInvidiousToken(token)
-            api.setToken(token)
-            _uiState.value = _uiState.value.copy(invidiousToken = token)
+            settingsDataStore.setInvidiousToken(clean)
+            api.setToken(clean)
+            subscriptionRepository.clearCache()
+            _uiState.value = _uiState.value.copy(invidiousToken = clean)
         }
+    }
+
+    fun saveSettings(serverUrl: String, token: String) {
+        val cleanUrl = KVApi.normalizeUrl(serverUrl)
+        val cleanToken = token.trim()
+        viewModelScope.launch {
+            settingsDataStore.setServerUrl(cleanUrl)
+            settingsDataStore.setInvidiousToken(cleanToken)
+            api.setServerUrl(cleanUrl)
+            api.setToken(cleanToken)
+            com.kvtube.android.data.local.ThumbnailRouter.setServer(cleanUrl, api.isGateway())
+            subscriptionRepository.clearCache()
+            playbackManager.stopAndClear()
+            _uiState.value = _uiState.value.copy(
+                serverUrl = cleanUrl,
+                invidiousToken = cleanToken,
+                saveMessage = "Settings saved successfully"
+            )
+        }
+    }
+
+    fun testConnection(url: String) {
+        val cleanUrl = KVApi.normalizeUrl(url)
+        if (cleanUrl.isBlank()) {
+            _uiState.value = _uiState.value.copy(
+                isTestingConnection = false,
+                testSuccess = false,
+                testStatus = "Enter a server address first"
+            )
+            return
+        }
+        viewModelScope.launch {
+            _uiState.value = _uiState.value.copy(
+                isTestingConnection = true,
+                testSuccess = null,
+                testStatus = "Testing connection..."
+            )
+            val result = api.testServerConnection(cleanUrl)
+            _uiState.value = _uiState.value.copy(
+                isTestingConnection = false,
+                testSuccess = result.ok,
+                testStatus = result.message
+            )
+        }
+    }
+
+    fun clearSaveMessage() {
+        _uiState.value = _uiState.value.copy(saveMessage = null)
     }
 
     fun setThemeMode(mode: String) {

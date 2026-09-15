@@ -231,10 +231,7 @@ fun SearchResultItem.toTvVideo(): TvVideo? {
 
 private fun fixThumbnailUrl(url: String?): String? {
     if (url.isNullOrBlank()) return null
-    // Invidious avatars may be http://yt.khoavo.myds.me or protocol-relative // — force https via i.ytimg proxy
-    if (url.startsWith("http://yt.khoavo.myds.me")) return url.replace("http://", "https://")
-    if (url.startsWith("//")) return "https:$url"
-    return url
+    return com.kvtube.tv.data.api.ApiClient.rewriteStreamUrl(url)
 }
 
 private fun formatViews(v: Long): String = when {

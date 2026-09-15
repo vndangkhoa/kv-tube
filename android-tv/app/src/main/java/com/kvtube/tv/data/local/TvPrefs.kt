@@ -22,9 +22,9 @@ class TvPrefs(private val context: Context) {
     val theme: Flow<String> = context.tvDataStore.data.map { it[KEY_THEME] ?: "youtube" }
 
     suspend fun setInstanceUrl(url: String) {
-        val clean = url.trim().removeSuffix("/").ifBlank { DEFAULT_INSTANCE }
+        val clean = ApiClient.normalizeInstanceUrl(url)
         context.tvDataStore.edit { it[KEY_INSTANCE] = clean }
-        ApiClient.baseUrl = "$clean/"
+        ApiClient.setInstance(clean)
     }
 
     suspend fun setToken(token: String?) {
@@ -40,9 +40,9 @@ class TvPrefs(private val context: Context) {
 
     suspend fun bootstrap() {
         val prefs = context.tvDataStore.data.first()
-        val inst = prefs[KEY_INSTANCE]?.trim()?.removeSuffix("/")?.ifBlank { DEFAULT_INSTANCE } ?: DEFAULT_INSTANCE
+        val rawInst = prefs[KEY_INSTANCE]?.trim()?.ifBlank { DEFAULT_INSTANCE } ?: DEFAULT_INSTANCE
+        val clean = ApiClient.normalizeInstanceUrl(rawInst)
         val tok = prefs[KEY_TOKEN]?.trim()?.ifBlank { null }
-        ApiClient.baseUrl = if (inst.endsWith("/")) inst else "$inst/"
-        ApiClient.token = tok
+        ApiClient.setInstance(clean, tok)
     }
 }

@@ -13,8 +13,8 @@ android {
         applicationId = "com.kvtube.tv"
         minSdk = 24
         targetSdk = 35
-            versionCode = 4
-            versionName = "1.1.1-tv"
+            versionCode = 5
+            versionName = "1.1.2-tv"
     }
 
     signingConfigs {
@@ -105,4 +105,5 @@ dependencies {
     implementation("androidx.leanback:leanback:1.0.0")
 
     debugImplementation("androidx.compose.ui:ui-tooling")
+    testImplementation("junit:junit:4.13.2")
 }

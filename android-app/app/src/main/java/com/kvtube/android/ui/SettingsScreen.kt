@@ -127,11 +127,59 @@ fun SettingsScreen(
                     mutableStateOf(uiState.invidiousToken)
                 }
 
+                LaunchedEffect(uiState.saveMessage) {
+                    if (uiState.saveMessage != null) {
+                        delay(3000)
+                        viewModel.clearSaveMessage()
+                    }
+                }
+
+                Text(
+                    text = "Quick Presets:",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 6.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    SettingsViewModel.PRESET_INSTANCES.forEach { (presetUrl, label) ->
+                        val isSelected = serverUrl.trim().removeSuffix("/") == presetUrl
+                        Surface(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(8.dp))
+                                .clickable {
+                                    serverUrl = presetUrl
+                                    viewModel.testConnection(presetUrl)
+                                },
+                            shape = RoundedCornerShape(8.dp),
+                            color = if (isSelected)
+                                MaterialTheme.colorScheme.primary.copy(alpha = 0.2f)
+                            else
+                                MaterialTheme.colorScheme.surfaceVariant,
+                            border = if (isSelected)
+                                androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.primary)
+                            else null
+                        ) {
+                            Text(
+                                text = label,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp)
+                            )
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(4.dp))
+
                 OutlinedTextField(
                     value = serverUrl,
                     onValueChange = { serverUrl = it },
                     label = { Text("Server Address") },
-                    placeholder = { Text("http://192.168.1.100:3000") },
+                    placeholder = { Text("https://ut.khoavo.myds.me") },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                     colors = OutlinedTextFieldDefaults.colors(
@@ -140,6 +188,19 @@ fun SettingsScreen(
                     ),
                     shape = RoundedCornerShape(12.dp)
                 )
+
+                if (uiState.testStatus != null) {
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = uiState.testStatus ?: "",
+                        style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
+                        color = when (uiState.testSuccess) {
+                            true -> MaterialTheme.colorScheme.primary
+                            false -> MaterialTheme.colorScheme.error
+                            else -> MaterialTheme.colorScheme.onSurfaceVariant
+                        }
+                    )
+                }
 
                 Spacer(modifier = Modifier.height(10.dp))
 
@@ -164,25 +225,57 @@ fun SettingsScreen(
                     modifier = Modifier.padding(top = 6.dp)
                 )
 
-                Spacer(modifier = Modifier.height(10.dp))
+                Spacer(modifier = Modifier.height(12.dp))
 
-                Button(
-                    onClick = {
-                        scope.launch {
-                            viewModel.saveServerUrl(serverUrl)
-                            viewModel.saveInvidiousToken(invidiousToken)
-                        }
-                    },
+                if (uiState.saveMessage != null) {
+                    Surface(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(bottom = 8.dp),
+                        shape = RoundedCornerShape(8.dp),
+                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
+                    ) {
+                        Text(
+                            text = "✓ ${uiState.saveMessage}",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp)
+                        )
+                    }
+                }
+
+                Row(
                     modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(12.dp)
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.Save,
-                        contentDescription = null,
-                        modifier = Modifier.size(18.dp)
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text("Save Server & Token")
+                    OutlinedButton(
+                        onClick = { viewModel.testConnection(serverUrl) },
+                        enabled = !uiState.isTestingConnection && serverUrl.isNotBlank(),
+                        modifier = Modifier.weight(1f),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        if (uiState.isTestingConnection) {
+                            CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp)
+                            Spacer(modifier = Modifier.width(6.dp))
+                        }
+                        Text("Test", maxLines = 1)
+                    }
+
+                    Button(
+                        onClick = {
+                            viewModel.saveSettings(serverUrl, invidiousToken)
+                        },
+                        modifier = Modifier.weight(2f),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Save,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Save Server & Token")
+                    }
                 }
 
                 Spacer(modifier = Modifier.height(14.dp))

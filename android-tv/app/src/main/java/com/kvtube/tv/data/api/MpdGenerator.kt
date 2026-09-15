@@ -31,9 +31,11 @@ object MpdGenerator {
             val (w, h) = parseResolution(video)
             val audioRate = audio.audioSampleRate ?: 44100
 
-            // Escape URLs for XML
-            val vUrl = video.url.replace("&", "&amp;")
-            val aUrl = audio.url.replace("&", "&amp;")
+            // Escape URLs for XML and ensure absolute URLs
+            val fixedVideoUrl = ApiClient.rewriteStreamUrl(video.url)
+            val fixedAudioUrl = ApiClient.rewriteStreamUrl(audio.url)
+            val vUrl = fixedVideoUrl.replace("&", "&amp;")
+            val aUrl = fixedAudioUrl.replace("&", "&amp;")
 
             val mpd = """
 <?xml version="1.0" encoding="UTF-8"?>

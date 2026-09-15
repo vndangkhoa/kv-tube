@@ -55,9 +55,9 @@ fun DetailScreen(
                 Text(err, color = Color(0xFFFF8A80), style = MaterialTheme.typography.titleSmall)
                 Text(
                     if (isInvidiousBroken)
-                        "This video failed on the Invidious backend, and the direct YouTube fallback also failed. Try another video or check your network."
+                        "This video failed on the server, and the direct YouTube fallback also failed. Try another video or check your network."
                     else
-                        "The Invidious backend (https://yt.khoavo.myds.me) may be rate-limiting or the companion is restarting. The app tried a direct YouTube fallback as well. Try another video.",
+                        "The server (${com.kvtube.tv.data.api.ApiClient.baseUrl}) may be unavailable or rate-limiting. Try another video or check Settings.",
                     color = Color(0xFFAAAAAA), style = MaterialTheme.typography.bodySmall
                 )
                 Button(onClick = { vm.load(videoId) }) { Text("Retry") }

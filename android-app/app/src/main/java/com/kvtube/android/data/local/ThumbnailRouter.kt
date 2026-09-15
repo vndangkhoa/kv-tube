@@ -13,14 +13,28 @@ object ThumbnailRouter {
     @Volatile
     var serverBase: String = ""
 
-    fun setServer(url: String) {
-        serverBase = url.trim().trimEnd('/')
+    @Volatile
+    var isGateway: Boolean = false
+
+    fun setServer(url: String, gateway: Boolean = false) {
+        var s = url.trim().trimEnd('/')
+        if (s.isNotBlank() && !s.startsWith("http://") && !s.startsWith("https://")) {
+            s = "https://$s"
+        }
+        serverBase = s
+        isGateway = gateway
+    }
+
+    fun setGatewayMode(gateway: Boolean) {
+        isGateway = gateway
     }
 
     /** Proxied poster image for a video id. */
-    fun video(id: String, quality: String = "hqdefault"): String =
-        if (id.isBlank() || serverBase.isBlank()) ""
-        else "$serverBase/vi/$id/$quality.jpg"
+    fun video(id: String, quality: String = "hqdefault"): String {
+        if (id.isBlank() || serverBase.isBlank()) return ""
+        val prefix = if (isGateway) "$serverBase/api/invidious" else serverBase
+        return "$prefix/vi/$id/$quality.jpg"
+    }
 
     /**
      * Routes an arbitrary thumbnail URL through Invidious when possible:
@@ -28,8 +42,14 @@ object ThumbnailRouter {
      * anything already served by the instance passes through untouched.
      */
     fun route(url: String, videoId: String): String {
-        if (url.isBlank() || url.contains("/vi/")) return url
-        if (url.contains("ytimg.com") && videoId.isNotBlank()) return video(videoId)
+        if (url.isBlank()) return url
+        if (url.contains("ytimg.com") || url.contains("ggpht.com") || url.contains("googleusercontent.com")) {
+            if (videoId.isNotBlank()) return video(videoId)
+        }
+        if (isGateway && url.contains("/vi/") && !url.contains("/api/invidious/")) {
+            if (videoId.isNotBlank()) return video(videoId)
+        }
         return url
     }
 }
+

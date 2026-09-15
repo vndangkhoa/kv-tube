@@ -42,10 +42,24 @@ class HomeViewModel : ViewModel() {
         "Travel" to com.kvtube.tv.data.VnRegionContent.queryFor("Travel"),
     )
 
-    init { load() }
+    private var loadJob: kotlinx.coroutines.Job? = null
+
+    init {
+        load()
+        viewModelScope.launch {
+            var lastInstance = com.kvtube.tv.data.api.ApiClient.instanceFlow.value
+            com.kvtube.tv.data.api.ApiClient.instanceFlow.collect { newInst ->
+                if (newInst != lastInstance) {
+                    lastInstance = newInst
+                    load(isRefresh = true)
+                }
+            }
+        }
+    }
 
     fun load(isRefresh: Boolean = false) {
-        viewModelScope.launch {
+        loadJob?.cancel()
+        loadJob = viewModelScope.launch {
             _state.value = _state.value.copy(isLoading = true, error = null)
             try {
                 // Fetch fresh data
@@ -72,7 +86,8 @@ class HomeViewModel : ViewModel() {
                 val extra = coroutineScopeExtraRows()
                 extra.forEach { (k, v) -> if (v.isNotEmpty()) rows[k] = v }
 
-                _state.value = HomeUiState(hero = hero, rows = rows, isLoading = false)
+                val errMsg = if (hero.isEmpty() && rows.isEmpty()) "Could not load feed from ${com.kvtube.tv.data.api.ApiClient.baseUrl}. Check instance in Settings." else null
+                _state.value = HomeUiState(hero = hero, rows = rows, isLoading = false, error = errMsg)
             } catch (e: Exception) {
                 _state.value = _state.value.copy(isLoading = false, error = e.message ?: "Failed to load")
             }

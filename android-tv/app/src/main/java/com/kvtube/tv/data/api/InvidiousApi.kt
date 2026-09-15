@@ -17,6 +17,7 @@ interface InvidiousApi {
     suspend fun getVideo(
         @Path("videoId") videoId: String,
         @Query("region") region: String? = null,
+        @Query("local") local: Boolean? = null,
     ): InvidiousVideo
 
     @GET("api/v1/comments/{videoId}")

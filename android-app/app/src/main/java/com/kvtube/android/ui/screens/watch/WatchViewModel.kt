@@ -26,6 +26,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -94,8 +95,16 @@ class WatchViewModel @Inject constructor(
             loadVideo()
         }
         viewModelScope.launch {
-            val base = settingsDataStore.serverUrl.first().trim().removeSuffix("/")
-            _uiState.value = _uiState.value.copy(serverBaseUrl = base)
+            settingsDataStore.serverUrl
+                .distinctUntilChanged()
+                .collect { url ->
+                    val base = url.trim().removeSuffix("/")
+                    val oldBase = _uiState.value.serverBaseUrl
+                    _uiState.value = _uiState.value.copy(serverBaseUrl = base)
+                    if (oldBase.isNotBlank() && oldBase != base && _uiState.value.error != null) {
+                        loadVideo()
+                    }
+                }
         }
     }
 
@@ -216,7 +225,7 @@ class WatchViewModel @Inject constructor(
                 var extractedHeight = 0
 
                 val serverStarted = android.os.SystemClock.elapsedRealtime()
-                playback = kotlinx.coroutines.withTimeoutOrNull(12_000L) {
+                playback = kotlinx.coroutines.withTimeoutOrNull(18_000L) {
                     runCatching { videoRepository.getPlaybackInfo(videoId) }.getOrNull()
                 }
                 if (playback != null && playback.videoFormats.isNotEmpty()) {
@@ -233,12 +242,25 @@ class WatchViewModel @Inject constructor(
                 }
 
                 if (videoUrl.isNullOrBlank()) {
-                    // Strict Invidious-only mode: no NewPipe, no iframe. Tell
-                    // the user plainly and offer retry.
-                    logToFile(TAG, "server returned no playable stream for $videoId")
+                    // Fallback to on-device extractor if the server is down, rate-limited, or returned no streams
+                    logToFile(TAG, "server returned no playable stream for $videoId, trying extractorHelper")
+                    val fallbackStream = runCatching {
+                        extractorHelper.extractStreamUrl(videoId, Quality.RECOMMENDED)
+                    }.getOrNull()
+
+                    if (fallbackStream != null && fallbackStream.videoUrl.isNotBlank()) {
+                        videoUrl = fallbackStream.videoUrl
+                        audioUrl = fallbackStream.audioUrl
+                        extractedHeight = fallbackStream.height
+                        logToFile(TAG, "stream via extractorHelper for $videoId")
+                    }
+                }
+
+                if (videoUrl.isNullOrBlank()) {
+                    logToFile(TAG, "all stream sources failed for $videoId")
                     _uiState.value = _uiState.value.copy(
                         isLoading = false,
-                        error = "Your Invidious server did not return a playable stream for this video."
+                        error = "Unable to load video stream. Check your server connection or try another instance in Settings."
                     )
                     return@launch
                 }
