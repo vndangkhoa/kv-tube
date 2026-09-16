@@ -183,6 +183,7 @@ export interface SearchOptions {
   type?: 'all' | 'video' | 'channel' | 'playlist' | 'movie' | 'show';
   features?: string;
   region?: string;
+  hl?: string;
 }
 
 export class InvidiousService {
@@ -314,6 +315,7 @@ export class InvidiousService {
         const res = await fetch(url.toString(), {
           headers: {
             Accept: 'application/json',
+            'Accept-Language': 'vi-VN,vi;q=0.9,en-US;q=0.8,en;q=0.7',
           },
           signal: controller.signal,
         });
@@ -552,8 +554,9 @@ export class InvidiousService {
   // -------------------------------------------------------------
   // 3. DISCOVERY, TRENDING & FEEDS
   // -------------------------------------------------------------
-  async getTrending(region: string = 'VN', type?: string): Promise<any[]> {
-    return this.fetchApi('/trending', { region, type });
+  async getTrending(region: string = 'VN', type?: string, hl?: string): Promise<any[]> {
+    const resolvedHl = hl || (region === 'VN' ? 'vi' : 'en');
+    return this.fetchApi('/trending', { region, type, hl: resolvedHl });
   }
 
   async getPopular(): Promise<any[]> {
@@ -584,6 +587,7 @@ export class InvidiousService {
   }
 
   async search(query: string, options: SearchOptions = {}): Promise<any[]> {
+    const hl = options.hl || (options.region === 'VN' ? 'vi' : (options.region ? 'en' : ''));
     return this.fetchApi('/search', {
       q: query,
       page: options.page || 1,
@@ -593,6 +597,7 @@ export class InvidiousService {
       type: options.type || 'all',
       features: options.features || '',
       region: options.region || '',
+      ...(hl ? { hl } : {}),
     });
   }
 

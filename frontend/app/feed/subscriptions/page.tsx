@@ -5,6 +5,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import VideoCard from '../../components/VideoCard';
 import LoadingSpinner from '../../components/LoadingSpinner';
 import { VideoData } from '../../constants';
+import { formatRelativeTime } from '../../utils';
 import { invidious } from '../../services/invidious';
 import { getSubscriptions, subscribe, isSubscribed } from '../../storage';
 import {
@@ -30,6 +31,7 @@ const AUTH_FEED_PAGES = 3;
 const mapAuthFeedItem = (v: any): VideoData | null => {
   const id = v.videoId || v.id;
   if (!id) return null;
+  const relTime = formatRelativeTime(v.publishedText, v.published);
   return {
     id,
     title: v.title,
@@ -38,8 +40,8 @@ const mapAuthFeedItem = (v: any): VideoData | null => {
     thumbnail: v.videoThumbnails?.[0]?.url || `https://i.ytimg.com/vi/${id}/mqdefault.jpg`,
     duration: v.lengthSeconds ? `${Math.floor(v.lengthSeconds / 60)}:${(v.lengthSeconds % 60).toString().padStart(2, '0')}` : '',
     view_count: v.viewCount ?? 0,
-    upload_date: v.publishedText || '',
-    publishedAt: v.publishedText || '',
+    upload_date: relTime || v.publishedText || '',
+    publishedAt: relTime || v.publishedText || '',
     avatar_url: v.authorThumbnails?.[0]?.url || v.authorThumbnail || '',
   };
 };
@@ -128,7 +130,7 @@ export default function SubscriptionsPage() {
                   v.videoThumbnails?.[0]?.url || `https://i.ytimg.com/vi/${vidId}/mqdefault.jpg`,
                 duration: v.lengthSeconds ? `${Math.floor(v.lengthSeconds / 60)}:${(v.lengthSeconds % 60).toString().padStart(2, '0')}` : (v.duration || ''),
                 view_count: v.viewCount ?? v.view_count ?? 0,
-                upload_date: v.publishedText || '',
+                upload_date: formatRelativeTime(v.publishedText, v.published) || v.publishedText || '',
                 avatar_url:
                   batch[idx]?.channelAvatar ||
                   v.authorThumbnails?.[0]?.url ||

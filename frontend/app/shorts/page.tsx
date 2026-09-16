@@ -100,6 +100,7 @@ async function fetchUniqueShorts(page: number, region: string = 'VN'): Promise<S
       page: Math.floor((page - 1) / terms.length) + 1,
       type: 'video',
       duration: 'short',
+      date: 'month',
       sort_by: 'upload_date',
       region: region,
     });

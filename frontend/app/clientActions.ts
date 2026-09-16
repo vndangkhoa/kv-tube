@@ -2,6 +2,7 @@
 
 import { VideoData } from './constants';
 import { invidious } from './services/invidious';
+import { formatRelativeTime } from './utils';
 
 // Client-side Caching Engine
 const CLIENT_CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour TTL
@@ -77,6 +78,9 @@ export function transformVideo(raw: any): VideoData {
     raw.channelAvatar ||
     '';
 
+  const locale = typeof window !== 'undefined' ? (localStorage.getItem('kv_region') === 'VN' ? 'vi' : 'en') : 'vi';
+  const relTime = formatRelativeTime(raw.publishedText || raw.upload_date, raw.published, locale);
+
   return {
     id: vidId,
     title: raw.title || 'Untitled Video',
@@ -86,8 +90,8 @@ export function transformVideo(raw: any): VideoData {
     uploader: raw.author || raw.uploader || raw.channelTitle || 'Unknown Creator',
     viewCount: raw.viewCount ? raw.viewCount.toLocaleString() : (raw.view_count ? String(raw.view_count) : '0'),
     view_count: raw.viewCount ?? raw.view_count ?? 0,
-    publishedAt: raw.publishedText || raw.upload_date || '',
-    upload_date: raw.publishedText || raw.upload_date || '',
+    publishedAt: relTime || raw.publishedText || raw.upload_date || '',
+    upload_date: relTime || raw.publishedText || raw.upload_date || '',
     duration: dur,
     description: raw.description || '',
     avatar_url: avatar,
@@ -249,7 +253,7 @@ export async function getCommentsClient(videoId: string, limit: number = 20): Pr
         authorId: c.authorId,
         authorThumbnail: c.authorThumbnails?.[0]?.url || '',
         likes: c.likeCount || 0,
-        published: c.publishedText || 'recently',
+        published: formatRelativeTime(c.publishedText, undefined, typeof window !== 'undefined' ? (localStorage.getItem('kv_region') === 'VN' ? 'vi' : 'en') : 'vi') || c.publishedText || 'recently',
         isReply: false,
       }));
       setClientCache(cacheKey, transformed);

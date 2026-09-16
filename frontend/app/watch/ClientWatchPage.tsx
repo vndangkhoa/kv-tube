@@ -5,7 +5,7 @@ import { useSearchParams, useRouter } from 'next/navigation';
 import DownloadSheet from './DownloadSheet';
 import { getVideoDetailsClient, getRelatedVideosClient, getCommentsClient, searchVideosClient } from '../clientActions';
 import { VideoData } from '../constants';
-import { proxiedThumb, proxiedImageUrl } from '../utils';
+import { proxiedThumb, proxiedImageUrl, formatRelativeTime } from '../utils';
 import { isVideoSaved, toggleSaveVideo, addToHistory, isSubscribed, toggleSubscription } from '../storage';
 import { invidious } from '../services/invidious';
 import LoadingSpinner from '../components/LoadingSpinner';
@@ -481,7 +481,7 @@ function VideoInfo({
                     {video.publishedAt && (
                         <>
                             <span>•</span>
-                            <span>{video.publishedAt}</span>
+                            <span>{formatRelativeTime(video.publishedAt) || video.publishedAt}</span>
                         </>
                     )}
                 </div>

@@ -6,6 +6,7 @@ import LoadingSpinner from '@/app/components/LoadingSpinner';
 import { VideoData } from '@/app/constants';
 import { invidious } from '@/app/services/invidious';
 import { getRegionContent, categoryQuery } from '@/app/regionContent';
+import { formatRelativeTime } from '@/app/utils';
 import {
   IoFlameOutline,
   IoMusicalNotesOutline,
@@ -29,37 +30,73 @@ interface TrendingTabConfig {
   description: string;
 }
 
+function isUsableFreshVideo(v: any): boolean {
+  if (!v || !(v.videoId || v.id) || !v.title) return false;
+  if (v.liveNow) return false;
+  if (v.viewCount === 0 && (v.lengthSeconds === 0 || v.duration === '0:00')) return false;
+
+  const pText = (v.publishedText || v.upload_date || '').toLowerCase();
+  if (
+    pText.includes('year') ||
+    pText.includes('yr') ||
+    pText.includes('năm') ||
+    pText.includes('سنة') ||
+    pText.includes('السنة')
+  ) {
+    return false;
+  }
+  if (typeof v.published === 'number' && v.published > 0) {
+    const nowSec = Math.floor(Date.now() / 1000);
+    if (nowSec - v.published > 120 * 24 * 3600) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function isUsableTrendingVideo(v: any): boolean {
+  if (!v || !(v.videoId || v.id) || !v.title) return false;
+  if (v.liveNow) return false;
+  if (v.viewCount === 0 && (v.lengthSeconds === 0 || v.duration === '0:00')) return false;
+  return true;
+}
+
 // Map a raw Invidious response into the app's VideoData shape.
-function mapTrendingItems(items: any[]): VideoData[] {
-  return (Array.isArray(items) ? items : []).map((v: any) => ({
-    id: v.videoId || v.id,
-    title: v.title,
-    uploader: v.author || v.uploader || v.channelTitle || 'Creator',
-    thumbnail:
-      v.videoThumbnails?.[0]?.url ||
-      (typeof v.thumbnail === 'string' ? v.thumbnail.replace('/maxresdefault.jpg', '/mqdefault.jpg') : v.thumbnail) ||
-      `https://i.ytimg.com/vi/${v.videoId || v.id}/mqdefault.jpg`,
-    duration: v.lengthSeconds
-      ? `${Math.floor(v.lengthSeconds / 60)}:${(v.lengthSeconds % 60).toString().padStart(2, '0')}`
-      : v.duration || '',
-    view_count: v.viewCount ?? v.view_count ?? 0,
-    upload_date: v.publishedText || v.upload_date || '',
-    channel_id: v.authorId || v.channel_id || '',
-    avatar_url: (() => {
-      let a =
-        v.authorThumbnails?.[0]?.url ||
-        v.authorThumbnails?.[v.authorThumbnails.length - 1]?.url ||
-        v.authorThumbnail ||
-        v.avatar_url ||
-        '';
-      if (a.startsWith('//')) return 'https:' + a;
-      if (a.startsWith('/ggpht') || a.startsWith('/yt')) return 'https://yt3.ggpht.com' + a;
-      if (!a && (v.authorId || v.channel_id)) {
-        return `/api/channel-avatar?id=${encodeURIComponent(v.authorId || v.channel_id)}`;
-      }
-      return a;
-    })(),
-  }));
+function mapTrendingItems(items: any[], region: string = 'VN'): VideoData[] {
+  const locale = region === 'VN' ? 'vi' : 'en';
+  return (Array.isArray(items) ? items : []).map((v: any) => {
+    const relTime = formatRelativeTime(v.publishedText || v.upload_date, v.published, locale);
+    return {
+      id: v.videoId || v.id,
+      title: v.title,
+      uploader: v.author || v.uploader || v.channelTitle || 'Creator',
+      thumbnail:
+        v.videoThumbnails?.[0]?.url ||
+        (typeof v.thumbnail === 'string' ? v.thumbnail.replace('/maxresdefault.jpg', '/mqdefault.jpg') : v.thumbnail) ||
+        `https://i.ytimg.com/vi/${v.videoId || v.id}/mqdefault.jpg`,
+      duration: v.lengthSeconds
+        ? `${Math.floor(v.lengthSeconds / 60)}:${(v.lengthSeconds % 60).toString().padStart(2, '0')}`
+        : v.duration || '',
+      view_count: v.viewCount ?? v.view_count ?? 0,
+      upload_date: relTime || v.publishedText || v.upload_date || '',
+      publishedAt: relTime || v.publishedText || '',
+      channel_id: v.authorId || v.channel_id || '',
+      avatar_url: (() => {
+        let a =
+          v.authorThumbnails?.[0]?.url ||
+          v.authorThumbnails?.[v.authorThumbnails.length - 1]?.url ||
+          v.authorThumbnail ||
+          v.avatar_url ||
+          '';
+        if (a.startsWith('//')) return 'https:' + a;
+        if (a.startsWith('/ggpht') || a.startsWith('/yt')) return 'https://yt3.ggpht.com' + a;
+        if (!a && (v.authorId || v.channel_id)) {
+          return `/api/channel-avatar?id=${encodeURIComponent(v.authorId || v.channel_id)}`;
+        }
+        return a;
+      })(),
+    };
+  });
 }
 
 // Map a trending tab to its category key in regionContent.ts so the tab uses a
@@ -78,34 +115,45 @@ const TAB_CATEGORY_KEYS: Record<string, string> = {
   science: 'Science',
 };
 
-// Fetch one page of items for a tab. The "now" tab uses the native regional
-// trending feed on page 1, then falls back to a regional trending search for
-// subsequent pages (Invidious trending has no pagination). Category tabs use a
-// region-localized topic search — trending is the collection of the most viewed
-// videos, so everything is sorted by view count.
+// Fetch one page of items for a tab.
 async function fetchTabItems(tab: TrendingTabConfig, region: string, pageNum: number): Promise<any[]> {
   if (tab.id === 'now') {
     if (pageNum === 1) {
       const trending = await invidious.getTrending(region);
-      if (Array.isArray(trending) && trending.length > 0) return trending;
-      return await invidious.getPopular();
+      const filtered = Array.isArray(trending) ? trending.filter(isUsableTrendingVideo) : [];
+      if (filtered.length > 0) return filtered;
     }
     const rc = getRegionContent(region);
-    return await invidious.search(rc.trending, {
+    const searchRes = await invidious.search(rc.trending, {
       page: pageNum,
       type: 'video',
+      date: 'month',
       sort_by: 'view_count',
       region,
     });
+    return Array.isArray(searchRes) ? searchRes.filter(isUsableFreshVideo) : [];
   }
   const categoryKey = TAB_CATEGORY_KEYS[tab.id];
   const query = categoryKey ? categoryQuery(region, categoryKey) : tab.searchQuery || tab.label;
-  return await invidious.search(query, {
+  const searchRes = await invidious.search(query, {
     page: pageNum,
     type: 'video',
+    date: 'month',
     sort_by: 'view_count',
     region,
   });
+  const filtered = Array.isArray(searchRes) ? searchRes.filter(isUsableFreshVideo) : [];
+  if (filtered.length > 0) return filtered;
+
+  // Fallback to past year if monthly trending has few items
+  const fallbackRes = await invidious.search(query, {
+    page: pageNum,
+    type: 'video',
+    date: 'year',
+    sort_by: 'view_count',
+    region,
+  });
+  return Array.isArray(fallbackRes) ? fallbackRes.filter((v: any) => !v.liveNow) : [];
 }
 
 const TRENDING_TABS: TrendingTabConfig[] = [
@@ -236,7 +284,7 @@ export default function TrendingPage() {
         const items = await fetchTabItems(tab, regionCode, 1);
 
         if (!cancelled) {
-          setVideos(mapTrendingItems(items));
+          setVideos(mapTrendingItems(items, regionCode));
           setHasMore(items.length > 0);
         }
       } catch (err: any) {
@@ -260,7 +308,7 @@ export default function TrendingPage() {
       const tab = TRENDING_TABS.find((t) => t.id === activeTab) || TRENDING_TABS[0];
       const nextPage = page + 1;
       const items = await fetchTabItems(tab, regionCode, nextPage);
-      const mapped = mapTrendingItems(items);
+      const mapped = mapTrendingItems(items, regionCode);
       setVideos((prev) => {
         const seen = new Set(prev.map((v) => v.id));
         return [...prev, ...mapped.filter((v) => !seen.has(v.id))];

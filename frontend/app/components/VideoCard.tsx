@@ -43,7 +43,8 @@ function VideoCard({
   video: VideoData;
   hideChannelAvatar?: boolean;
 }) {
-  const relativeTime = video.upload_date || video.publishedAt || getStableRelativeTime(video.id);
+  const rawRel = video.upload_date || video.publishedAt || '';
+  const relativeTime = rawRel && !/[\u0600-\u06FF]/.test(rawRel) ? rawRel : getStableRelativeTime(video.id);
   const [isNavigating, setIsNavigating] = useState(false);
   const [thumbError, setThumbError] = useState(0);
   const [saved, setSaved] = useState(false);

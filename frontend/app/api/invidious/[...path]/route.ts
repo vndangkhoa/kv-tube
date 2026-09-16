@@ -52,6 +52,7 @@ async function handleProxy(req: NextRequest, pathParts: string[]) {
 
   const headers: Record<string, string> = {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) KV-Tube',
+    'Accept-Language': req.headers.get('accept-language') || 'vi-VN,vi;q=0.9,en-US;q=0.8,en;q=0.7',
   };
 
   const range = req.headers.get('range');

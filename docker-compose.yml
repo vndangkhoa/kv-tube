@@ -80,7 +80,7 @@ services:
         check_tables: true
         captcha_enabled: false
         default_user_preferences:
-          locale: vn
+          locale: vi
           region: VN
         external_port: 443
         invidious_companion:
@@ -103,12 +103,12 @@ services:
   # uncomment the build section and run `docker compose up -d --build`.
   kv-tube:
     image: vndangkhoa/kv-tube-ui:latest
-    # build:
-    #   context: ./frontend
-    #   dockerfile: Dockerfile
-    #   args:
-    #     # Browser-facing Invidious URL, inlined into the client bundle at build time.
-    #     - NEXT_PUBLIC_INVIDIOUS_URL=http://127.0.0.1:7601
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        # Browser-facing Invidious URL, inlined into the client bundle at build time.
+        - NEXT_PUBLIC_INVIDIOUS_URL=http://127.0.0.1:7601
     container_name: Invidious-Materialious-UI
     restart: unless-stopped
     ports:

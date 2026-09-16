@@ -1,7 +1,7 @@
 "use server";
 
 import { VideoData, CATEGORY_MAP, ALL_CATEGORY_SECTIONS } from './constants';
-import { addRegion } from './utils';
+import { addRegion, formatRelativeTime } from './utils';
 import { invidious } from './services/invidious';
 
 export async function getSearchVideos(query: string, limit: number = 20): Promise<VideoData[]> {
@@ -16,8 +16,8 @@ export async function getSearchVideos(query: string, limit: number = 20): Promis
             thumbnail: v.videoThumbnails?.[0]?.url || `https://i.ytimg.com/vi/${v.videoId || v.id}/mqdefault.jpg`,
             duration: v.lengthSeconds ? `${Math.floor(v.lengthSeconds / 60)}:${(v.lengthSeconds % 60).toString().padStart(2, '0')}` : '',
             view_count: v.viewCount ?? 0,
-            upload_date: v.publishedText || '',
-            publishedAt: v.publishedText || '',
+            upload_date: formatRelativeTime(v.publishedText, v.published) || v.publishedText || '',
+            publishedAt: formatRelativeTime(v.publishedText, v.published) || v.publishedText || '',
             avatar_url: v.authorThumbnails?.[0]?.url || v.authorThumbnail || '',
         }));
     } catch (e) {
@@ -38,8 +38,8 @@ export async function getHistoryVideos(limit: number = 20): Promise<VideoData[]>
             thumbnail: v.videoThumbnails?.[0]?.url || `https://i.ytimg.com/vi/${v.videoId || v.id}/mqdefault.jpg`,
             duration: v.lengthSeconds ? `${Math.floor(v.lengthSeconds / 60)}:${(v.lengthSeconds % 60).toString().padStart(2, '0')}` : '',
             view_count: v.viewCount ?? 0,
-            upload_date: v.publishedText || '',
-            publishedAt: v.publishedText || '',
+            upload_date: formatRelativeTime(v.publishedText, v.published) || v.publishedText || '',
+            publishedAt: formatRelativeTime(v.publishedText, v.published) || v.publishedText || '',
             avatar_url: v.authorThumbnails?.[0]?.url || v.authorThumbnail || '',
         }));
     } catch (e) {
@@ -60,8 +60,8 @@ export async function getSuggestedVideos(limit: number = 20): Promise<VideoData[
             thumbnail: v.videoThumbnails?.[0]?.url || `https://i.ytimg.com/vi/${v.videoId || v.id}/mqdefault.jpg`,
             duration: v.lengthSeconds ? `${Math.floor(v.lengthSeconds / 60)}:${(v.lengthSeconds % 60).toString().padStart(2, '0')}` : '',
             view_count: v.viewCount ?? 0,
-            upload_date: v.publishedText || '',
-            publishedAt: v.publishedText || '',
+            upload_date: formatRelativeTime(v.publishedText, v.published) || v.publishedText || '',
+            publishedAt: formatRelativeTime(v.publishedText, v.published) || v.publishedText || '',
             avatar_url: v.authorThumbnails?.[0]?.url || v.authorThumbnail || '',
         }));
     } catch (e) {
@@ -179,7 +179,7 @@ export async function getVideoComments(videoId: string, limit: number = 30): Pro
             likes: c.likeCount || 0,
             is_reply: !!c.isReply,
             parent: '',
-            timestamp: c.publishedText || '',
+            timestamp: formatRelativeTime(c.publishedText, c.published) || c.publishedText || '',
         }));
     } catch (err) {
         console.error('[actions] Comments error:', err);

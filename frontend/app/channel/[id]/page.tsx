@@ -6,6 +6,7 @@ import { invidious, InvidiousChannel } from '../../services/invidious';
 import VideoCard from '../../components/VideoCard';
 import LoadingSpinner from '../../components/LoadingSpinner';
 import { VideoData } from '../../constants';
+import { formatRelativeTime } from '../../utils';
 import { isSubscribed, toggleSubscription } from '../../storage';
 import {
   IoVideocamOutline,
@@ -44,6 +45,8 @@ function mapInvidiousVideo(v: any, authorName: string): VideoData {
     dur = `${mins}:${secs.toString().padStart(2, '0')}`;
   }
 
+  const relTime = formatRelativeTime(v.publishedText, v.published);
+
   return {
     id: vidId,
     title: v.title || 'Untitled',
@@ -52,8 +55,8 @@ function mapInvidiousVideo(v: any, authorName: string): VideoData {
     thumbnail: thumbUrl,
     duration: dur,
     view_count: v.viewCount ?? v.view_count ?? 0,
-    upload_date: v.publishedText || '',
-    publishedAt: v.publishedText || '',
+    upload_date: relTime || v.publishedText || '',
+    publishedAt: relTime || v.publishedText || '',
   };
 }
 
@@ -608,7 +611,7 @@ export default function ChannelPage({ params }: { params: Promise<{ id: string }
                     </div>
                     <div>
                       <div style={{ fontSize: '14px', fontWeight: 600, color: 'var(--yt-text-primary)' }}>{channel.author}</div>
-                      <div style={{ fontSize: '11px', color: 'var(--yt-text-secondary)' }}>{post.publishedText || ''}</div>
+                      <div style={{ fontSize: '11px', color: 'var(--yt-text-secondary)' }}>{formatRelativeTime(post.publishedText, post.published) || post.publishedText || ''}</div>
                     </div>
                   </div>
                   <div

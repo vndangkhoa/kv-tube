@@ -5,6 +5,7 @@ import { useSearchParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { invidious } from '../services/invidious';
 import { VideoData } from '../constants';
+import { formatRelativeTime } from '../utils';
 import VideoCard from '../components/VideoCard';
 import LoadingSpinner from '../components/LoadingSpinner';
 import { isSubscribed, toggleSubscription } from '../storage';
@@ -625,6 +626,8 @@ export default function ClientSearchPage() {
               const thumbUrl = `https://i.ytimg.com/vi/${vidId}/mqdefault.jpg`;
               const dur = item.lengthSeconds ? `${Math.floor(item.lengthSeconds / 60)}:${(item.lengthSeconds % 60).toString().padStart(2, '0')}` : '';
 
+              const relTime = formatRelativeTime(item.publishedText, item.published);
+
               const mappedVideo: VideoData = {
                 id: vidId,
                 title: item.title || 'Untitled',
@@ -632,8 +635,8 @@ export default function ClientSearchPage() {
                 thumbnail: thumbUrl,
                 duration: dur,
                 view_count: item.viewCount ?? 0,
-                upload_date: item.publishedText || '',
-                publishedAt: item.publishedText || '',
+                upload_date: relTime || item.publishedText || '',
+                publishedAt: relTime || item.publishedText || '',
                 channel_id: item.authorId || '',
                 avatar_url:
                   item.authorThumbnails?.[0]?.url ||
@@ -849,7 +852,7 @@ export default function ClientSearchPage() {
                       {item.publishedText && (
                         <>
                           <span>·</span>
-                          <span>{item.publishedText}</span>
+                          <span>{formatRelativeTime(item.publishedText, item.published) || item.publishedText}</span>
                         </>
                       )}
                     </div>

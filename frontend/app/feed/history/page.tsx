@@ -5,6 +5,7 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 import VideoCard from '../../components/VideoCard';
 import LoadingSpinner from '../../components/LoadingSpinner';
 import { VideoData } from '../../constants';
+import { formatRelativeTime } from '../../utils';
 import { invidious } from '../../services/invidious';
 import { getHistory, removeFromHistory, clearHistory, HistoryItem } from '../../storage';
 import {
@@ -29,7 +30,7 @@ function formatViews(views?: number | string): string {
   return num.toLocaleString() + ' views';
 }
 
-function formatRelativeTime(timestamp?: number): string {
+function formatWatchedAgo(timestamp?: number): string {
   if (!timestamp) return '';
   const diff = Date.now() - timestamp;
   const mins = Math.floor(diff / 60000);
@@ -115,7 +116,7 @@ export default function HistoryPage() {
                 ? `${Math.floor(v.lengthSeconds / 60)}:${(v.lengthSeconds % 60).toString().padStart(2, '0')}`
                 : existing?.duration || '',
               viewCount: v.viewCount ?? existing?.viewCount ?? 0,
-              uploadDate: v.publishedText || existing?.uploadDate || '',
+              uploadDate: formatRelativeTime(v.publishedText, v.published) || existing?.uploadDate || '',
               watchedAt: watched,
             };
           });
@@ -481,7 +482,7 @@ export default function HistoryPage() {
                       thumbnail: item.thumbnail || `https://i.ytimg.com/vi/${item.videoId}/mqdefault.jpg`,
                       duration: item.duration || '',
                       view_count: typeof item.viewCount === 'number' ? item.viewCount : 0,
-                      upload_date: item.watchedAt ? `Watched ${formatRelativeTime(item.watchedAt)}` : item.uploadDate || '',
+                      upload_date: item.watchedAt ? `Watched ${formatWatchedAgo(item.watchedAt)}` : item.uploadDate || '',
                       publishedAt: item.uploadDate || '',
                       avatar_url: item.channelAvatar || (item.channelId ? `/api/channel-avatar?id=${encodeURIComponent(item.channelId)}` : ''),
                     };
@@ -656,7 +657,7 @@ export default function HistoryPage() {
 
                           <div style={{ fontSize: '12px', color: 'var(--yt-text-secondary)', marginTop: '4px' }}>
                             {item.viewCount ? `${formatViews(item.viewCount)} • ` : ''}
-                            {item.watchedAt ? `Watched ${formatRelativeTime(item.watchedAt)}` : ''}
+                            {item.watchedAt ? `Watched ${formatWatchedAgo(item.watchedAt)}` : ''}
                           </div>
                         </div>
 

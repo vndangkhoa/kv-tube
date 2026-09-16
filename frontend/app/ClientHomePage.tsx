@@ -8,6 +8,7 @@ import { VideoData } from './constants';
 import { invidious } from './services/invidious';
 import { getHomeFeedClient, searchVideosClient } from './clientActions';
 import { categoryQuery, getRegionContent } from './regionContent';
+import { formatRelativeTime } from './utils';
 import {
   IoFlameOutline,
   IoMusicalNotesOutline,
@@ -50,7 +51,41 @@ const CATEGORIES: CategoryConfig[] = [
   { id: 'Travel', label: 'Travel', icon: <IoAirplaneOutline size={16} />, searchQuery: 'travel vlog guide city explore' },
 ];
 
-function mapInvidiousVideo(v: any): VideoData {
+function isUsableFreshVideo(v: any): boolean {
+  if (!v || !(v.videoId || v.id) || !v.title) return false;
+  // Discard active live streams and empty placeholders from main VOD feed
+  if (v.liveNow) return false;
+  if (v.viewCount === 0 && (v.lengthSeconds === 0 || v.duration === '0:00')) return false;
+
+  // Discard old videos (containing year indicators or older than 120 days)
+  const pText = (v.publishedText || v.upload_date || '').toLowerCase();
+  if (
+    pText.includes('year') ||
+    pText.includes('yr') ||
+    pText.includes('năm') ||
+    pText.includes('سنة') ||
+    pText.includes('السنة')
+  ) {
+    return false;
+  }
+  if (typeof v.published === 'number' && v.published > 0) {
+    const nowSec = Math.floor(Date.now() / 1000);
+    if (nowSec - v.published > 120 * 24 * 3600) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function isUsableTrendingVideo(v: any): boolean {
+  if (!v || !(v.videoId || v.id) || !v.title) return false;
+  // Discard 0-view live streams that flood the trending response
+  if (v.liveNow) return false;
+  if (v.viewCount === 0 && (v.lengthSeconds === 0 || v.duration === '0:00')) return false;
+  return true;
+}
+
+function mapInvidiousVideo(v: any, regionCode: string = 'VN'): VideoData {
   const vidId = v.videoId || v.id || '';
   // Low-resolution 320x180 thumbnail for ultra-fast grid rendering (~10KB vs 300KB+)
   const thumbUrl = `https://i.ytimg.com/vi/${vidId}/mqdefault.jpg`;
@@ -78,6 +113,9 @@ function mapInvidiousVideo(v: any): VideoData {
     avatar = `/api/channel-avatar?id=${encodeURIComponent(v.authorId || v.channel_id)}`;
   }
 
+  const locale = regionCode === 'VN' ? 'vi' : 'en';
+  const relTime = formatRelativeTime(v.publishedText || v.upload_date, v.published, locale);
+
   return {
     id: vidId,
     title: v.title || 'Untitled',
@@ -86,8 +124,8 @@ function mapInvidiousVideo(v: any): VideoData {
     thumbnail: thumbUrl,
     duration: dur,
     view_count: v.viewCount ?? v.view_count ?? 0,
-    upload_date: v.publishedText || v.upload_date || '',
-    publishedAt: v.publishedText || '',
+    upload_date: relTime || v.publishedText || v.upload_date || '',
+    publishedAt: relTime || v.publishedText || '',
     avatar_url: avatar,
   };
 }
@@ -139,85 +177,226 @@ export default function ClientHomePage() {
           page: pageNum,
           type: 'video',
           region: regionCode,
+          date: 'month',
           sort_by: 'upload_date',
         });
-      } else if (cat.id === 'All') {
-        // Fresh-first home feed: newest regional uploads blended with what is
-        // trending right now, so every visit surfaces new content up front.
-        const [latestRes, trendingRes] = await Promise.allSettled([
-          invidious.search(rc.trending, {
-            page: 1,
-            type: 'video',
-            region: regionCode,
-            sort_by: 'upload_date',
-          }),
-          invidious.getTrending(regionCode),
-        ]);
-        const latest =
-          latestRes.status === 'fulfilled'
-            ? (latestRes.value || []).filter((v: any) => (v.videoId || v.id) && v.title)
-            : [];
-        const trendingNow =
-          trendingRes.status === 'fulfilled'
-            ? (trendingRes.value || []).filter((v: any) => (v.videoId || v.id) && v.title)
-            : [];
-
-        const seen = new Set<string>();
-        const merged: any[] = [];
-        let li = 0;
-        let ti = 0;
-        while (merged.length < Math.min(latest.length + trendingNow.length, 40)) {
-          for (let k = 0; k < 3 && li < latest.length; k++) {
-            const id = latest[li].videoId || latest[li].id;
-            if (!seen.has(id)) {
-              seen.add(id);
-              merged.push(latest[li]);
-            }
-            li++;
-          }
-          if (ti < trendingNow.length) {
-            const id = trendingNow[ti].videoId || trendingNow[ti].id;
-            if (!seen.has(id)) {
-              seen.add(id);
-              merged.push(trendingNow[ti]);
-            }
-            ti++;
-          }
-          if (li >= latest.length && ti >= trendingNow.length) break;
+        if (Array.isArray(items)) {
+          items = items.filter(isUsableFreshVideo);
         }
-        items = merged;
-      } else if (cat.id === 'Trending') {
-        // Trending is the collection of the most viewed videos.
-        items = await invidious.getTrending(regionCode);
         if (!items || items.length === 0) {
           items = await invidious.search(rc.trending, {
             page: pageNum,
             type: 'video',
             region: regionCode,
+            date: 'month',
             sort_by: 'view_count',
           });
+          if (Array.isArray(items)) {
+            items = items.filter(isUsableFreshVideo);
+          }
         }
-      } else {
-        // Most recent videos for the selected category in the region.
+      } else if (cat.id === 'All') {
+        // Fresh-first home feed: blend newest regional uploads and top monthly hits
+        // with real trending videos (excluding 0-view live streams and ancient hits).
+        const [latestRes, popularRes, trendingRes] = await Promise.allSettled([
+          invidious.search(rc.trending, {
+            page: 1,
+            type: 'video',
+            region: regionCode,
+            date: 'month',
+            sort_by: 'upload_date',
+          }),
+          invidious.search(rc.trending, {
+            page: 1,
+            type: 'video',
+            region: regionCode,
+            date: 'month',
+            sort_by: 'view_count',
+          }),
+          invidious.getTrending(regionCode),
+        ]);
+        const latest =
+          latestRes.status === 'fulfilled'
+            ? (latestRes.value || []).filter(isUsableFreshVideo)
+            : [];
+        const popular =
+          popularRes.status === 'fulfilled'
+            ? (popularRes.value || []).filter(isUsableFreshVideo)
+            : [];
+        const trendingNow =
+          trendingRes.status === 'fulfilled'
+            ? (trendingRes.value || []).filter(isUsableTrendingVideo)
+            : [];
+
+        const seen = new Set<string>();
+        const merged: any[] = [];
+        let li = 0;
+        let pi = 0;
+        let ti = 0;
+        const total = latest.length + popular.length + trendingNow.length;
+        const targetCount = Math.min(total, 40);
+
+        while (merged.length < targetCount) {
+          for (let k = 0; k < 2 && li < latest.length; k++) {
+            const id = latest[li].videoId || latest[li].id;
+            if (id && !seen.has(id)) {
+              seen.add(id);
+              merged.push(latest[li]);
+            }
+            li++;
+          }
+          if (pi < popular.length) {
+            const id = popular[pi].videoId || popular[pi].id;
+            if (id && !seen.has(id)) {
+              seen.add(id);
+              merged.push(popular[pi]);
+            }
+            pi++;
+          }
+          if (ti < trendingNow.length) {
+            const id = trendingNow[ti].videoId || trendingNow[ti].id;
+            if (id && !seen.has(id)) {
+              seen.add(id);
+              merged.push(trendingNow[ti]);
+            }
+            ti++;
+          }
+          if (li >= latest.length && pi >= popular.length && ti >= trendingNow.length) break;
+        }
+        items = merged;
+      } else if (cat.id === 'Trending') {
+        // Trending is the collection of the most viewed videos.
+        const trendingRaw = await invidious.getTrending(regionCode);
+        items = Array.isArray(trendingRaw) ? trendingRaw.filter(isUsableTrendingVideo) : [];
+        if (!items || items.length === 0) {
+          items = await invidious.search(rc.trending, {
+            page: pageNum,
+            type: 'video',
+            region: regionCode,
+            date: 'month',
+            sort_by: 'view_count',
+          });
+          if (Array.isArray(items)) {
+            items = items.filter(isUsableFreshVideo);
+          }
+        }
+      } else if (cat.id === 'Live') {
         const localizedQuery = categoryQuery(regionCode, cat.id);
         items = await invidious.search(localizedQuery, {
           page: pageNum,
           type: 'video',
           region: regionCode,
-          sort_by: 'upload_date',
+          features: 'live',
         });
         if (!items || items.length === 0) {
           items = await invidious.search(localizedQuery, {
             page: pageNum,
             type: 'video',
             region: regionCode,
-            sort_by: 'relevance',
           });
+        }
+      } else if (pageNum > 1) {
+        const localizedQuery = categoryQuery(regionCode, cat.id);
+        items = await invidious.search(localizedQuery, {
+          page: pageNum,
+          type: 'video',
+          region: regionCode,
+          date: 'month',
+          sort_by: 'upload_date',
+        });
+        if (Array.isArray(items)) {
+          items = items.filter(isUsableFreshVideo);
+        }
+        if (!items || items.length === 0) {
+          items = await invidious.search(localizedQuery, {
+            page: pageNum,
+            type: 'video',
+            region: regionCode,
+            date: 'month',
+            sort_by: 'view_count',
+          });
+          if (Array.isArray(items)) {
+            items = items.filter(isUsableFreshVideo);
+          }
+        }
+      } else {
+        // Page 1 for any category (Music, Gaming, Movies, News, Tech, etc.):
+        // Blend newest regional uploads with top monthly hits in this category
+        const localizedQuery = categoryQuery(regionCode, cat.id);
+        const [latestRes, popularRes] = await Promise.allSettled([
+          invidious.search(localizedQuery, {
+            page: 1,
+            type: 'video',
+            region: regionCode,
+            date: 'month',
+            sort_by: 'upload_date',
+          }),
+          invidious.search(localizedQuery, {
+            page: 1,
+            type: 'video',
+            region: regionCode,
+            date: 'month',
+            sort_by: 'view_count',
+          }),
+        ]);
+
+        const latest =
+          latestRes.status === 'fulfilled'
+            ? (latestRes.value || []).filter(isUsableFreshVideo)
+            : [];
+        const popular =
+          popularRes.status === 'fulfilled'
+            ? (popularRes.value || []).filter(isUsableFreshVideo)
+            : [];
+
+        const seen = new Set<string>();
+        const merged: any[] = [];
+        let li = 0;
+        let pi = 0;
+        const total = latest.length + popular.length;
+        const targetCount = Math.min(total, 40);
+
+        while (merged.length < targetCount) {
+          for (let k = 0; k < 2 && li < latest.length; k++) {
+            const id = latest[li].videoId || latest[li].id;
+            if (id && !seen.has(id)) {
+              seen.add(id);
+              merged.push(latest[li]);
+            }
+            li++;
+          }
+          if (pi < popular.length) {
+            const id = popular[pi].videoId || popular[pi].id;
+            if (id && !seen.has(id)) {
+              seen.add(id);
+              merged.push(popular[pi]);
+            }
+            pi++;
+          }
+          if (li >= latest.length && pi >= popular.length) break;
+        }
+
+        items = merged;
+
+        // Fallback if niche category had 0 results this month
+        if (items.length === 0) {
+          const fallbackRes = await invidious.search(localizedQuery, {
+            page: 1,
+            type: 'video',
+            region: regionCode,
+            date: 'year',
+            sort_by: 'view_count',
+          });
+          if (Array.isArray(fallbackRes)) {
+            items = fallbackRes.filter((v: any) => !v.liveNow);
+          }
         }
       }
 
       if (Array.isArray(items) && items.length > 0) {
-        return items.filter((v) => (v.videoId || v.id) && v.title).map(mapInvidiousVideo);
+        return items
+          .filter((v) => (v.videoId || v.id) && v.title)
+          .map((v) => mapInvidiousVideo(v, regionCode));
       }
     } catch (invidiousErr) {
       console.warn(`[Feed] Invidious fetch failed for ${categoryId} (${regionCode}):`, invidiousErr);
@@ -228,7 +407,8 @@ export default function ClientHomePage() {
       const q = categoryQuery(regionCode, cat.id);
       const searchRes = await searchVideosClient(q, 30);
       if (Array.isArray(searchRes) && searchRes.length > 0) {
-        return searchRes.filter((v) => v.id && v.title);
+        const filtered = cat.id === 'Live' ? searchRes : searchRes.filter(isUsableFreshVideo);
+        return filtered.filter((v) => v.id && v.title);
       }
     } catch (fallbackErr) {
       console.warn('[Feed] Fallback search failed:', fallbackErr);
