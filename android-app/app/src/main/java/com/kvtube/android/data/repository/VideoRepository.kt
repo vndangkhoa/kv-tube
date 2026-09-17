@@ -3,6 +3,7 @@ package com.kvtube.android.data.repository
 import android.util.Log
 import com.kvtube.android.data.api.KVApi
 import com.kvtube.android.data.model.Comment
+import com.kvtube.android.data.model.CommentsPage
 import com.kvtube.android.data.model.PlaybackInfo
 import com.kvtube.android.data.model.VideoData
 import javax.inject.Inject
@@ -130,8 +131,26 @@ class VideoRepository @Inject constructor(
         return getTrending(limit)
     }
 
+    suspend fun getCommentsPage(videoId: String, continuation: String? = null, sortBy: String = "top"): CommentsPage {
+        val serverPage = bounded(SERVER_TIMEOUT_MS) {
+            runCatching { api.getCommentsPage(videoId, continuation, sortBy) }.getOrNull()
+        }
+        if (serverPage != null && serverPage.comments.isNotEmpty()) {
+            return serverPage
+        }
+        // If server returned no comments on the initial request (and not a continuation request),
+        // try on-device extractor fallback:
+        if (continuation.isNullOrBlank()) {
+            val fallbackPage = bounded(EXTRACTOR_TIMEOUT_MS) {
+                runCatching { extractorHelper.getCommentsPage(videoId) }.getOrNull()
+            }
+            if (fallbackPage != null && fallbackPage.comments.isNotEmpty()) {
+                return fallbackPage
+            }
+        }
+        return serverPage ?: CommentsPage()
+    }
+
     suspend fun getComments(videoId: String, limit: Int = 20): List<Comment> =
-        bounded(SERVER_TIMEOUT_MS) {
-            api.getComments(videoId, limit)
-        } ?: emptyList()
+        getCommentsPage(videoId).comments.take(limit)
 }

@@ -94,6 +94,8 @@ func SetupRouter() *gin.Engine {
 		api.GET("/video/:id/playback-info", handlePlaybackInfo)
 		api.GET("/video/:id/download/status", handleDownloadStatus)
 		api.GET("/video/:id/download", handleDownloadFile)
+		api.GET("/mix/:id", handleGetMix)
+		api.GET("/mix", handleGetMix)
 
 		// Video metadata
 		api.POST("/videos/dates", handleVideoDates)
@@ -324,7 +326,7 @@ func handleImageProxy(c *gin.Context) {
 	defer resp.Body.Close()
 
 	c.Header("Content-Type", resp.Header.Get("Content-Type"))
-	c.Header("Cache-Control", "public, max-age=86400")
+	c.Header("Cache-Control", "public, max-age=604800, immutable")
 	c.Status(resp.StatusCode)
 	io.Copy(c.Writer, resp.Body)
 }
@@ -346,6 +348,29 @@ func handleRelatedVideos(c *gin.Context) {
 
 	related := services.GetRelatedVideos(videoID, limit)
 	c.JSON(http.StatusOK, related)
+}
+
+// handleGetMix returns a dynamic YouTube Mix (Radio) session for a video.
+func handleGetMix(c *gin.Context) {
+	videoID := c.Param("id")
+	playlistID := c.Query("list")
+	if videoID == "" {
+		videoID = c.Query("v")
+	}
+
+	if videoID == "" && playlistID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Video ID or list parameter is required"})
+		return
+	}
+
+	mix, err := services.GetMixPlaylist(videoID, playlistID)
+	if err != nil {
+		log.Printf("[mix] error for %s (list=%s): %v", videoID, playlistID, err)
+		c.JSON(http.StatusNotFound, gin.H{"error": "Mix playlist unavailable"})
+		return
+	}
+
+	c.JSON(http.StatusOK, mix)
 }
 
 // Get video comments

@@ -27,7 +27,7 @@ export default function ThemeModal({ isOpen, onClose }: ThemeModalProps) {
           padding: '24px',
           width: '90%',
           maxWidth: '460px',
-          boxShadow: '0 12px 36px rgba(0, 0, 0, 0.4)',
+          boxShadow: 'var(--yt-shadow-lg)',
           color: 'var(--yt-text-primary)',
         }}
       >

@@ -4,6 +4,7 @@ import { useState, useEffect, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import Link from 'next/link';
 import { invidious, InvidiousPlaylist } from '../services/invidious';
+import { getLocalPlaylist } from '../storage';
 import VideoCard from '../components/VideoCard';
 import LoadingSpinner from '../components/LoadingSpinner';
 import { VideoData } from '../constants';
@@ -23,6 +24,35 @@ function PlaylistContent() {
         return;
       }
       setLoading(true);
+
+      if (listId.startsWith('local-')) {
+        const local = getLocalPlaylist(listId);
+        if (active && local) {
+          setPlaylist({
+            title: local.title,
+            playlistId: local.id,
+            author: 'You (Local)',
+            authorId: '',
+            authorUrl: '',
+            authorThumbnails: [],
+            description: local.description,
+            videoCount: local.videos.length,
+            videos: local.videos.map((v) => ({
+              title: v.title,
+              videoId: v.videoId,
+              author: v.channelTitle || 'Creator',
+              authorId: '',
+              authorUrl: '',
+              videoThumbnails: [{ quality: 'high', url: v.thumbnail || `https://i.ytimg.com/vi_webp/${v.videoId}/hqdefault.webp` }],
+              index: 0,
+              lengthSeconds: 0,
+            })),
+          });
+        }
+        if (active) setLoading(false);
+        return;
+      }
+
       try {
         const data = await invidious.getPlaylist(listId);
         if (active && data) {
@@ -43,7 +73,7 @@ function PlaylistContent() {
   if (loading) {
     return (
       <div style={{ padding: '80px 0', display: 'flex', justifyContent: 'center' }}>
-        <LoadingSpinner text="Loading Playlist..." />
+        <LoadingSpinner text="Retrieving playlist videos..." />
       </div>
     );
   }
@@ -76,7 +106,7 @@ function PlaylistContent() {
     id: v.videoId,
     title: v.title,
     uploader: v.author || playlist.author || 'Creator',
-    thumbnail: v.videoThumbnails?.[0]?.url || `https://i.ytimg.com/vi/${v.videoId}/mqdefault.jpg`,
+    thumbnail: v.videoThumbnails?.[0]?.url || (v.videoId ? `https://i.ytimg.com/vi_webp/${v.videoId}/hq720.webp` : ''),
     duration: v.lengthSeconds ? `${Math.floor(v.lengthSeconds / 60)}:${(v.lengthSeconds % 60).toString().padStart(2, '0')}` : '',
     view_count: 0,
     upload_date: '',
@@ -154,7 +184,7 @@ export default function PlaylistPage() {
     <Suspense
       fallback={
         <div style={{ padding: '80px 0', display: 'flex', justifyContent: 'center' }}>
-          <LoadingSpinner text="Loading Playlist..." />
+          <LoadingSpinner text="Retrieving playlist videos..." />
         </div>
       }
     >

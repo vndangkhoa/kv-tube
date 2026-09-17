@@ -121,7 +121,6 @@ dependencies {
     // Coil
     implementation(libs.coil.compose)
     implementation(libs.coil.network.okhttp)
-    implementation(libs.coil.gif)
 
     // Media3 ExoPlayer
     implementation(libs.exoplayer.core)

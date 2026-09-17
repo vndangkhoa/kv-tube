@@ -103,7 +103,7 @@ export default function HistoryPage() {
               thumbnail:
                 existing?.thumbnail ||
                 v.videoThumbnails?.[0]?.url ||
-                `https://i.ytimg.com/vi/${vidId}/mqdefault.jpg`,
+                (vidId ? `https://i.ytimg.com/vi_webp/${vidId}/hq720.webp` : ''),
               channelTitle: v.author || v.uploader || existing?.channelTitle || 'Creator',
               channelId: v.authorId || v.channel_id || existing?.channelId || '',
               channelAvatar:
@@ -398,7 +398,7 @@ export default function HistoryPage() {
       {/* Loading Skeleton */}
       {loading ? (
         <div style={{ padding: '60px 0', display: 'flex', justifyContent: 'center' }}>
-          <LoadingSpinner text="Loading Watch History..." />
+          <LoadingSpinner text="Loading your watch history..." />
         </div>
       ) : filteredItems.length === 0 ? (
         <div style={{ textAlign: 'center', padding: '80px 20px', color: 'var(--yt-text-secondary)' }}>
@@ -479,7 +479,7 @@ export default function HistoryPage() {
                       channelTitle: item.channelTitle,
                       channelId: item.channelId,
                       channel_id: item.channelId,
-                      thumbnail: item.thumbnail || `https://i.ytimg.com/vi/${item.videoId}/mqdefault.jpg`,
+                      thumbnail: item.thumbnail || (item.videoId ? `https://i.ytimg.com/vi_webp/${item.videoId}/hqdefault.webp` : ''),
                       duration: item.duration || '',
                       view_count: typeof item.viewCount === 'number' ? item.viewCount : 0,
                       upload_date: item.watchedAt ? `Watched ${formatWatchedAgo(item.watchedAt)}` : item.uploadDate || '',
@@ -527,7 +527,7 @@ export default function HistoryPage() {
                 /* List View (Clean horizontal strip) */
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                   {group.items.map((item) => {
-                    const thumbUrl = item.thumbnail || `https://i.ytimg.com/vi/${item.videoId}/mqdefault.jpg`;
+                    const thumbUrl = item.thumbnail || (item.videoId ? `https://i.ytimg.com/vi_webp/${item.videoId}/hqdefault.webp` : '');
                     const avatarUrl = item.channelAvatar || (item.channelId ? `/api/channel-avatar?id=${encodeURIComponent(item.channelId)}` : '');
                     return (
                       <div

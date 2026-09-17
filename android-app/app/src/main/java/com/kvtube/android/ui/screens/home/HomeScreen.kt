@@ -140,7 +140,9 @@ fun HomeScreen(
                         LoadingSpinner(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(16.dp)
+                                .padding(16.dp),
+                            size = 28.dp,
+                            text = "Loading more videos..."
                         )
                     }
                 }

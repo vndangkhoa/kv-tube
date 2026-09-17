@@ -188,15 +188,30 @@ export interface SearchOptions {
 
 export class InvidiousService {
   private instanceUrl: string;
+  private videoCache = new Map<string, { data: InvidiousVideo; expiry: number }>();
+  private inFlightVideoPromises = new Map<string, Promise<InvidiousVideo>>();
 
   constructor() {
-    this.instanceUrl = process.env.NEXT_PUBLIC_INVIDIOUS_URL || '';
+    this.instanceUrl =
+      (typeof window === 'undefined'
+        ? process.env.INVIDIOUS_URL || process.env.NEXT_PUBLIC_INVIDIOUS_URL
+        : process.env.NEXT_PUBLIC_INVIDIOUS_URL) || '';
+
     if (typeof window !== 'undefined') {
       const custom = localStorage.getItem('kv_invidious_instance');
       if (custom && custom.trim()) {
         this.instanceUrl = custom.replace(/\/$/, '');
-      } else if (!this.instanceUrl) {
-        this.instanceUrl = window.location.origin;
+      } else {
+        // If NEXT_PUBLIC_INVIDIOUS_URL is loopback (127.0.0.1/localhost) but client is accessing
+        // from another machine/phone, or under HTTPS where mixed content blocks HTTP,
+        // fallback to window.location.origin to route via /api/invidious proxy.
+        const isLoopbackInstance = !this.instanceUrl || /^(https?:\/\/)?(127\.0\.0\.1|localhost)(:\d+)?$/i.test(this.instanceUrl);
+        const isClientLoopback = /^(127\.0\.0\.1|localhost)$/i.test(window.location.hostname);
+        const isMixedContent = window.location.protocol === 'https:' && /^http:\/\//i.test(this.instanceUrl);
+
+        if ((isLoopbackInstance && !isClientLoopback) || isMixedContent || !this.instanceUrl) {
+          this.instanceUrl = window.location.origin;
+        }
       }
     }
   }
@@ -283,12 +298,13 @@ export class InvidiousService {
 
     if (isBrowser) {
       instancesToTry.push('/api/invidious');
-    }
-    if (this.instanceUrl && !instancesToTry.includes(this.instanceUrl)) {
-      instancesToTry.push(this.instanceUrl);
-    }
-    for (const fb of InvidiousService.FALLBACK_INSTANCES) {
-      if (!instancesToTry.includes(fb)) instancesToTry.push(fb);
+    } else {
+      if (this.instanceUrl && !instancesToTry.includes(this.instanceUrl)) {
+        instancesToTry.push(this.instanceUrl);
+      }
+      for (const fb of InvidiousService.FALLBACK_INSTANCES) {
+        if (!instancesToTry.includes(fb)) instancesToTry.push(fb);
+      }
     }
 
     let lastError: any = null;
@@ -309,14 +325,22 @@ export class InvidiousService {
           }
         });
 
+        const reqHeaders: Record<string, string> = {
+          Accept: 'application/json',
+          'Accept-Language': 'vi-VN,vi;q=0.9,en-US;q=0.8,en;q=0.7',
+        };
+        if (isBrowser && isRelative && this.instanceUrl) {
+          const isLoopback = /^(https?:\/\/)?(127\.0\.0\.1|localhost|0\.0\.0\.0)(:\d+)?$/i.test(this.instanceUrl);
+          if (!isLoopback) {
+            reqHeaders['x-invidious-instance'] = this.instanceUrl;
+          }
+        }
+
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 7000);
 
         const res = await fetch(url.toString(), {
-          headers: {
-            Accept: 'application/json',
-            'Accept-Language': 'vi-VN,vi;q=0.9,en-US;q=0.8,en;q=0.7',
-          },
+          headers: reqHeaders,
           signal: controller.signal,
         });
 
@@ -324,6 +348,13 @@ export class InvidiousService {
 
         if (res.ok) {
           return await res.json();
+        } else {
+          let errDetail = `HTTP ${res.status}`;
+          try {
+            const errJson = await res.json();
+            if (errJson?.error) errDetail += `: ${errJson.error}`;
+          } catch {}
+          lastError = new Error(`Invidious error (${errDetail}) for ${endpoint}`);
         }
       } catch (err: any) {
         lastError = err;
@@ -522,8 +553,41 @@ export class InvidiousService {
   // -------------------------------------------------------------
   // 2. VIDEOS & PLAYBACK
   // -------------------------------------------------------------
-  async getVideo(videoId: string, params?: { region?: string; hl?: string }): Promise<InvidiousVideo> {
-    return this.fetchApi(`/videos/${encodeURIComponent(videoId)}`, params);
+  async getVideo(videoId: string, params?: { region?: string; hl?: string }, retries: number = 2): Promise<InvidiousVideo> {
+    if (!videoId) throw new Error('videoId is required');
+    const cacheKey = `${videoId}_${params?.region || ''}_${params?.hl || ''}`;
+    const cached = this.videoCache.get(cacheKey);
+    if (cached && Date.now() < cached.expiry) {
+      return cached.data;
+    }
+    const inFlight = this.inFlightVideoPromises.get(cacheKey);
+    if (inFlight) {
+      return inFlight;
+    }
+
+    const fetchWithRetry = async (attempt: number = 0): Promise<InvidiousVideo> => {
+      try {
+        const data = await this.fetchApi<InvidiousVideo>(`/videos/${encodeURIComponent(videoId)}`, params);
+        if (data && (data.videoId || (data as any).id)) {
+          this.videoCache.set(cacheKey, { data, expiry: Date.now() + 10 * 60 * 1000 });
+        }
+        return data;
+      } catch (err: any) {
+        if (attempt < retries) {
+          const delayMs = (attempt + 1) * 1200;
+          console.warn(`[invidious] getVideo(${videoId}) attempt ${attempt + 1} failed, retrying in ${delayMs}ms:`, err?.message || err);
+          await new Promise((resolve) => setTimeout(resolve, delayMs));
+          return fetchWithRetry(attempt + 1);
+        }
+        throw err;
+      }
+    };
+
+    const p = fetchWithRetry().finally(() => {
+      this.inFlightVideoPromises.delete(cacheKey);
+    });
+    this.inFlightVideoPromises.set(cacheKey, p);
+    return p;
   }
 
   async getAnnotations(videoId: string): Promise<any> {
@@ -534,13 +598,13 @@ export class InvidiousService {
     videoId: string,
     continuation?: string,
     sort_by?: 'top' | 'new',
-    format: 'html' | 'plain' = 'html'
-  ): Promise<{ comments: InvidiousComment[]; continuation?: string }> {
-    return this.fetchApi(`/comments/${encodeURIComponent(videoId)}`, {
-      continuation,
-      sort_by,
-      format,
-    });
+    format?: 'html' | 'plain'
+  ): Promise<{ comments: InvidiousComment[]; continuation?: string; commentCount?: number }> {
+    const params: Record<string, any> = {};
+    if (continuation) params.continuation = continuation;
+    if (sort_by) params.sort_by = sort_by;
+    if (format) params.format = format;
+    return this.fetchApi(`/comments/${encodeURIComponent(videoId)}`, params);
   }
 
   async getCaptions(videoId: string, label?: string, lang?: string): Promise<any> {

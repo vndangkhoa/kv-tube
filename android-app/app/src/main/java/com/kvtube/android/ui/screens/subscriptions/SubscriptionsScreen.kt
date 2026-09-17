@@ -19,6 +19,7 @@ import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Refresh
@@ -30,7 +31,9 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
@@ -81,7 +84,7 @@ fun SubscriptionsScreen(
         }
 
         when {
-            uiState.isLoading -> LoadingSpinner(fullScreen = true)
+            uiState.isLoading -> LoadingSpinner(fullScreen = true, text = "Loading subscriptions feed...")
 
             uiState.subscriptions.isEmpty() && uiState.feedVideos.isEmpty() -> {
                 Box(
@@ -148,8 +151,11 @@ fun SubscriptionsScreen(
                     }
                 }
 
+                val gridState = rememberLazyGridState()
+
                 LazyVerticalGrid(
                     columns = GridCells.Adaptive(minSize = 300.dp),
+                    state = gridState,
                     contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
@@ -172,12 +178,14 @@ fun SubscriptionsScreen(
                             LoadingSpinner(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .padding(16.dp)
+                                    .padding(16.dp),
+                                size = 28.dp,
+                                text = "Loading older videos..."
                             )
                         }
                     }
 
-                    // "Show more videos" button
+                    // "Show more videos" button fallback
                     if (!uiState.isLoadingMore && uiState.hasMore && uiState.feedVideos.isNotEmpty()) {
                         item(span = { GridItemSpan(maxLineSpan) }) {
                             Box(
@@ -198,6 +206,21 @@ fun SubscriptionsScreen(
                                 }
                             }
                         }
+                    }
+                }
+
+                // Infinite scroll trigger
+                val shouldLoadMore by remember {
+                    derivedStateOf {
+                        val lastVisibleItem = gridState.layoutInfo.visibleItemsInfo.lastOrNull()
+                            ?: return@derivedStateOf false
+                        lastVisibleItem.index >= gridState.layoutInfo.totalItemsCount - 3
+                    }
+                }
+
+                LaunchedEffect(shouldLoadMore) {
+                    if (shouldLoadMore && uiState.hasMore && !uiState.isLoadingMore) {
+                        viewModel.loadMore()
                     }
                 }
             }

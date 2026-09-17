@@ -10,8 +10,6 @@ import androidx.work.Configuration
 import androidx.work.WorkManager
 import coil3.ImageLoader
 import coil3.SingletonImageLoader
-import coil3.gif.AnimatedImageDecoder
-import coil3.gif.GifDecoder
 import coil3.network.okhttp.OkHttpNetworkFetcherFactory
 import com.kvtube.android.data.api.KVApi
 import com.kvtube.android.data.local.SettingsDataStore
@@ -98,11 +96,6 @@ class KVTubeApp : Application(), Configuration.Provider, SingletonImageLoader.Fa
         return ImageLoader.Builder(context)
             .components {
                 add(OkHttpNetworkFetcherFactory(okHttpClient))
-                if (Build.VERSION.SDK_INT >= 28) {
-                    add(AnimatedImageDecoder.Factory())
-                } else {
-                    add(GifDecoder.Factory())
-                }
             }
             .build()
     }

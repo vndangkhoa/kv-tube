@@ -5,6 +5,35 @@ All notable changes to KV-Tube are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.7.5] - 2026-09-17
+
+### Added
+- **YouTube Mix (Radio Sessions)**:
+  - Added `/api/mix/:id` and `/api/mix?list=...` backend routes fetching dynamic InnerTube YouTube Mix queues with automatic watch-page fallback.
+  - Added Next.js API route `/api/mix/[id]` and frontend mix playlist state handling for continuous music/video radio sessions.
+- **Shorts Shelf & Modern Vertical Viewer**:
+  - Implemented vertical snap scrolling for Shorts with sound toggling, like/dislike, comments modal, and continuous feed loading (`/api/shorts/feed`, `/api/shorts/sound`).
+  - Added dedicated `ShortsShelf` component on home and browse feeds with smooth horizontal scrolling.
+- **Dedicated Video Feeds & Library Management**:
+  - Added dedicated `/feed/liked` (Liked Videos) and `/feed/watch-later` (Watch Later) management pages.
+  - Added `/downloads` offline video management and `/playlists` management view.
+  - Added `ExploreTopicsShelf` and `InfiniteScrollTrigger` for infinite feed discovery.
+- **In-App Notifications**:
+  - Added `useNotifications` hook for background notifications and updates.
+
+### Changed & Improved
+- **Material 3 Redesign & Visual Polish**:
+  - Replaced legacy GIF loading spinners with lightweight vector SVG / CSS animations across web and mobile.
+  - Proxy image responses upgraded with immutable caching headers (`Cache-Control: public, max-age=604800, immutable`).
+  - Upgraded theme tokens, animated responsive sidebar, and improved mobile header layout.
+- **Launcher & Supervision**:
+  - `launch.sh`: added automatic port conflict resolution (range 8085-8099), process liveness checks, and graceful signal trapping (`SIGINT`, `SIGTERM`).
+  - Added `start.sh` CLI launcher wrapper.
+  - Robust multi-process kill patterns in `stop.sh`.
+- **Synology DSM SPK (v1.0.0-52)** & **Container Images (4.11.5)**:
+  - Synchronized and published unified (`vndangkhoa/kv-tube:4.11.5`) and frontend (`vndangkhoa/kv-tube-ui:4.11.5`) images to Docker Hub, GitHub Container Registry (`ghcr.io`), and both Forgejo instances (`git.khoavo.myds.me` & `git.khoavo.vndns.net`).
+  - Built, published, and activated SPK v1.0.0-52 on `https://syno.vndns.net/package/kvtube`.
+
 ## [1.7.4] - 2026-09-15
 
 ### Added

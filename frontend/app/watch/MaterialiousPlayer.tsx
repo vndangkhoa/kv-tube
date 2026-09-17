@@ -265,7 +265,7 @@ export default function MaterialiousPlayer({
     setIsBuffering(true);
     setCurrentQuality('Auto');
 
-    async function loadStream() {
+    async function loadStream(attempt = 1) {
       try {
         // Fetch full video details from Invidious
         const videoData: any = await invidious.getVideo(videoId);
@@ -401,16 +401,16 @@ export default function MaterialiousPlayer({
           const player = new shakaModule.Player(vid);
           shakaPlayerRef.current = player;
 
-          // Configure networking buffer
+          // Configure networking buffer for fast start
           player.configure({
             streaming: {
-              rebufferingGoal: 4,
-              bufferingGoal: 15,
-              bufferBehind: 30,
+              rebufferingGoal: 1.5,
+              bufferingGoal: 10,
+              bufferBehind: 20,
               retryParameters: {
-                maxAttempts: 4,
-                baseDelay: 800,
-                backoffFactor: 2,
+                maxAttempts: 3,
+                baseDelay: 500,
+                backoffFactor: 1.5,
               },
             },
           });
@@ -488,7 +488,18 @@ export default function MaterialiousPlayer({
         if (autoplay) vid.play().catch(() => {});
         setIsBuffering(false);
       } catch (err: any) {
-        console.error('[MaterialiousPlayer] Stream load error:', err);
+        if (isCancelled) return;
+        if (attempt < 3) {
+          const delay = attempt * 1500;
+          console.warn(`[MaterialiousPlayer] Stream load attempt ${attempt} failed, retrying in ${delay}ms...`, err);
+          setTimeout(() => {
+            if (!isCancelled) {
+              loadStream(attempt + 1);
+            }
+          }, delay);
+          return;
+        }
+        console.error('[MaterialiousPlayer] Stream load error after all attempts:', err);
         setErrorMsg('Unable to load video stream from Invidious.');
         setIsBuffering(false);
       }
@@ -1322,6 +1333,37 @@ export default function MaterialiousPlayer({
         style={{ display: 'none' }}
       />
 
+      {/* Full player thumbnail backdrop while video stream initial frames are loading */}
+      {!compact && !dataLoaded && thumbnail && (
+        <div
+          style={{
+            position: 'absolute',
+            inset: 0,
+            width: '100%',
+            height: '100%',
+            zIndex: 1,
+            pointerEvents: 'none',
+            overflow: 'hidden',
+            backgroundColor: '#000000',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+          }}
+        >
+          <img
+            src={thumbnail}
+            alt={title || ''}
+            style={{
+              width: '100%',
+              height: '100%',
+              objectFit: 'contain',
+              filter: 'brightness(0.7)',
+              transition: 'opacity 0.3s ease',
+            }}
+          />
+        </div>
+      )}
+
       {/* Compact (miniplayer) UI — the <video>/<audio> above stay mounted so
           switching full ↔ compact never re-buffers. */}
       {compact ? (
@@ -1773,7 +1815,7 @@ export default function MaterialiousPlayer({
               bottom: 0,
               left: 0,
               width: `${progressPercent}%`,
-              backgroundColor: 'var(--md-sys-color-primary, var(--yt-blue))',
+              backgroundColor: 'var(--yt-brand-red, #ff0000)',
               borderRadius: '3px',
               zIndex: 3,
             }}
@@ -1788,7 +1830,7 @@ export default function MaterialiousPlayer({
                 width: '12px',
                 height: '12px',
                 borderRadius: '50%',
-                backgroundColor: 'var(--md-sys-color-primary, var(--yt-blue))',
+                backgroundColor: 'var(--yt-brand-red, #ff0000)',
                 boxShadow: '0 0 6px rgba(0,0,0,0.5)',
               }}
             />
@@ -1894,7 +1936,7 @@ export default function MaterialiousPlayer({
                   width: '64px',
                   height: '4px',
                   cursor: 'pointer',
-                  accentColor: 'var(--md-sys-color-primary, var(--yt-blue))',
+                  accentColor: '#ffffff',
                 }}
               />
             </div>

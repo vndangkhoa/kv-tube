@@ -4,7 +4,7 @@ import { useState, useRef, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { MdPublic, MdCheck } from 'react-icons/md';
 
-const REGIONS = [
+export const REGIONS = [
     { code: 'VN', label: 'Vietnam', flag: '🇻🇳' },
     { code: 'US', label: 'United States', flag: '🇺🇸' },
     { code: 'JP', label: 'Japan', flag: '🇯🇵' },
@@ -14,13 +14,13 @@ const REGIONS = [
     { code: 'GLOBAL', label: 'Global', flag: '🌐' },
 ];
 
-function getRegionCookie(): string {
+export function getRegionCookie(): string {
     if (typeof document === 'undefined') return 'VN';
     const match = document.cookie.match(/(?:^|; )region=([^;]*)/);
     return match ? decodeURIComponent(match[1]) : 'VN';
 }
 
-function setRegionCookie(code: string) {
+export function setRegionCookie(code: string) {
     document.cookie = `region=${encodeURIComponent(code)}; path=/; max-age=${60 * 60 * 24 * 365}; SameSite=Lax; Secure`;
 }
 

@@ -1,5 +1,5 @@
 // KV-Tube Service Worker for Background Playback
-const CACHE_NAME = 'kvtube-v2';
+const CACHE_NAME = 'kvtube-v4';
 const STATIC_ASSETS = [
     '/',
     '/manifest.json',

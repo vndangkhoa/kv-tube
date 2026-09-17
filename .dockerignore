@@ -13,3 +13,4 @@ backend/kv-tube
 backend/kvtube-go
 *.md
 doc
+stale

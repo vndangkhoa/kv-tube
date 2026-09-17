@@ -390,7 +390,7 @@ private fun SearchResultsContent(
 ) {
     when {
         uiState.isLoading -> {
-            LoadingSpinner(modifier = Modifier.fillMaxSize(), fullScreen = true)
+            LoadingSpinner(modifier = Modifier.fillMaxSize(), fullScreen = true, text = "Searching videos...")
         }
 
         uiState.error != null -> {
@@ -481,7 +481,7 @@ private fun NotificationsPanel(
 
         when {
             uiState.isLoading && uiState.latest.isEmpty() -> {
-                LoadingSpinner(modifier = Modifier.fillMaxSize(), fullScreen = true)
+                LoadingSpinner(modifier = Modifier.fillMaxSize(), fullScreen = true, text = "Checking for latest uploads...")
             }
 
             uiState.latest.isEmpty() -> {

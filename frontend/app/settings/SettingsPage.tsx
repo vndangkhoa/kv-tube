@@ -7,19 +7,19 @@ import { useTheme } from '../context/ThemeContext';
 import { THEME_PRESETS, ThemeMode } from '../utils/materialTheme';
 import {
   IoColorPaletteOutline,
-  IoGlobeOutline,
-  IoShieldCheckmarkOutline,
   IoCheckmarkCircle,
   IoMoonOutline,
   IoSunnyOutline,
   IoFlashOutline,
-  IoThumbsUpOutline,
-  IoCloudDownloadOutline,
+  IoPlayCircleOutline,
+  IoPersonCircleOutline,
+  IoTvOutline,
   IoServerOutline,
   IoRefreshOutline,
-  IoTvOutline,
-  IoPhonePortraitOutline,
-  IoLaptopOutline,
+  IoCopyOutline,
+  IoShieldCheckmarkOutline,
+  IoCloudUploadOutline,
+  IoTrashOutline,
 } from 'react-icons/io5';
 
 const API_BASE = '/api';
@@ -65,7 +65,32 @@ interface NetworkDiag {
   };
 }
 
+function ToggleSwitch({
+  checked,
+  onChange,
+  id,
+}: {
+  checked: boolean;
+  onChange: () => void;
+  id?: string;
+}) {
+  return (
+    <button
+      type="button"
+      id={id}
+      role="switch"
+      aria-checked={checked}
+      onClick={onChange}
+      className={`yt-toggle-track ${checked ? 'active' : ''}`}
+    >
+      <span className={`yt-toggle-thumb ${checked ? 'active' : ''}`} />
+    </button>
+  );
+}
+
 export default function SettingsPage() {
+  const [activeTab, setActiveTab] = useState<'playback' | 'appearance' | 'account' | 'devices' | 'instance'>('playback');
+
   const [status, setStatus] = useState<SettingsStatus | null>(null);
   const [loadingBackend, setLoadingBackend] = useState(true);
   const [invidiousUrl, setInvidiousUrl] = useState('https://yt.khoavo.myds.me');
@@ -75,7 +100,7 @@ export default function SettingsPage() {
   const [sponsorblockEnabled, setSponsorblockEnabled] = useState(true);
   const [rydEnabled, setRydEnabled] = useState(true);
 
-  const { themeMode, setThemeMode, currentPreset, setPreset, seedColor, setCustomSeedColor } = useTheme();
+  const { themeMode, setThemeMode, currentPreset, setPreset } = useTheme();
 
   const [updating, setUpdating] = useState(false);
   const [updateResult, setUpdateResult] = useState<{ before?: string; after?: string; error?: string } | null>(null);
@@ -163,7 +188,7 @@ export default function SettingsPage() {
     setPairTvMessage(null);
     try {
       const code = tvPairCode.trim().toUpperCase();
-      if (code.length < 4) throw new Error('Enter the 6-character code shown on your TV');
+      if (code.length < 4) throw new Error('Enter the code shown on your device');
       const res = await fetch('/api/tv-pair', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -177,20 +202,16 @@ export default function SettingsPage() {
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
       setPairTvStatus('ok');
-      setPairTvMessage('✓ Sent! The device is now signed in.');
+      setPairTvMessage('✓ Sent! Device is now connected.');
       setTvPairCode('');
     } catch (e: any) {
       setPairTvStatus('fail');
-      setPairTvMessage(e?.message || 'Failed to send to TV');
+      setPairTvMessage(e?.message || 'Failed to send pairing');
     } finally {
       setTimeout(() => setPairTvStatus('idle'), 6000);
     }
   };
 
-  // Pair this browser: show a code and poll until another device (TV app,
-  // phone app or a signed-in web session) pushes its credentials over.
-  // Same protocol as the TV app — create → poll every 3s → one-time hand-over,
-  // with automatic code regeneration on expiry (15 min TTL).
   useEffect(() => {
     if (!pairingActive) return;
     let cancelled = false;
@@ -229,22 +250,14 @@ export default function SettingsPage() {
               setTimeout(() => window.location.reload(), 2500);
               return;
             }
-            // expired AND consumed both mean the code can never link now →
-            // regenerate a fresh one
             if (d.status === 'expired' || d.status === 'consumed') code = null;
           }
-        } catch {
-          // transient network errors — keep polling until the deadline
-        }
+        } catch {}
         await sleep(3000);
       }
       if (!cancelled) {
         setPairStatus('fail');
-        setPairMessage(
-          code === null
-            ? 'Could not reach the pairing service. Check your connection and try again.'
-            : 'Pairing timed out — press “Show pairing code” to start again.',
-        );
+        setPairMessage('Pairing timed out — click “Show pairing code” to try again.');
       }
     })();
 
@@ -301,7 +314,6 @@ export default function SettingsPage() {
         if (d) setStatus(d);
       }
     } catch (_) {
-      // Backend may be offline or standalone client mode
     } finally {
       setLoadingBackend(false);
     }
@@ -421,799 +433,502 @@ export default function SettingsPage() {
     }
   };
 
+  const TABS = [
+    { id: 'playback' as const, label: 'Playback & performance', icon: <IoPlayCircleOutline size={20} /> },
+    { id: 'appearance' as const, label: 'Appearance & theme', icon: <IoColorPaletteOutline size={20} /> },
+    { id: 'account' as const, label: 'Account & sync', icon: <IoPersonCircleOutline size={20} /> },
+    { id: 'devices' as const, label: 'Connected devices', icon: <IoTvOutline size={20} /> },
+    { id: 'instance' as const, label: 'Backend & diagnostics', icon: <IoServerOutline size={20} /> },
+  ];
+
   return (
-    <div style={{ maxWidth: '720px', margin: '0 auto', padding: '24px 16px', width: '100%' }}>
-      <h1 style={{ fontSize: '26px', fontWeight: 700, color: 'var(--yt-text-primary)', marginBottom: '24px' }}>
-        Settings & Preferences
-      </h1>
-
-      {/* 1. Invidious Backend Instance Configuration */}
-      <section
-        style={{
-          background: 'var(--yt-surface)',
-          border: '1px solid var(--yt-border)',
-          borderRadius: '20px',
-          padding: '22px',
-          marginBottom: '20px',
-          boxShadow: '0 4px 16px rgba(0, 0, 0, 0.2)',
-        }}
-      >
-        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px' }}>
-          <div
-            style={{
-              width: '40px',
-              height: '40px',
-              borderRadius: '50%',
-              backgroundColor: 'var(--md-sys-color-primary-container, var(--yt-hover))',
-              color: 'var(--md-sys-color-primary, var(--yt-blue))',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-            }}
+    <div className="yt-settings-page-wrapper">
+      {/* 1. Left Sub-Navigation */}
+      <aside className="yt-settings-subnav">
+        <div className="yt-settings-subnav-title">Settings</div>
+        {TABS.map((tab) => (
+          <button
+            key={tab.id}
+            type="button"
+            className={`yt-settings-tab-btn ${activeTab === tab.id ? 'active' : ''}`}
+            onClick={() => setActiveTab(tab.id)}
           >
-            <IoGlobeOutline size={22} />
-          </div>
-          <div>
-            <h2 style={{ fontSize: '17px', fontWeight: 600, color: 'var(--yt-text-primary)', margin: 0 }}>
-              Invidious Backend Instance
-            </h2>
-            <p style={{ fontSize: '12px', color: 'var(--yt-text-secondary)', margin: 0 }}>
-              De-Googled YouTube API & video stream provider
-            </p>
-          </div>
-        </div>
+            {tab.icon}
+            <span>{tab.label}</span>
+          </button>
+        ))}
+      </aside>
 
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+      {/* 2. Right Content Pane */}
+      <main className="yt-settings-main-pane">
+        {/* TAB 1: PLAYBACK AND PERFORMANCE */}
+        {activeTab === 'playback' && (
           <div>
-            <label style={{ fontSize: '13px', fontWeight: 600, color: 'var(--yt-text-secondary)', display: 'block', marginBottom: '6px' }}>
-              INSTANCE URL:
-            </label>
-            <div style={{ display: 'flex', gap: '8px' }}>
-              <input
-                type="url"
-                value={invidiousUrl}
-                onChange={(e) => setInvidiousUrl(e.target.value)}
-                placeholder="https://yt.khoavo.myds.me"
-                style={{
-                  flex: 1,
-                  padding: '10px 14px',
-                  borderRadius: '14px',
-                  border: '1.5px solid var(--yt-border)',
-                  backgroundColor: 'var(--yt-background)',
-                  color: 'var(--yt-text-primary)',
-                  fontSize: '14px',
-                  outline: 'none',
-                }}
-              />
-              <button
-                type="button"
-                onClick={handleSaveInstance}
-                disabled={instanceStatus === 'testing'}
-                style={{
-                  padding: '10px 20px',
-                  borderRadius: '14px',
-                  border: 'none',
-                  backgroundColor:
-                    instanceStatus === 'ok'
-                      ? '#00c853'
-                      : instanceStatus === 'fail'
-                      ? '#ff334b'
-                      : 'var(--md-sys-color-primary, var(--yt-blue))',
-                  color: '#ffffff',
-                  fontSize: '13px',
-                  fontWeight: 600,
-                  cursor: instanceStatus === 'testing' ? 'wait' : 'pointer',
-                  transition: 'background-color 0.2s ease',
-                  whiteSpace: 'nowrap',
-                }}
-              >
-                {instanceStatus === 'testing'
-                  ? 'Testing...'
-                  : instanceStatus === 'ok'
-                  ? '✓ Connected'
-                  : instanceStatus === 'fail'
-                  ? '✗ Failed'
-                  : 'Save & Test'}
-              </button>
+            <div className="yt-settings-pane-header">
+              <h1 className="yt-settings-pane-title">Playback and performance</h1>
+              <p className="yt-settings-pane-desc">Control your video playback quality and community streaming extensions</p>
             </div>
-            {instanceMessage && (
-              <div
-                style={{
-                  marginTop: '8px',
-                  fontSize: '12px',
-                  fontWeight: 500,
-                  color: instanceStatus === 'ok' ? '#00c853' : '#ff334b',
-                }}
-              >
-                {instanceMessage}
-              </div>
-            )}
-          </div>
 
-          <div>
-            <label style={{ fontSize: '13px', fontWeight: 600, color: 'var(--yt-text-secondary)', display: 'block', marginBottom: '6px' }}>
-              INVIDIOUS AUTH / SESSION TOKEN:
-            </label>
-            <p style={{ fontSize: '12px', color: 'var(--yt-text-secondary)', margin: '0 0 8px' }}>
-              Enter your Invidious token or session string (e.g. <code>v1:...</code> or JSON token) to sync subscriptions, history, and playlists.
-            </p>
-            <div style={{ display: 'flex', gap: '8px' }}>
-              <input
-                type="password"
-                value={invidiousToken}
-                onChange={(e) => setInvidiousToken(e.target.value)}
-                placeholder="v1:DyRHmmLjL30lxhEVgXpOEAB5M_CeyBiYeOUiuEff_rs="
-                style={{
-                  flex: 1,
-                  padding: '10px 14px',
-                  borderRadius: '14px',
-                  border: '1.5px solid var(--yt-border)',
-                  backgroundColor: 'var(--yt-background)',
-                  color: 'var(--yt-text-primary)',
-                  fontSize: '14px',
-                  outline: 'none',
-                }}
-              />
-              <button
-                type="button"
-                onClick={handleSaveToken}
-                disabled={tokenStatus === 'testing'}
-                style={{
-                  padding: '10px 20px',
-                  borderRadius: '14px',
-                  border: 'none',
-                  backgroundColor:
-                    tokenStatus === 'ok'
-                      ? '#00c853'
-                      : tokenStatus === 'fail'
-                      ? '#ff334b'
-                      : 'var(--md-sys-color-primary, var(--yt-blue))',
-                  color: '#ffffff',
-                  fontSize: '13px',
-                  fontWeight: 600,
-                  cursor: tokenStatus === 'testing' ? 'wait' : 'pointer',
-                  transition: 'background-color 0.2s ease',
-                  whiteSpace: 'nowrap',
-                }}
-              >
-                {tokenStatus === 'testing'
-                  ? 'Testing...'
-                  : tokenStatus === 'ok'
-                  ? '✓ Valid Token'
-                  : tokenStatus === 'fail'
-                  ? '✗ Auth Error'
-                  : 'Save & Test'}
-              </button>
+            {/* Video Quality Preference */}
+            <div className="yt-settings-section-card">
+              <h2 className="yt-settings-section-heading">Video quality</h2>
+              <p className="yt-settings-section-subtext">Choose your default video streaming resolution</p>
+
+              <div className="yt-settings-item-row">
+                <div className="yt-settings-item-info">
+                  <div className="yt-settings-item-label">Default streaming quality</div>
+                  <div className="yt-settings-item-desc">Sets default resolution when starting new videos</div>
+                </div>
+                <select
+                  value={defaultQuality}
+                  onChange={(e) => handleQualityChange(e.target.value)}
+                  className="yt-select-dropdown"
+                >
+                  <option value="auto">Auto (Adaptive)</option>
+                  <option value="1080p">1080p Full HD</option>
+                  <option value="720p">720p HD</option>
+                  <option value="480p">480p SD</option>
+                  <option value="360p">360p</option>
+                  <option value="audio_only">Audio Only</option>
+                </select>
+              </div>
             </div>
-            {tokenMessage && (
-              <div
-                style={{
-                  marginTop: '8px',
-                  fontSize: '12px',
-                  fontWeight: 500,
-                  color: tokenStatus === 'ok' ? '#00c853' : '#ff334b',
-                }}
-              >
-                {tokenMessage}
-              </div>
-            )}
-          </div>
 
-          <div>
-            <label style={{ fontSize: '13px', fontWeight: 600, color: 'var(--yt-text-secondary)', display: 'block', marginBottom: '6px' }}>
-              SEND SIGN-IN TO A DEVICE:
-            </label>
-            <p style={{ fontSize: '12px', color: 'var(--yt-text-secondary)', margin: '0 0 8px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-              <IoTvOutline size={14} />
-              No token typing on a remote — open KV-Tube on your TV (Settings → “Pair device”) or phone app (Settings → “Pair this device”), then enter the code it shows:
-            </p>
-            <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-              <input
-                type="text"
-                value={tvPairCode}
-                onChange={(e) => setTvPairCode(e.target.value.toUpperCase())}
-                onKeyDown={(e) => { if (e.key === 'Enter') handlePairTv(); }}
-                placeholder="e.g. K7M2XQ"
-                maxLength={8}
-                autoComplete="off"
-                style={{
-                  width: '160px',
-                  padding: '10px 14px',
-                  borderRadius: '14px',
-                  border: '1.5px solid var(--yt-border)',
-                  backgroundColor: 'var(--yt-background)',
-                  color: 'var(--yt-text-primary)',
-                  fontSize: '16px',
-                  fontFamily: 'monospace',
-                  letterSpacing: '4px',
-                  textTransform: 'uppercase',
-                  outline: 'none',
-                }}
-              />
-              <button
-                type="button"
-                onClick={handlePairTv}
-                disabled={pairTvStatus === 'sending'}
-                style={{
-                  padding: '10px 20px',
-                  borderRadius: '14px',
-                  border: 'none',
-                  backgroundColor:
-                    pairTvStatus === 'ok'
-                      ? '#00c853'
-                      : pairTvStatus === 'fail'
-                      ? '#ff334b'
-                      : 'var(--md-sys-color-primary, var(--yt-blue))',
-                  color: '#ffffff',
-                  fontSize: '13px',
-                  fontWeight: 600,
-                  cursor: pairTvStatus === 'sending' ? 'wait' : 'pointer',
-                  whiteSpace: 'nowrap',
-                }}
-              >
-                {pairTvStatus === 'sending' ? 'Sending…' : pairTvStatus === 'ok' ? '✓ Sent!' : 'Send'}
-              </button>
+            {/* Community Extensions */}
+            <div className="yt-settings-section-card">
+              <h2 className="yt-settings-section-heading">Community extensions</h2>
+              <p className="yt-settings-section-subtext">Built-in open source enhancements</p>
+
+              {/* SponsorBlock */}
+              <div className="yt-settings-item-row">
+                <div className="yt-settings-item-info">
+                  <div className="yt-settings-item-label">SponsorBlock auto-skip</div>
+                  <div className="yt-settings-item-desc">Automatically skip sponsored segments, intros, and reminders</div>
+                </div>
+                <ToggleSwitch
+                  checked={sponsorblockEnabled}
+                  onChange={handleToggleSponsorblock}
+                  id="sponsorblock-toggle"
+                />
+              </div>
+
+              {/* Return YouTube Dislike */}
+              <div className="yt-settings-item-row">
+                <div className="yt-settings-item-info">
+                  <div className="yt-settings-item-label">Return YouTube Dislike (RYD)</div>
+                  <div className="yt-settings-item-desc">Display accurate like and dislike counts and ratio bar on videos</div>
+                </div>
+                <ToggleSwitch
+                  checked={rydEnabled}
+                  onChange={handleToggleRyd}
+                  id="ryd-toggle"
+                />
+              </div>
             </div>
-            {pairTvMessage && (
-              <div
-                style={{
-                  marginTop: '8px',
-                  fontSize: '12px',
-                  fontWeight: 500,
-                  color: pairTvStatus === 'ok' ? '#00c853' : '#ff334b',
-                }}
-              >
-                {pairTvMessage}
-              </div>
-            )}
           </div>
+        )}
 
-          <div style={{ borderTop: '1px solid var(--yt-border)' }} />
-
+        {/* TAB 2: APPEARANCE & THEME */}
+        {activeTab === 'appearance' && (
           <div>
-            <label style={{ fontSize: '13px', fontWeight: 600, color: 'var(--yt-text-secondary)', display: 'block', marginBottom: '6px' }}>
-              PAIR THIS BROWSER:
-            </label>
-            <p style={{ fontSize: '12px', color: 'var(--yt-text-secondary)', margin: '0 0 8px', display: 'flex', alignItems: 'center', gap: '6px' }}>
-              <IoLaptopOutline size={14} />
-              Sign in here without pasting a token — from an already signed-in device (TV app, phone app → Settings → “Send to device”, or another browser) send this code:
-            </p>
-            {!pairingActive ? (
-              <button
-                type="button"
-                onClick={() => {
-                  setPairStatus('idle');
-                  setPairMessage(null);
-                  setPairingActive(true);
-                }}
-                style={{
-                  padding: '10px 20px',
-                  borderRadius: '14px',
-                  border: 'none',
-                  backgroundColor: 'var(--md-sys-color-primary, var(--yt-blue))',
-                  color: '#ffffff',
-                  fontSize: '13px',
-                  fontWeight: 600,
-                  cursor: 'pointer',
-                  whiteSpace: 'nowrap',
-                }}
-              >
-                Show pairing code
-              </button>
-            ) : (
-              <div style={{ display: 'flex', gap: '12px', alignItems: 'center', flexWrap: 'wrap' }}>
-                {pairCode && pairStatus !== 'ok' && (
-                  <span
-                    style={{
-                      padding: '10px 20px',
-                      borderRadius: '14px',
-                      backgroundColor: 'var(--yt-background)',
-                      border: '1.5px solid var(--yt-border)',
-                      color: 'var(--yt-text-primary)',
-                      fontSize: '24px',
-                      fontFamily: 'monospace',
-                      letterSpacing: '8px',
-                      fontWeight: 700,
-                    }}
-                  >
-                    {pairCode}
-                  </span>
-                )}
-                {pairStatus !== 'ok' && (
-                  <span
-                    style={{
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      gap: '8px',
-                      fontSize: '12px',
-                      color: 'var(--yt-text-secondary)',
-                    }}
-                  >
-                    <span
-                      className="kv-spinner"
-                      style={{
-                        width: '14px',
-                        height: '14px',
-                        borderRadius: '50%',
-                        border: '2px solid var(--yt-border)',
-                        borderTopColor: 'var(--md-sys-color-primary, var(--yt-blue))',
-                        animation: 'spin 1s linear infinite',
-                        display: 'inline-block',
-                      }}
-                    />
-                    Waiting for link…
-                  </span>
-                )}
-                {pairStatus !== 'ok' && (
+            <div className="yt-settings-pane-header">
+              <h1 className="yt-settings-pane-title">Appearance & theme</h1>
+              <p className="yt-settings-pane-desc">Customize interface color scheme, true black AMOLED, and tonal palettes</p>
+            </div>
+
+            {/* Theme Mode */}
+            <div className="yt-settings-section-card">
+              <h2 className="yt-settings-section-heading">Theme mode</h2>
+              <p className="yt-settings-section-subtext">Choose your visual appearance preference</p>
+
+              <div className="yt-settings-item-row">
+                <div className="yt-settings-item-info">
+                  <div className="yt-settings-item-label">Display theme</div>
+                  <div className="yt-settings-item-desc">Switch between light, standard YouTube dark, and deep AMOLED black</div>
+                </div>
+                <div className="yt-segmented-control">
                   <button
                     type="button"
-                    onClick={stopPairing}
+                    onClick={() => setThemeMode('dark')}
+                    className={`yt-segmented-btn ${themeMode === 'dark' ? 'active' : ''}`}
+                  >
+                    <IoMoonOutline size={16} />
+                    <span>Dark</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setThemeMode('amoled')}
+                    className={`yt-segmented-btn ${themeMode === 'amoled' ? 'active' : ''}`}
+                  >
+                    <IoFlashOutline size={16} />
+                    <span>AMOLED</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setThemeMode('light')}
+                    className={`yt-segmented-btn ${themeMode === 'light' ? 'active' : ''}`}
+                  >
+                    <IoSunnyOutline size={16} />
+                    <span>Light</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {/* Accent Color Palette */}
+            <div className="yt-settings-section-card">
+              <h2 className="yt-settings-section-heading">Accent color palette</h2>
+              <p className="yt-settings-section-subtext">Material You dynamic accent tones applied across buttons and sliders</p>
+
+              <div className="yt-settings-item-row" style={{ alignItems: 'flex-start' }}>
+                <div className="yt-settings-item-info">
+                  <div className="yt-settings-item-label">Tonal palette</div>
+                  <div className="yt-settings-item-desc">Selected preset: <strong style={{ color: 'var(--yt-text-primary)' }}>{currentPreset.toUpperCase()}</strong></div>
+                </div>
+                <div className="yt-swatches-row">
+                  {THEME_PRESETS.map((p) => {
+                    const isSelected = currentPreset === p.id;
+                    return (
+                      <button
+                        key={p.id}
+                        type="button"
+                        onClick={() => setPreset(p.id)}
+                        className={`yt-swatch-btn ${isSelected ? 'active' : ''}`}
+                        style={{ backgroundColor: p.seedColor }}
+                        title={p.name}
+                      >
+                        {isSelected && <IoCheckmarkCircle size={18} style={{ color: '#ffffff' }} />}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* TAB 3: ACCOUNT & SYNC */}
+        {activeTab === 'account' && (
+          <div>
+            <div className="yt-settings-pane-header">
+              <h1 className="yt-settings-pane-title">Account & sync</h1>
+              <p className="yt-settings-pane-desc">Manage your Invidious account session token to sync subscriptions, history, and playlists</p>
+            </div>
+
+            <div className="yt-settings-section-card">
+              <h2 className="yt-settings-section-heading">Session credentials</h2>
+              <p className="yt-settings-section-subtext">Connect your existing Invidious account without entering Google passwords</p>
+
+              <div style={{ marginTop: '16px' }}>
+                <label className="yt-settings-item-label" style={{ display: 'block', marginBottom: '8px' }}>
+                  Invidious session / auth token
+                </label>
+                <div style={{ display: 'flex', gap: '10px' }}>
+                  <input
+                    type="password"
+                    value={invidiousToken}
+                    onChange={(e) => setInvidiousToken(e.target.value)}
+                    placeholder="e.g. v1:DyRHmmLjL30lxhEV..."
+                    className="yt-input-field"
+                    style={{ flex: 1 }}
+                  />
+                  <button
+                    type="button"
+                    onClick={handleSaveToken}
+                    disabled={tokenStatus === 'testing'}
+                    className="yt-btn-pill-primary"
+                  >
+                    {tokenStatus === 'testing' ? 'Verifying...' : 'Save & Verify'}
+                  </button>
+                </div>
+
+                {tokenMessage && (
+                  <div
                     style={{
-                      padding: '8px 16px',
-                      borderRadius: '14px',
-                      border: '1px solid var(--yt-border)',
-                      backgroundColor: 'transparent',
-                      color: 'var(--yt-text-primary)',
-                      fontSize: '12px',
-                      fontWeight: 600,
-                      cursor: 'pointer',
+                      marginTop: '10px',
+                      fontSize: '13px',
+                      color: tokenStatus === 'ok' ? '#00c853' : '#ff334b',
+                      fontWeight: 500,
                     }}
                   >
-                    Cancel
-                  </button>
+                    {tokenMessage}
+                  </div>
                 )}
               </div>
-            )}
-            {pairMessage && (
-              <div
-                style={{
-                  marginTop: '8px',
-                  fontSize: '12px',
-                  fontWeight: 500,
-                  color: pairStatus === 'ok' ? '#00c853' : '#ff334b',
-                }}
-              >
-                {pairMessage}
-              </div>
-            )}
-            <p style={{ margin: '6px 0 0', fontSize: '11px', color: 'var(--yt-text-secondary)', display: 'flex', alignItems: 'center', gap: '6px' }}>
-              <IoPhonePortraitOutline size={12} />
-              Codes refresh automatically and expire after 15 minutes. Credentials are transferred once and never stored on the server.
-            </p>
+            </div>
           </div>
-        </div>
-      </section>
+        )}
 
-      {/* 2. Material 3 Appearance & Theme */}
-      <section
-        style={{
-          background: 'var(--yt-surface)',
-          border: '1px solid var(--yt-border)',
-          borderRadius: '20px',
-          padding: '22px',
-          marginBottom: '20px',
-          boxShadow: '0 4px 16px rgba(0, 0, 0, 0.2)',
-        }}
-      >
-        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px' }}>
-          <div
-            style={{
-              width: '40px',
-              height: '40px',
-              borderRadius: '50%',
-              backgroundColor: 'var(--md-sys-color-primary-container, var(--yt-hover))',
-              color: 'var(--md-sys-color-primary, var(--yt-blue))',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-            }}
-          >
-            <IoColorPaletteOutline size={22} />
-          </div>
+        {/* TAB 4: CONNECTED DEVICES */}
+        {activeTab === 'devices' && (
           <div>
-            <h2 style={{ fontSize: '17px', fontWeight: 600, color: 'var(--yt-text-primary)', margin: 0 }}>
-              Appearance & Theming (Material You)
-            </h2>
-            <p style={{ fontSize: '12px', color: 'var(--yt-text-secondary)', margin: 0 }}>
-              Dynamic colors, AMOLED black, and preset tonal palettes
-            </p>
-          </div>
-        </div>
+            <div className="yt-settings-pane-header">
+              <h1 className="yt-settings-pane-title">Connected devices</h1>
+              <p className="yt-settings-pane-desc">Sync credentials with your TV app, phone, or another browser without typing tokens</p>
+            </div>
 
-        {/* Mode Selector */}
-        <div style={{ marginBottom: '16px' }}>
-          <label style={{ fontSize: '13px', fontWeight: 600, color: 'var(--yt-text-secondary)', display: 'block', marginBottom: '8px' }}>
-            THEME MODE:
-          </label>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '8px' }}>
-            <button
-              type="button"
-              onClick={() => setThemeMode('dark')}
-              style={{
-                padding: '10px',
-                borderRadius: '14px',
-                border: themeMode === 'dark' ? '2px solid var(--md-sys-color-primary, var(--yt-blue))' : '1px solid var(--yt-border)',
-                backgroundColor: themeMode === 'dark' ? 'var(--yt-hover)' : 'transparent',
-                color: 'var(--yt-text-primary)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: '6px',
-                cursor: 'pointer',
-                fontSize: '13px',
-                fontWeight: 600,
-              }}
-            >
-              <IoMoonOutline size={16} /> Dark
-            </button>
-            <button
-              type="button"
-              onClick={() => setThemeMode('amoled')}
-              style={{
-                padding: '10px',
-                borderRadius: '14px',
-                border: themeMode === 'amoled' ? '2px solid #00ffff' : '1px solid var(--yt-border)',
-                backgroundColor: themeMode === 'amoled' ? '#000000' : 'transparent',
-                color: 'var(--yt-text-primary)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: '6px',
-                cursor: 'pointer',
-                fontSize: '13px',
-                fontWeight: 600,
-              }}
-            >
-              <IoFlashOutline size={16} color="#00ffff" /> AMOLED
-            </button>
-            <button
-              type="button"
-              onClick={() => setThemeMode('light')}
-              style={{
-                padding: '10px',
-                borderRadius: '14px',
-                border: themeMode === 'light' ? '2px solid #ff9800' : '1px solid var(--yt-border)',
-                backgroundColor: themeMode === 'light' ? 'var(--yt-hover)' : 'transparent',
-                color: 'var(--yt-text-primary)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                gap: '6px',
-                cursor: 'pointer',
-                fontSize: '13px',
-                fontWeight: 600,
-              }}
-            >
-              <IoSunnyOutline size={16} color="#ff9800" /> Light
-            </button>
-          </div>
-        </div>
+            {/* Send to device */}
+            <div className="yt-settings-section-card">
+              <h2 className="yt-settings-section-heading">Send sign-in to a device</h2>
+              <p className="yt-settings-section-subtext">Open KV-Tube on your TV or phone (Settings → “Pair this device”), then enter the 6-character code below:</p>
 
-        {/* Preset Palettes */}
-        <div>
-          <label style={{ fontSize: '13px', fontWeight: 600, color: 'var(--yt-text-secondary)', display: 'block', marginBottom: '8px' }}>
-            COLOR PALETTES:
-          </label>
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '8px' }}>
-            {THEME_PRESETS.map((preset) => {
-              const isActive = currentPreset === preset.id;
-              return (
+              <div style={{ display: 'flex', gap: '10px', marginTop: '16px', maxWidth: '420px' }}>
+                <input
+                  type="text"
+                  maxLength={8}
+                  value={tvPairCode}
+                  onChange={(e) => setTvPairCode(e.target.value.toUpperCase())}
+                  placeholder="e.g. K7M2XQ"
+                  className="yt-input-field"
+                  style={{ flex: 1, letterSpacing: '4px', textTransform: 'uppercase', fontWeight: 600 }}
+                />
                 <button
-                  key={preset.id}
                   type="button"
-                  onClick={() => setPreset(preset.id)}
+                  onClick={handlePairTv}
+                  disabled={pairTvStatus === 'sending'}
+                  className="yt-btn-pill-primary"
+                >
+                  {pairTvStatus === 'sending' ? 'Linking...' : 'Link Device'}
+                </button>
+              </div>
+
+              {pairTvMessage && (
+                <div
                   style={{
-                    padding: '8px 10px',
-                    borderRadius: '12px',
-                    border: isActive ? `2px solid ${preset.seedColor}` : '1px solid var(--yt-border)',
-                    backgroundColor: isActive ? 'var(--yt-hover)' : 'transparent',
-                    color: 'var(--yt-text-primary)',
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '8px',
-                    cursor: 'pointer',
-                    fontSize: '11px',
+                    marginTop: '10px',
+                    fontSize: '13px',
+                    color: pairTvStatus === 'ok' ? '#00c853' : '#ff334b',
                     fontWeight: 500,
                   }}
                 >
-                  <span
-                    style={{
-                      width: '12px',
-                      height: '12px',
-                      borderRadius: '50%',
-                      backgroundColor: preset.seedColor,
-                      boxShadow: isActive ? `0 0 6px ${preset.seedColor}` : 'none',
-                      flexShrink: 0,
+                  {pairTvMessage}
+                </div>
+              )}
+            </div>
+
+            {/* Pair this browser */}
+            <div className="yt-settings-section-card">
+              <h2 className="yt-settings-section-heading">Pair this browser</h2>
+              <p className="yt-settings-section-subtext">Receive credentials from an already signed-in device to sign into this browser automatically.</p>
+
+              <div style={{ marginTop: '16px' }}>
+                {!pairingActive ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setPairingActive(true);
+                      setPairStatus('idle');
+                      setPairMessage(null);
                     }}
-                  />
-                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                    {preset.name.split(' ')[0]}
-                  </span>
-                </button>
-              );
-            })}
-          </div>
-        </div>
-      </section>
+                    className="yt-btn-pill-secondary"
+                  >
+                    Show pairing code
+                  </button>
+                ) : (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+                      <div className="yt-pairing-display-box">
+                        {pairCode || '......'}
+                      </div>
+                      <button
+                        type="button"
+                        onClick={stopPairing}
+                        className="yt-btn-pill-secondary"
+                      >
+                        Cancel
+                      </button>
+                    </div>
 
-      {/* 3. Player & Privacy Features */}
-      <section
-        style={{
-          background: 'var(--yt-surface)',
-          border: '1px solid var(--yt-border)',
-          borderRadius: '20px',
-          padding: '22px',
-          marginBottom: '20px',
-          boxShadow: '0 4px 16px rgba(0, 0, 0, 0.2)',
-        }}
-      >
-        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px' }}>
-          <div
-            style={{
-              width: '40px',
-              height: '40px',
-              borderRadius: '50%',
-              backgroundColor: 'var(--md-sys-color-primary-container, var(--yt-hover))',
-              color: 'var(--md-sys-color-primary, var(--yt-blue))',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-            }}
-          >
-            <IoShieldCheckmarkOutline size={22} />
-          </div>
-          <div>
-            <h2 style={{ fontSize: '17px', fontWeight: 600, color: 'var(--yt-text-primary)', margin: 0 }}>
-              Playback & Community Integrations
-            </h2>
-            <p style={{ fontSize: '12px', color: 'var(--yt-text-secondary)', margin: 0 }}>
-              Ad-free streaming, SponsorBlock, and Return YouTube Dislike
-            </p>
-          </div>
-        </div>
+                    <div style={{ fontSize: '13px', color: 'var(--yt-text-secondary)' }}>
+                      Enter this code into any signed-in KV-Tube app under <strong>Settings → Send sign-in to a device</strong>.
+                    </div>
 
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-          {/* SponsorBlock Toggle */}
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <div>
-              <div style={{ fontSize: '14px', fontWeight: 600, color: 'var(--yt-text-primary)' }}>
-                SponsorBlock Auto-Skip
-              </div>
-              <div style={{ fontSize: '12px', color: 'var(--yt-text-secondary)' }}>
-                Skip sponsored segments, intro animations, and reminders
+                    {pairMessage && (
+                      <div
+                        style={{
+                          fontSize: '13px',
+                          color: pairStatus === 'ok' ? '#00c853' : '#ff334b',
+                          fontWeight: 500,
+                        }}
+                      >
+                        {pairMessage}
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             </div>
-            <button
-              type="button"
-              onClick={handleToggleSponsorblock}
-              style={{
-                padding: '6px 14px',
-                borderRadius: '16px',
-                border: 'none',
-                backgroundColor: sponsorblockEnabled ? '#00d66c' : 'var(--yt-border)',
-                color: sponsorblockEnabled ? '#000000' : 'var(--yt-text-secondary)',
-                fontWeight: 600,
-                fontSize: '12px',
-                cursor: 'pointer',
-              }}
-            >
-              {sponsorblockEnabled ? 'ENABLED' : 'DISABLED'}
-            </button>
-          </div>
-
-          <div style={{ borderTop: '1px solid var(--yt-border)' }} />
-
-          {/* Return YouTube Dislike Toggle */}
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <div>
-              <div style={{ fontSize: '14px', fontWeight: 600, color: 'var(--yt-text-primary)' }}>
-                Return YouTube Dislike (RYD)
-              </div>
-              <div style={{ fontSize: '12px', color: 'var(--yt-text-secondary)' }}>
-                Show accurate like and dislike counts with ratio gauge
-              </div>
-            </div>
-            <button
-              type="button"
-              onClick={handleToggleRyd}
-              style={{
-                padding: '6px 14px',
-                borderRadius: '16px',
-                border: 'none',
-                backgroundColor: rydEnabled ? 'var(--md-sys-color-primary, var(--yt-blue))' : 'var(--yt-border)',
-                color: rydEnabled ? '#ffffff' : 'var(--yt-text-secondary)',
-                fontWeight: 600,
-                fontSize: '12px',
-                cursor: 'pointer',
-              }}
-            >
-              {rydEnabled ? 'ENABLED' : 'DISABLED'}
-            </button>
-          </div>
-
-          <div style={{ borderTop: '1px solid var(--yt-border)' }} />
-
-          {/* Default Quality */}
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-            <div>
-              <div style={{ fontSize: '14px', fontWeight: 600, color: 'var(--yt-text-primary)' }}>
-                Default Streaming Resolution
-              </div>
-              <div style={{ fontSize: '12px', color: 'var(--yt-text-secondary)' }}>
-                Auto adaptive or preferred format
-              </div>
-            </div>
-            <select
-              value={defaultQuality}
-              onChange={(e) => handleQualityChange(e.target.value)}
-              style={{
-                padding: '6px 12px',
-                borderRadius: '10px',
-                border: '1px solid var(--yt-border)',
-                backgroundColor: 'var(--yt-background)',
-                color: 'var(--yt-text-primary)',
-                fontSize: '13px',
-                fontWeight: 500,
-                cursor: 'pointer',
-              }}
-            >
-              <option value="auto">Auto (Adaptive)</option>
-              <option value="1080">1080p Full HD</option>
-              <option value="720">720p HD</option>
-              <option value="480">480p SD</option>
-              <option value="360">360p Data Saver</option>
-            </select>
-          </div>
-        </div>
-      </section>
-
-      {/* 4. Subscriptions & Data Management (Invidious Sync) */}
-      <section
-        style={{
-          background: 'var(--yt-surface)',
-          border: '1px solid var(--yt-border)',
-          borderRadius: '20px',
-          padding: '22px',
-          marginBottom: '20px',
-          boxShadow: '0 4px 16px rgba(0, 0, 0, 0.2)',
-        }}
-      >
-        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px' }}>
-          <div
-            style={{
-              width: '40px',
-              height: '40px',
-              borderRadius: '50%',
-              backgroundColor: 'var(--md-sys-color-primary-container, var(--yt-hover))',
-              color: 'var(--md-sys-color-primary, var(--yt-blue))',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-            }}
-          >
-            <IoCloudDownloadOutline size={22} />
-          </div>
-          <div>
-            <h2 style={{ fontSize: '17px', fontWeight: 600, color: 'var(--yt-text-primary)', margin: 0 }}>
-              Subscriptions & Data Sync
-            </h2>
-            <p style={{ fontSize: '12px', color: 'var(--yt-text-secondary)', margin: 0 }}>
-              Import from Google Takeout, Invidious JSON, or OPML
-            </p>
-          </div>
-        </div>
-
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-          <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
-            <Link
-              href="/feed/subscriptions"
-              style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: '8px',
-                padding: '10px 18px',
-                borderRadius: '14px',
-                backgroundColor: 'var(--md-sys-color-primary, var(--yt-blue))',
-                color: '#ffffff',
-                textDecoration: 'none',
-                fontSize: '13px',
-                fontWeight: 600,
-              }}
-            >
-              Manage & Import Subscriptions →
-            </Link>
-          </div>
-        </div>
-      </section>
-
-      {/* 5. Local Go / yt-dlp Backend (Optional) */}
-      <section
-        style={{
-          background: 'var(--yt-surface)',
-          border: '1px solid var(--yt-border)',
-          borderRadius: '20px',
-          padding: '22px',
-          marginBottom: '20px',
-          boxShadow: '0 4px 16px rgba(0, 0, 0, 0.2)',
-        }}
-      >
-        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px' }}>
-          <div
-            style={{
-              width: '40px',
-              height: '40px',
-              borderRadius: '50%',
-              backgroundColor: 'var(--md-sys-color-primary-container, var(--yt-hover))',
-              color: 'var(--md-sys-color-primary, var(--yt-blue))',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-            }}
-          >
-            <IoServerOutline size={22} />
-          </div>
-          <div>
-            <h2 style={{ fontSize: '17px', fontWeight: 600, color: 'var(--yt-text-primary)', margin: 0 }}>
-              Local Extraction & yt-dlp Engine
-            </h2>
-            <p style={{ fontSize: '12px', color: 'var(--yt-text-secondary)', margin: 0 }}>
-              Status of local background extraction service
-            </p>
-          </div>
-        </div>
-
-        {status ? (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-            <div style={{ fontSize: '13px', color: 'var(--yt-text-primary)' }}>
-              yt-dlp version: <span style={{ fontWeight: 600 }}>{status.ytdlp?.version || 'unknown'}</span>
-            </div>
-            <div style={{ fontSize: '13px', color: 'var(--yt-text-secondary)' }}>
-              Cookie state: {cookieLabel(status.cookies)}
-            </div>
-            <div style={{ display: 'flex', gap: '8px', marginTop: '6px' }}>
-              <button
-                onClick={handleUpdateYtDlp}
-                disabled={updating}
-                style={{
-                  padding: '8px 16px',
-                  borderRadius: '12px',
-                  border: 'none',
-                  backgroundColor: 'var(--md-sys-color-primary, var(--yt-blue))',
-                  color: '#ffffff',
-                  fontSize: '12px',
-                  fontWeight: 600,
-                  cursor: 'pointer',
-                }}
-              >
-                {updating ? 'Updating...' : 'Update yt-dlp'}
-              </button>
-              <button
-                onClick={handleDiagnose}
-                disabled={diagLoading}
-                style={{
-                  padding: '8px 16px',
-                  borderRadius: '12px',
-                  border: '1px solid var(--yt-border)',
-                  backgroundColor: 'transparent',
-                  color: 'var(--yt-text-primary)',
-                  fontSize: '12px',
-                  fontWeight: 600,
-                  cursor: 'pointer',
-                }}
-              >
-                {diagLoading ? 'Diagnosing...' : 'Run Diagnostics'}
-              </button>
-            </div>
-          </div>
-        ) : (
-          <div style={{ fontSize: '13px', color: 'var(--yt-text-secondary)' }}>
-            Status: <span style={{ color: '#22c55e', fontWeight: 600 }}>Standalone Invidious Mode Active</span>
-            <p style={{ margin: '6px 0 0', fontSize: '12px' }}>
-              Streams, search, and metadata are served directly from Invidious (<code>{invidiousUrl}</code>).
-            </p>
           </div>
         )}
-      </section>
+
+        {/* TAB 5: BACKEND & DIAGNOSTICS */}
+        {activeTab === 'instance' && (
+          <div>
+            <div className="yt-settings-pane-header">
+              <h1 className="yt-settings-pane-title">Backend & diagnostics</h1>
+              <p className="yt-settings-pane-desc">Invidious instance endpoints, yt-dlp binary status, and network connectivity tests</p>
+            </div>
+
+            {/* Invidious Instance */}
+            <div className="yt-settings-section-card">
+              <h2 className="yt-settings-section-heading">Invidious instance URL</h2>
+              <p className="yt-settings-section-subtext">API server providing search, channel feeds, and video metadata</p>
+
+              <div style={{ display: 'flex', gap: '10px', marginTop: '16px' }}>
+                <input
+                  type="url"
+                  value={invidiousUrl}
+                  onChange={(e) => setInvidiousUrl(e.target.value)}
+                  placeholder="https://yt.khoavo.myds.me"
+                  className="yt-input-field"
+                  style={{ flex: 1 }}
+                />
+                <button
+                  type="button"
+                  onClick={handleSaveInstance}
+                  disabled={instanceStatus === 'testing'}
+                  className="yt-btn-pill-primary"
+                >
+                  {instanceStatus === 'testing' ? 'Testing...' : 'Test & Save'}
+                </button>
+              </div>
+
+              {instanceMessage && (
+                <div
+                  style={{
+                    marginTop: '10px',
+                    fontSize: '13px',
+                    color: instanceStatus === 'ok' ? '#00c853' : '#ff334b',
+                    fontWeight: 500,
+                  }}
+                >
+                  {instanceMessage}
+                </div>
+              )}
+            </div>
+
+            {/* Backend yt-dlp & Health */}
+            {!loadingBackend && (
+              <div className="yt-settings-section-card">
+                <h2 className="yt-settings-section-heading">yt-dlp stream engine</h2>
+                <p className="yt-settings-section-subtext">Extraction backend powering YouTube video stream decryptor</p>
+
+                <div className="yt-settings-item-row">
+                  <div className="yt-settings-item-info">
+                    <div className="yt-settings-item-label">Installed version</div>
+                    <div className="yt-settings-item-desc">{status?.ytdlp.version || 'Bundled version'}</div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleUpdateYtDlp}
+                    disabled={updating}
+                    className="yt-btn-pill-secondary"
+                  >
+                    <IoRefreshOutline size={16} />
+                    <span>{updating ? 'Updating...' : 'Update yt-dlp'}</span>
+                  </button>
+                </div>
+
+                {updateResult && (
+                  <div style={{ marginTop: '10px', fontSize: '13px', color: updateResult.error ? '#ff334b' : '#00c853' }}>
+                    {updateResult.error || `Updated successfully: ${updateResult.before} → ${updateResult.after}`}
+                  </div>
+                )}
+
+                {/* Cookies Configuration */}
+                <div style={{ marginTop: '24px', paddingTop: '20px', borderTop: '1px solid var(--yt-border)' }}>
+                  <div className="yt-settings-item-label">YouTube cookies</div>
+                  <div className="yt-settings-item-desc" style={{ marginBottom: '14px' }}>
+                    Status: <strong>{cookieLabel(status?.cookies)}</strong>
+                  </div>
+
+                  <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+                    <label className="yt-btn-pill-secondary" style={{ cursor: 'pointer' }}>
+                      <IoCloudUploadOutline size={16} />
+                      <span>{uploading ? 'Uploading...' : 'Upload cookies.txt'}</span>
+                      <input
+                        type="file"
+                        accept=".txt"
+                        onChange={handleCookiesUpload}
+                        disabled={uploading}
+                        style={{ display: 'none' }}
+                      />
+                    </label>
+
+                    {status?.cookies?.configured && (
+                      <button
+                        type="button"
+                        onClick={handleCookiesDelete}
+                        className="yt-btn-pill-secondary"
+                        style={{ color: '#ff334b' }}
+                      >
+                        <IoTrashOutline size={16} />
+                        <span>Delete cookies</span>
+                      </button>
+                    )}
+                  </div>
+
+                  {fileError && (
+                    <div style={{ marginTop: '8px', fontSize: '13px', color: '#ff334b' }}>
+                      {fileError}
+                    </div>
+                  )}
+                </div>
+
+                {/* Network Diagnostics */}
+                <div style={{ marginTop: '24px', paddingTop: '20px', borderTop: '1px solid var(--yt-border)' }}>
+                  <div className="yt-settings-item-label">Network diagnostics</div>
+                  <div className="yt-settings-item-desc" style={{ marginBottom: '14px' }}>
+                    Test IPv4/IPv6 reachability and video extraction against YouTube servers
+                  </div>
+
+                  <div style={{ display: 'flex', gap: '10px' }}>
+                    <button
+                      type="button"
+                      onClick={handleDiagnose}
+                      disabled={diagLoading}
+                      className="yt-btn-pill-secondary"
+                    >
+                      {diagLoading ? 'Testing...' : 'Run Quick Diagnostic'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleExtractionTest}
+                      disabled={diagLoading}
+                      className="yt-btn-pill-secondary"
+                    >
+                      Extraction Test
+                    </button>
+                  </div>
+
+                  {diag && (
+                    <div
+                      style={{
+                        marginTop: '16px',
+                        padding: '12px 16px',
+                        borderRadius: '8px',
+                        backgroundColor: 'var(--yt-hover)',
+                        fontSize: '13px',
+                        fontFamily: 'monospace',
+                        color: 'var(--yt-text-primary)',
+                      }}
+                    >
+                      <div>IPv4 Ping: {diag.youtube_v4}</div>
+                      <div>IPv6 Ping: {diag.youtube_v6}</div>
+                      <div>IPv6 Routable: {diag.ipv6_routable ? 'YES' : 'NO'}</div>
+                      {diag.extraction_test && (
+                        <div>
+                          Stream Test: {diag.extraction_test.ok ? '✓ OK' : `✗ Failed (${diag.extraction_test.error})`}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+      </main>
     </div>
   );
 }

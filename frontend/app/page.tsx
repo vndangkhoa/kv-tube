@@ -4,7 +4,7 @@ import LoadingSpinner from './components/LoadingSpinner';
 
 export default function Home() {
     return (
-        <Suspense fallback={<LoadingSpinner fullScreen text="Loading videos..." />}>
+        <Suspense fallback={<LoadingSpinner fullScreen text="Curating your home feed..." />}>
             <ClientHomePage />
         </Suspense>
     );

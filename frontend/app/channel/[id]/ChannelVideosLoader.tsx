@@ -114,7 +114,7 @@ export default function ChannelVideosLoader({ channelId, channelTitle, initialVi
 
             {loading && (
                 <div style={{ display: 'flex', justifyContent: 'center', padding: '24px' }}>
-                    <LoadingSpinner />
+                    <LoadingSpinner text="Loading more videos..." />
                 </div>
             )}
         </>

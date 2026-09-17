@@ -5,11 +5,13 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.kvtube.android.data.extractor.ExtractorHelper
 import com.kvtube.android.data.local.SettingsDataStore
+import com.kvtube.android.data.model.Comment
 import com.kvtube.android.data.model.Quality
 import com.kvtube.android.data.model.VideoData
 import com.kvtube.android.data.repository.VideoRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -20,6 +22,17 @@ import javax.inject.Inject
 data class ShortsUiState(
     val videos: List<VideoData> = emptyList(),
     val isLoading: Boolean = true
+)
+
+data class ShortsCommentsState(
+    val videoId: String? = null,
+    val comments: List<Comment> = emptyList(),
+    val continuation: String? = null,
+    val commentsCount: Int? = null,
+    val isLoading: Boolean = false,
+    val isLoadingMore: Boolean = false,
+    val error: String? = null,
+    val isSheetOpen: Boolean = false
 )
 
 @HiltViewModel
@@ -35,7 +48,12 @@ class ShortsViewModel @Inject constructor(
 
     private val _uiState = MutableStateFlow(ShortsUiState())
     val uiState: StateFlow<ShortsUiState> = _uiState.asStateFlow()
+
+    private val _commentsState = MutableStateFlow(ShortsCommentsState())
+    val commentsState: StateFlow<ShortsCommentsState> = _commentsState.asStateFlow()
+
     private var currentRegion: String = "GLOBAL"
+    private var commentsJob: Job? = null
 
     init {
         viewModelScope.launch {
@@ -64,6 +82,73 @@ class ShortsViewModel @Inject constructor(
         } catch (e: Exception) {
             Log.w(TAG, "Failed to resolve stream for short $videoId: ${e.message}")
             ""
+        }
+    }
+
+    fun openComments(videoId: String) {
+        // If already open for this exact video and comments are loaded, just ensure sheet is open
+        if (_commentsState.value.isSheetOpen && _commentsState.value.videoId == videoId && _commentsState.value.comments.isNotEmpty()) {
+            return
+        }
+
+        commentsJob?.cancel()
+        _commentsState.value = ShortsCommentsState(
+            videoId = videoId,
+            isLoading = true,
+            isSheetOpen = true
+        )
+
+        commentsJob = viewModelScope.launch {
+            try {
+                val page = videoRepository.getCommentsPage(videoId)
+                if (_commentsState.value.videoId == videoId) {
+                    _commentsState.value = _commentsState.value.copy(
+                        comments = page.comments,
+                        continuation = page.continuation,
+                        commentsCount = page.commentCount,
+                        isLoading = false
+                    )
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed to load comments for short $videoId: ${e.message}")
+                if (_commentsState.value.videoId == videoId) {
+                    _commentsState.value = _commentsState.value.copy(
+                        isLoading = false,
+                        error = e.message ?: "Failed to load comments"
+                    )
+                }
+            }
+        }
+    }
+
+    fun closeComments() {
+        commentsJob?.cancel()
+        _commentsState.value = _commentsState.value.copy(isSheetOpen = false)
+    }
+
+    fun loadMoreComments() {
+        val state = _commentsState.value
+        val vid = state.videoId ?: return
+        val token = state.continuation
+        if (token.isNullOrBlank() || state.isLoadingMore) return
+
+        viewModelScope.launch {
+            _commentsState.value = _commentsState.value.copy(isLoadingMore = true)
+            try {
+                val nextPage = videoRepository.getCommentsPage(vid, continuation = token)
+                if (_commentsState.value.videoId == vid) {
+                    _commentsState.value = _commentsState.value.copy(
+                        comments = _commentsState.value.comments + nextPage.comments,
+                        continuation = nextPage.continuation,
+                        isLoadingMore = false
+                    )
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed to load more comments for short $vid: ${e.message}")
+                _commentsState.value = _commentsState.value.copy(isLoadingMore = false)
+            }
         }
     }
 

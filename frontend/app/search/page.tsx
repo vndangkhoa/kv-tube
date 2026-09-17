@@ -9,8 +9,8 @@ export default function SearchPage() {
                 justifyContent: 'center', 
                 alignItems: 'center', 
                 height: '100vh',
-                backgroundColor: '#0f0f0f',
-                color: '#fff',
+                backgroundColor: 'var(--yt-background)',
+                color: 'var(--yt-text-primary)',
             }}>
                 Searching...
             </div>

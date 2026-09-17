@@ -2,7 +2,7 @@
 
 import { VideoData } from './constants';
 import { invidious } from './services/invidious';
-import { formatRelativeTime } from './utils';
+import { formatRelativeTime, proxiedImageUrl } from './utils';
 
 // Client-side Caching Engine
 const CLIENT_CACHE_TTL_MS = 60 * 60 * 1000; // 1 hour TTL
@@ -50,15 +50,15 @@ export function transformVideo(raw: any): VideoData {
   }
 
   const vidId = raw.videoId || raw.id || '';
-  let thumb = `https://i.ytimg.com/vi/${vidId}/mqdefault.jpg`;
+  let thumb = vidId ? `https://i.ytimg.com/vi_webp/${vidId}/hq720.webp` : '';
   if (Array.isArray(raw.videoThumbnails) && raw.videoThumbnails.length > 0) {
-    // Pick low-res lightweight thumbnail (mqdefault: ~15KB) for 5x faster network loading
-    const mq = raw.videoThumbnails.find((t: any) => t.quality === 'medium' || t.url?.includes('mqdefault'));
-    thumb = mq?.url || raw.videoThumbnails[0]?.url || thumb;
+    // Prefer sharp WebP or high/medium-high thumbnail (~10-28KB) for best quality without bloat
+    const best = raw.videoThumbnails.find((t: any) =>
+      t.quality === 'high' || t.quality === 'maxres' || t.url?.includes('hq720') || t.url?.includes('hqdefault')
+    );
+    thumb = proxiedImageUrl(best?.url || raw.videoThumbnails[0]?.url || thumb, vidId);
   } else if (raw.thumbnail) {
-    thumb = typeof raw.thumbnail === 'string'
-      ? raw.thumbnail.replace('/maxresdefault.jpg', '/mqdefault.jpg').replace('/sddefault.jpg', '/mqdefault.jpg')
-      : raw.thumbnail;
+    thumb = proxiedImageUrl(raw.thumbnail, vidId);
   }
 
   let dur = '';
@@ -179,7 +179,7 @@ export async function getVideoDetailsClient(videoId: string): Promise<VideoData 
   return {
     id: videoId,
     title: 'YouTube Video',
-    thumbnail: `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`,
+    thumbnail: `https://i.ytimg.com/vi_webp/${videoId}/hqdefault.webp`,
     channelTitle: 'YouTube',
     channelId: '',
     uploader: 'YouTube',
@@ -236,15 +236,26 @@ export async function getTrendingVideosClient(regionCode: string = 'VN', limit: 
   return [];
 }
 
-// Get comments using Invidious
-export async function getCommentsClient(videoId: string, limit: number = 20): Promise<any[]> {
-  if (!videoId) return [];
-  const cacheKey = `cmts_${videoId}_${limit}`;
-  const cached = getClientCache<any[]>(cacheKey);
-  if (cached && cached.length > 0) return cached;
+export interface ClientCommentsResponse {
+  comments: any[];
+  continuation?: string;
+}
+
+// Get comments page with continuation using Invidious
+export async function getCommentsPageClient(
+  videoId: string,
+  continuation?: string,
+  limit: number = 30
+): Promise<ClientCommentsResponse> {
+  if (!videoId) return { comments: [] };
+  const cacheKey = continuation ? `cmts_${videoId}_${continuation.slice(0, 16)}` : `cmts_${videoId}_init`;
+  if (!continuation) {
+    const cached = getClientCache<ClientCommentsResponse>(cacheKey);
+    if (cached && cached.comments?.length > 0) return cached;
+  }
 
   try {
-    const res = await invidious.getComments(videoId);
+    const res = await invidious.getComments(videoId, continuation);
     if (res && Array.isArray(res.comments) && res.comments.length > 0) {
       const transformed = res.comments.slice(0, limit).map((c) => ({
         id: c.commentId,
@@ -256,12 +267,24 @@ export async function getCommentsClient(videoId: string, limit: number = 20): Pr
         published: formatRelativeTime(c.publishedText, undefined, typeof window !== 'undefined' ? (localStorage.getItem('kv_region') === 'VN' ? 'vi' : 'en') : 'vi') || c.publishedText || 'recently',
         isReply: false,
       }));
-      setClientCache(cacheKey, transformed);
-      return transformed;
+      const pageRes: ClientCommentsResponse = {
+        comments: transformed,
+        continuation: res.continuation,
+      };
+      if (!continuation) {
+        setClientCache(cacheKey, pageRes);
+      }
+      return pageRes;
     }
   } catch {}
 
-  return [];
+  return { comments: [] };
+}
+
+// Get comments using Invidious
+export async function getCommentsClient(videoId: string, limit: number = 20): Promise<any[]> {
+  const page = await getCommentsPageClient(videoId, undefined, limit);
+  return page.comments;
 }
 
 // Get channel info using Invidious

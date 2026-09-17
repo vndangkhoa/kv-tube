@@ -38,11 +38,23 @@ export default function PersistentPlayer() {
     if (slot) {
       const rect = slot.getBoundingClientRect();
       if (rect.width > 0 && rect.height > 0) {
-        setSlotRect({
-          top: rect.top + window.scrollY,
-          left: rect.left + window.scrollX,
-          width: rect.width,
-          height: rect.height,
+        const newRect = {
+          top: Math.round(rect.top + window.scrollY),
+          left: Math.round(rect.left + window.scrollX),
+          width: Math.round(rect.width),
+          height: Math.round(rect.height),
+        };
+        setSlotRect((prev) => {
+          if (
+            prev &&
+            prev.top === newRect.top &&
+            prev.left === newRect.left &&
+            prev.width === newRect.width &&
+            prev.height === newRect.height
+          ) {
+            return prev;
+          }
+          return newRect;
         });
       }
     }
@@ -51,8 +63,17 @@ export default function PersistentPlayer() {
   useLayoutEffect(() => {
     if (showFull) {
       updateSlotRect();
-      const raf = requestAnimationFrame(updateSlotRect);
-      return () => cancelAnimationFrame(raf);
+      let count = 0;
+      let rafId: number;
+      const track = () => {
+        updateSlotRect();
+        count++;
+        if (count < 30) {
+          rafId = requestAnimationFrame(track);
+        }
+      };
+      rafId = requestAnimationFrame(track);
+      return () => cancelAnimationFrame(rafId);
     } else {
       setSlotRect(null);
     }
@@ -62,6 +83,7 @@ export default function PersistentPlayer() {
     if (!showFull) return;
     window.addEventListener('resize', updateSlotRect);
     window.addEventListener('orientationchange', updateSlotRect);
+    window.addEventListener('scroll', updateSlotRect, { passive: true });
 
     const slot = document.getElementById('watch-player-slot') || document.getElementById('watch-player-mount');
     let ro: ResizeObserver | null = null;
@@ -73,6 +95,7 @@ export default function PersistentPlayer() {
     return () => {
       window.removeEventListener('resize', updateSlotRect);
       window.removeEventListener('orientationchange', updateSlotRect);
+      window.removeEventListener('scroll', updateSlotRect);
       if (ro) ro.disconnect();
     };
   }, [showFull, updateSlotRect]);
@@ -90,23 +113,24 @@ export default function PersistentPlayer() {
         zIndex: 50,
         pointerEvents: 'auto',
         visibility: 'visible',
+        opacity: 1,
         borderRadius: '16px',
         overflow: 'hidden',
+        transition: 'opacity 0.15s ease',
       };
     }
     if (showFull) {
+      // Invisible while waiting for first slot measurement to prevent flash/jump
       return {
         position: 'absolute',
         top: '64px',
         left: '0px',
-        right: '0px',
-        width: '100%',
-        maxWidth: '1280px',
-        margin: '0 auto',
-        aspectRatio: '16/9',
-        zIndex: 50,
-        visibility: 'visible',
-        pointerEvents: 'auto',
+        width: '0px',
+        height: '0px',
+        zIndex: -1,
+        visibility: 'hidden',
+        opacity: 0,
+        pointerEvents: 'none',
       };
     }
     if (showMini) {

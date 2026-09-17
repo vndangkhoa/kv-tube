@@ -4,6 +4,7 @@ import android.content.Context
 import android.util.Log
 import com.kvtube.android.data.api.KVApi
 import com.kvtube.android.data.model.Comment
+import com.kvtube.android.data.model.CommentsPage
 import com.kvtube.android.data.model.ExtractedStream
 import com.kvtube.android.data.model.Quality
 import com.kvtube.android.data.model.VideoData
@@ -248,33 +249,46 @@ class ExtractorHelper @Inject constructor(
         emptyList()
     }
 
-    suspend fun getComments(videoId: String): List<Comment> = withContext(Dispatchers.IO) {
+    suspend fun getCommentsPage(videoId: String): CommentsPage = withContext(Dispatchers.IO) {
         initNewPipe()
         try {
             val url = "https://www.youtube.com/watch?v=$videoId"
             val commentsExtractor = ServiceList.YouTube.getCommentsExtractor(url)
             commentsExtractor.fetchPage()
             val initial = commentsExtractor.initialPage
-            return@withContext initial.items.mapIndexed { idx, item ->
+            val count = runCatching { commentsExtractor.commentsCount.toInt() }.getOrNull()
+            val continuation = runCatching { initial.nextPage?.id ?: initial.nextPage?.url }.getOrNull()
+            val comments = initial.items.mapIndexed { idx, item ->
                 if (item is CommentsInfoItem) {
                     val avatar = item.uploaderAvatars.maxByOrNull { it.height }?.url ?: ""
+                    val dateText = item.textualUploadDate ?: ""
                     Comment(
                         id = item.commentId ?: "c_$idx",
                         author = item.uploaderName ?: "User",
                         authorThumbnail = avatar,
                         text = item.commentText?.content ?: "",
                         likes = if (item.likeCount >= 0) item.likeCount else 0,
-                        published = item.textualUploadDate ?: ""
+                        published = dateText,
+                        timestamp = dateText
                     )
                 } else {
                     Comment(id = "c_$idx", author = "User", text = "")
                 }
             }.filter { it.text.isNotBlank() }
+
+            return@withContext CommentsPage(
+                comments = comments,
+                continuation = continuation,
+                commentCount = count
+            )
         } catch (e: Exception) {
             Log.w(TAG, "On-device comments extraction failed for $videoId: ${e.message}")
         }
-        emptyList()
+        CommentsPage()
     }
+
+    suspend fun getComments(videoId: String): List<Comment> =
+        getCommentsPage(videoId).comments
 
     suspend fun getTrendingVideos(): List<VideoData> = withContext(Dispatchers.IO) {
         initNewPipe()

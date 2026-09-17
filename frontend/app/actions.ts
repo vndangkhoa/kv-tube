@@ -1,25 +1,28 @@
 "use server";
 
 import { VideoData, CATEGORY_MAP, ALL_CATEGORY_SECTIONS } from './constants';
-import { addRegion, formatRelativeTime } from './utils';
+import { addRegion, formatRelativeTime, proxiedImageUrl } from './utils';
 import { invidious } from './services/invidious';
 
 export async function getSearchVideos(query: string, limit: number = 20): Promise<VideoData[]> {
     try {
         const results = await invidious.search(query, { type: 'video' });
         if (!Array.isArray(results)) return [];
-        return results.slice(0, limit).map((v: any) => ({
-            id: v.videoId || v.id,
-            title: v.title || '',
-            uploader: v.author || v.uploader || 'Creator',
-            channel_id: v.authorId || '',
-            thumbnail: v.videoThumbnails?.[0]?.url || `https://i.ytimg.com/vi/${v.videoId || v.id}/mqdefault.jpg`,
-            duration: v.lengthSeconds ? `${Math.floor(v.lengthSeconds / 60)}:${(v.lengthSeconds % 60).toString().padStart(2, '0')}` : '',
-            view_count: v.viewCount ?? 0,
-            upload_date: formatRelativeTime(v.publishedText, v.published) || v.publishedText || '',
-            publishedAt: formatRelativeTime(v.publishedText, v.published) || v.publishedText || '',
-            avatar_url: v.authorThumbnails?.[0]?.url || v.authorThumbnail || '',
-        }));
+        return results.slice(0, limit).map((v: any) => {
+            const vidId = v.videoId || v.id;
+            return {
+                id: vidId,
+                title: v.title || '',
+                uploader: v.author || v.uploader || 'Creator',
+                channel_id: v.authorId || '',
+                thumbnail: vidId ? `https://i.ytimg.com/vi_webp/${vidId}/hq720.webp` : proxiedImageUrl(v.videoThumbnails?.[0]?.url || ''),
+                duration: v.lengthSeconds ? `${Math.floor(v.lengthSeconds / 60)}:${(v.lengthSeconds % 60).toString().padStart(2, '0')}` : '',
+                view_count: v.viewCount ?? 0,
+                upload_date: formatRelativeTime(v.publishedText, v.published) || v.publishedText || '',
+                publishedAt: formatRelativeTime(v.publishedText, v.published) || v.publishedText || '',
+                avatar_url: v.authorThumbnails?.[0]?.url || v.authorThumbnail || '',
+            };
+        });
     } catch (e) {
         console.error('[actions] Search error:', e);
         return [];
@@ -30,18 +33,21 @@ export async function getHistoryVideos(limit: number = 20): Promise<VideoData[]>
     try {
         const history = await invidious.getAuthHistory();
         if (!Array.isArray(history)) return [];
-        return history.slice(0, limit).map((v: any) => ({
-            id: v.videoId || v.id,
-            title: v.title || '',
-            uploader: v.author || v.uploader || 'Creator',
-            channel_id: v.authorId || '',
-            thumbnail: v.videoThumbnails?.[0]?.url || `https://i.ytimg.com/vi/${v.videoId || v.id}/mqdefault.jpg`,
-            duration: v.lengthSeconds ? `${Math.floor(v.lengthSeconds / 60)}:${(v.lengthSeconds % 60).toString().padStart(2, '0')}` : '',
-            view_count: v.viewCount ?? 0,
-            upload_date: formatRelativeTime(v.publishedText, v.published) || v.publishedText || '',
-            publishedAt: formatRelativeTime(v.publishedText, v.published) || v.publishedText || '',
-            avatar_url: v.authorThumbnails?.[0]?.url || v.authorThumbnail || '',
-        }));
+        return history.slice(0, limit).map((v: any) => {
+            const vidId = v.videoId || v.id;
+            return {
+                id: vidId,
+                title: v.title || '',
+                uploader: v.author || v.uploader || 'Creator',
+                channel_id: v.authorId || '',
+                thumbnail: vidId ? `https://i.ytimg.com/vi_webp/${vidId}/hq720.webp` : proxiedImageUrl(v.videoThumbnails?.[0]?.url || ''),
+                duration: v.lengthSeconds ? `${Math.floor(v.lengthSeconds / 60)}:${(v.lengthSeconds % 60).toString().padStart(2, '0')}` : '',
+                view_count: v.viewCount ?? 0,
+                upload_date: formatRelativeTime(v.publishedText, v.published) || v.publishedText || '',
+                publishedAt: formatRelativeTime(v.publishedText, v.published) || v.publishedText || '',
+                avatar_url: v.authorThumbnails?.[0]?.url || v.authorThumbnail || '',
+            };
+        });
     } catch (e) {
         console.error('[actions] History error:', e);
         return [];
@@ -52,18 +58,21 @@ export async function getSuggestedVideos(limit: number = 20): Promise<VideoData[
     try {
         const trending = await invidious.getTrending();
         if (!Array.isArray(trending)) return [];
-        return trending.slice(0, limit).map((v: any) => ({
-            id: v.videoId || v.id,
-            title: v.title || '',
-            uploader: v.author || v.uploader || 'Creator',
-            channel_id: v.authorId || '',
-            thumbnail: v.videoThumbnails?.[0]?.url || `https://i.ytimg.com/vi/${v.videoId || v.id}/mqdefault.jpg`,
-            duration: v.lengthSeconds ? `${Math.floor(v.lengthSeconds / 60)}:${(v.lengthSeconds % 60).toString().padStart(2, '0')}` : '',
-            view_count: v.viewCount ?? 0,
-            upload_date: formatRelativeTime(v.publishedText, v.published) || v.publishedText || '',
-            publishedAt: formatRelativeTime(v.publishedText, v.published) || v.publishedText || '',
-            avatar_url: v.authorThumbnails?.[0]?.url || v.authorThumbnail || '',
-        }));
+        return trending.slice(0, limit).map((v: any) => {
+            const vidId = v.videoId || v.id;
+            return {
+                id: vidId,
+                title: v.title || '',
+                uploader: v.author || v.uploader || 'Creator',
+                channel_id: v.authorId || '',
+                thumbnail: vidId ? `https://i.ytimg.com/vi_webp/${vidId}/hq720.webp` : proxiedImageUrl(v.videoThumbnails?.[0]?.url || ''),
+                duration: v.lengthSeconds ? `${Math.floor(v.lengthSeconds / 60)}:${(v.lengthSeconds % 60).toString().padStart(2, '0')}` : '',
+                view_count: v.viewCount ?? 0,
+                upload_date: formatRelativeTime(v.publishedText, v.published) || v.publishedText || '',
+                publishedAt: formatRelativeTime(v.publishedText, v.published) || v.publishedText || '',
+                avatar_url: v.authorThumbnails?.[0]?.url || v.authorThumbnail || '',
+            };
+        });
     } catch (e) {
         console.error('[actions] Suggested error:', e);
         return [];
@@ -74,18 +83,21 @@ export async function getRelatedVideos(videoId: string, limit: number = 10): Pro
     try {
         const video = await invidious.getVideo(videoId);
         if (!video || !Array.isArray(video.recommendedVideos)) return [];
-        return video.recommendedVideos.slice(0, limit).map((v: any) => ({
-            id: v.videoId || v.id,
-            title: v.title || '',
-            uploader: v.author || v.uploader || 'Creator',
-            channel_id: v.authorId || '',
-            thumbnail: v.videoThumbnails?.[0]?.url || `https://i.ytimg.com/vi/${v.videoId || v.id}/mqdefault.jpg`,
-            duration: v.lengthSeconds ? `${Math.floor(v.lengthSeconds / 60)}:${(v.lengthSeconds % 60).toString().padStart(2, '0')}` : '',
-            view_count: v.viewCount ?? 0,
-            upload_date: '',
-            publishedAt: '',
-            avatar_url: v.authorThumbnails?.[0]?.url || v.authorThumbnail || '',
-        }));
+        return video.recommendedVideos.slice(0, limit).map((v: any) => {
+            const vidId = v.videoId || v.id;
+            return {
+                id: vidId,
+                title: v.title || '',
+                uploader: v.author || v.uploader || 'Creator',
+                channel_id: v.authorId || '',
+                thumbnail: vidId ? `https://i.ytimg.com/vi_webp/${vidId}/hq720.webp` : proxiedImageUrl(v.videoThumbnails?.[0]?.url || ''),
+                duration: v.lengthSeconds ? `${Math.floor(v.lengthSeconds / 60)}:${(v.lengthSeconds % 60).toString().padStart(2, '0')}` : '',
+                view_count: v.viewCount ?? 0,
+                upload_date: '',
+                publishedAt: '',
+                avatar_url: v.authorThumbnails?.[0]?.url || v.authorThumbnail || '',
+            };
+        });
     } catch (e) {
         console.error('[actions] Related videos error:', e);
         return [];

@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { invidious } from '../services/invidious';
+import { addDownload } from '../storage';
 import { IoDownloadOutline, IoCheckmarkCircle, IoAlertCircle, IoMusicalNotesOutline, IoVideocamOutline, IoClose } from 'react-icons/io5';
 
 interface DownloadOption {
@@ -210,6 +211,16 @@ export default function DownloadSheet({
         document.body.appendChild(a);
         a.click();
         document.body.removeChild(a);
+
+        try {
+            addDownload({
+                videoId,
+                title: cleanTitle,
+                quality: opt.label,
+                type: opt.type,
+                container: ext,
+            });
+        } catch {}
 
         setDownloadSuccess(opt.label);
         setTimeout(() => {

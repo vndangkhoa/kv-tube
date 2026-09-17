@@ -101,7 +101,7 @@ export default function InfiniteVideoGrid({ initialVideos, currentCategory, regi
 
             {hasMore && (
                 <div ref={observerTarget} style={{ padding: '24px 0', display: 'flex', justifyContent: 'center' }}>
-                    {isLoading && <LoadingSpinner />}
+                    {isLoading && <LoadingSpinner text="Loading more videos..." />}
                 </div>
             )}
 

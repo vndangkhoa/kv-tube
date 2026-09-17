@@ -22,6 +22,7 @@ import com.kvtube.android.data.repository.VideoRepository
 import com.kvtube.android.player.PlaybackManager
 import com.kvtube.android.ui.FullscreenController
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -37,6 +38,10 @@ data class WatchUiState(
     val playbackInfo: PlaybackInfo? = null,
     val relatedVideos: List<VideoData> = emptyList(),
     val comments: List<Comment> = emptyList(),
+    val commentsContinuation: String? = null,
+    val commentsCount: Int? = null,
+    val isLoadingComments: Boolean = false,
+    val isLoadingMoreComments: Boolean = false,
     val isLoading: Boolean = true,
     val error: String? = null,
     val selectedUrl: String? = null,
@@ -285,7 +290,11 @@ class WatchViewModel @Inject constructor(
                     // Preserve anything the independent enrichment coroutines
                     // already delivered while streams were resolving.
                     relatedVideos = _uiState.value.relatedVideos,
-                    comments = _uiState.value.comments
+                    comments = _uiState.value.comments,
+                    commentsContinuation = _uiState.value.commentsContinuation,
+                    commentsCount = _uiState.value.commentsCount,
+                    isLoadingComments = _uiState.value.isLoadingComments,
+                    isLoadingMoreComments = _uiState.value.isLoadingMoreComments
                 )
 
                 // Background enrichment (info, related, comments, history, quality list)
@@ -385,13 +394,56 @@ class WatchViewModel @Inject constructor(
                 _uiState.value = _uiState.value.copy(relatedVideos = filtered)
             }
 
-            val comments = runCatching { videoRepository.getComments(videoId) }
-                .getOrNull().orEmpty()
-            if (comments.isNotEmpty()) {
-                _uiState.value = _uiState.value.copy(comments = comments)
-            }
+            loadComments()
 
             runCatching { historyRepository.record(videoId = videoId) }
+        }
+    }
+
+    private var commentsJob: Job? = null
+
+    private fun loadComments() {
+        commentsJob?.cancel()
+        _uiState.value = _uiState.value.copy(
+            comments = emptyList(),
+            commentsContinuation = null,
+            isLoadingComments = true
+        )
+        commentsJob = viewModelScope.launch {
+            try {
+                val page = videoRepository.getCommentsPage(videoId)
+                _uiState.value = _uiState.value.copy(
+                    comments = page.comments,
+                    commentsContinuation = page.continuation,
+                    commentsCount = page.commentCount,
+                    isLoadingComments = false
+                )
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed to load comments for $videoId: ${e.message}")
+                _uiState.value = _uiState.value.copy(isLoadingComments = false)
+            }
+        }
+    }
+
+    fun loadMoreComments() {
+        val continuation = _uiState.value.commentsContinuation
+        if (continuation.isNullOrBlank() || _uiState.value.isLoadingMoreComments) return
+
+        viewModelScope.launch {
+            _uiState.value = _uiState.value.copy(isLoadingMoreComments = true)
+            try {
+                val nextPage = videoRepository.getCommentsPage(videoId, continuation = continuation)
+                _uiState.value = _uiState.value.copy(
+                    comments = _uiState.value.comments + nextPage.comments,
+                    commentsContinuation = nextPage.continuation,
+                    isLoadingMoreComments = false
+                )
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed to load more comments for $videoId: ${e.message}")
+                _uiState.value = _uiState.value.copy(isLoadingMoreComments = false)
+            }
         }
     }
 }

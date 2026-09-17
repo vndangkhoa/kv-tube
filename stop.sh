@@ -27,9 +27,17 @@ for svc in backend frontend; do
 done
 
 # Fallback: clean up orphans (e.g. stale pidfiles) scoped to this project
-pkill -f "$ROOT/backend/kv-tube" 2>/dev/null
-pkill -f "$ROOT/frontend/node_modules/.bin/next" 2>/dev/null
-pkill -f "$ROOT/frontend/.next/standalone/server.js" 2>/dev/null
+for pattern in \
+    "$ROOT/backend/kv-tube" \
+    "\./backend/kv-tube" \
+    "backend/kv-tube" \
+    "$ROOT/frontend/node_modules/.bin/next" \
+    "npm --prefix $ROOT/frontend" \
+    "$ROOT/frontend/.next/standalone/server.js"; do
+    if pkill -f "$pattern" 2>/dev/null; then
+        stopped=1
+    fi
+done
 
 if [ "$stopped" -eq 1 ]; then
     sleep 1

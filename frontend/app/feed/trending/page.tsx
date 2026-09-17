@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import VideoCard from '@/app/components/VideoCard';
-import LoadingSpinner from '@/app/components/LoadingSpinner';
+import InfiniteScrollTrigger from '@/app/components/InfiniteScrollTrigger';
 import { VideoData } from '@/app/constants';
 import { invidious } from '@/app/services/invidious';
 import { getRegionContent, categoryQuery } from '@/app/regionContent';
@@ -72,8 +72,8 @@ function mapTrendingItems(items: any[], region: string = 'VN'): VideoData[] {
       uploader: v.author || v.uploader || v.channelTitle || 'Creator',
       thumbnail:
         v.videoThumbnails?.[0]?.url ||
-        (typeof v.thumbnail === 'string' ? v.thumbnail.replace('/maxresdefault.jpg', '/mqdefault.jpg') : v.thumbnail) ||
-        `https://i.ytimg.com/vi/${v.videoId || v.id}/mqdefault.jpg`,
+        v.thumbnail ||
+        (v.videoId || v.id ? `https://i.ytimg.com/vi_webp/${v.videoId || v.id}/hq720.webp` : ''),
       duration: v.lengthSeconds
         ? `${Math.floor(v.lengthSeconds / 60)}:${(v.lengthSeconds % 60).toString().padStart(2, '0')}`
         : v.duration || '',
@@ -478,31 +478,13 @@ export default function TrendingPage() {
             ))}
           </div>
 
-          {hasMore && (
-            <div style={{ textAlign: 'center', padding: '28px 0 8px' }}>
-              <button
-                type="button"
-                onClick={loadMore}
-                disabled={loadingMore}
-                style={{
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: '8px',
-                  padding: '10px 28px',
-                  borderRadius: '20px',
-                  backgroundColor: 'var(--md-sys-color-primary, var(--yt-blue))',
-                  color: '#ffffff',
-                  border: 'none',
-                  fontWeight: 600,
-                  fontSize: '14px',
-                  cursor: loadingMore ? 'wait' : 'pointer',
-                  opacity: loadingMore ? 0.7 : 1,
-                }}
-              >
-                {loadingMore ? 'Loading...' : 'Load More'}
-              </button>
-            </div>
-          )}
+          {/* Infinite Scroll Lazy Loading */}
+          <InfiniteScrollTrigger
+            onLoadMore={loadMore}
+            hasMore={hasMore}
+            isLoading={loadingMore}
+            endMessage="No more trending videos"
+          />
         </>
       )}
 

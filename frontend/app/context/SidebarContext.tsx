@@ -18,7 +18,7 @@ const SidebarContext = createContext<SidebarContextType | undefined>(undefined);
 export function SidebarProvider({ children }: { children: ReactNode }) {
     // Collapsed (false) = icon-only mini bar (72px)
     // Expanded (true) = full sidebar drawer (240px)
-    const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+    const [isSidebarOpen, setIsSidebarOpen] = useState(true);
     const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
     useEffect(() => {

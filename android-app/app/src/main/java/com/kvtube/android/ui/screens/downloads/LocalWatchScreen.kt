@@ -64,7 +64,7 @@ fun LocalWatchScreen(
     }
 
     if (uiState.isLoading) {
-        LoadingSpinner(fullScreen = true)
+        LoadingSpinner(fullScreen = true, text = "Loading offline video...")
         return
     }
 

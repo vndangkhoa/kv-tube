@@ -32,10 +32,12 @@ function formatSubscribers(count: number): string {
 function mapInvidiousVideo(v: any, authorName: string): VideoData {
   const vidId = v.videoId || v.id || '';
   const thumbs = v.videoThumbnails;
-  let thumbUrl = `https://i.ytimg.com/vi/${vidId}/mqdefault.jpg`;
+  let thumbUrl = vidId ? `https://i.ytimg.com/vi_webp/${vidId}/hq720.webp` : '';
   if (Array.isArray(thumbs) && thumbs.length > 0) {
-    const mq = thumbs.find((t: any) => t.quality === 'medium' || t.url?.includes('mqdefault'));
-    thumbUrl = mq?.url || thumbs[0]?.url || thumbUrl;
+    const best = thumbs.find((t: any) =>
+      t.quality === 'high' || t.quality === 'maxres' || t.url?.includes('hq720') || t.url?.includes('hqdefault')
+    );
+    thumbUrl = best?.url || thumbs[0]?.url || thumbUrl;
   }
 
   let dur = '';
@@ -163,7 +165,7 @@ export default function ChannelPage({ params }: { params: Promise<{ id: string }
   if (loading) {
     return (
       <div style={{ padding: '80px 0', display: 'flex', justifyContent: 'center' }}>
-        <LoadingSpinner text="Loading Channel..." />
+        <LoadingSpinner text="Loading channel & uploads..." />
       </div>
     );
   }
@@ -498,7 +500,7 @@ export default function ChannelPage({ params }: { params: Promise<{ id: string }
       <div style={{ padding: '24px' }}>
         {tabLoading ? (
           <div style={{ padding: '40px 0', display: 'flex', justifyContent: 'center' }}>
-            <LoadingSpinner text={`Loading ${activeTab}...`} />
+            <LoadingSpinner text={`Fetching ${activeTab}...`} />
           </div>
         ) : activeTab === 'videos' || activeTab === 'shorts' || activeTab === 'streams' || activeTab === 'search' ? (
           tabItems.length === 0 ? (

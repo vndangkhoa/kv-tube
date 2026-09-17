@@ -51,8 +51,8 @@ export default function SubscribeButton({ channelId, channelName, initialSubscri
       onClick={handleSubscribe}
       disabled={loading}
       style={{
-        backgroundColor: isSub ? 'var(--yt-hover)' : 'var(--md-sys-color-primary, var(--yt-text-primary))',
-        color: isSub ? 'var(--yt-text-primary)' : 'var(--md-sys-color-on-primary, var(--yt-background))',
+        backgroundColor: isSub ? 'var(--yt-hover)' : 'var(--yt-text-primary)',
+        color: isSub ? 'var(--yt-text-primary)' : 'var(--yt-background)',
         border: isSub ? '1px solid var(--yt-border)' : 'none',
         borderRadius: '20px',
         padding: '0 18px',

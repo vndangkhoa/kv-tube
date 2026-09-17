@@ -8,6 +8,7 @@ import { VideoData } from '../constants';
 import { formatRelativeTime } from '../utils';
 import VideoCard from '../components/VideoCard';
 import LoadingSpinner from '../components/LoadingSpinner';
+import InfiniteScrollTrigger from '../components/InfiniteScrollTrigger';
 import { isSubscribed, toggleSubscription } from '../storage';
 import {
   IoFilterOutline,
@@ -116,12 +117,12 @@ export default function ClientSearchPage() {
     executeSearch(query, 1, false);
   }, [query, executeSearch]);
 
-  const handleLoadMore = () => {
+  const handleLoadMore = useCallback(() => {
     if (loadingMore || !hasMore) return;
     const nextPage = page + 1;
     setPage(nextPage);
     executeSearch(query, nextPage, true);
-  };
+  }, [loadingMore, hasMore, page, query, executeSearch]);
 
   const handleToggleSub = (e: React.MouseEvent, channel: { channelId: string; channelName: string; channelAvatar?: string }) => {
     e.preventDefault();
@@ -413,7 +414,7 @@ export default function ClientSearchPage() {
       {/* Results Feed */}
       {loading ? (
         <div style={{ padding: '60px 0', display: 'flex', justifyContent: 'center' }}>
-          <LoadingSpinner text="Searching Invidious..." />
+          <LoadingSpinner text={query ? `Searching for "${query}"...` : 'Searching videos & channels...'} />
         </div>
       ) : results.length === 0 ? (
         <div style={{ textAlign: 'center', padding: '80px 20px', color: 'var(--yt-text-secondary)' }}>
@@ -623,7 +624,15 @@ export default function ClientSearchPage() {
               // 3. Video Card in Grid
               const vidId = item.videoId || item.id;
               const thumbs = item.videoThumbnails;
-              const thumbUrl = `https://i.ytimg.com/vi/${vidId}/mqdefault.jpg`;
+              let thumbUrl = vidId ? `https://i.ytimg.com/vi_webp/${vidId}/hq720.webp` : '';
+              if (Array.isArray(thumbs) && thumbs.length > 0) {
+                const best = thumbs.find((t: any) =>
+                  t.quality === 'high' || t.quality === 'maxres' || t.url?.includes('hq720') || t.url?.includes('hqdefault')
+                );
+                thumbUrl = best?.url || thumbs[0]?.url || thumbUrl;
+              } else if (item.thumbnail && !item.thumbnail.includes('mqdefault.jpg')) {
+                thumbUrl = item.thumbnail;
+              }
               const dur = item.lengthSeconds ? `${Math.floor(item.lengthSeconds / 60)}:${(item.lengthSeconds % 60).toString().padStart(2, '0')}` : '';
 
               const relTime = formatRelativeTime(item.publishedText, item.published);
@@ -649,31 +658,13 @@ export default function ClientSearchPage() {
             })}
           </div>
 
-          {/* Load More Button */}
-          {hasMore && (
-            <div style={{ display: 'flex', justifyContent: 'center', marginTop: '40px' }}>
-              <button
-                type="button"
-                onClick={handleLoadMore}
-                disabled={loadingMore}
-                style={{
-                  padding: '12px 32px',
-                  borderRadius: '24px',
-                  border: '1px solid var(--yt-border)',
-                  backgroundColor: 'var(--yt-surface)',
-                  color: 'var(--yt-text-primary)',
-                  fontWeight: 600,
-                  fontSize: '14px',
-                  cursor: loadingMore ? 'wait' : 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '8px',
-                }}
-              >
-                {loadingMore ? <LoadingSpinner size="small" color="white" /> : 'Load More Results'}
-              </button>
-            </div>
-          )}
+          {/* Infinite Scroll Lazy Loading */}
+          <InfiniteScrollTrigger
+            onLoadMore={handleLoadMore}
+            hasMore={hasMore}
+            isLoading={loadingMore}
+            endMessage="No more results"
+          />
         </>
       ) : (
         /* Classic List View */
@@ -771,7 +762,16 @@ export default function ClientSearchPage() {
             }
 
             const vidId = item.videoId || item.id;
-            const thumbUrl = `https://i.ytimg.com/vi/${vidId}/mqdefault.jpg`;
+            const thumbs = item.videoThumbnails;
+            let thumbUrl = vidId ? `https://i.ytimg.com/vi_webp/${vidId}/hq720.webp` : '';
+            if (Array.isArray(thumbs) && thumbs.length > 0) {
+              const best = thumbs.find((t: any) =>
+                t.quality === 'high' || t.quality === 'maxres' || t.url?.includes('hq720') || t.url?.includes('hqdefault')
+              );
+              thumbUrl = best?.url || thumbs[0]?.url || thumbUrl;
+            } else if (item.thumbnail && !item.thumbnail.includes('mqdefault.jpg')) {
+              thumbUrl = item.thumbnail;
+            }
             const dur = item.lengthSeconds ? `${Math.floor(item.lengthSeconds / 60)}:${(item.lengthSeconds % 60).toString().padStart(2, '0')}` : '';
 
             return (
@@ -795,7 +795,7 @@ export default function ClientSearchPage() {
                     aspectRatio: '16/9',
                     borderRadius: '12px',
                     overflow: 'hidden',
-                    backgroundColor: '#000000',
+                    backgroundColor: 'var(--yt-thumb-placeholder, var(--yt-hover))',
                     flexShrink: 0,
                     display: 'block',
                   }}
@@ -879,27 +879,13 @@ export default function ClientSearchPage() {
             );
           })}
 
-          {hasMore && (
-            <div style={{ display: 'flex', justifyContent: 'center', marginTop: '32px' }}>
-              <button
-                type="button"
-                onClick={handleLoadMore}
-                disabled={loadingMore}
-                style={{
-                  padding: '12px 32px',
-                  borderRadius: '24px',
-                  border: '1px solid var(--yt-border)',
-                  backgroundColor: 'var(--yt-surface)',
-                  color: 'var(--yt-text-primary)',
-                  fontWeight: 600,
-                  fontSize: '14px',
-                  cursor: loadingMore ? 'wait' : 'pointer',
-                }}
-              >
-                {loadingMore ? 'Loading more...' : 'Load More Results'}
-              </button>
-            </div>
-          )}
+          {/* Infinite Scroll Lazy Loading */}
+          <InfiniteScrollTrigger
+            onLoadMore={handleLoadMore}
+            hasMore={hasMore}
+            isLoading={loadingMore}
+            endMessage="No more results"
+          />
         </div>
       )}
     </div>

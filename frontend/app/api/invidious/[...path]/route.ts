@@ -38,11 +38,28 @@ export async function OPTIONS() {
   });
 }
 
+function isLoopback(urlStr?: string | null): boolean {
+  if (!urlStr) return false;
+  try {
+    const u = new URL(urlStr);
+    return /^(127\.0\.0\.1|localhost|0\.0\.0\.0)$/i.test(u.hostname);
+  } catch {
+    return /^(https?:\/\/)?(127\.0\.0\.1|localhost|0\.0\.0\.0)(:\d+)?/i.test(urlStr);
+  }
+}
+
 async function handleProxy(req: NextRequest, pathParts: string[]) {
+  const customInstance = req.headers.get('x-invidious-instance');
+  const validCustomInstance =
+    customInstance && customInstance.startsWith('http') && !isLoopback(customInstance)
+      ? customInstance
+      : null;
+
   const instance =
+    validCustomInstance ||
     process.env.INVIDIOUS_URL ||
     process.env.NEXT_PUBLIC_INVIDIOUS_URL ||
-    'http://kvtube-invidious:3000';
+    'http://invidious:3000';
   const subPath = '/' + (pathParts || []).join('/');
   const targetUrl = new URL(subPath, instance);
 

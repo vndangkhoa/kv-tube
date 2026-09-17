@@ -1,6 +1,8 @@
 // Material 3 / Material You Dynamic Theme Engine
 // Provides full M3 tonal palettes, dominant color extraction, and CSS variable injection.
 
+import { proxiedImageUrl } from '../utils';
+
 export interface ThemeColors {
   primary: string;
   onPrimary: string;
@@ -187,43 +189,43 @@ export function generateMaterial3Theme(seedHex: string, mode: ThemeMode = 'dark'
       scrim: 'rgba(0, 0, 0, 0.85)',
     };
   } else {
-    // Light Mode
+    // Authentic YouTube Clean Light Mode (Pure neutral whites & grays)
     return {
       primary: tone(hue, sat, 40),
       onPrimary: '#ffffff',
-      primaryContainer: tone(hue, sat * 0.7, 90),
-      onPrimaryContainer: tone(hue, sat, 10),
+      primaryContainer: tone(hue, sat * 0.7, 92),
+      onPrimaryContainer: tone(hue, sat, 15),
 
-      secondary: tone((hue + 25) % 360, sat * 0.5, 42),
+      secondary: '#606060',
       onSecondary: '#ffffff',
-      secondaryContainer: tone((hue + 25) % 360, sat * 0.4, 90),
-      onSecondaryContainer: tone((hue + 25) % 360, sat * 0.5, 12),
+      secondaryContainer: '#f2f2f2',
+      onSecondaryContainer: '#0f0f0f',
 
-      tertiary: tone((hue + 60) % 360, sat * 0.6, 38),
+      tertiary: '#0f0f0f',
       onTertiary: '#ffffff',
-      tertiaryContainer: tone((hue + 60) % 360, sat * 0.5, 88),
-      onTertiaryContainer: tone((hue + 60) % 360, sat * 0.6, 10),
+      tertiaryContainer: '#f2f2f2',
+      onTertiaryContainer: '#0f0f0f',
 
-      surface: '#fef7ff',
-      onSurface: '#1d1b20',
-      surfaceVariant: '#e7e0ec',
-      onSurfaceVariant: '#49454f',
+      surface: '#ffffff',
+      onSurface: '#0f0f0f',
+      surfaceVariant: '#f2f2f2',
+      onSurfaceVariant: '#606060',
 
       surfaceContainerLowest: '#ffffff',
-      surfaceContainerLow: '#f7f2fa',
-      surfaceContainer: '#f3edf7',
-      surfaceContainerHigh: '#ece6f0',
-      surfaceContainerHighest: '#e6e0e9',
+      surfaceContainerLow: '#f9f9f9',
+      surfaceContainer: '#ffffff',
+      surfaceContainerHigh: '#f2f2f2',
+      surfaceContainerHighest: '#e5e5e5',
 
-      outline: '#79747e',
-      outlineVariant: '#cac4d0',
-      inverseSurface: '#313033',
-      inverseOnSurface: '#f4eff4',
+      outline: '#cccccc',
+      outlineVariant: '#e5e5e5',
+      inverseSurface: '#0f0f0f',
+      inverseOnSurface: '#ffffff',
       inversePrimary: tone(hue, sat, 80),
 
-      brandRed: '#d91b2b',
-      ambientGlow: `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.15)`,
-      scrim: 'rgba(0, 0, 0, 0.4)',
+      brandRed: '#ff0000',
+      ambientGlow: `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.08)`,
+      scrim: 'rgba(0, 0, 0, 0.3)',
     };
   }
 }
@@ -278,24 +280,46 @@ export function applyMaterial3Theme(colors: ThemeColors, mode: ThemeMode) {
   root.style.setProperty('--yt-blue', colors.primary);
   root.style.setProperty('--ambient-glow', colors.ambientGlow);
 
+  // Shadows and placeholders
+  const isLight = mode === 'light';
+  const isAmoled = mode === 'amoled';
+  root.style.setProperty('--yt-shadow', isLight ? '0 4px 12px rgba(0, 0, 0, 0.08)' : (isAmoled ? '0 4px 12px rgba(0, 0, 0, 0.9)' : '0 4px 12px rgba(0, 0, 0, 0.5)'));
+  root.style.setProperty('--yt-shadow-lg', isLight ? '0 8px 24px rgba(0, 0, 0, 0.12)' : (isAmoled ? '0 8px 24px rgba(0, 0, 0, 0.95)' : '0 8px 24px rgba(0, 0, 0, 0.6)'));
+  root.style.setProperty('--yt-card-hover-shadow', isLight ? '0 4px 16px rgba(0, 0, 0, 0.1)' : (isAmoled ? '0 4px 16px rgba(0, 0, 0, 0.8)' : '0 4px 16px rgba(0, 0, 0, 0.4)'));
+  root.style.setProperty('--yt-thumb-placeholder', isLight ? '#f2f2f2' : '#1a1a1a');
+
   root.setAttribute('data-theme', mode);
 }
 
 // Extract dominant color from image URL using offscreen canvas
 export async function extractDominantColor(imageUrl: string): Promise<string> {
-  if (typeof window === 'undefined') return '#3880ff';
+  if (typeof window === 'undefined' || !imageUrl) return '#3880ff';
+
+  const sanitizedUrl = proxiedImageUrl(imageUrl);
 
   return new Promise((resolve) => {
     const img = new Image();
     img.crossOrigin = 'Anonymous';
     img.referrerPolicy = 'no-referrer';
 
+    let resolved = false;
+    const safeResolve = (color: string) => {
+      if (!resolved) {
+        resolved = true;
+        resolve(color);
+      }
+    };
+
+    // Safety timeout in case image request hangs or is blocked
+    const timer = setTimeout(() => safeResolve('#3880ff'), 3000);
+
     img.onload = () => {
+      clearTimeout(timer);
       try {
         const canvas = document.createElement('canvas');
         const ctx = canvas.getContext('2d');
         if (!ctx) {
-          resolve('#3880ff');
+          safeResolve('#3880ff');
           return;
         }
 
@@ -323,19 +347,20 @@ export async function extractDominantColor(imageUrl: string): Promise<string> {
         }
 
         if (count > 0) {
-          resolve(rgbToHex(rTotal / count, gTotal / count, bTotal / count));
+          safeResolve(rgbToHex(rTotal / count, gTotal / count, bTotal / count));
         } else {
-          resolve('#3880ff');
+          safeResolve('#3880ff');
         }
       } catch (e) {
-        resolve('#3880ff');
+        safeResolve('#3880ff');
       }
     };
 
     img.onerror = () => {
-      resolve('#3880ff');
+      clearTimeout(timer);
+      safeResolve('#3880ff');
     };
 
-    img.src = imageUrl;
+    img.src = sanitizedUrl;
   });
 }

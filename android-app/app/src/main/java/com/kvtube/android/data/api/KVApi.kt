@@ -3,6 +3,7 @@ package com.kvtube.android.data.api
 import android.util.Log
 import com.kvtube.android.data.model.ChannelInfo
 import com.kvtube.android.data.model.Comment
+import com.kvtube.android.data.model.CommentsPage
 import com.kvtube.android.data.model.PlaybackFormat
 import com.kvtube.android.data.model.PlaybackInfo
 import com.kvtube.android.data.model.Subscription
@@ -498,20 +499,44 @@ class KVApi(
             .take(limit)
     }
 
-    suspend fun getComments(videoId: String, limit: Int = 20): List<Comment> {
-        return getJsonArray("comments/$videoId", mapOf("sort_by" to "top"))
-            .take(limit)
-            .map { c ->
-                Comment(
-                    id = c.str("commentId"),
-                    text = c.str("content", "commentText"),
-                    author = c.str("author"),
-                    authorId = c.str("authorId"),
-                    authorThumbnail = c.thumbList("authorThumbnails"),
-                    likes = c.num("likeCount").toInt(),
-                    published = c.str("publishedText")
-                )
+    suspend fun getCommentsPage(
+        videoId: String,
+        continuation: String? = null,
+        sortBy: String = "top"
+    ): CommentsPage {
+        val params = buildMap {
+            put("sort_by", sortBy)
+            if (!continuation.isNullOrBlank()) {
+                put("continuation", continuation)
             }
+        }
+        val obj = getObject("comments/$videoId", params) ?: return CommentsPage()
+        val continuationToken = obj.str("continuation").takeIf { it.isNotBlank() }
+        val commentCount = obj.num("commentCount").toInt().takeIf { it > 0 }
+
+        val rawComments = (obj["comments"] as? JsonArray)?.mapNotNull { it as? JsonObject } ?: emptyList()
+        val comments = rawComments.map { c ->
+            Comment(
+                id = c.str("commentId"),
+                text = c.str("contentHtml", "content", "commentText"),
+                author = c.str("author"),
+                authorId = c.str("authorId"),
+                authorThumbnail = c.thumbList("authorThumbnails"),
+                likes = c.num("likeCount").toInt(),
+                published = c.str("publishedText"),
+                timestamp = c.str("publishedText", "timestamp")
+            )
+        }
+        return CommentsPage(
+            comments = comments,
+            continuation = continuationToken,
+            commentCount = commentCount
+        )
+    }
+
+    suspend fun getComments(videoId: String, limit: Int = 20): List<Comment> {
+        val page = getCommentsPage(videoId)
+        return page.comments.take(limit)
     }
 
     // --- channels --------------------------------------------------------------

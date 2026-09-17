@@ -36,11 +36,13 @@ import androidx.compose.material.icons.filled.ThumbUp
 import androidx.compose.material.icons.outlined.ThumbDown
 import androidx.compose.material.icons.outlined.ThumbUp
 import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -148,7 +150,7 @@ fun WatchScreen(
         } else null
 
     if (uiState.isLoading) {
-        LoadingSpinner(fullScreen = true)
+        LoadingSpinner(fullScreen = true, text = "Loading video...")
         return
     }
 
@@ -272,8 +274,9 @@ fun WatchScreen(
                             modifier = Modifier.fillMaxWidth(),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
+                            val countLabel = uiState.commentsCount?.let { " ($it)" } ?: if (uiState.comments.isNotEmpty()) " (${uiState.comments.size})" else ""
                             Text(
-                                text = "Comments",
+                                text = "Comments$countLabel",
                                 style = MaterialTheme.typography.titleSmall,
                                 fontWeight = FontWeight.Bold,
                                 modifier = Modifier.weight(1f)
@@ -311,8 +314,55 @@ fun WatchScreen(
 
                 // Comments list
                 if (uiState.showComments) {
-                    items(uiState.comments) { comment ->
-                        CommentItem(comment = comment)
+                    if (uiState.isLoadingComments && uiState.comments.isEmpty()) {
+                        item {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 16.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                CircularProgressIndicator(modifier = Modifier.size(24.dp), strokeWidth = 2.dp)
+                            }
+                        }
+                    } else if (uiState.comments.isEmpty()) {
+                        item {
+                            Text(
+                                text = "No comments available",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp)
+                            )
+                        }
+                    } else {
+                        items(uiState.comments, key = { it.id.ifEmpty { it.hashCode().toString() } }) { comment ->
+                            CommentItem(comment = comment)
+                        }
+
+                        if (!uiState.commentsContinuation.isNullOrBlank()) {
+                            item {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 14.dp, vertical = 8.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    if (uiState.isLoadingMoreComments) {
+                                        CircularProgressIndicator(modifier = Modifier.size(22.dp), strokeWidth = 2.dp)
+                                    } else {
+                                        TextButton(
+                                            onClick = { viewModel.loadMoreComments() }
+                                        ) {
+                                            Text(
+                                                text = "Load more comments",
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = Color(0xFF3EA6FF)
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
 
@@ -651,11 +701,12 @@ private fun VideoInfoSection(
 }
 
 @Composable
-private fun CommentItem(
-    comment: Comment
+internal fun CommentItem(
+    comment: Comment,
+    modifier: Modifier = Modifier
 ) {
     Row(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .padding(horizontal = 14.dp, vertical = 8.dp),
         horizontalArrangement = Arrangement.spacedBy(10.dp)
@@ -675,7 +726,7 @@ private fun CommentItem(
                 )
                 Spacer(modifier = Modifier.width(6.dp))
                 Text(
-                    text = comment.timestamp,
+                    text = comment.displayTime,
                     style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )

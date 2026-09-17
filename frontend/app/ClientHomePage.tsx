@@ -1,63 +1,166 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { useSearchParams } from 'next/navigation';
 import VideoCard from './components/VideoCard';
-import LoadingSpinner from './components/LoadingSpinner';
+import ShortsShelf, { ShortItem } from './components/ShortsShelf';
+import ExploreTopicsShelf, { DEFAULT_EXPLORE_TOPICS } from './components/ExploreTopicsShelf';
+import InfiniteScrollTrigger from './components/InfiniteScrollTrigger';
 import { VideoData } from './constants';
 import { invidious } from './services/invidious';
-import { getHomeFeedClient, searchVideosClient } from './clientActions';
 import { categoryQuery, getRegionContent } from './regionContent';
-import { formatRelativeTime } from './utils';
-import {
-  IoFlameOutline,
-  IoMusicalNotesOutline,
-  IoGameControllerOutline,
-  IoFilmOutline,
-  IoSparklesOutline,
-  IoRadioOutline,
-  IoNewspaperOutline,
-  IoHardwareChipOutline,
-  IoFootballOutline,
-  IoMicOutline,
-  IoHappyOutline,
-  IoFastFoodOutline,
-  IoAirplaneOutline,
-  IoCodeSlashOutline,
-} from 'react-icons/io5';
+import { searchVideosClient } from './clientActions';
+import { formatRelativeTime, proxiedImageUrl, isShortVideo } from './utils';
+import { IoChevronBack, IoChevronForward, IoChevronDown } from 'react-icons/io5';
+
+const CATEGORY_TOPIC_MAP: Record<string, string[]> = {
+  Music: [
+    'Immersive K-Pop audio',
+    'Electronic vibes only',
+    'Lo-Fi beats study chill',
+    'Acoustic guitar live sessions',
+    '80s synthwave retro music',
+    'Rock guitar solos',
+    'Electropop music hits',
+  ],
+  'Youth music': [
+    'Nhạc trẻ remix thịnh hành',
+    'V-Pop acoustic live',
+    'Indie Việt hay nhất',
+    'Nhạc lofi Việt chill',
+    'Ballad Việt Nam',
+  ],
+  Gaming: [
+    'Retro gaming walkthroughs',
+    'PC build benchmarks',
+    'Speedruns world record',
+    'Unreal Engine 5 games',
+    'Graphics processing units',
+    'Indie game development',
+    'Elden Ring boss fights',
+  ],
+  Electropop: [
+    'Synthwave 80s retro',
+    'Future bass electronic',
+    'Electropop music hits',
+    'Electronic vibes only',
+  ],
+  Mixes: [
+    'DJ nonstop remix',
+    'Deep house club mix',
+    'Chillout sunset mix',
+    'Remix trending songs',
+  ],
+  'Dance-Pop': [
+    'Dance pop playlist',
+    'Party dance workout',
+    'Electronic dance music',
+    'Upbeat dance hits',
+  ],
+  AI: [
+    'AI video generation',
+    'AI image editing',
+    'Deep learning tools',
+    'LLM prompt engineering',
+    'Autonomous AI agents',
+    'Graphics processing units',
+  ],
+  'Computer Hardware': [
+    'Graphics processing units',
+    'PC build benchmarks',
+    'Windows 11 troubleshooting',
+    'Raspberry Pi projects',
+    'Smart eyewear',
+    'Custom water cooling PC',
+  ],
+  Podcasts: [
+    'Tech interviews podcasts',
+    'Deep dive conversations',
+    'Self improvement talks',
+    'Science tech podcast',
+  ],
+  Apple: [
+    'Apple iPhone tips',
+    'MacBook Pro setup',
+    'Apple Vision Pro review',
+    'iOS features and hidden tricks',
+  ],
+  News: [
+    'Tech industry news',
+    'World news breakdown',
+    'Science and nature discoveries',
+  ],
+};
+
+const REGION_MUSIC_TOPICS: Record<string, string[]> = {
+  VN: [
+    'Nhạc trẻ remix thịnh hành',
+    'V-Pop acoustic live',
+    'Indie Việt hay nhất',
+    'Nhạc lofi Việt chill',
+    'Ballad Việt Nam',
+    'Rap Việt hot trend',
+    'Nhạc acoustic chill thư giãn',
+  ],
+  JP: [
+    'J-Pop 最新 ヒット',
+    'アニソン 最新',
+    'ボカロ 名曲',
+    'シティポップ',
+    '邦楽 ロック',
+  ],
+  KR: [
+    'K-POP 인기곡',
+    '케이팝 댄스',
+    'K-Indie 감성 힐링',
+    '한국 힙합 최신',
+  ],
+  IN: [
+    'Hindi songs top hits',
+    'Bollywood romantic songs',
+    'Punjabi party songs',
+    'Indian lofi chill beats',
+  ],
+};
+
+function getCategoryTopics(categoryId: string, regionCode: string): string[] {
+  if ((categoryId === 'Music' || categoryId === 'Youth music') && REGION_MUSIC_TOPICS[regionCode]) {
+    return REGION_MUSIC_TOPICS[regionCode];
+  }
+  return CATEGORY_TOPIC_MAP[categoryId] || DEFAULT_EXPLORE_TOPICS;
+}
 
 interface CategoryConfig {
   id: string;
   label: string;
-  icon?: React.ReactNode;
   trendingType?: string;
   searchQuery?: string;
 }
 
+// Matching the topic chips from user's YouTube screenshot, localized by region
 const CATEGORIES: CategoryConfig[] = [
-  { id: 'All', label: 'All', icon: <IoSparklesOutline size={16} /> },
-  { id: 'Trending', label: 'Trending', icon: <IoFlameOutline size={16} />, trendingType: 'default' },
-  { id: 'Music', label: 'Music', icon: <IoMusicalNotesOutline size={16} />, searchQuery: 'official music video top hits' },
-  { id: 'Gaming', label: 'Gaming', icon: <IoGameControllerOutline size={16} />, searchQuery: 'gaming gameplay walkthrough' },
-  { id: 'Movies', label: 'Movies & Trailers', icon: <IoFilmOutline size={16} />, searchQuery: 'official movie trailer teaser' },
-  { id: 'News', label: 'News', icon: <IoNewspaperOutline size={16} />, searchQuery: 'daily news world news breaking' },
-  { id: 'Tech', label: 'Tech & Gadgets', icon: <IoHardwareChipOutline size={16} />, searchQuery: 'technology gadgets smartphone review tech' },
-  { id: 'Coding', label: 'Coding & Dev', icon: <IoCodeSlashOutline size={16} />, searchQuery: 'software programming web development tutorial' },
-  { id: 'Sports', label: 'Sports', icon: <IoFootballOutline size={16} />, searchQuery: 'sports match highlights top plays' },
-  { id: 'Podcasts', label: 'Podcasts', icon: <IoMicOutline size={16} />, searchQuery: 'podcast full episode interview show' },
-  { id: 'Live', label: 'Live Streams', icon: <IoRadioOutline size={16} />, searchQuery: 'live stream 24/7' },
-  { id: 'Comedy', label: 'Comedy', icon: <IoHappyOutline size={16} />, searchQuery: 'stand up comedy sketches funny' },
-  { id: 'Food', label: 'Food & Cooking', icon: <IoFastFoodOutline size={16} />, searchQuery: 'cooking recipe street food delicious dish' },
-  { id: 'Travel', label: 'Travel', icon: <IoAirplaneOutline size={16} />, searchQuery: 'travel vlog guide city explore' },
+  { id: 'All', label: 'All' },
+  { id: 'Music', label: 'Music' },
+  { id: 'Youth music', label: 'Youth music' },
+  { id: 'Gaming', label: 'Gaming' },
+  { id: 'Electropop', label: 'Electropop', searchQuery: 'electropop official music hits' },
+  { id: 'Mixes', label: 'Mixes', searchQuery: 'dj nonstop remix mix nhạc' },
+  { id: 'Dance-Pop', label: 'Dance-Pop', searchQuery: 'dance pop songs official' },
+  { id: 'Graphics processing units', label: 'Graphics processing units', searchQuery: 'NVIDIA RTX AMD Radeon GPU review benchmark' },
+  { id: 'Computer Hardware', label: 'Computer Hardware', searchQuery: 'PC build computer hardware tech setup' },
+  { id: 'Podcasts', label: 'Podcasts' },
+  { id: 'AI', label: 'AI', searchQuery: 'artificial intelligence LLM machine learning' },
+  { id: 'Apple', label: 'Apple', searchQuery: 'Apple iPhone Mac iPad tech review' },
+  { id: 'News', label: 'News' },
+  { id: 'Live', label: 'Live Streams' },
 ];
 
 function isUsableFreshVideo(v: any): boolean {
   if (!v || !(v.videoId || v.id) || !v.title) return false;
-  // Discard active live streams and empty placeholders from main VOD feed
   if (v.liveNow) return false;
+  if (isShortVideo(v)) return false;
   if (v.viewCount === 0 && (v.lengthSeconds === 0 || v.duration === '0:00')) return false;
 
-  // Discard old videos (containing year indicators or older than 120 days)
   const pText = (v.publishedText || v.upload_date || '').toLowerCase();
   if (
     pText.includes('year') ||
@@ -79,16 +182,23 @@ function isUsableFreshVideo(v: any): boolean {
 
 function isUsableTrendingVideo(v: any): boolean {
   if (!v || !(v.videoId || v.id) || !v.title) return false;
-  // Discard 0-view live streams that flood the trending response
   if (v.liveNow) return false;
+  if (isShortVideo(v)) return false;
   if (v.viewCount === 0 && (v.lengthSeconds === 0 || v.duration === '0:00')) return false;
   return true;
 }
 
 function mapInvidiousVideo(v: any, regionCode: string = 'VN'): VideoData {
   const vidId = v.videoId || v.id || '';
-  // Low-resolution 320x180 thumbnail for ultra-fast grid rendering (~10KB vs 300KB+)
-  const thumbUrl = `https://i.ytimg.com/vi/${vidId}/mqdefault.jpg`;
+  let thumbUrl = vidId ? `https://i.ytimg.com/vi_webp/${vidId}/hq720.webp` : '';
+  if (Array.isArray(v.videoThumbnails) && v.videoThumbnails.length > 0) {
+    const best = v.videoThumbnails.find((t: any) =>
+      t.quality === 'high' || t.quality === 'maxres' || t.url?.includes('hq720') || t.url?.includes('hqdefault')
+    );
+    thumbUrl = proxiedImageUrl(best?.url || v.videoThumbnails[0]?.url || thumbUrl, vidId);
+  } else if (v.thumbnail && !v.thumbnail.includes('mqdefault.jpg')) {
+    thumbUrl = proxiedImageUrl(v.thumbnail, vidId);
+  }
 
   let dur = '';
   if (typeof v.lengthSeconds === 'number' && v.lengthSeconds > 0) {
@@ -134,12 +244,135 @@ export default function ClientHomePage() {
   const searchParams = useSearchParams();
   const categoryParam = searchParams.get('category') || 'All';
   const [videos, setVideos] = useState<VideoData[]>([]);
+  const [shorts, setShorts] = useState<ShortItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [currentCategory, setCurrentCategory] = useState(categoryParam);
   const [regionCode, setRegionCode] = useState('VN');
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(true);
+  const [showClusterExpanded, setShowClusterExpanded] = useState(false);
+  const [activeSubTopic, setActiveSubTopic] = useState('');
+  const [clusterVideos, setClusterVideos] = useState<VideoData[]>([]);
+  const [clusterLoading, setClusterLoading] = useState(false);
+  const [isShelfHidden, setIsShelfHidden] = useState(false);
+  const [dismissedTopics, setDismissedTopics] = useState<string[]>([]);
+
+  // Load preferences and choose dynamic initial subtopic on mount
+  useEffect(() => {
+    try {
+      const hidden = localStorage.getItem('kv_hide_explore_shelf') === 'true';
+      setIsShelfHidden(hidden);
+      const dismissed: string[] = JSON.parse(localStorage.getItem('kv_dismissed_subtopics') || '[]');
+      if (Array.isArray(dismissed)) setDismissedTopics(dismissed);
+
+      const candidateTopics = getCategoryTopics(currentCategory, regionCode)
+        .filter((t) => !dismissed.includes(t));
+
+      if (candidateTopics.length > 0) {
+        let chosenTopic = '';
+        // 1. Try matching with recent watch history
+        try {
+          const history = JSON.parse(localStorage.getItem('kvtube_history') || '[]');
+          if (Array.isArray(history) && history.length > 0) {
+            const recentTitles = history
+              .slice(0, 15)
+              .map((h: any) => (h.title || '').toLowerCase())
+              .join(' ');
+            const matched = candidateTopics.find((topic) => {
+              const words = topic.toLowerCase().split(/\s+/).filter((w: string) => w.length > 3);
+              return words.some((w: string) => recentTitles.includes(w));
+            });
+            if (matched) chosenTopic = matched;
+          }
+        } catch {}
+
+        // 2. Pick a random candidate topic for fresh variety if no watch history match
+        if (!chosenTopic) {
+          const randomIndex = Math.floor(Math.random() * candidateTopics.length);
+          chosenTopic = candidateTopics[randomIndex];
+        }
+
+        setActiveSubTopic(chosenTopic);
+      }
+    } catch {}
+  }, []);
+
+  const currentCategoryTopics = getCategoryTopics(currentCategory, regionCode);
+  const availableSubTopics = currentCategoryTopics.filter((t) => !dismissedTopics.includes(t));
+
+  // Sync activeSubTopic if available subtopics change (and activeSubTopic was set but no longer valid)
+  useEffect(() => {
+    if (activeSubTopic && availableSubTopics.length > 0 && !availableSubTopics.includes(activeSubTopic)) {
+      setActiveSubTopic(availableSubTopics[0]);
+    }
+  }, [availableSubTopics, activeSubTopic]);
+
+  // Fetch videos for the inline Explore Topics cluster
+  useEffect(() => {
+    if (isShelfHidden || !activeSubTopic) return;
+    let cancelled = false;
+    setClusterLoading(true);
+
+    searchVideosClient(activeSubTopic, 9)
+      .then((items) => {
+        if (!cancelled) {
+          setClusterVideos(items || []);
+          setClusterLoading(false);
+        }
+      })
+      .catch((err) => {
+        console.warn('[ExploreTopicsShelf] Failed to fetch cluster videos:', err);
+        if (!cancelled) setClusterLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeSubTopic, isShelfHidden]);
+
+  const handleSelectSubTopic = (subTopic: string) => {
+    setActiveSubTopic(subTopic);
+  };
+
+  const handleHideShelf = () => {
+    setIsShelfHidden(true);
+    try {
+      localStorage.setItem('kv_hide_explore_shelf', 'true');
+    } catch {}
+  };
+
+  const handleDismissTopic = (topic: string) => {
+    const updated = [...dismissedTopics, topic];
+    setDismissedTopics(updated);
+    try {
+      localStorage.setItem('kv_dismissed_subtopics', JSON.stringify(updated));
+    } catch {}
+    const remaining = availableSubTopics.filter((t) => t !== topic);
+    if (remaining.length > 0) {
+      setActiveSubTopic(remaining[0]);
+    }
+  };
+
+  const chipsRef = useRef<HTMLDivElement>(null);
+  const [canScrollLeft, setCanScrollLeft] = useState(false);
+  const [canScrollRight, setCanScrollRight] = useState(true);
+
+  const checkScroll = () => {
+    if (chipsRef.current) {
+      const { scrollLeft, scrollWidth, clientWidth } = chipsRef.current;
+      setCanScrollLeft(scrollLeft > 10);
+      setCanScrollRight(scrollLeft + clientWidth < scrollWidth - 10);
+    }
+  };
+
+  const scrollChips = (dir: 'left' | 'right') => {
+    if (chipsRef.current) {
+      const amount = dir === 'left' ? -260 : 260;
+      chipsRef.current.scrollBy({ left: amount, behavior: 'smooth' });
+      setTimeout(checkScroll, 300);
+    }
+  };
 
   // Sync state with URL parameter
   useEffect(() => {
@@ -164,7 +397,50 @@ export default function ClientHomePage() {
     return () => window.removeEventListener('regionchange', handleRegionChange);
   }, []);
 
-  // Fetch videos for selected category directly via Invidious backend matching selected region
+  // Fetch shorts for the home Shorts shelf
+  useEffect(() => {
+    async function loadShorts() {
+      try {
+        const query = regionCode === 'VN' ? '#shorts việt nam' : '#shorts trending';
+        const items = await invidious.search(query, {
+          page: 1,
+          type: 'video',
+          duration: 'short',
+          region: regionCode,
+        });
+
+        if (Array.isArray(items) && items.length > 0) {
+          const filtered = items.filter(
+            (v: any) => (!v.lengthSeconds || v.lengthSeconds <= 95) && (v.videoId || v.id)
+          );
+          const list = filtered.length >= 5 ? filtered : items.filter((v: any) => v.videoId || v.id);
+
+          const mapped: ShortItem[] = list.slice(0, 10).map((v: any, i: number) => {
+            const vidId = v.videoId || v.id;
+            return {
+              id: vidId,
+              title: v.title,
+              uploader: v.author || v.uploader || 'Creator',
+              thumbnail: vidId
+                ? `https://i.ytimg.com/vi_webp/${vidId}/hqdefault.webp`
+                : (v.videoThumbnails?.[0]?.url || v.thumbnail || ''),
+              view_count: v.viewCount ?? v.view_count,
+              isNew: i === 0 || i === 4,
+            };
+          });
+
+          if (mapped.length > 0) {
+            setShorts(mapped);
+          }
+        }
+      } catch (err) {
+        console.error('Failed to load shorts for shelf:', err);
+      }
+    }
+    loadShorts();
+  }, [regionCode]);
+
+  // Fetch videos for selected category directly via Invidious backend
   const fetchFeed = useCallback(async (categoryId: string, pageNum: number): Promise<VideoData[]> => {
     const cat = CATEGORIES.find((c) => c.id === categoryId) || CATEGORIES[0];
     const rc = getRegionContent(regionCode);
@@ -196,8 +472,6 @@ export default function ClientHomePage() {
           }
         }
       } else if (cat.id === 'All') {
-        // Fresh-first home feed: blend newest regional uploads and top monthly hits
-        // with real trending videos (excluding 0-view live streams and ancient hits).
         const [latestRes, popularRes, trendingRes] = await Promise.allSettled([
           invidious.search(rc.trending, {
             page: 1,
@@ -264,24 +538,8 @@ export default function ClientHomePage() {
           if (li >= latest.length && pi >= popular.length && ti >= trendingNow.length) break;
         }
         items = merged;
-      } else if (cat.id === 'Trending') {
-        // Trending is the collection of the most viewed videos.
-        const trendingRaw = await invidious.getTrending(regionCode);
-        items = Array.isArray(trendingRaw) ? trendingRaw.filter(isUsableTrendingVideo) : [];
-        if (!items || items.length === 0) {
-          items = await invidious.search(rc.trending, {
-            page: pageNum,
-            type: 'video',
-            region: regionCode,
-            date: 'month',
-            sort_by: 'view_count',
-          });
-          if (Array.isArray(items)) {
-            items = items.filter(isUsableFreshVideo);
-          }
-        }
       } else if (cat.id === 'Live') {
-        const localizedQuery = categoryQuery(regionCode, cat.id);
+        const localizedQuery = rc.categories['Live'] || 'live stream';
         items = await invidious.search(localizedQuery, {
           page: pageNum,
           type: 'video',
@@ -295,362 +553,268 @@ export default function ClientHomePage() {
             region: regionCode,
           });
         }
-      } else if (pageNum > 1) {
-        const localizedQuery = categoryQuery(regionCode, cat.id);
+        if (Array.isArray(items)) {
+          items = items.filter((v: any) => (v.videoId || v.id) && v.title);
+        }
+      } else {
+        // Resolve localized query from region content first, then fallback to category query or cat.searchQuery
+        const localizedQuery =
+          rc.categories[cat.id] || cat.searchQuery || categoryQuery(regionCode, cat.id);
+
         items = await invidious.search(localizedQuery, {
           page: pageNum,
           type: 'video',
           region: regionCode,
-          date: 'month',
-          sort_by: 'upload_date',
         });
         if (Array.isArray(items)) {
-          items = items.filter(isUsableFreshVideo);
-        }
-        if (!items || items.length === 0) {
-          items = await invidious.search(localizedQuery, {
-            page: pageNum,
-            type: 'video',
-            region: regionCode,
-            date: 'month',
-            sort_by: 'view_count',
-          });
-          if (Array.isArray(items)) {
-            items = items.filter(isUsableFreshVideo);
-          }
-        }
-      } else {
-        // Page 1 for any category (Music, Gaming, Movies, News, Tech, etc.):
-        // Blend newest regional uploads with top monthly hits in this category
-        const localizedQuery = categoryQuery(regionCode, cat.id);
-        const [latestRes, popularRes] = await Promise.allSettled([
-          invidious.search(localizedQuery, {
-            page: 1,
-            type: 'video',
-            region: regionCode,
-            date: 'month',
-            sort_by: 'upload_date',
-          }),
-          invidious.search(localizedQuery, {
-            page: 1,
-            type: 'video',
-            region: regionCode,
-            date: 'month',
-            sort_by: 'view_count',
-          }),
-        ]);
-
-        const latest =
-          latestRes.status === 'fulfilled'
-            ? (latestRes.value || []).filter(isUsableFreshVideo)
-            : [];
-        const popular =
-          popularRes.status === 'fulfilled'
-            ? (popularRes.value || []).filter(isUsableFreshVideo)
-            : [];
-
-        const seen = new Set<string>();
-        const merged: any[] = [];
-        let li = 0;
-        let pi = 0;
-        const total = latest.length + popular.length;
-        const targetCount = Math.min(total, 40);
-
-        while (merged.length < targetCount) {
-          for (let k = 0; k < 2 && li < latest.length; k++) {
-            const id = latest[li].videoId || latest[li].id;
-            if (id && !seen.has(id)) {
-              seen.add(id);
-              merged.push(latest[li]);
-            }
-            li++;
-          }
-          if (pi < popular.length) {
-            const id = popular[pi].videoId || popular[pi].id;
-            if (id && !seen.has(id)) {
-              seen.add(id);
-              merged.push(popular[pi]);
-            }
-            pi++;
-          }
-          if (li >= latest.length && pi >= popular.length) break;
-        }
-
-        items = merged;
-
-        // Fallback if niche category had 0 results this month
-        if (items.length === 0) {
-          const fallbackRes = await invidious.search(localizedQuery, {
-            page: 1,
-            type: 'video',
-            region: regionCode,
-            date: 'year',
-            sort_by: 'view_count',
-          });
-          if (Array.isArray(fallbackRes)) {
-            items = fallbackRes.filter((v: any) => !v.liveNow);
-          }
+          const fresh = items.filter(isUsableFreshVideo);
+          items =
+            fresh.length >= 4
+              ? fresh
+              : items.filter((v: any) => (v.videoId || v.id) && v.title && !v.liveNow);
         }
       }
 
-      if (Array.isArray(items) && items.length > 0) {
-        return items
-          .filter((v) => (v.videoId || v.id) && v.title)
-          .map((v) => mapInvidiousVideo(v, regionCode));
-      }
-    } catch (invidiousErr) {
-      console.warn(`[Feed] Invidious fetch failed for ${categoryId} (${regionCode}):`, invidiousErr);
+      return items.map((v) => mapInvidiousVideo(v, regionCode));
+    } catch (err) {
+      console.error('Error in fetchFeed:', err);
+      return [];
     }
-
-    // Fallback search
-    try {
-      const q = categoryQuery(regionCode, cat.id);
-      const searchRes = await searchVideosClient(q, 30);
-      if (Array.isArray(searchRes) && searchRes.length > 0) {
-        const filtered = cat.id === 'Live' ? searchRes : searchRes.filter(isUsableFreshVideo);
-        return filtered.filter((v) => v.id && v.title);
-      }
-    } catch (fallbackErr) {
-      console.warn('[Feed] Fallback search failed:', fallbackErr);
-    }
-
-    return [];
   }, [regionCode]);
 
-  // Load initial videos
+  // Load feed on category or region change
   useEffect(() => {
-    let active = true;
-    async function load() {
-      setLoading(true);
-      const list = await fetchFeed(currentCategory, 1);
-      if (active) {
-        setVideos(list);
-        setPage(1);
-        setHasMore(list.length > 0);
-        setLoading(false);
-      }
-    }
-    load();
+    let cancelled = false;
+    setLoading(true);
+    setPage(1);
+    setHasMore(true);
+
+    fetchFeed(currentCategory, 1)
+      .then((res) => {
+        if (!cancelled) {
+          setVideos(res);
+          setLoading(false);
+          if (res.length === 0) setHasMore(false);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setLoading(false);
+        }
+      });
+
     return () => {
-      active = false;
+      cancelled = true;
     };
   }, [currentCategory, regionCode, fetchFeed]);
 
-  // Load more on button click
-  const handleLoadMore = async () => {
+  const handleLoadMore = useCallback(async () => {
     if (loadingMore || !hasMore) return;
     setLoadingMore(true);
     const nextPage = page + 1;
-    const more = await fetchFeed(currentCategory, nextPage);
-    if (more.length > 0) {
-      const existingIds = new Set(videos.map((v) => v.id));
-      const filtered = more.filter((v) => !existingIds.has(v.id));
-      setVideos((prev) => [...prev, ...filtered]);
-      setPage(nextPage);
-      if (filtered.length === 0) setHasMore(false);
-    } else {
-      setHasMore(false);
+    try {
+      const newVideos = await fetchFeed(currentCategory, nextPage);
+      if (newVideos.length > 0) {
+        let addedCount = 0;
+        setVideos((prev) => {
+          const existingIds = new Set(prev.map((v) => v.id));
+          const filtered = newVideos.filter((v) => !existingIds.has(v.id));
+          addedCount = filtered.length;
+          return [...prev, ...filtered];
+        });
+        setPage(nextPage);
+        if (addedCount === 0) setHasMore(false);
+      } else {
+        setHasMore(false);
+      }
+    } catch (err) {
+      console.error('[HomePage] Failed to load more videos:', err);
+    } finally {
+      setLoadingMore(false);
     }
-    setLoadingMore(false);
-  };
+  }, [loadingMore, hasMore, page, fetchFeed, currentCategory]);
 
   const handleCategoryClick = (catId: string) => {
     setCurrentCategory(catId);
     const url = new URL(window.location.href);
     url.searchParams.set('category', catId);
     window.history.pushState({}, '', url);
+
+    const nextTopics = getCategoryTopics(catId, regionCode).filter(
+      (t) => !dismissedTopics.includes(t)
+    );
+    if (nextTopics.length > 0) {
+      setActiveSubTopic(nextTopics[0]);
+    }
   };
 
   return (
-    <div className="home-page-container" style={{ maxWidth: '1750px', margin: '0 auto', padding: '16px 24px 60px' }}>
-      {/* Category Pills (Material 3 Filter Chips) */}
-      <div
-        className="home-chips-row"
-        style={{
-          position: 'sticky',
-          top: 'var(--yt-header-height)',
-          zIndex: 300,
-          backgroundColor: 'var(--yt-background)',
-          display: 'flex',
-          gap: '8px',
-          overflowX: 'auto',
-          padding: '10px 0 14px',
-          marginBottom: '14px',
-          scrollbarWidth: 'none',
-          msOverflowStyle: 'none',
-          WebkitOverflowScrolling: 'touch',
-        }}
-      >
-        {CATEGORIES.map((cat) => {
-          const isActive = currentCategory === cat.id;
-          return (
+    <div className="home-page-container">
+      {/* Category Pills / Topic Chips Row matching YouTube */}
+      <div className="yt-chips-container">
+        {canScrollLeft && (
+          <div className="yt-chips-arrow-wrapper left">
             <button
-              key={cat.id}
               type="button"
-              onClick={() => handleCategoryClick(cat.id)}
-              style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                gap: '6px',
-                padding: '8px 16px',
-                borderRadius: '20px',
-                border: isActive ? 'none' : '1px solid var(--yt-border)',
-                backgroundColor: isActive
-                  ? 'var(--md-sys-color-primary, var(--yt-text-primary))'
-                  : 'var(--yt-surface)',
-                color: isActive
-                  ? 'var(--md-sys-color-on-primary, var(--yt-background))'
-                  : 'var(--yt-text-primary)',
-                fontSize: '13px',
-                fontWeight: 600,
-                cursor: 'pointer',
-                whiteSpace: 'nowrap',
-                transition: 'all 0.2s cubic-bezier(0.16, 1, 0.3, 1)',
-                flexShrink: 0,
-              }}
+              className="yt-chips-arrow-btn"
+              onClick={() => scrollChips('left')}
+              title="Previous"
             >
-              {cat.icon && <span>{cat.icon}</span>}
-              <span>{cat.label}</span>
+              <IoChevronBack size={18} />
             </button>
-          );
-        })}
+          </div>
+        )}
+
+        <div
+          ref={chipsRef}
+          onScroll={checkScroll}
+          className="yt-chips-scrollable"
+        >
+          {CATEGORIES.map((cat) => {
+            const isActive = currentCategory === cat.id;
+            return (
+              <button
+                key={cat.id}
+                type="button"
+                onClick={() => handleCategoryClick(cat.id)}
+                className={`yt-topic-chip ${isActive ? 'active' : ''}`}
+              >
+                <span>{cat.label}</span>
+              </button>
+            );
+          })}
+        </div>
+
+        {canScrollRight && (
+          <div className="yt-chips-arrow-wrapper right">
+            <button
+              type="button"
+              className="yt-chips-arrow-btn"
+              onClick={() => scrollChips('right')}
+              title="Next"
+            >
+              <IoChevronForward size={18} />
+            </button>
+          </div>
+        )}
       </div>
 
-      {/* Videos Grid */}
+      {/* Videos Grid with YouTube Shorts Shelf interweaved */}
       {loading ? (
-        <div
-          style={{
-            display: 'grid',
-            gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))',
-            gap: '20px',
-          }}
-        >
+        <div className="home-video-grid">
           {Array.from({ length: 12 }).map((_, i) => (
-            <div key={i} style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-              <div
-                style={{
-                  width: '100%',
-                  aspectRatio: '16/9',
-                  borderRadius: '16px',
-                  backgroundColor: 'var(--yt-hover)',
-                  animation: 'skeletonPulse 1.5s ease-in-out infinite',
-                }}
-              />
-              <div style={{ display: 'flex', gap: '10px' }}>
-                <div
-                  style={{
-                    width: '36px',
-                    height: '36px',
-                    borderRadius: '50%',
-                    backgroundColor: 'var(--yt-hover)',
-                    flexShrink: 0,
-                  }}
-                />
-                <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                  <div
-                    style={{
-                      height: '14px',
-                      borderRadius: '6px',
-                      backgroundColor: 'var(--yt-hover)',
-                      width: '80%',
-                    }}
-                  />
-                  <div
-                    style={{
-                      height: '12px',
-                      borderRadius: '6px',
-                      backgroundColor: 'var(--yt-hover)',
-                      width: '50%',
-                    }}
-                  />
+            <div key={i} className="yt-skeleton-card">
+              <div className="yt-skeleton-thumb" />
+              <div className="yt-skeleton-meta">
+                <div className="yt-skeleton-avatar" />
+                <div className="yt-skeleton-lines">
+                  <div className="yt-skeleton-line title" />
+                  <div className="yt-skeleton-line sub" />
                 </div>
               </div>
             </div>
           ))}
         </div>
       ) : videos.length === 0 ? (
-        <div style={{ textAlign: 'center', padding: '60px 20px', color: 'var(--yt-text-secondary)' }}>
-          <h3 style={{ fontSize: '18px', color: 'var(--yt-text-primary)', marginBottom: '8px' }}>No videos found</h3>
-          <p style={{ fontSize: '14px', marginBottom: '20px' }}>Select another category or refresh.</p>
+        <div className="yt-no-videos">
+          <h3>No videos found</h3>
+          <p>Select another category or refresh.</p>
           <button
-            onClick={() => handleCategoryClick('Trending')}
-            style={{
-              padding: '10px 20px',
-              borderRadius: '20px',
-              backgroundColor: 'var(--md-sys-color-primary, var(--yt-blue))',
-              color: '#ffffff',
-              border: 'none',
-              fontWeight: 600,
-              cursor: 'pointer',
-            }}
+            onClick={() => handleCategoryClick('All')}
+            className="yt-reload-btn"
           >
-            Load Trending
+            Go to All
           </button>
         </div>
       ) : (
         <>
-          <div
-            className="home-video-grid"
-            style={{
-              display: 'grid',
-              gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))',
-              gap: '16px',
-            }}
-          >
-            {videos.map((v) => (
+          {/* Row 1: Top video cards */}
+          <div className="home-video-grid">
+            {videos.slice(0, 3).map((v) => (
               <VideoCard key={v.id} video={v} />
             ))}
           </div>
 
-          {/* Load More Button */}
-          {hasMore && (
-            <div style={{ display: 'flex', justifyContent: 'center', marginTop: '40px' }}>
-              <button
-                type="button"
-                onClick={handleLoadMore}
-                disabled={loadingMore}
-                style={{
-                  padding: '12px 32px',
-                  borderRadius: '24px',
-                  border: '1px solid var(--yt-border)',
-                  backgroundColor: 'var(--yt-surface)',
-                  color: 'var(--yt-text-primary)',
-                  fontWeight: 600,
-                  fontSize: '14px',
-                  cursor: loadingMore ? 'wait' : 'pointer',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '8px',
-                  transition: 'background-color 0.2s',
-                }}
-              >
-                {loadingMore ? <LoadingSpinner size="small" color="white" /> : 'Load More Videos'}
-              </button>
-            </div>
+          {/* Explore More Topics in-feed shelf (matching screenshot) */}
+          {page === 1 && !isShelfHidden && availableSubTopics.length > 0 && (
+            <>
+              <ExploreTopicsShelf
+                topics={availableSubTopics}
+                activeTopic={activeSubTopic}
+                onSelectTopic={handleSelectSubTopic}
+                onHideShelf={handleHideShelf}
+                onDismissTopic={handleDismissTopic}
+              />
+
+              {/* Row 2: Cluster video cards */}
+              <div className="home-video-grid">
+                {clusterLoading || !activeSubTopic ? (
+                  Array.from({ length: 3 }).map((_, i) => (
+                    <div key={`cluster-skel-${i}`} className="yt-skeleton-card">
+                      <div className="yt-skeleton-thumb" />
+                      <div className="yt-skeleton-meta">
+                        <div className="yt-skeleton-avatar" />
+                        <div className="yt-skeleton-lines">
+                          <div className="yt-skeleton-line title" />
+                          <div className="yt-skeleton-line sub" />
+                        </div>
+                      </div>
+                    </div>
+                  ))
+                ) : clusterVideos.length > 0 ? (
+                  clusterVideos.slice(0, showClusterExpanded ? 6 : 3).map((v) => (
+                    <VideoCard key={`cluster-${v.id}`} video={v} />
+                  ))
+                ) : (
+                  videos.slice(3, 6).map((v) => (
+                    <VideoCard key={`cluster-fallback-${v.id}`} video={v} />
+                  ))
+                )}
+              </div>
+
+              {/* Inline Show More Cluster Divider */}
+              {(clusterVideos.length > 3 || (!clusterLoading && videos.length > 6)) && (
+                <div className="yt-cluster-divider">
+                  <div className="yt-cluster-line" />
+                  <button
+                    type="button"
+                    className="yt-cluster-show-more-btn"
+                    onClick={() => setShowClusterExpanded(!showClusterExpanded)}
+                  >
+                    <span>{showClusterExpanded ? 'Show fewer' : 'Show more'}</span>
+                    <IoChevronDown
+                      size={18}
+                      style={{
+                        transform: showClusterExpanded ? 'rotate(180deg)' : 'none',
+                        transition: 'transform 0.2s',
+                      }}
+                    />
+                  </button>
+                  <div className="yt-cluster-line" />
+                </div>
+              )}
+            </>
           )}
+
+          {/* YouTube Shorts Shelf */}
+          {page === 1 && <ShortsShelf shorts={shorts} />}
+
+          {/* Row 3 onwards: Regular video cards */}
+          <div className="home-video-grid">
+            {videos.slice(3).map((v) => (
+              <VideoCard key={v.id} video={v} />
+            ))}
+          </div>
+
+          {/* Infinite Scroll Lazy Loading */}
+          <InfiniteScrollTrigger
+            onLoadMore={handleLoadMore}
+            hasMore={hasMore}
+            isLoading={loadingMore}
+            endMessage="No more videos"
+          />
         </>
       )}
-
-      <style jsx global>{`
-        @media (max-width: 600px) {
-          .home-page-container {
-            padding: 8px 12px 60px !important;
-          }
-          .home-chips-row {
-            margin-left: -12px !important;
-            margin-right: -12px !important;
-            padding-left: 12px !important;
-            padding-right: 12px !important;
-          }
-          .home-video-grid {
-            grid-template-columns: 1fr !important;
-            gap: 12px !important;
-          }
-        }
-        .home-chips-row::-webkit-scrollbar {
-          display: none;
-        }
-      `}</style>
     </div>
   );
 }

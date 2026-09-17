@@ -3,9 +3,9 @@
 import Link from 'next/link';
 import { useState, useEffect, useCallback, useRef } from 'react';
 import VideoCard from '../../components/VideoCard';
-import LoadingSpinner from '../../components/LoadingSpinner';
+import InfiniteScrollTrigger from '../../components/InfiniteScrollTrigger';
 import { VideoData } from '../../constants';
-import { formatRelativeTime } from '../../utils';
+import { formatRelativeTime, isShortVideo } from '../../utils';
 import { invidious } from '../../services/invidious';
 import { getSubscriptions, subscribe, isSubscribed } from '../../storage';
 import {
@@ -30,14 +30,14 @@ const AUTH_FEED_PAGES = 3;
 // cannot be turned into a playable video.
 const mapAuthFeedItem = (v: any): VideoData | null => {
   const id = v.videoId || v.id;
-  if (!id) return null;
+  if (!id || isShortVideo(v)) return null;
   const relTime = formatRelativeTime(v.publishedText, v.published);
   return {
     id,
     title: v.title,
     uploader: v.author || v.uploader || 'Creator',
     channel_id: v.authorId || '',
-    thumbnail: v.videoThumbnails?.[0]?.url || `https://i.ytimg.com/vi/${id}/mqdefault.jpg`,
+    thumbnail: v.videoThumbnails?.[0]?.url || (id ? `https://i.ytimg.com/vi_webp/${id}/hq720.webp` : ''),
     duration: v.lengthSeconds ? `${Math.floor(v.lengthSeconds / 60)}:${(v.lengthSeconds % 60).toString().padStart(2, '0')}` : '',
     view_count: v.viewCount ?? 0,
     upload_date: relTime || v.publishedText || '',
@@ -120,14 +120,14 @@ export default function SubscriptionsPage() {
           const chId = batch[idx]?.channelId || '';
           r.value.forEach((v: any) => {
             const vidId = v.videoId || v.id;
-            if (vidId && v.title) {
+            if (vidId && v.title && !isShortVideo(v)) {
               combined.push({
                 id: vidId,
                 title: v.title,
                 uploader: v.author || chName,
                 channel_id: chId,
                 thumbnail:
-                  v.videoThumbnails?.[0]?.url || `https://i.ytimg.com/vi/${vidId}/mqdefault.jpg`,
+                  v.videoThumbnails?.[0]?.url || (vidId ? `https://i.ytimg.com/vi_webp/${vidId}/hq720.webp` : ''),
                 duration: v.lengthSeconds ? `${Math.floor(v.lengthSeconds / 60)}:${(v.lengthSeconds % 60).toString().padStart(2, '0')}` : (v.duration || ''),
                 view_count: v.viewCount ?? v.view_count ?? 0,
                 upload_date: formatRelativeTime(v.publishedText, v.published) || v.publishedText || '',
@@ -700,31 +700,13 @@ export default function SubscriptionsPage() {
             ))}
           </div>
 
-          {hasMore && (
-            <div style={{ textAlign: 'center', padding: '28px 0 8px' }}>
-              <button
-                type="button"
-                onClick={loadMore}
-                disabled={loadingMore}
-                style={{
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  gap: '8px',
-                  padding: '10px 28px',
-                  borderRadius: '20px',
-                  backgroundColor: 'var(--md-sys-color-primary, var(--yt-blue))',
-                  color: '#ffffff',
-                  border: 'none',
-                  fontWeight: 600,
-                  fontSize: '14px',
-                  cursor: loadingMore ? 'wait' : 'pointer',
-                  opacity: loadingMore ? 0.7 : 1,
-                }}
-              >
-                {loadingMore ? 'Loading...' : 'Load More'}
-              </button>
-            </div>
-          )}
+          {/* Infinite Scroll Lazy Loading */}
+          <InfiniteScrollTrigger
+            onLoadMore={loadMore}
+            hasMore={hasMore}
+            isLoading={loadingMore}
+            endMessage="No more subscription videos"
+          />
         </>
       )}
     </div>

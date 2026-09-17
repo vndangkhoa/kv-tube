@@ -3,38 +3,26 @@
 import Link from 'next/link';
 import { useState, useCallback, memo, useEffect } from 'react';
 import { VideoData } from '@/app/constants';
-import { proxiedThumb, proxiedImageUrl } from '@/app/utils';
+import { proxiedThumb, getThumbnailCascade } from '@/app/utils';
 import { isVideoSaved, toggleSaveVideo } from '@/app/storage';
 import LoadingSpinner from './LoadingSpinner';
-import { IoBookmarkOutline, IoBookmark, IoTimeOutline, IoCheckmarkCircle } from 'react-icons/io5';
+import { usePlayer } from '@/app/context/PlayerContext';
+import { IoEllipsisVertical, IoBookmark, IoBookmarkOutline, IoCheckmarkCircle } from 'react-icons/io5';
 
 function formatViews(views: number): string {
   if (views >= 1000000) return (views / 1000000).toFixed(1) + 'M';
-  if (views >= 1000) return (views / 1000).toFixed(1) + 'K';
+  if (views >= 1000) return (views / 1000).toFixed(0) + 'K';
   return views ? views.toString() : '0';
 }
 
 function getStableRelativeTime(id: string): string {
-  const times = ['2 hours ago', '5 hours ago', '1 day ago', '3 days ago', '1 week ago', '2 weeks ago', '1 month ago'];
+  const times = ['2 hours ago', '5 hours ago', '12 hours ago', '15 hours ago', '1 day ago', '3 days ago', '1 week ago', '2 weeks ago'];
   const hash = id.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
   return times[hash % times.length];
 }
 
 const DEFAULT_THUMBNAIL =
-  'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="320" height="180" viewBox="0 0 320 180"%3E%3Crect fill="%231a1a1a" width="320" height="180"/%3E%3Cpath fill="%23444" d="M140 65v50l40-25z"/%3E%3C/svg%3E';
-
-function getThumbFallbacks(id: string): string[] {
-  return [
-    proxiedThumb(id, 'hqdefault'),
-    proxiedThumb(id, 'mqdefault'),
-    proxiedThumb(id, 'default'),
-  ];
-}
-
-function isValidThumbUrl(url: string): boolean {
-  if (!url || url === DEFAULT_THUMBNAIL) return false;
-  return url.includes('i.ytimg.com/vi/') || url.includes('i.ytimg.com/vi_webp/');
-}
+  'data:image/svg+xml,%3Csvg xmlns="http://www.w3.org/2000/svg" width="320" height="180" viewBox="0 0 320 180"%3E%3Crect fill="%2388888820" width="320" height="180"/%3E%3Cpath fill="%2388888860" d="M140 65v50l40-25z"/%3E%3C/svg%3E';
 
 function VideoCard({
   video,
@@ -43,16 +31,29 @@ function VideoCard({
   video: VideoData;
   hideChannelAvatar?: boolean;
 }) {
+  const { setPlayingVideo, setIsPlaying } = usePlayer();
   const rawRel = video.upload_date || video.publishedAt || '';
   const relativeTime = rawRel && !/[\u0600-\u06FF]/.test(rawRel) ? rawRel : getStableRelativeTime(video.id);
   const [isNavigating, setIsNavigating] = useState(false);
   const [thumbError, setThumbError] = useState(0);
   const [saved, setSaved] = useState(false);
+  const [showMenu, setShowMenu] = useState(false);
   const [watchProgress, setWatchProgress] = useState<number | null>(null);
+
+  const isMix =
+    video.is_mix ||
+    video.title?.toLowerCase().startsWith('mix -') ||
+    video.title?.toLowerCase().startsWith('mix –') ||
+    video.id?.startsWith('RD');
 
   const destination = video.list_id
     ? `/watch?v=${video.id}&list=${video.list_id}`
+    : isMix
+    ? `/watch?v=${video.id}&list=RD${video.id}&start_radio=1`
     : `/watch?v=${video.id}`;
+
+  const channelName = video.uploader || video.channelTitle || 'Unknown';
+  const channelId = video.channel_id || video.channelId;
 
   // Check saved state and watch progress on client mount
   useEffect(() => {
@@ -76,28 +77,43 @@ function VideoCard({
       videoId: video.id,
       title: video.title,
       channelTitle: video.uploader || video.channelTitle || '',
-      thumbnail: video.thumbnail || proxiedThumb(video.id),
+      thumbnail: video.thumbnail || (video.id ? getThumbnailCascade(video.id, 1) : ''),
     });
     setSaved(nextState);
+    setShowMenu(false);
   };
 
-  let rawThumb = video.thumbnail || (video.id ? `https://i.ytimg.com/vi/${video.id}/mqdefault.jpg` : DEFAULT_THUMBNAIL);
-  if (typeof rawThumb === 'string') {
-    rawThumb = rawThumb.replace('/maxresdefault.jpg', '/mqdefault.jpg').replace('/sddefault.jpg', '/mqdefault.jpg');
-  }
-  let thumbnailSrc = rawThumb;
-  if (thumbError === 1 && video.id) {
-    thumbnailSrc = `https://i.ytimg.com/vi/${video.id}/hqdefault.jpg`;
-  } else if (thumbError >= 2 && video.id) {
-    thumbnailSrc = `/api/proxy?url=${encodeURIComponent(`https://i.ytimg.com/vi/${video.id}/mqdefault.jpg`)}`;
+  let thumbnailSrc = DEFAULT_THUMBNAIL;
+  if (video.id) {
+    if (thumbError > 0) {
+      thumbnailSrc = getThumbnailCascade(video.id, thumbError) || DEFAULT_THUMBNAIL;
+    } else if (video.thumbnail && !video.thumbnail.includes('mqdefault.jpg')) {
+      thumbnailSrc = video.thumbnail;
+    } else {
+      thumbnailSrc = getThumbnailCascade(video.id, 0);
+    }
+  } else if (video.thumbnail) {
+    thumbnailSrc = video.thumbnail;
   }
 
   const handleImageError = useCallback(() => {
-    setThumbError((prev) => prev + 1);
+    setThumbError((prev) => (prev < 5 ? prev + 1 : prev));
   }, []);
 
-  const channelName = video.uploader || video.channelTitle || 'Unknown';
-  const channelId = video.channel_id || video.channelId;
+  const handleNavigateToWatch = useCallback(() => {
+    setIsNavigating(true);
+    if (video.id) {
+      setPlayingVideo({
+        id: video.id,
+        title: video.title || '',
+        uploader: channelName,
+        thumbnail: thumbnailSrc || getThumbnailCascade(video.id, 1),
+        duration: video.duration || '',
+      });
+      setIsPlaying(true);
+    }
+  }, [video.id, video.title, channelName, thumbnailSrc, video.duration, setPlayingVideo, setIsPlaying]);
+
   const rawAvatar = video.avatar_url || video.channelAvatar;
   let avatarSrc = '';
   if (rawAvatar && (rawAvatar.includes('googleusercontent.com') || rawAvatar.includes('ggpht.com'))) {
@@ -113,26 +129,13 @@ function VideoCard({
   }
 
   return (
-    <div
-      className="card-hover-lift"
-      style={{
-        display: 'flex',
-        flexDirection: 'column',
-        gap: '12px',
-        width: '100%',
-        marginBottom: '16px',
-        borderRadius: '20px',
-        padding: '8px',
-        transition: 'all 0.25s cubic-bezier(0.16, 1, 0.3, 1)',
-        backgroundColor: 'transparent',
-      }}
-    >
-      {/* Thumbnail Container */}
-      <div style={{ position: 'relative', width: '100%', aspectRatio: '16/9', borderRadius: '16px', overflow: 'hidden' }}>
+    <div className="yt-video-card-container">
+      {/* 16:9 Thumbnail with 12px border radius */}
+      <div className="yt-card-thumb-wrapper">
         <Link
           href={destination}
-          onClick={() => setIsNavigating(true)}
-          style={{ position: 'relative', display: 'block', width: '100%', height: '100%', overflow: 'hidden' }}
+          onClick={handleNavigateToWatch}
+          className="yt-card-thumb-link"
         >
           <img
             src={thumbnailSrc}
@@ -140,134 +143,69 @@ function VideoCard({
             loading="lazy"
             decoding="async"
             onError={handleImageError}
-            style={{
-              position: 'absolute',
-              inset: 0,
-              width: '100%',
-              height: '100%',
-              objectFit: 'cover',
-              backgroundColor: '#121212',
-              transition: 'transform 0.3s ease',
-            }}
+            className="yt-card-thumb-img"
           />
 
-          {/* Duration Pill (Material 3) */}
-          {video.duration && !video.is_mix && (
-            <div
-              style={{
-                position: 'absolute',
-                bottom: '8px',
-                right: '8px',
-                backgroundColor: 'rgba(0, 0, 0, 0.82)',
-                backdropFilter: 'blur(8px)',
-                color: '#ffffff',
-                padding: '3px 8px',
-                borderRadius: '8px',
-                fontSize: '11px',
-                fontWeight: 600,
-                letterSpacing: '0.4px',
-              }}
+          {/* Quick Actions (Watch Later / Save) on hover */}
+          <div
+            className="yt-thumb-quick-actions"
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+            }}
+          >
+            <button
+              type="button"
+              className="yt-thumb-action-btn"
+              onClick={handleToggleSave}
+              title={saved ? 'Remove from Saved' : 'Watch later'}
+              aria-label={saved ? 'Remove from Saved' : 'Watch later'}
             >
-              {video.duration}
-            </div>
-          )}
+              {saved ? <IoBookmark size={16} /> : <IoBookmarkOutline size={16} />}
+            </button>
+          </div>
 
-          {/* Watch Progress Bar */}
+          {/* YouTube Duration Badge or Mix Badge */}
+          {isMix ? (
+            <div className="yt-card-mix-badge">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
+                <path d="M15 6H3v2h12V6zm0 4H3v2h12v-2zM3 16h8v-2H3v2zM17 6v8.18c-.31-.11-.65-.18-1-.18-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3V8h3V6h-5z" />
+              </svg>
+              <span>Mix</span>
+            </div>
+          ) : video.duration ? (
+            <div className="yt-card-duration-badge">{video.duration}</div>
+          ) : null}
+
+          {/* Watch Progress Line */}
           {watchProgress !== null && (
-            <div
-              style={{
-                position: 'absolute',
-                bottom: 0,
-                left: 0,
-                right: 0,
-                height: '4px',
-                backgroundColor: 'rgba(255, 255, 255, 0.3)',
-              }}
-            >
+            <div className="yt-card-progress-bar-bg">
               <div
-                style={{
-                  height: '100%',
-                  width: `${watchProgress}%`,
-                  backgroundColor: 'var(--md-sys-color-primary, var(--yt-brand-red))',
-                }}
+                className="yt-card-progress-bar-fill"
+                style={{ width: `${watchProgress}%` }}
               />
             </div>
           )}
 
-          {/* Navigation Spinner */}
+          {/* Loading Overlay */}
           {isNavigating && (
-            <div
-              style={{
-                position: 'absolute',
-                inset: 0,
-                backgroundColor: 'rgba(0, 0, 0, 0.55)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                zIndex: 10,
-              }}
-            >
+            <div className="yt-card-loading-overlay">
               <LoadingSpinner color="white" />
             </div>
           )}
         </Link>
-
-        {/* Floating Quick Action Button (Save/Bookmark) */}
-        <button
-          type="button"
-          onClick={handleToggleSave}
-          title={saved ? 'Remove from Saved' : 'Save Video'}
-          style={{
-            position: 'absolute',
-            top: '8px',
-            right: '8px',
-            width: '32px',
-            height: '32px',
-            borderRadius: '50%',
-            backgroundColor: 'rgba(0, 0, 0, 0.7)',
-            backdropFilter: 'blur(8px)',
-            border: 'none',
-            color: saved ? 'var(--md-sys-color-primary, var(--yt-blue))' : '#ffffff',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            cursor: 'pointer',
-            zIndex: 5,
-            transition: 'transform 0.15s ease, background-color 0.2s',
-          }}
-        >
-          {saved ? <IoBookmark size={16} /> : <IoBookmarkOutline size={16} />}
-        </button>
       </div>
 
-      {/* Info Section */}
-      <div style={{ display: 'flex', gap: '12px', padding: '0 4px' }}>
+      {/* Details Row: Avatar + Title/Metadata + 3-dots Menu */}
+      <div className="yt-card-details-row">
         {/* Channel Avatar */}
         {!hideChannelAvatar && (
           <Link
             href={channelId ? `/channel/${channelId}` : '#'}
-            style={{ flexShrink: 0, textDecoration: 'none' }}
+            className="yt-card-avatar-link"
           >
-            <div
-              style={{
-                width: '36px',
-                height: '36px',
-                borderRadius: '50%',
-                backgroundColor: 'var(--yt-hover)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                position: 'relative',
-                overflow: 'hidden',
-                flexShrink: 0,
-              }}
-            >
-              {/* Fallback Letter */}
-              <span style={{ fontWeight: 600, fontSize: '14px', color: 'var(--yt-text-primary)', zIndex: 1 }}>
-                {channelName.charAt(0).toUpperCase()}
-              </span>
-
-              {/* Real Channel Avatar Image */}
+            <div className="yt-card-avatar-circle">
+              <span>{channelName.charAt(0).toUpperCase()}</span>
               {avatarSrc && (
                 <img
                   src={avatarSrc}
@@ -282,66 +220,73 @@ function VideoCard({
                       img.style.display = 'none';
                     }
                   }}
-                  style={{
-                    position: 'absolute',
-                    inset: 0,
-                    width: '100%',
-                    height: '100%',
-                    objectFit: 'cover',
-                    borderRadius: '50%',
-                    zIndex: 2,
-                  }}
                 />
               )}
             </div>
           </Link>
         )}
 
-        {/* Video Title & Metadata */}
-        <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0, flex: 1 }}>
-          <Link href={destination} style={{ textDecoration: 'none' }}>
-            <h3
-              className="truncate-2-lines"
-              style={{
-                fontSize: '15px',
-                fontWeight: 600,
-                lineHeight: '20px',
-                margin: 0,
-                color: 'var(--yt-text-primary)',
-                letterSpacing: '-0.1px',
-              }}
-            >
+        {/* Text Details */}
+        <div className="yt-card-text-container">
+          <Link href={destination} onClick={handleNavigateToWatch} className="yt-card-title-link">
+            <h3 className="yt-card-title" title={video.title}>
               {video.title}
             </h3>
           </Link>
 
-          <div style={{ marginTop: '4px' }}>
-            {video.channel_id ? (
-              <Link
-                href={`/channel/${video.channel_id}`}
-                style={{
-                  fontSize: '13px',
-                  color: 'var(--yt-text-secondary)',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '4px',
-                  textDecoration: 'none',
-                  fontWeight: 500,
-                }}
-              >
-                <span>{channelName}</span>
-                <IoCheckmarkCircle size={14} style={{ color: 'var(--yt-text-secondary)' }} />
-              </Link>
-            ) : (
-              <div style={{ fontSize: '13px', color: 'var(--yt-text-secondary)', fontWeight: 500 }}>
-                {channelName}
+          <div className="yt-card-metadata-col">
+            {isMix ? (
+              <div className="yt-card-meta-line" style={{ marginTop: '2px' }}>
+                <span>{channelName}, and more</span>
               </div>
-            )}
+            ) : (
+              <>
+                {video.channel_id ? (
+                  <Link
+                    href={`/channel/${video.channel_id}`}
+                    className="yt-card-channel-link"
+                  >
+                    <span>{channelName}</span>
+                    <IoCheckmarkCircle size={13} className="yt-card-verified-icon" />
+                  </Link>
+                ) : (
+                  <span className="yt-card-channel-name">{channelName}</span>
+                )}
 
-            <div style={{ fontSize: '12px', color: 'var(--yt-text-secondary)', marginTop: '2px' }}>
-              {formatViews(video.view_count ?? 0)} views • {relativeTime}
-            </div>
+                {/* Views and Published Time */}
+                <div className="yt-card-meta-line">
+                  <span>{formatViews(video.view_count ?? 0)} views</span>
+                  <span className="yt-card-meta-dot">•</span>
+                  <span>{relativeTime}</span>
+                </div>
+              </>
+            )}
           </div>
+        </div>
+
+        {/* 3-dots Overflow Menu */}
+        <div className="yt-card-menu-container">
+          <button
+            type="button"
+            className="yt-card-menu-btn"
+            onClick={() => setShowMenu(!showMenu)}
+            title="Action menu"
+          >
+            <IoEllipsisVertical size={18} />
+          </button>
+
+          {showMenu && (
+            <div className="yt-card-menu-dropdown">
+              <button
+                type="button"
+                className="yt-card-menu-item"
+                onClick={handleToggleSave}
+              >
+                {saved ? <IoBookmark size={18} /> : <IoBookmarkOutline size={18} />}
+                <span>{saved ? 'Remove from Saved' : 'Save to Watch later'}</span>
+              </button>
+            </div>
+          )}
         </div>
       </div>
     </div>

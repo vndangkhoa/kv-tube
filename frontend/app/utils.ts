@@ -43,24 +43,73 @@ export function getRandomModifier(): string {
     return RANDOM_MODIFIERS[Math.floor(Math.random() * RANDOM_MODIFIERS.length)];
 }
 
-const THUMB_SIZES = ['hqdefault', 'mqdefault', 'default'] as const;
+const THUMB_SIZES = ['hq720', 'hqdefault', 'mqdefault', 'default', 'maxresdefault'] as const;
 export type ThumbSize = typeof THUMB_SIZES[number];
 
 /**
- * Returns direct, high-speed YouTube / Invidious CDN thumbnail URL
+ * Returns optimal YouTube CDN thumbnail URL with fallback cascade stages.
+ * Stage 0: hq720 WebP (1280x720 HD, ~28KB)
+ * Stage 1: hqdefault WebP (480x360 WebP, ~10KB, 100% available)
+ * Stage 2: hqdefault JPG (480x360 legacy JPG fallback)
+ * Stage 3: mqdefault JPG (320x180 legacy JPG fallback)
+ * Stage 4: Proxied via backend
  */
-export function proxiedThumb(id: string, size: ThumbSize = 'hqdefault'): string {
+export function getThumbnailCascade(id: string, stage: number = 0): string {
     if (!id) return '';
+    switch (stage) {
+        case 0:
+            return `https://i.ytimg.com/vi_webp/${id}/hq720.webp`;
+        case 1:
+            return `https://i.ytimg.com/vi_webp/${id}/hqdefault.webp`;
+        case 2:
+            return `https://i.ytimg.com/vi/${id}/hqdefault.jpg`;
+        case 3:
+            return `https://i.ytimg.com/vi/${id}/mqdefault.jpg`;
+        case 4:
+            return `/api/proxy?url=${encodeURIComponent(`https://i.ytimg.com/vi/${id}/hqdefault.jpg`)}`;
+        default:
+            return '';
+    }
+}
+
+/**
+ * Returns direct, high-speed YouTube / Invidious CDN thumbnail URL (defaults to lightweight WebP)
+ */
+export function proxiedThumb(id: string, size: ThumbSize = 'hqdefault', format: 'webp' | 'jpg' = 'webp'): string {
+    if (!id) return '';
+    if (format === 'webp') {
+        return `https://i.ytimg.com/vi_webp/${id}/${size}.webp`;
+    }
     return `https://i.ytimg.com/vi/${id}/${size}.jpg`;
 }
 
 /**
- * Normalizes any image URL (handles relative URLs, WebP, Invidious thumbnails)
+ * Normalizes any image URL (handles relative URLs, WebP, Invidious thumbnails).
+ * Automatically redirects Invidious-hosted or fragile /vi/ thumbnail URLs
+ * directly to YouTube CDN (WebP), bypassing ORB and 502/404 errors.
  */
-export function proxiedImageUrl(raw: string | undefined | null): string {
-    if (!raw) return '';
-    if (raw.startsWith('//')) return `https:${raw}`;
-    return raw;
+export function proxiedImageUrl(raw: string | undefined | null, videoId?: string): string {
+    if (!raw && !videoId) return '';
+    if (!raw && videoId) return `https://i.ytimg.com/vi_webp/${videoId}/hq720.webp`;
+    let url = raw!.trim();
+    if (url.startsWith('//')) url = `https:${url}`;
+
+    // Extract video ID from any /vi/ or /vi_webp/ path
+    const viMatch = url.match(/\/vi(?:_webp)?\/([a-zA-Z0-9_-]{11})/);
+    const resolvedId = viMatch ? viMatch[1] : videoId;
+
+    if (resolvedId) {
+        // If served by an Invidious instance (e.g. yt.khoavo.myds.me, localhost, relative path)
+        // or requesting maxres.jpg (which frequently 404s on non-HD/shorts), rewrite to YouTube's edge CDN
+        const isInvidiousHost = !url.includes('i.ytimg.com') && (url.includes('/vi/') || !url.startsWith('http'));
+        const isMaxres = url.includes('maxres');
+
+        if (isInvidiousHost || isMaxres) {
+            return `https://i.ytimg.com/vi_webp/${resolvedId}/hq720.webp`;
+        }
+    }
+
+    return url;
 }
 
 /**
@@ -109,3 +158,32 @@ export function formatRelativeTime(
     return '';
 }
 
+/**
+ * Determines whether a video is a YouTube Short based on duration (<= 90s)
+ * or explicit title/hashtag markers (#shorts, #short).
+ */
+export function isShortVideo(video: { lengthSeconds?: number; duration?: string; title?: string } | null | undefined): boolean {
+    if (!video) return false;
+
+    // Check duration in seconds
+    if (typeof video.lengthSeconds === 'number' && video.lengthSeconds > 0) {
+        if (video.lengthSeconds <= 90) return true;
+    }
+
+    // Check duration formatted string (e.g., "0:30", "0:59")
+    if (typeof video.duration === 'string') {
+        const parts = video.duration.trim().split(':').map(Number);
+        if (parts.length === 2 && !parts.some(isNaN)) {
+            const totalSec = parts[0] * 60 + parts[1];
+            if (totalSec > 0 && totalSec <= 90) return true;
+        }
+    }
+
+    // Check title markers
+    const title = (video.title || '').toLowerCase();
+    if (title.includes('#shorts') || title.includes('#short') || /\bshorts\b/i.test(title)) {
+        return true;
+    }
+
+    return false;
+}

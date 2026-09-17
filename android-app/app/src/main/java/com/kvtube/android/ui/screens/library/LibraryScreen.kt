@@ -53,7 +53,7 @@ fun LibraryScreen(
     val uiState by viewModel.uiState.collectAsState()
 
     if (uiState.isLoading) {
-        LoadingSpinner(fullScreen = true)
+        LoadingSpinner(fullScreen = true, text = "Loading your library...")
         return
     }
 

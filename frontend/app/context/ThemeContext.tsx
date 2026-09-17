@@ -27,7 +27,7 @@ interface ThemeContextType {
 const ThemeContext = createContext<ThemeContextType | undefined>(undefined);
 
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
-  const [themeMode, setThemeModeState] = useState<ThemeMode>('dark');
+  const [themeMode, setThemeModeState] = useState<ThemeMode>('light');
   const [currentPreset, setCurrentPreset] = useState<string>('dynamic');
   const [seedColor, setSeedColor] = useState<string>('#3880ff');
   const [dynamicColor, setDynamicColor] = useState<string | null>(null);
@@ -39,7 +39,7 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     try {
       const savedMode = (localStorage.getItem('kv_theme_mode') as ThemeMode) || 
-                        (localStorage.getItem('theme') === 'light' ? 'light' : 'dark');
+                        (localStorage.getItem('theme') === 'dark' ? 'dark' : 'light');
       const savedPreset = localStorage.getItem('kv_theme_preset') || 'dynamic';
       const savedSeed = localStorage.getItem('kv_theme_seed') || '#3880ff';
 

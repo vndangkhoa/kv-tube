@@ -22,6 +22,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -29,12 +30,15 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.pager.VerticalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Comment
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Pause
@@ -46,11 +50,17 @@ import androidx.compose.material.icons.filled.ThumbUp
 import androidx.compose.material.icons.outlined.ThumbDown
 import androidx.compose.material.icons.outlined.ThumbUp
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.rememberModalBottomSheetState
+import com.kvtube.android.ui.screens.watch.CommentItem
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -92,6 +102,7 @@ import com.kvtube.android.ui.navigation.TabReselect
 import com.kvtube.android.ui.theme.YTBrandRed
 import kotlinx.coroutines.launch
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ShortsScreen(
     navController: NavController,
@@ -99,6 +110,7 @@ fun ShortsScreen(
     viewModel: ShortsViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsState()
+    val commentsState by viewModel.commentsState.collectAsState()
 
     if (uiState.isLoading && uiState.videos.isEmpty()) {
         Box(
@@ -154,6 +166,13 @@ fun ShortsScreen(
         }
     }
 
+    // Dismiss comments sheet when user swipes away to another Short
+    LaunchedEffect(pagerState.currentPage) {
+        if (commentsState.isSheetOpen) {
+            viewModel.closeComments()
+        }
+    }
+
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -170,6 +189,7 @@ fun ShortsScreen(
                 video = video,
                 isCurrentPage = isCurrentPage,
                 onGetStreamUrl = { viewModel.getStreamUrl(video.id) },
+                onCommentsClick = { viewModel.openComments(video.id) },
                 onChannelClick = { channelId ->
                     navController.navigate(Screen.Channel.createRoute(channelId))
                 }
@@ -193,6 +213,144 @@ fun ShortsScreen(
                 modifier = Modifier.size(22.dp)
             )
         }
+
+        // Shorts comments bottom sheet
+        if (commentsState.isSheetOpen) {
+            val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = false)
+            ModalBottomSheet(
+                onDismissRequest = { viewModel.closeComments() },
+                sheetState = sheetState,
+                containerColor = MaterialTheme.colorScheme.surface,
+                contentColor = MaterialTheme.colorScheme.onSurface
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .fillMaxHeight(0.7f)
+                        .padding(bottom = 16.dp)
+                ) {
+                    // Sheet Header
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 8.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        val countText = commentsState.commentsCount?.let { " ($it)" }
+                            ?: if (commentsState.comments.isNotEmpty()) " (${commentsState.comments.size})" else ""
+                        Text(
+                            text = "Comments$countText",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold
+                        )
+                        IconButton(
+                            onClick = { viewModel.closeComments() },
+                            modifier = Modifier.size(32.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.Close,
+                                contentDescription = "Close",
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+
+                    if (commentsState.isLoading && commentsState.comments.isEmpty()) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .weight(1f),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            CircularProgressIndicator(color = YTBrandRed, modifier = Modifier.size(32.dp))
+                        }
+                    } else if (commentsState.error != null && commentsState.comments.isEmpty()) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .weight(1f)
+                                .padding(16.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Text(
+                                    text = commentsState.error ?: "Failed to load comments",
+                                    color = MaterialTheme.colorScheme.error,
+                                    style = MaterialTheme.typography.bodyMedium
+                                )
+                                Spacer(modifier = Modifier.height(12.dp))
+                                Surface(
+                                    shape = RoundedCornerShape(18.dp),
+                                    color = YTBrandRed,
+                                    modifier = Modifier.clickable {
+                                        commentsState.videoId?.let { viewModel.openComments(it) }
+                                    }
+                                ) {
+                                    Text(
+                                        text = "Retry",
+                                        color = Color.White,
+                                        fontWeight = FontWeight.Bold,
+                                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                                    )
+                                }
+                            }
+                        }
+                    } else if (commentsState.comments.isEmpty()) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .weight(1f),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                text = "No comments yet",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    } else {
+                        LazyColumn(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .weight(1f)
+                        ) {
+                            items(commentsState.comments, key = { it.id.ifEmpty { it.hashCode().toString() } }) { comment ->
+                                CommentItem(comment = comment)
+                            }
+
+                            if (!commentsState.continuation.isNullOrBlank()) {
+                                item {
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(16.dp),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        if (commentsState.isLoadingMore) {
+                                            CircularProgressIndicator(
+                                                color = YTBrandRed,
+                                                modifier = Modifier.size(24.dp)
+                                            )
+                                        } else {
+                                            TextButton(onClick = { viewModel.loadMoreComments() }) {
+                                                Text(
+                                                    text = "Load more comments",
+                                                    color = Color(0xFF3EA6FF),
+                                                    style = MaterialTheme.typography.bodySmall
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -201,6 +359,7 @@ private fun ShortVideoItem(
     video: VideoData,
     isCurrentPage: Boolean,
     onGetStreamUrl: suspend () -> String,
+    onCommentsClick: () -> Unit,
     onChannelClick: (String) -> Unit
 ) {
     val context = LocalContext.current
@@ -433,7 +592,7 @@ private fun ShortVideoItem(
             // Comments
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 IconButton(
-                    onClick = {},
+                    onClick = onCommentsClick,
                     modifier = Modifier
                         .size(44.dp)
                         .background(Color.Black.copy(alpha = 0.4f), CircleShape)

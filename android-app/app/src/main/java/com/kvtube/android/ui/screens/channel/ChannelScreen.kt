@@ -58,7 +58,7 @@ fun ChannelScreen(
     }
 
     if (uiState.isLoading) {
-        LoadingSpinner(fullScreen = true)
+        LoadingSpinner(fullScreen = true, text = "Loading channel & uploads...")
         return
     }
 

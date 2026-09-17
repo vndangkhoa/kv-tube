@@ -31,7 +31,9 @@ export async function generateMetadata({ searchParams }: WatchPageProps): Promis
     let uploader = '';
 
     try {
-        const invVideo = await invidious.getVideo(videoId);
+        const fetchPromise = invidious.getVideo(videoId);
+        const timeoutPromise = new Promise<null>((resolve) => setTimeout(() => resolve(null), 600));
+        const invVideo = await Promise.race([fetchPromise, timeoutPromise]);
         if (invVideo) {
             if (invVideo.title) title = invVideo.title;
             if (invVideo.author) uploader = invVideo.author;
@@ -104,7 +106,7 @@ export async function generateMetadata({ searchParams }: WatchPageProps): Promis
 
 export default function WatchPage() {
     return (
-        <Suspense fallback={<LoadingSpinner fullScreen text="Loading video..." />}>
+        <Suspense fallback={<LoadingSpinner fullScreen text="Resolving video stream..." />}>
             <ClientWatchPage />
         </Suspense>
     );

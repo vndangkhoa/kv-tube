@@ -15,6 +15,7 @@ const EN: RegionContent = {
   trending: 'trending videos 2026',
   categories: {
     Music: 'official music video top hits',
+    'Youth music': 'youth pop music top hits',
     Gaming: 'gaming walkthrough gameplay highlights',
     Movies: 'movie official trailers teaser',
     News: 'news today breaking live',
@@ -56,6 +57,7 @@ const REGION_CONTENT: Record<string, RegionContent> = {
     trending: 'video thịnh hành việt nam',
     categories: {
       Music: 'nhạc trẻ hay 2026 official mv',
+      'Youth music': 'nhạc trẻ thịnh hành hay nhất',
       Gaming: 'game gameplay highlights việt nam',
       Movies: 'trailer phim việt nam chiếu rạp teaser',
       News: 'tin tức 24h việt nam thời sự',
@@ -90,6 +92,7 @@ const REGION_CONTENT: Record<string, RegionContent> = {
     trending: '急上昇 動画 日本',
     categories: {
       Music: '音楽 MV 2026 最新',
+      'Youth music': 'J-POP 最新 ヒット MV',
       Gaming: 'ゲーム実況 プレイ動画',
       Movies: '映画 予告編 公式',
       News: 'ニュース 最新 速報',
@@ -122,6 +125,7 @@ const REGION_CONTENT: Record<string, RegionContent> = {
     trending: '인기 급상승 동영상 한국',
     categories: {
       Music: '케이팝 음악 2026 K-POP MV',
+      'Youth music': '케이팝 인기곡 최신 MV',
       Gaming: '게임 방송 하이라이트',
       Movies: '영화 공식 예고편 티저',
       News: '뉴스 속보 헤드라인',
@@ -154,6 +158,7 @@ const REGION_CONTENT: Record<string, RegionContent> = {
     trending: 'trending videos india',
     categories: {
       Music: 'hindi songs top hits 2026',
+      'Youth music': 'hindi youth songs trending',
       Gaming: 'gaming india gameplay',
       Movies: 'official movie trailer bollywood',
       News: 'hindi news today live',
