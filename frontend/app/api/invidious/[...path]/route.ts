@@ -48,10 +48,28 @@ function isLoopback(urlStr?: string | null): boolean {
   }
 }
 
+function isSelfOrFrontend(urlStr?: string | null, req?: NextRequest): boolean {
+  if (!urlStr) return true;
+  try {
+    if (isLoopback(urlStr)) return true;
+    const u = new URL(urlStr.startsWith('http') ? urlStr : `https://${urlStr}`);
+    const targetHost = u.hostname.toLowerCase();
+    if (req) {
+      const hostHeader = (req.headers.get('x-forwarded-host') || req.headers.get('host') || req.nextUrl.host || '').toLowerCase().split(':')[0];
+      if (hostHeader && targetHost === hostHeader) return true;
+      if (req.nextUrl.hostname && targetHost === req.nextUrl.hostname.toLowerCase()) return true;
+    }
+    if (targetHost.startsWith('ut.')) return true;
+  } catch {
+    return true;
+  }
+  return false;
+}
+
 async function handleProxy(req: NextRequest, pathParts: string[]) {
   const customInstance = req.headers.get('x-invidious-instance');
   const validCustomInstance =
-    customInstance && customInstance.startsWith('http') && !isLoopback(customInstance)
+    customInstance && customInstance.startsWith('http') && !isSelfOrFrontend(customInstance, req)
       ? customInstance
       : null;
 

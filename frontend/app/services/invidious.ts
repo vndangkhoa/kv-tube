@@ -331,7 +331,12 @@ export class InvidiousService {
         };
         if (isBrowser && isRelative && this.instanceUrl) {
           const isLoopback = /^(https?:\/\/)?(127\.0\.0\.1|localhost|0\.0\.0\.0)(:\d+)?$/i.test(this.instanceUrl);
-          if (!isLoopback) {
+          let isSameOrigin = false;
+          try {
+            const u = new URL(this.instanceUrl.startsWith('http') ? this.instanceUrl : `https://${this.instanceUrl}`);
+            isSameOrigin = u.host.toLowerCase() === window.location.host.toLowerCase() || u.hostname.toLowerCase().startsWith('ut.');
+          } catch {}
+          if (!isLoopback && !isSameOrigin) {
             reqHeaders['x-invidious-instance'] = this.instanceUrl;
           }
         }
