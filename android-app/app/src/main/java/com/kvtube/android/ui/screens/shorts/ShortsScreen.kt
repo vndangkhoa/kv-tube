@@ -86,15 +86,20 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.hilt.navigation.compose.hiltViewModel
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.source.MergingMediaSource
 import androidx.media3.exoplayer.source.ProgressiveMediaSource
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
 import androidx.navigation.NavController
 import coil3.compose.AsyncImage
+import com.kvtube.android.data.model.ExtractedStream
 import com.kvtube.android.data.model.VideoData
 import com.kvtube.android.ui.components.ChannelAvatar
 import com.kvtube.android.ui.navigation.Screen
@@ -159,6 +164,11 @@ fun ShortsScreen(
 
     val pagerState = rememberPagerState(pageCount = { uiState.videos.size })
 
+    // Pause any background audio/video when entering the Shorts tab
+    LaunchedEffect(Unit) {
+        viewModel.onShortsVisible()
+    }
+
     // Re-tapping the Shorts tab jumps back to the first short
     LaunchedEffect(Unit) {
         TabReselect.events.collect { route ->
@@ -170,6 +180,13 @@ fun ShortsScreen(
     LaunchedEffect(pagerState.currentPage) {
         if (commentsState.isSheetOpen) {
             viewModel.closeComments()
+        }
+    }
+
+    // Infinite scroll: auto load more when near the end of current list
+    LaunchedEffect(pagerState.currentPage, uiState.videos.size) {
+        if (uiState.videos.isNotEmpty() && pagerState.currentPage >= uiState.videos.size - 3) {
+            viewModel.loadMoreShorts()
         }
     }
 
@@ -188,7 +205,7 @@ fun ShortsScreen(
             ShortVideoItem(
                 video = video,
                 isCurrentPage = isCurrentPage,
-                onGetStreamUrl = { viewModel.getStreamUrl(video.id) },
+                onGetStream = { viewModel.getStream(video.id) },
                 onCommentsClick = { viewModel.openComments(video.id) },
                 onChannelClick = { channelId ->
                     navController.navigate(Screen.Channel.createRoute(channelId))
@@ -358,12 +375,13 @@ fun ShortsScreen(
 private fun ShortVideoItem(
     video: VideoData,
     isCurrentPage: Boolean,
-    onGetStreamUrl: suspend () -> String,
+    onGetStream: suspend () -> ExtractedStream,
     onCommentsClick: () -> Unit,
     onChannelClick: (String) -> Unit
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    val lifecycleOwner = LocalLifecycleOwner.current
 
     var isLiked by remember { mutableStateOf(false) }
     var isDisliked by remember { mutableStateOf(false) }
@@ -393,30 +411,76 @@ private fun ShortVideoItem(
         }
     }
 
+    // Reveal video seamlessly only when first frame is decoded & rendered
+    DisposableEffect(exoPlayer) {
+        val listener = object : Player.Listener {
+            override fun onRenderedFirstFrame() {
+                isVideoReady = true
+            }
+
+            override fun onPlaybackStateChanged(state: Int) {
+                if (state == Player.STATE_READY) {
+                    isVideoReady = true
+                }
+            }
+        }
+        exoPlayer.addListener(listener)
+        onDispose {
+            exoPlayer.removeListener(listener)
+            exoPlayer.release()
+        }
+    }
+
+    // Lifecycle observer: pause playback when backgrounded, resume when active
+    DisposableEffect(lifecycleOwner, isCurrentPage) {
+        val observer = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_PAUSE,
+                Lifecycle.Event.ON_STOP -> {
+                    exoPlayer.pause()
+                }
+                Lifecycle.Event.ON_RESUME -> {
+                    if (isCurrentPage && isPlaying) {
+                        exoPlayer.play()
+                    }
+                }
+                else -> {}
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
+    }
+
     LaunchedEffect(isCurrentPage) {
         if (isCurrentPage) {
             isVideoReady = false
-            val resolvedUrl = onGetStreamUrl()
-            if (resolvedUrl.isNotBlank()) {
+            val stream = onGetStream()
+            if (stream.videoUrl.isNotBlank()) {
                 val dataSourceFactory = DefaultHttpDataSource.Factory()
-                val mediaSource = ProgressiveMediaSource.Factory(dataSourceFactory)
-                    .createMediaSource(MediaItem.fromUri(Uri.parse(resolvedUrl)))
+                    .setUserAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+                    .setConnectTimeoutMs(12_000)
+                    .setReadTimeoutMs(15_000)
+                    .setAllowCrossProtocolRedirects(true)
+                val videoSource = ProgressiveMediaSource.Factory(dataSourceFactory)
+                    .createMediaSource(MediaItem.fromUri(Uri.parse(stream.videoUrl)))
+                val mediaSource = if (!stream.audioUrl.isNullOrBlank()) {
+                    val audioSource = ProgressiveMediaSource.Factory(dataSourceFactory)
+                        .createMediaSource(MediaItem.fromUri(Uri.parse(stream.audioUrl)))
+                    MergingMediaSource(videoSource, audioSource)
+                } else {
+                    videoSource
+                }
                 exoPlayer.setMediaSource(mediaSource)
                 exoPlayer.prepare()
                 exoPlayer.playWhenReady = true
                 isPlaying = true
-                isVideoReady = true
             }
         } else {
             exoPlayer.pause()
             exoPlayer.stop()
             isVideoReady = false
-        }
-    }
-
-    DisposableEffect(Unit) {
-        onDispose {
-            exoPlayer.release()
         }
     }
 

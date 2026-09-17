@@ -6,9 +6,11 @@ import androidx.lifecycle.viewModelScope
 import com.kvtube.android.data.extractor.ExtractorHelper
 import com.kvtube.android.data.local.SettingsDataStore
 import com.kvtube.android.data.model.Comment
+import com.kvtube.android.data.model.ExtractedStream
 import com.kvtube.android.data.model.Quality
 import com.kvtube.android.data.model.VideoData
 import com.kvtube.android.data.repository.VideoRepository
+import com.kvtube.android.player.PlaybackManager
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
@@ -21,7 +23,8 @@ import javax.inject.Inject
 
 data class ShortsUiState(
     val videos: List<VideoData> = emptyList(),
-    val isLoading: Boolean = true
+    val isLoading: Boolean = true,
+    val isLoadingMore: Boolean = false
 )
 
 data class ShortsCommentsState(
@@ -39,7 +42,8 @@ data class ShortsCommentsState(
 class ShortsViewModel @Inject constructor(
     private val videoRepository: VideoRepository,
     private val settingsDataStore: SettingsDataStore,
-    private val extractorHelper: ExtractorHelper
+    private val extractorHelper: ExtractorHelper,
+    private val playbackManager: PlaybackManager
 ) : ViewModel() {
 
     companion object {
@@ -62,28 +66,54 @@ class ShortsViewModel @Inject constructor(
         }
     }
 
+    fun onShortsVisible() {
+        if (playbackManager.player.isPlaying) {
+            playbackManager.player.pause()
+        }
+    }
+
     fun refresh() {
         loadShorts()
     }
 
-    suspend fun getStreamUrl(videoId: String): String {
+    suspend fun getStream(videoId: String): ExtractedStream {
         return try {
-            // 1. Fast on-device extraction first (~300ms)
+            // 1. Fast on-device extraction first (~300ms) with full audio/video stream support
             val extracted = extractorHelper.extractStreamUrl(videoId, Quality.RECOMMENDED)
             if (extracted.videoUrl.isNotBlank()) {
-                return extracted.videoUrl
+                return extracted
             }
-            // 2. Server playback fallback with 2s timeout
-            val playback = kotlinx.coroutines.withTimeoutOrNull(2000L) {
+            // 2. Server playback fallback with 2.5s timeout
+            val playback = kotlinx.coroutines.withTimeoutOrNull(2500L) {
                 runCatching { videoRepository.getPlaybackInfo(videoId) }.getOrNull()
             }
-            val progressive = playback?.videoFormats?.firstOrNull { it.hasAudio && it.url.isNotEmpty() }
-            progressive?.url ?: ""
+            if (playback != null) {
+                val progressive = playback.videoFormats.firstOrNull { it.hasAudio && it.url.isNotEmpty() }
+                if (progressive != null) {
+                    return ExtractedStream(
+                        videoUrl = progressive.url,
+                        height = progressive.height,
+                        isDash = false
+                    )
+                }
+                val videoFormat = playback.videoFormats.firstOrNull { it.url.isNotEmpty() }
+                if (videoFormat != null) {
+                    return ExtractedStream(
+                        videoUrl = videoFormat.url,
+                        audioUrl = playback.audioFormat?.url,
+                        height = videoFormat.height,
+                        isDash = !playback.audioFormat?.url.isNullOrBlank()
+                    )
+                }
+            }
+            ExtractedStream(videoUrl = "")
         } catch (e: Exception) {
             Log.w(TAG, "Failed to resolve stream for short $videoId: ${e.message}")
-            ""
+            ExtractedStream(videoUrl = "")
         }
     }
+
+    suspend fun getStreamUrl(videoId: String): String = getStream(videoId).videoUrl
 
     fun openComments(videoId: String) {
         // If already open for this exact video and comments are loaded, just ensure sheet is open
@@ -157,7 +187,15 @@ class ShortsViewModel @Inject constructor(
             try {
                 _uiState.value = _uiState.value.copy(isLoading = true)
                 val query = if (currentRegion == "VN") "#shorts việt nam trending" else "#shorts trending"
-                val videos = videoRepository.search(query, 20, currentRegion)
+                var videos = videoRepository.search(query, 25, currentRegion)
+                if (videos.isEmpty()) {
+                    videos = extractorHelper.searchVideos(query)
+                }
+                if (videos.isEmpty()) {
+                    videos = videoRepository.getTrending(25, currentRegion).ifEmpty {
+                        extractorHelper.getTrendingVideos()
+                    }
+                }
                 _uiState.value = ShortsUiState(
                     videos = videos,
                     isLoading = false
@@ -165,7 +203,35 @@ class ShortsViewModel @Inject constructor(
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
+                Log.w(TAG, "Error loading shorts: ${e.message}")
                 _uiState.value = ShortsUiState(isLoading = false)
+            }
+        }
+    }
+
+    fun loadMoreShorts() {
+        if (_uiState.value.isLoadingMore || _uiState.value.isLoading) return
+        viewModelScope.launch {
+            _uiState.value = _uiState.value.copy(isLoadingMore = true)
+            try {
+                val query = if (currentRegion == "VN") "#shorts việt nam" else "#shorts viral trending"
+                var moreVideos = videoRepository.search(query, 20, currentRegion)
+                if (moreVideos.isEmpty()) {
+                    moreVideos = extractorHelper.searchVideos(query)
+                }
+                val existingIds = _uiState.value.videos.map { it.id }.toSet()
+                val distinctMore = moreVideos.filter { it.id !in existingIds }
+                if (distinctMore.isNotEmpty()) {
+                    _uiState.value = _uiState.value.copy(
+                        videos = _uiState.value.videos + distinctMore,
+                        isLoadingMore = false
+                    )
+                } else {
+                    _uiState.value = _uiState.value.copy(isLoadingMore = false)
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Failed to load more shorts: ${e.message}")
+                _uiState.value = _uiState.value.copy(isLoadingMore = false)
             }
         }
     }
