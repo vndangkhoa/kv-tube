@@ -4,6 +4,8 @@ import android.net.Uri
 import android.util.Log
 import com.squareup.moshi.Moshi
 import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -49,12 +51,11 @@ object TvPairApi {
 
     private fun candidateUrls(baseUrl: String): List<String> {
         val list = mutableListOf<String>()
+        // The KV-Tube web frontend hosts the tv-pair service
+        list.add(PRIMARY_BASE_URL)
         val norm = normalizeUrl(baseUrl)
-        if (norm.isNotBlank()) {
+        if (norm.isNotBlank() && !list.contains(norm)) {
             list.add(norm)
-        }
-        if (!list.contains(PRIMARY_BASE_URL)) {
-            list.add(PRIMARY_BASE_URL)
         }
         return list
     }
@@ -72,8 +73,8 @@ object TvPairApi {
         return s
     }
 
-    /** Asks the frontend for a fresh pairing code (6 chars, ~15 min TTL). */
-    fun createCode(baseUrl: String): String {
+    /** Asks the frontend for a fresh pairing code (6 chars, ~15 min TTL). Safe for coroutines. */
+    suspend fun createCode(baseUrl: String): String = withContext(Dispatchers.IO) {
         val urls = candidateUrls(baseUrl)
         var lastErr: Exception? = null
 
@@ -87,24 +88,25 @@ object TvPairApi {
                     .header("User-Agent", "Mozilla/5.0 (Linux; Android TV) KV-Tube TV")
                     .build()
                 client.newCall(req).execute().use { resp ->
-                    if (resp.isSuccessful) {
+                    val contentType = resp.header("Content-Type")?.lowercase().orEmpty()
+                    if (resp.isSuccessful && contentType.contains("application/json")) {
                         val text = resp.body?.string().orEmpty()
                         val code = moshi.adapter(CreateResp::class.java).lenient()
                             .fromJson(text)?.code?.takeIf { it.isNotBlank() }
-                        if (code != null) return code
+                        if (code != null) return@withContext code
                     } else {
-                        Log.w(TAG, "createCode on $base returned HTTP ${resp.code}")
+                        Log.w(TAG, "createCode on $base returned HTTP ${resp.code}, contentType=$contentType")
                     }
                 }
             } catch (e: Exception) {
-                Log.w(TAG, "createCode failed on $base: ${e.message}")
+                Log.w(TAG, "createCode failed on $base: ${e.message}", e)
                 lastErr = e
             }
         }
         throw (lastErr ?: IOException("Could not reach pairing service on any server"))
     }
 
-    fun checkStatus(baseUrl: String, code: String): Status {
+    suspend fun checkStatus(baseUrl: String, code: String): Status = withContext(Dispatchers.IO) {
         val urls = candidateUrls(baseUrl)
         for (base in urls) {
             try {
@@ -116,11 +118,12 @@ object TvPairApi {
                     .header("User-Agent", "Mozilla/5.0 (Linux; Android TV) KV-Tube TV")
                     .build()
                 client.newCall(req).execute().use { resp ->
-                    if (resp.isSuccessful) {
+                    val contentType = resp.header("Content-Type")?.lowercase().orEmpty()
+                    if (resp.isSuccessful && contentType.contains("application/json")) {
                         val text = resp.body?.string().orEmpty()
                         val s = moshi.adapter(StatusResp::class.java).lenient().fromJson(text)
                         if (s != null && s.status != null) {
-                            return when {
+                            return@withContext when {
                                 s.status == "linked" -> Status.Paired(Linked(s.instanceUrl, s.token))
                                 s.status == "expired" || s.status == "consumed" -> Status.Expired
                                 else -> Status.Waiting
@@ -129,9 +132,9 @@ object TvPairApi {
                     }
                 }
             } catch (e: Exception) {
-                Log.w(TAG, "checkStatus error on $base: ${e.message}")
+                Log.w(TAG, "checkStatus error on $base: ${e.message}", e)
             }
         }
-        return Status.Waiting
+        Status.Waiting
     }
 }

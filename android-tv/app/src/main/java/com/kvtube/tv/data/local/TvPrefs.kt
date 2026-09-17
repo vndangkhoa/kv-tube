@@ -14,7 +14,7 @@ class TvPrefs(private val context: Context) {
         val KEY_TOKEN = stringPreferencesKey("kv_invidious_token")
         val KEY_THEME = stringPreferencesKey("kv_tv_theme") // default | youtube
 
-        const val DEFAULT_INSTANCE = "https://yt.khoavo.myds.me"
+        const val DEFAULT_INSTANCE = "https://invidious.khoavo.myds.me"
     }
 
     val instanceUrl: Flow<String> = context.tvDataStore.data.map { it[KEY_INSTANCE]?.trim()?.removeSuffix("/")?.ifBlank { DEFAULT_INSTANCE } ?: DEFAULT_INSTANCE }

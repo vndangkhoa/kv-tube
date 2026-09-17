@@ -9,9 +9,13 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -23,6 +27,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
+import androidx.tv.foundation.lazy.list.TvLazyRow
+import androidx.tv.foundation.lazy.list.items
+import com.kvtube.tv.ui.components.YtTvVideoCard
+import coil.compose.AsyncImage
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
@@ -75,47 +83,52 @@ fun PlayerScreen(
     val ctx = LocalContext.current
     val state by vm.state.collectAsState()
 
-    // Force DASH 4K selection even on 1080p display (emulator) — user wants 4K for all
-    val trackSelector = remember {
-        DefaultTrackSelector(ctx).apply {
-            setParameters(
-                buildUponParameters()
-                    .setMaxVideoSize(3840, 2160)
-                    .setMaxVideoBitrate(Int.MAX_VALUE)
-                    .setForceHighestSupportedBitrate(true)
-            )
-        }
-    }
-    val exo = remember {
-        val loadControl = DefaultLoadControl.Builder()
-            .setBufferDurationsMs(60_000, 120_000, 2500, 5000)
-            .setBackBuffer(30_000, true)
-            .setPrioritizeTimeOverSizeThresholds(true)
-            .build()
-        ExoPlayer.Builder(ctx)
-            .setTrackSelector(trackSelector)
-            .setLoadControl(loadControl)
-            .setSeekForwardIncrementMs(10000)
-            .setSeekBackIncrementMs(10000)
-            .build()
-    }
+    val playbackManager = remember { com.kvtube.tv.player.TvPlaybackManager.getInstance(ctx) }
+    val exo = playbackManager.player
 
     var isPlaying by remember { mutableStateOf(false) }
     var currentPosition by remember { mutableLongStateOf(0L) }
     var duration by remember { mutableLongStateOf(0L) }
-    var showControls by remember { mutableStateOf(true) }
+    var showControls by remember { mutableStateOf(false) }
+    var showRecommendations by remember { mutableStateOf(false) }
+    var countdownSeconds by remember { mutableIntStateOf(0) }
     var lastInteraction by remember { mutableLongStateOf(System.currentTimeMillis()) }
 
     val playButtonFocusRequester = remember { FocusRequester() }
     val backButtonFocusRequester = remember { FocusRequester() }
     val seekBarFocusRequester = remember { FocusRequester() }
+    val upNextFocusRequester = remember { FocusRequester() }
     val rootFocusRequester = remember { FocusRequester() }
 
     BackHandler(enabled = true) {
-        if (showControls) {
-            showControls = false
-        } else {
-            onBack()
+        when {
+            countdownSeconds > 0 -> countdownSeconds = 0
+            showRecommendations -> {
+                showRecommendations = false
+                showControls = true
+                try { playButtonFocusRequester.requestFocus() } catch (_: Exception) {}
+            }
+            showControls -> {
+                showControls = false
+            }
+            else -> {
+                onBack()
+            }
+        }
+    }
+
+    LaunchedEffect(countdownSeconds) {
+        if (countdownSeconds > 0) {
+            delay(1000)
+            if (countdownSeconds == 1) {
+                val next = state.recommended.firstOrNull()
+                countdownSeconds = 0
+                if (next != null) {
+                    vm.load(next.id)
+                }
+            } else {
+                countdownSeconds--
+            }
         }
     }
 
@@ -134,66 +147,16 @@ fun PlayerScreen(
         try {
             exo.stop()
             exo.clearMediaItems()
-            // Use YouTube UA for Invidious DASH/HLS as well (fixes 403 where googlevideo expects ANDROID/VISIONOS UA)
-            val httpFactory = DefaultHttpDataSource.Factory()
-                .setUserAgent("com.google.android.youtube/20.10.38 (Linux; U; Android 11) gzip")
-                .setConnectTimeoutMs(30_000)
-                .setReadTimeoutMs(60_000)
-                .setAllowCrossProtocolRedirects(true)
-                .setDefaultRequestProperties(mapOf("Referer" to "https://www.youtube.com/", "Origin" to "https://www.youtube.com"))
-            val dataSourceFactory = DefaultDataSource.Factory(ctx, httpFactory)
-            when (cfg) {
-                is PlayerViewModel.PlaybackConfig.Dash -> {
-                    val item = MediaItem.fromUri(cfg.url)
-                    val dashSource = DashMediaSource.Factory(dataSourceFactory).createMediaSource(item)
-                    exo.setMediaSource(dashSource)
-                }
-                is PlayerViewModel.PlaybackConfig.Hls -> {
-                    val item = MediaItem.fromUri(cfg.url)
-                    val hlsSource = HlsMediaSource.Factory(dataSourceFactory).createMediaSource(item)
-                    exo.setMediaSource(hlsSource)
-                }
-                is PlayerViewModel.PlaybackConfig.Progressive -> {
-                    val mime = vm.bestMime(cfg.url)
-                    val item = MediaItem.Builder().setUri(cfg.url).setMimeType(mime).build()
-                    exo.setMediaItem(item)
-                }
-                is PlayerViewModel.PlaybackConfig.Merged -> {
-                    // High-res DASH 4K via MpdGenerator — add Referer/Origin to fix 403 on googlevideo segments
-                    val bestV = vm.bestAdaptiveVideo(v)
-                    val bestA = vm.bestAdaptiveAudio(v)
-                    val httpFactory = DefaultHttpDataSource.Factory()
-                        .setUserAgent("com.google.android.youtube/20.10.38 (Linux; U; Android 11) gzip")
-                        .setAllowCrossProtocolRedirects(true)
-                        .setConnectTimeoutMs(30_000)
-                        .setReadTimeoutMs(60_000)
-                        .setDefaultRequestProperties(mapOf("Referer" to "https://www.youtube.com/", "Origin" to "https://www.youtube.com"))
-                    val dataSourceFactory = DefaultDataSource.Factory(ctx, httpFactory)
-                    val mpdFile = if (bestV != null && bestA != null) {
-                        MpdGenerator.generate(ctx, v.videoId, bestV, bestA, v.lengthSeconds)
-                    } else null
-                    if (mpdFile != null && mpdFile.exists() && mpdFile.length() > 100) {
-                        val dashSource = DashMediaSource.Factory(dataSourceFactory)
-                            .createMediaSource(MediaItem.fromUri(Uri.fromFile(mpdFile)))
-                        exo.setMediaSource(dashSource)
-                    } else {
-                        val videoMime = bestV?.type?.substringBefore(";") ?: "video/mp4"
-                        val audioMime = bestA?.type?.substringBefore(";") ?: "audio/mp4"
-                        val videoItem = MediaItem.Builder().setUri(cfg.videoUrl).setMimeType(videoMime).build()
-                        val audioItem = MediaItem.Builder().setUri(cfg.audioUrl).setMimeType(audioMime).build()
-                        val ytDataSource = DefaultDataSource.Factory(ctx, httpFactory)
-                        val videoSource = ProgressiveMediaSource.Factory(ytDataSource).createMediaSource(videoItem)
-                        val audioSource = ProgressiveMediaSource.Factory(ytDataSource).createMediaSource(audioItem)
-                        exo.setMediaSource(MergingMediaSource(videoSource, audioSource))
-                    }
-                }
-                is PlayerViewModel.PlaybackConfig.Unavailable -> {
-                    playerError = "No playable stream (Invidious only). Try another video."
-                    return
-                }
+            val bestV = vm.bestAdaptiveVideo(v)
+            val bestA = vm.bestAdaptiveAudio(v)
+            val mediaSource = playbackManager.buildMediaSource(ctx, v, cfg, bestV, bestA, vm::bestMime)
+            if (mediaSource != null) {
+                exo.setMediaSource(mediaSource)
+                exo.prepare()
+                exo.playWhenReady = true
+            } else {
+                playerError = "No playable stream found. Try another video."
             }
-            exo.prepare()
-            exo.playWhenReady = true
         } catch (e: Exception) {
             playerError = "Failed to start playback: ${e.message}"
         }
@@ -248,6 +211,13 @@ fun PlayerScreen(
                         }
                     }
                 } catch (_: Exception) {}
+            }
+            override fun onPlaybackStateChanged(playbackState: Int) {
+                if (playbackState == Player.STATE_ENDED) {
+                    if (state.recommended.isNotEmpty()) {
+                        countdownSeconds = 5
+                    }
+                }
             }
             override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
                 android.util.Log.e("PlayerScreen", "ExoPlayer error: ${error.message} code=${error.errorCodeName} cause=${error.cause?.message}", error)
@@ -307,7 +277,7 @@ fun PlayerScreen(
 
     LaunchedEffect(showControls, lastInteraction) {
         if (showControls) {
-            delay(5000)
+            delay(4000)
             showControls = false
         }
     }
@@ -321,7 +291,7 @@ fun PlayerScreen(
                     vm.updateProgress(pos, dur)
                 }
             } catch (_: Exception) {}
-            exo.release()
+            playbackManager.reset()
         }
     }
 
@@ -381,8 +351,32 @@ fun PlayerScreen(
                     },
                     modifier = Modifier.fillMaxSize(),
                 )
+                // Smooth thumbnail backdrop during initial buffering — fades out once playback begins
                 AnimatedVisibility(
-                    visible = showControls,
+                    visible = !isPlaying && playerError == null,
+                    enter = fadeIn(),
+                    exit = fadeOut(),
+                    modifier = Modifier.fillMaxSize()
+                ) {
+                    Box(Modifier.fillMaxSize().background(Color.Black), contentAlignment = Alignment.Center) {
+                        val thumb = state.video?.videoThumbnails?.firstOrNull()?.url
+                            ?: "https://i.ytimg.com/vi/$videoId/hqdefault.jpg"
+                        AsyncImage(
+                            model = thumb,
+                            contentDescription = null,
+                            modifier = Modifier.fillMaxSize(),
+                            contentScale = androidx.compose.ui.layout.ContentScale.Crop
+                        )
+                        Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.5f)))
+                        androidx.compose.material3.CircularProgressIndicator(
+                            color = Color.White,
+                            strokeWidth = 3.dp,
+                            modifier = Modifier.size(48.dp)
+                        )
+                    }
+                }
+                AnimatedVisibility(
+                    visible = showControls && !showRecommendations,
                     enter = fadeIn(),
                     exit = fadeOut(),
                     modifier = Modifier.fillMaxSize()
@@ -391,7 +385,7 @@ fun PlayerScreen(
                         try { playButtonFocusRequester.requestFocus() } catch (_: Exception) {}
                     }
                     PlayerControlsOverlay(
-                        videoTitle = state.video?.title ?: "",
+                        video = state.video,
                         qualityBadge = qualityBadge,
                         isPlaying = isPlaying,
                         currentPosition = currentPosition,
@@ -401,10 +395,150 @@ fun PlayerScreen(
                         onRewind = { exo.seekBack() },
                         onForward = { exo.seekForward() },
                         onBack = onBack,
+                        onShowRecommendations = {
+                            showRecommendations = true
+                            showControls = false
+                        },
                         playButtonFocusRequester = playButtonFocusRequester,
                         backButtonFocusRequester = backButtonFocusRequester,
                         seekBarFocusRequester = seekBarFocusRequester
                     )
+                }
+
+                // In-Player "Up Next" Shelf (D-pad DOWN Drawer)
+                AnimatedVisibility(
+                    visible = showRecommendations,
+                    enter = slideInVertically(initialOffsetY = { it }) + fadeIn(),
+                    exit = slideOutVertically(targetOffsetY = { it }) + fadeOut(),
+                    modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth()
+                ) {
+                    LaunchedEffect(Unit) {
+                        try { upNextFocusRequester.requestFocus() } catch (_: Exception) {}
+                    }
+                    Column(
+                        Modifier
+                            .fillMaxWidth()
+                            .background(
+                                Brush.verticalGradient(
+                                    colors = listOf(Color.Transparent, Color.Black.copy(0.85f), Color.Black)
+                                )
+                            )
+                            .padding(top = 16.dp, bottom = 24.dp)
+                    ) {
+                        Row(
+                            Modifier.fillMaxWidth().padding(horizontal = 32.dp, vertical = 6.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                Text(
+                                    text = "Up Next",
+                                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold, fontSize = 18.sp),
+                                    color = Color.White
+                                )
+                                Box(
+                                    Modifier
+                                        .clip(RoundedCornerShape(4.dp))
+                                        .background(Color.White.copy(0.15f))
+                                        .padding(horizontal = 8.dp, vertical = 2.dp)
+                                ) {
+                                    Text("Press UP to return to player", color = Color(0xFFCCCCCC), style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp))
+                                }
+                            }
+                            if (state.recommended.isNotEmpty()) {
+                                Text(
+                                    "${state.recommended.size} videos",
+                                    color = Color(0xFFAAAAAA),
+                                    style = MaterialTheme.typography.bodySmall
+                                )
+                            }
+                        }
+                        if (state.recommended.isEmpty()) {
+                            Box(Modifier.fillMaxWidth().padding(32.dp), contentAlignment = Alignment.Center) {
+                                Text("Loading recommendations…", color = Color(0xFFAAAAAA))
+                            }
+                        } else {
+                            TvLazyRow(
+                                contentPadding = PaddingValues(horizontal = 32.dp),
+                                horizontalArrangement = Arrangement.spacedBy(16.dp),
+                                modifier = Modifier.focusRequester(upNextFocusRequester)
+                            ) {
+                                items(state.recommended, key = { it.id }) { rv ->
+                                    YtTvVideoCard(
+                                        video = rv,
+                                        onClick = {
+                                            showRecommendations = false
+                                            triedInnerTubeFallback = false
+                                            fallbackIndex = 0
+                                            vm.load(rv.id)
+                                        },
+                                        modifier = Modifier.onKeyEvent { keyEvent ->
+                                            if (keyEvent.type == KeyEventType.KeyDown && keyEvent.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_DPAD_UP) {
+                                                showRecommendations = false
+                                                showControls = true
+                                                try { playButtonFocusRequester.requestFocus() } catch (_: Exception) {}
+                                                true
+                                            } else false
+                                        }
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Autoplay Next Video Countdown
+                AnimatedVisibility(
+                    visible = countdownSeconds > 0,
+                    enter = fadeIn(),
+                    exit = fadeOut(),
+                    modifier = Modifier.align(Alignment.Center)
+                ) {
+                    val nextVid = state.recommended.firstOrNull()
+                    Box(
+                        Modifier
+                            .clip(RoundedCornerShape(16.dp))
+                            .background(Color(0xFF1E1E1E).copy(alpha = 0.95f))
+                            .border(2.dp, Color.White.copy(0.3f), RoundedCornerShape(16.dp))
+                            .padding(28.dp)
+                    ) {
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(16.dp)
+                        ) {
+                            Text(
+                                "Up next in $countdownSeconds seconds",
+                                color = Color.White,
+                                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold, fontSize = 20.sp)
+                            )
+                            if (nextVid != null) {
+                                Text(
+                                    nextVid.title,
+                                    color = Color(0xFFE0E0E0),
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    maxLines = 2,
+                                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                                )
+                            }
+                            Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                                androidx.tv.material3.Button(
+                                    onClick = {
+                                        val n = state.recommended.firstOrNull()
+                                        countdownSeconds = 0
+                                        if (n != null) vm.load(n.id)
+                                    },
+                                    colors = androidx.tv.material3.ButtonDefaults.colors(containerColor = Color.White, contentColor = Color.Black)
+                                ) {
+                                    Text("Play Now", fontWeight = FontWeight.Bold)
+                                }
+                                androidx.tv.material3.OutlinedButton(
+                                    onClick = { countdownSeconds = 0 }
+                                ) {
+                                    Text("Cancel", color = Color.White)
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -414,7 +548,7 @@ fun PlayerScreen(
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
 private fun PlayerControlsOverlay(
-    videoTitle: String,
+    video: com.kvtube.tv.data.model.InvidiousVideo?,
     qualityBadge: String? = null,
     isPlaying: Boolean,
     currentPosition: Long,
@@ -424,6 +558,7 @@ private fun PlayerControlsOverlay(
     onRewind: () -> Unit,
     onForward: () -> Unit,
     onBack: () -> Unit,
+    onShowRecommendations: () -> Unit,
     playButtonFocusRequester: FocusRequester,
     backButtonFocusRequester: FocusRequester,
     seekBarFocusRequester: FocusRequester
@@ -433,7 +568,7 @@ private fun PlayerControlsOverlay(
             .fillMaxSize()
             .background(
                 Brush.verticalGradient(
-                    colors = listOf(Color.Black.copy(0.7f), Color.Transparent, Color.Black.copy(0.85f))
+                    colors = listOf(Color.Black.copy(0.75f), Color.Transparent, Color.Black.copy(0.90f))
                 )
             )
             .padding(32.dp)
@@ -445,20 +580,53 @@ private fun PlayerControlsOverlay(
             ControlIconButton(
                 icon = Icons.AutoMirrored.Filled.ArrowBack,
                 onClick = onBack,
-                size = 56.dp,
+                size = 52.dp,
                 iconSize = 24.dp,
                 focusRequester = backButtonFocusRequester,
                 modifier = Modifier.focusProperties { down = playButtonFocusRequester }
             )
-            Spacer(Modifier.width(20.dp))
-            Text(
-                text = videoTitle,
-                style = MaterialTheme.typography.headlineMedium.copy(fontWeight = FontWeight.Bold),
-                color = Color.White,
-                maxLines = 1,
-                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f)
-            )
+            Spacer(Modifier.width(16.dp))
+            val avatarUrl = video?.authorThumbnails?.firstOrNull()?.url
+            if (!avatarUrl.isNullOrBlank()) {
+                AsyncImage(
+                    model = avatarUrl,
+                    contentDescription = null,
+                    modifier = Modifier
+                        .size(42.dp)
+                        .clip(CircleShape)
+                        .background(Color(0xFF2E2E2E)),
+                    contentScale = androidx.compose.ui.layout.ContentScale.Crop
+                )
+                Spacer(Modifier.width(12.dp))
+            }
+            Column(Modifier.weight(1f)) {
+                Text(
+                    text = video?.title ?: "",
+                    style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold, fontSize = 18.sp),
+                    color = Color.White,
+                    maxLines = 1,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                )
+                Spacer(Modifier.height(2.dp))
+                Text(
+                    text = buildString {
+                        video?.author?.let { append(it) }
+                        video?.viewCount?.takeIf { it > 0 }?.let {
+                            if (isNotEmpty()) append(" • ")
+                            append(when {
+                                it >= 1_000_000_000 -> "%.1fB views".format(it / 1_000_000_000.0)
+                                it >= 1_000_000 -> "%.1fM views".format(it / 1_000_000.0)
+                                it >= 1_000 -> "%.1fK views".format(it / 1_000.0)
+                                else -> "$it views"
+                            })
+                        }
+                        video?.publishedText?.let { if (it.isNotBlank()) { if (isNotEmpty()) append(" • "); append(it) } }
+                    },
+                    style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp, color = Color(0xFFAAAAAA)),
+                    maxLines = 1,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                )
+            }
             if (qualityBadge != null) {
                 Spacer(Modifier.width(12.dp))
                 Box(
@@ -504,7 +672,7 @@ private fun PlayerControlsOverlay(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .fillMaxWidth()
-                .padding(bottom = 16.dp)
+                .padding(bottom = 12.dp)
         ) {
             Row(
                 Modifier.fillMaxWidth(),
@@ -514,14 +682,40 @@ private fun PlayerControlsOverlay(
                 Text(formatTimeMs(currentPosition), color = Color.White, style = MaterialTheme.typography.labelLarge)
                 Text(formatTimeMs(duration), color = Color.White.copy(0.7f), style = MaterialTheme.typography.labelLarge)
             }
-            Spacer(Modifier.height(12.dp))
+            Spacer(Modifier.height(8.dp))
             PlayerSeekBar(
                 currentPosition = currentPosition,
                 duration = duration,
                 onSeek = onSeek,
+                onDown = onShowRecommendations,
                 focusRequester = seekBarFocusRequester,
                 modifier = Modifier.focusProperties { up = playButtonFocusRequester }.padding(vertical = 4.dp)
             )
+            Spacer(Modifier.height(8.dp))
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.Center
+            ) {
+                Surface(
+                    onClick = onShowRecommendations,
+                    shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(20.dp)),
+                    colors = ClickableSurfaceDefaults.colors(
+                        containerColor = Color.White.copy(alpha = 0.12f),
+                        focusedContainerColor = Color.White,
+                        contentColor = Color.White,
+                        focusedContentColor = Color.Black
+                    )
+                ) {
+                    Row(
+                        Modifier.padding(horizontal = 16.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Icon(Icons.Default.KeyboardArrowDown, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Text("Up Next (Recommendations)", style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold, fontSize = 12.sp))
+                    }
+                }
+            }
         }
     }
 }
@@ -580,6 +774,7 @@ private fun PlayerSeekBar(
     currentPosition: Long,
     duration: Long,
     onSeek: (Long) -> Unit,
+    onDown: () -> Unit = {},
     modifier: Modifier = Modifier,
     focusRequester: FocusRequester
 ) {
@@ -601,6 +796,10 @@ private fun PlayerSeekBar(
                         }
                         KeyEvent.KEYCODE_DPAD_RIGHT -> {
                             onSeek((currentPosition + 10000).coerceAtMost(duration))
+                            true
+                        }
+                        KeyEvent.KEYCODE_DPAD_DOWN -> {
+                            onDown()
                             true
                         }
                         else -> false

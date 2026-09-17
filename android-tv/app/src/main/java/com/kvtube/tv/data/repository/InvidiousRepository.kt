@@ -8,6 +8,8 @@ import com.kvtube.tv.data.model.SearchResultItem
 import com.kvtube.tv.data.model.TvVideo
 import com.kvtube.tv.data.model.toTvVideo
 
+import kotlinx.coroutines.withTimeoutOrNull
+
 class InvidiousRepository {
     private val api get() = ApiClient.api
 
@@ -20,28 +22,36 @@ class InvidiousRepository {
         api.getPopular().map { it.toTvVideo() }
     } catch (_: Exception) { emptyList() }
 
-    suspend fun search(query: String, region: String = "VN", page: Int = 1, sortBy: String = "relevance"): List<TvVideo> = try {
-        api.search(query, page = page, region = region, type = "video", sortBy = sortBy).mapNotNull { it.toTvVideo() }
+    suspend fun search(
+        query: String,
+        region: String = "VN",
+        page: Int = 1,
+        sortBy: String = "relevance",
+        date: String? = null,
+    ): List<TvVideo> = try {
+        api.search(query, page = page, region = region, type = "video", sortBy = sortBy, date = date).mapNotNull { it.toTvVideo() }
     } catch (_: Exception) { emptyList() }
 
     suspend fun searchRaw(query: String): List<SearchResultItem> = try {
         api.search(query)
     } catch (_: Exception) { emptyList() }
 
-    // Resilient video fetch: try Invidious first, then fall back to direct InnerTube ANDROID client
+    // Resilient video fetch: try Invidious first with fast timeout, then fall back to direct InnerTube ANDROID client
     suspend fun video(videoId: String): InvidiousVideo {
         val id = videoId.trim()
         require(id.isNotBlank()) { "Empty videoId" }
         var lastInvidiousError: Exception? = null
         var invidiousVideo: InvidiousVideo? = null
         try {
-            invidiousVideo = try {
-                api.getVideo(id, local = true)
-            } catch (_: Exception) {
-                api.getVideo(id)
+            invidiousVideo = withTimeoutOrNull(2500) {
+                try {
+                    api.getVideo(id, local = true)
+                } catch (_: Exception) {
+                    api.getVideo(id)
+                }
             }
-            if (hasPlayableStreams(invidiousVideo)) return invidiousVideo
-            lastInvidiousError = IllegalStateException("Invidious returned no playable streams")
+            if (invidiousVideo != null && hasPlayableStreams(invidiousVideo)) return invidiousVideo
+            lastInvidiousError = IllegalStateException("Invidious returned no playable streams or timed out")
         } catch (e: Exception) {
             lastInvidiousError = e
         }

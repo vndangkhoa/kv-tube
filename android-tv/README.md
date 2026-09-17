@@ -34,7 +34,7 @@ android-tv/
 
 - Invidious: `../docker-compose.yml` → `invidious` + `companion` + `invidious-db`.  
   Web frontend proxies `/api/invidious/[...path]` → `INVIDIOUS_URL`.  
-  TV app talks directly to the Invidious instance (default `https://yt.khoavo.myds.me`, override in Settings).
+  TV app talks directly to the Invidious instance (default `https://invidious.khoavo.myds.me`, override in Settings).
 - Auth: `SID` / `Bearer {json}` token stored in DataStore, forwarded as `x-invidious-token` via proxy or direct.
 
 ## Build

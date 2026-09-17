@@ -181,6 +181,7 @@ data class TvVideo(
     val publishedText: String?,
     val avatarUrl: String?,
     val isLive: Boolean = false,
+    val published: Long = 0L,
 )
 
 fun InvidiousVideo.toTvVideo(): TvVideo {
@@ -206,6 +207,7 @@ fun InvidiousVideo.toTvVideo(): TvVideo {
         publishedText = publishedText,
         avatarUrl = fixThumbnailUrl(avatar),
         isLive = liveNow,
+        published = published ?: 0L,
     )
 }
 
@@ -226,6 +228,7 @@ fun SearchResultItem.toTvVideo(): TvVideo? {
         publishedText = publishedText,
         avatarUrl = fixThumbnailUrl(avatar),
         isLive = liveNow == true,
+        published = published ?: 0L,
     )
 }
 

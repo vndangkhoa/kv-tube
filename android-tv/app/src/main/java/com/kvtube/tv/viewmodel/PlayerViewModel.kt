@@ -1,20 +1,53 @@
 package com.kvtube.tv.viewmodel
 
+import android.util.LruCache
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.kvtube.tv.data.model.InvidiousVideo
 import com.kvtube.tv.data.repository.InvidiousRepository
+import com.kvtube.tv.data.model.TvVideo
+import com.kvtube.tv.data.model.toTvVideo
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 data class PlayerUiState(
     val video: InvidiousVideo? = null,
+    val recommended: List<TvVideo> = emptyList(),
     val isLoading: Boolean = true,
     val error: String? = null,
 )
 
 class PlayerViewModel : ViewModel() {
+    companion object {
+        // In-memory stream cache so replaying/re-entering is instant 0ms network latency
+        private val videoCache = LruCache<String, InvidiousVideo>(40)
+        private val repo = InvidiousRepository()
+        private val prefetchScope = kotlinx.coroutines.CoroutineScope(Dispatchers.IO + kotlinx.coroutines.SupervisorJob())
+
+        fun getCachedVideo(videoId: String): InvidiousVideo? = videoCache.get(videoId.trim())
+
+        fun putCachedVideo(videoId: String, video: InvidiousVideo) {
+            videoCache.put(videoId.trim(), video)
+        }
+
+        /**
+         * Pre-fetches stream metadata in the background when a card is focused on TV.
+         */
+        fun prefetch(videoId: String) {
+            val id = videoId.trim()
+            if (id.isBlank() || videoCache.get(id) != null) return
+            prefetchScope.launch {
+                try {
+                    val v = repo.video(id)
+                    videoCache.put(id, v)
+                } catch (_: Exception) {}
+            }
+        }
+    }
+
     private val repo = InvidiousRepository()
     private val historyRepo = com.kvtube.tv.data.repository.TvHistoryRepository.getInstance()
     private val _state = MutableStateFlow(PlayerUiState())
@@ -26,12 +59,42 @@ class PlayerViewModel : ViewModel() {
             _state.value = PlayerUiState(isLoading = false, error = "Video unavailable")
             return
         }
+
+        // Cache hit: Start playback immediately without network roundtrip
+        val cached = videoCache.get(id)
+        if (cached != null) {
+            _state.value = PlayerUiState(video = cached, isLoading = false)
+            // Fetch related and record watch in background
+            viewModelScope.launch {
+                historyRepo.recordWatch(cached)
+                val related = if (cached.recommendedVideos.isNotEmpty()) {
+                    cached.recommendedVideos.map { it.toTvVideo() }
+                } else {
+                    runCatching { repo.related(cached) }.getOrDefault(emptyList())
+                }
+                _state.value = _state.value.copy(recommended = related)
+            }
+            return
+        }
+
         viewModelScope.launch {
             _state.value = PlayerUiState(isLoading = true)
             try {
+                // 1. Fetch stream metadata
                 val v = repo.video(id)
+                videoCache.put(id, v)
+
+                // 2. Immediately emit video so ExoPlayer starts playing without waiting for recommendations
                 _state.value = PlayerUiState(video = v, isLoading = false)
                 historyRepo.recordWatch(v)
+
+                // 3. Fetch related videos asynchronously in background
+                val related = if (v.recommendedVideos.isNotEmpty()) {
+                    v.recommendedVideos.map { it.toTvVideo() }
+                } else {
+                    runCatching { repo.related(v) }.getOrDefault(emptyList())
+                }
+                _state.value = _state.value.copy(recommended = related)
             } catch (e: retrofit2.HttpException) {
                 val body = try { e.response()?.errorBody()?.string()?.take(500) } catch (_: Exception) { null }
                 val msg = body?.let { extractJsonError(it) } ?: body

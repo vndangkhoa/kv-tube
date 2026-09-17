@@ -1,5 +1,6 @@
 package com.kvtube.tv.ui.components
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -13,12 +14,8 @@ import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
-import androidx.compose.foundation.BorderStroke
 import androidx.tv.material3.*
-import com.kvtube.tv.ui.theme.YTBackground
 import com.kvtube.tv.ui.theme.YTBrandRed
-import com.kvtube.tv.ui.theme.YTChip
 
 data class NavItem(val route: String, val label: String, val icon: ImageVector)
 
@@ -30,8 +27,8 @@ val ytNavItems = listOf(
     NavItem("settings", "Settings", Icons.Filled.Settings),
 )
 
-// Always collapsed - 72dp icon-only rail, never expands. Full bleed content.
-private const val RAIL_WIDTH = 72
+// Fixed 72dp collapsed rail width. Always collapsed, never extends/overlays content.
+const val TV_NAV_RAIL_WIDTH = 72
 
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
@@ -39,19 +36,16 @@ fun YtSideNav(
     currentRoute: String?,
     onNavigate: (String) -> Unit,
     modifier: Modifier = Modifier,
-    expanded: Boolean = false,
-    onExpandChange: (Boolean) -> Unit = {},
 ) {
-    // Permanently collapsed - icon-only, always visible, never overlays content
     Column(
-        modifier
-            .width(RAIL_WIDTH.dp)
+        modifier = modifier
+            .width(TV_NAV_RAIL_WIDTH.dp)
             .fillMaxHeight()
-            .background(Color(0xFF1A1A1A))
+            .background(Color(0xFF141414))
             .padding(vertical = 20.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        // KV-Tube Logo at top
+        // KV-Tube Logo icon at top
         Box(
             modifier = Modifier
                 .size(44.dp)
@@ -64,20 +58,20 @@ fun YtSideNav(
                 imageVector = Icons.Filled.PlayArrow,
                 contentDescription = "KV-Tube",
                 tint = Color.White,
-                modifier = Modifier.size(34.dp)
+                modifier = Modifier.size(32.dp)
             )
         }
-        Spacer(Modifier.height(24.dp))
+
+        Spacer(Modifier.height(28.dp))
+
         ytNavItems.forEach { item ->
             val selected = currentRoute == item.route || (item.route == "home" && currentRoute == null)
             YtNavRailButton(
                 item = item,
-                expanded = false,
                 selected = selected,
-                onClick = { onNavigate(item.route) },
-                onFocusExpand = { },
+                onClick = { onNavigate(item.route) }
             )
-            Spacer(Modifier.height(8.dp))
+            Spacer(Modifier.height(10.dp))
         }
     }
 }
@@ -86,45 +80,40 @@ fun YtSideNav(
 @Composable
 private fun YtNavRailButton(
     item: NavItem,
-    expanded: Boolean,
     selected: Boolean,
     onClick: () -> Unit,
-    onFocusExpand: () -> Unit,
 ) {
     val shape = RoundedCornerShape(24.dp)
     var focused by remember { mutableStateOf(false) }
-    LaunchedEffect(focused) { if (focused) onFocusExpand() }
-    // keep expanded while any rail button focused; collapse handled by parent via timeout would be nicer —
-    // simplified: expand stays true after first focus until user moves far; acceptable for TV
+
     Surface(
         onClick = onClick,
         modifier = Modifier
-            .padding(horizontal = 8.dp)
-            .fillMaxWidth()
-            .height(44.dp)
+            .size(48.dp)
             .onFocusChanged { focused = it.isFocused },
         shape = ClickableSurfaceDefaults.shape(shape),
-        scale = ClickableSurfaceDefaults.scale(focusedScale = 1.02f),
+        scale = ClickableSurfaceDefaults.scale(focusedScale = 1.10f),
         colors = ClickableSurfaceDefaults.colors(
-            containerColor = Color.Transparent,
+            containerColor = if (selected && !focused) Color.White.copy(alpha = 0.12f) else Color.Transparent,
             focusedContainerColor = Color.White,
             contentColor = if (selected) Color.White else Color.White.copy(alpha = 0.6f),
             focusedContentColor = Color.Black,
         ),
         border = ClickableSurfaceDefaults.border(
-            border = Border(BorderStroke(1.dp, Color.White.copy(alpha = 0.10f))),
-            focusedBorder = Border(BorderStroke(1.dp, Color.White.copy(alpha = 0.9f))),
+            border = Border(BorderStroke(1.dp, if (selected) Color.White.copy(alpha = 0.25f) else Color.Transparent)),
+            focusedBorder = Border(BorderStroke(1.dp, Color.White)),
         ),
     ) {
-        Row(
-            Modifier.fillMaxSize().padding(horizontal = 14.dp),
-            verticalAlignment = Alignment.CenterVertically,
+        Box(
+            modifier = Modifier.fillMaxSize(),
+            contentAlignment = Alignment.Center
         ) {
-            Icon(item.icon, contentDescription = item.label, modifier = Modifier.size(22.dp), tint = if (focused) Color.Black else Color.White)
-            if (expanded) {
-                Spacer(Modifier.width(12.dp))
-                Text(item.label, color = if (focused) Color.Black else Color.White, style = MaterialTheme.typography.labelLarge.copy(fontSize = 13.sp, color = if (focused) Color.Black else Color.White), maxLines = 1)
-            }
+            Icon(
+                imageVector = item.icon,
+                contentDescription = item.label,
+                modifier = Modifier.size(22.dp),
+                tint = if (focused) Color.Black else if (selected) Color.White else Color.White.copy(alpha = 0.7f)
+            )
         }
     }
 }

@@ -43,6 +43,7 @@ interface InvidiousApi {
         @Query("q") query: String,
         @Query("page") page: Int = 1,
         @Query("sort_by") sortBy: String = "relevance",
+        @Query("date") date: String? = null,
         @Query("type") type: String = "all",
         @Query("region") region: String? = null,
     ): List<SearchResultItem>

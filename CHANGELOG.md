@@ -20,6 +20,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Added `ExploreTopicsShelf` and `InfiniteScrollTrigger` for infinite feed discovery.
 - **In-App Notifications**:
   - Added `useNotifications` hook for background notifications and updates.
+- **Android Phone (v1.7.5, versionCode 30) — Android Auto Support**:
+  - Implemented `MediaLibraryService` (`PlaybackService`) with automotive browsable hierarchy for in-car dashboard navigation.
+  - Added in-car browsing and instant playback for Offline Downloads, Subscriptions, and Watch History.
+  - Added playback resumption handler (`onPlaybackResumption`) on car head-unit reconnection.
+  - Added declarative automotive app descriptor (`automotive_app_desc.xml`) and upgraded to AndroidX `concurrent-futures-ktx`.
+- **Android TV (v1.1.3-tv, versionCode 6) — YouTube TV Polish & Direct Playback**:
+  - Integrated branded YouTube TV style boot splash and loading animation (`KvTubeLoadingScreen`).
+  - Restructured main layout to a fixed 72dp navigation rail eliminating layout shifts and D-pad focus flicker.
+  - Streamlined direct player routing from home, latest, search, and channel screens.
+  - Revamped `PlayerScreen` & `PlayerViewModel` with unified `TvPlaybackManager` for robust playback error handling.
+  - Polished D-pad focus states, badges, and card spacing on `YtTvVideoCard`.
 
 ### Changed & Improved
 - **Material 3 Redesign & Visual Polish**:

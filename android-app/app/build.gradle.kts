@@ -15,8 +15,8 @@ android {
         applicationId = "com.kvtube.android"
         minSdk = 21
         targetSdk = 34
-        versionCode = 29
-        versionName = "1.7.4"
+        versionCode = 30
+        versionName = "1.7.5"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -79,6 +79,8 @@ dependencies {
 
     // Core
     implementation(libs.core.ktx)
+    implementation(libs.concurrent.futures)
+    implementation(libs.concurrent.futures.ktx)
 
     // Compose BOM
     implementation(platform(libs.compose.bom))

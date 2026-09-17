@@ -43,20 +43,33 @@ class LatestViewModel : ViewModel() {
         refreshJob = viewModelScope.launch {
             _state.value = _state.value.copy(isLoading = true, error = null)
             try {
-                // Fetch latest videos across categories using upload_date sorting
-                val latest = async { repo.search("", region = defaultRegion, sortBy = "upload_date", page = (1..3).random()) }
-                val music = async { repo.search(com.kvtube.tv.data.VnRegionContent.queryFor("Music"), region = defaultRegion, sortBy = "upload_date", page = (1..2).random()) }
-                val gaming = async { repo.search(com.kvtube.tv.data.VnRegionContent.queryFor("Gaming"), region = defaultRegion, sortBy = "upload_date") }
-                val tech = async { repo.search(com.kvtube.tv.data.VnRegionContent.queryFor("Tech"), region = defaultRegion, sortBy = "upload_date") }
-                val comedy = async { repo.search(com.kvtube.tv.data.VnRegionContent.queryFor("Comedy"), region = defaultRegion, sortBy = "upload_date") }
-                val sports = async { repo.search(com.kvtube.tv.data.VnRegionContent.queryFor("Sports"), region = defaultRegion, sortBy = "upload_date") }
+                // Fetch genuinely latest videos across categories using upload_date and date filters
+                val latest = async { repo.search("tin tức việt nam mới nhất", region = defaultRegion, sortBy = "upload_date", date = "week") }
+                val music = async { repo.search("nhạc mới nhất", region = defaultRegion, sortBy = "upload_date", date = "week") }
+                val gaming = async { repo.search("game việt nam mới nhất", region = defaultRegion, sortBy = "upload_date", date = "week") }
+                val tech = async { repo.search("review công nghệ mới nhất", region = defaultRegion, sortBy = "upload_date", date = "month") }
+                val sports = async { repo.search("bóng đá việt nam mới nhất", region = defaultRegion, sortBy = "upload_date", date = "week") }
+                val comedy = async { repo.search("hài hước mới nhất", region = defaultRegion, sortBy = "upload_date", date = "month") }
 
-                val l = latest.await().shuffled()
-                val m = music.await().shuffled()
-                val g = gaming.await().shuffled()
-                val t = tech.await().shuffled()
-                val c = comedy.await().shuffled()
-                val s = sports.await().shuffled()
+                fun filterAndSort(list: List<TvVideo>): List<TvVideo> {
+                    return list
+                        .filter { v ->
+                            val txt = v.publishedText.orEmpty()
+                            // Exclude anything older than ~1-2 months or mentioning years ago
+                            !txt.contains("năm trước") &&
+                            !txt.contains("years ago") &&
+                            !txt.contains("year ago") &&
+                            !(txt.contains("tháng trước") && (txt.contains("3 ") || txt.contains("4 ") || txt.contains("5 ") || txt.contains("6 ") || txt.contains("7 ") || txt.contains("8 ") || txt.contains("9 ") || txt.contains("10 ") || txt.contains("11 ") || txt.contains("12 ")))
+                        }
+                        .sortedByDescending { it.published }
+                }
+
+                val l = filterAndSort(latest.await())
+                val m = filterAndSort(music.await())
+                val g = filterAndSort(gaming.await())
+                val t = filterAndSort(tech.await())
+                val s = filterAndSort(sports.await())
+                val c = filterAndSort(comedy.await())
 
                 val rows = linkedMapOf<String, List<TvVideo>>()
                 if (l.isNotEmpty()) rows["Mới nhất"] = l.take(20)

@@ -39,13 +39,20 @@
             android:foregroundServiceType="dataSync"
             android:exported="false" />
 
-        <!-- Media card in the notification shade + lock screen while playing -->
+        <!-- Android Auto automotive media declaration -->
+        <meta-data
+            android:name="com.google.android.gms.car.application"
+            android:resource="@xml/automotive_app_desc" />
+
+        <!-- Media card in notification/lock screen + Android Auto in-car media provider -->
         <service
             android:name=".player.PlaybackService"
             android:foregroundServiceType="mediaPlayback"
             android:exported="true">
             <intent-filter>
+                <action android:name="androidx.media3.session.MediaLibraryService" />
                 <action android:name="androidx.media3.session.MediaSessionService" />
+                <action android:name="android.media.browse.MediaBrowserService" />
             </intent-filter>
         </service>
 

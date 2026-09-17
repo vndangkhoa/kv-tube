@@ -57,6 +57,9 @@ class PlaybackManager @Inject constructor(
 
     val player: ExoPlayer by lazy {
         ExoPlayer.Builder(context)
+            .setMediaSourceFactory(
+                androidx.media3.exoplayer.source.DefaultMediaSourceFactory(httpFactory)
+            )
             .setLoadControl(
                 DefaultLoadControl.Builder()
                     .setBufferDurationsMs(

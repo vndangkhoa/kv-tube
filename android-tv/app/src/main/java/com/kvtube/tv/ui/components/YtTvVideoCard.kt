@@ -4,10 +4,11 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.runtime.Composable
+import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
@@ -21,6 +22,10 @@ import androidx.compose.ui.platform.LocalContext
 import com.kvtube.tv.data.model.TvVideo
 import com.kvtube.tv.ui.theme.YTBrandRed
 import com.kvtube.tv.ui.theme.YTChip
+import com.kvtube.tv.viewmodel.PlayerViewModel
+import kotlinx.coroutines.delay
+
+import androidx.compose.foundation.shape.CircleShape
 
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
@@ -31,18 +36,27 @@ fun YtTvVideoCard(
     showChannel: Boolean = true,
     progressFraction: Float? = null,
 ) {
-    // TV focus: scale + border glow (leanback-native)
+    var isFocused by remember { mutableStateOf(false) }
+    LaunchedEffect(isFocused) {
+        if (isFocused && video.id.isNotBlank()) {
+            delay(350)
+            PlayerViewModel.prefetch(video.id)
+        }
+    }
+
+    // TV focus: 1.08x scale + white border + outer glow (Leanback YouTube standard)
     Card(
         onClick = onClick,
-        modifier = modifier.width(220.dp),
+        modifier = modifier
+            .width(280.dp)
+            .onFocusChanged { isFocused = it.isFocused },
         shape = CardDefaults.shape(RoundedCornerShape(12.dp)),
-        scale = CardDefaults.scale(focusedScale = 1.06f),
+        scale = CardDefaults.scale(focusedScale = 1.08f),
         border = CardDefaults.border(focusedBorder = Border(BorderStroke(2.dp, Color.White))),
-        glow = CardDefaults.glow(focusedGlow = Glow(elevationColor = Color.White.copy(alpha = 0.45f), elevation = 12.dp),
-        ),
+        glow = CardDefaults.glow(focusedGlow = Glow(elevationColor = Color.White.copy(alpha = 0.35f), elevation = 14.dp)),
         colors = CardDefaults.colors(
-            containerColor = YTChip.copy(alpha = 0.0f),
-            focusedContainerColor = YTChip.copy(alpha = 0.18f),
+            containerColor = Color.Transparent,
+            focusedContainerColor = Color.Transparent,
         ),
     ) {
         Column(Modifier.fillMaxWidth()) {
@@ -68,10 +82,17 @@ fun YtTvVideoCard(
                             .align(Alignment.BottomEnd)
                             .padding(6.dp)
                             .clip(RoundedCornerShape(4.dp))
-                            .background(Color.Black.copy(alpha = 0.82f))
+                            .background(Color.Black.copy(alpha = 0.85f))
                             .padding(horizontal = 6.dp, vertical = 2.dp)
                     ) {
-                        Text(video.duration, style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp, color = Color.White))
+                        Text(
+                            video.duration,
+                            style = MaterialTheme.typography.labelSmall.copy(
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Medium,
+                                color = Color.White
+                            )
+                        )
                     }
                 }
                 if (video.isLive) {
@@ -83,14 +104,21 @@ fun YtTvVideoCard(
                             .background(YTBrandRed)
                             .padding(horizontal = 6.dp, vertical = 2.dp)
                     ) {
-                        Text("LIVE", color = Color.White, style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp, fontWeight = FontWeight.Bold))
+                        Text(
+                            "LIVE",
+                            color = Color.White,
+                            style = MaterialTheme.typography.labelSmall.copy(
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        )
                     }
                 }
                 if (progressFraction != null && progressFraction > 0.01f) {
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(4.dp)
+                            .height(3.dp)
                             .align(Alignment.BottomStart)
                             .background(Color.White.copy(alpha = 0.3f))
                     ) {
@@ -103,29 +131,72 @@ fun YtTvVideoCard(
                     }
                 }
             }
-            Spacer(Modifier.height(8.dp))
-            Text(
-                text = video.title,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-                color = Color.White,
-                style = MaterialTheme.typography.titleSmall.copy(fontSize = 12.sp, lineHeight = 16.sp, fontWeight = FontWeight.SemiBold, color = Color.White),
-                modifier = Modifier.padding(horizontal = 2.dp),
-            )
-            if (showChannel) {
-                Spacer(Modifier.height(2.dp))
-                Text(
-                    text = buildString {
-                        append(video.channelTitle)
-                        video.viewsText?.let { if (isNotEmpty()) append(" • "); append(it) }
-                        video.publishedText?.let { if (it.isNotBlank()) { if (isNotEmpty()) append(" • "); append(it) } }
-                    },
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    color = Color(0xFFE0E0E0),
-                    style = MaterialTheme.typography.bodySmall.copy(fontSize = 10.sp, color = Color(0xFFE0E0E0)),
-                    modifier = Modifier.padding(horizontal = 2.dp, vertical = 2.dp),
-                )
+            Spacer(Modifier.height(10.dp))
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 4.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalAlignment = Alignment.Top
+            ) {
+                if (showChannel) {
+                    if (!video.avatarUrl.isNullOrBlank()) {
+                        AsyncImage(
+                            model = ImageRequest.Builder(LocalContext.current)
+                                .data(video.avatarUrl)
+                                .crossfade(true)
+                                .build(),
+                            contentDescription = null,
+                            modifier = Modifier
+                                .size(36.dp)
+                                .clip(CircleShape)
+                                .background(Color(0xFF2E2E2E)),
+                            contentScale = ContentScale.Crop,
+                        )
+                    } else {
+                        Box(
+                            modifier = Modifier
+                                .size(36.dp)
+                                .clip(CircleShape)
+                                .background(Color(0xFF2E2E2E)),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                video.channelTitle.take(1).uppercase(),
+                                color = Color.White,
+                                style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold)
+                            )
+                        }
+                    }
+                }
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        text = video.title,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                        color = Color.White,
+                        style = MaterialTheme.typography.titleSmall.copy(
+                            fontSize = 13.sp,
+                            lineHeight = 18.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = Color.White
+                        )
+                    )
+                    Spacer(Modifier.height(4.dp))
+                    if (showChannel) {
+                        Text(
+                            text = buildString {
+                                append(video.channelTitle)
+                                video.viewsText?.let { append(" • "); append(it) }
+                                video.publishedText?.let { if (it.isNotBlank()) { append(" • "); append(it) } }
+                            },
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            color = Color(0xFFAAAAAA),
+                            style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp, color = Color(0xFFAAAAAA)),
+                        )
+                    }
+                }
             }
         }
     }
@@ -138,9 +209,19 @@ fun YtTvVideoRowCard(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    var isFocused by remember { mutableStateOf(false) }
+    LaunchedEffect(isFocused) {
+        if (isFocused && video.id.isNotBlank()) {
+            delay(350)
+            PlayerViewModel.prefetch(video.id)
+        }
+    }
+
     Card(
         onClick = onClick,
-        modifier = modifier.fillMaxWidth(),
+        modifier = modifier
+            .fillMaxWidth()
+            .onFocusChanged { isFocused = it.isFocused },
         shape = CardDefaults.shape(RoundedCornerShape(8.dp)),
         scale = CardDefaults.scale(focusedScale = 1.05f),
         border = CardDefaults.border(focusedBorder = Border(BorderStroke(2.dp, Color.White))),

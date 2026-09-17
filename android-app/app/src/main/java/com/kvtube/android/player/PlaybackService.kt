@@ -7,46 +7,59 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.graphics.Bitmap
+import android.net.Uri
 import android.os.Build
 import android.util.Log
+import androidx.concurrent.futures.ResolvableFuture
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
 import androidx.media.app.NotificationCompat.MediaStyle
+import androidx.media3.common.MediaItem
+import androidx.media3.common.MediaMetadata
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
+import androidx.media3.session.LibraryResult
+import androidx.media3.session.MediaLibraryService
+import androidx.media3.session.MediaLibraryService.LibraryParams
+import androidx.media3.session.MediaLibraryService.MediaLibrarySession
 import androidx.media3.session.MediaSession
-import androidx.media3.session.MediaSessionService
+import com.google.common.collect.ImmutableList
+import com.google.common.util.concurrent.Futures
+import com.google.common.util.concurrent.ListenableFuture
 import com.kvtube.android.MainActivity
 import com.kvtube.android.R
+import com.kvtube.android.data.local.DownloadedVideoEntity
+import com.kvtube.android.data.model.QualityTier
+import com.kvtube.android.data.model.QualityTiers
+import com.kvtube.android.data.model.VideoData
+import com.kvtube.android.data.repository.DownloadRepository
+import com.kvtube.android.data.repository.HistoryRepository
+import com.kvtube.android.data.repository.SubscriptionRepository
+import com.kvtube.android.data.repository.VideoRepository
 import coil3.SingletonImageLoader
 import coil3.request.ImageRequest
 import coil3.request.allowHardware
 import coil3.size.Size
-import kotlinx.coroutines.runBlocking
 import dagger.hilt.android.AndroidEntryPoint
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
+import java.io.File
 import java.util.concurrent.Executors
 import javax.inject.Inject
 
 /**
  * Hosts the app-wide ExoPlayer (owned by [PlaybackManager]) inside a
- * MediaSession so Android renders the standard media card — artwork, title,
- * play/pause, seek bar — in the notification shade and on the lock screen
- * while KV-Tube plays, exactly like a native player app.
- *
- * The card is rendered HERE, driven by our own player listeners, instead of
- * relying on media3's DefaultMediaNotificationProvider: that machinery only
- * starts painting after the first MediaController connects to the service.
- * On some devices/ROMs (verified: nubia NX769J / Android 16) no controller
- * ever connects, so media3 would never post its card. Our listeners are
- * registered in onCreate before any playback event can fire, so this path
- * is deterministic.
- *
- * The service never releases the player itself: PlaybackManager owns it for
- * the lifetime of the process so watch page / mini player / PiP keep working.
+ * MediaLibrarySession so Android renders the standard media card in notification/
+ * lock screen and provides Android Auto in-car media browsing & playback.
  */
 @OptIn(UnstableApi::class)
 @AndroidEntryPoint
-class PlaybackService : MediaSessionService() {
+class PlaybackService : MediaLibraryService() {
 
     companion object {
         private const val TAG = "PlaybackService"
@@ -57,16 +70,32 @@ class PlaybackService : MediaSessionService() {
         const val ACTION_REWIND = "com.kvtube.android.player.REWIND"
         const val ACTION_FORWARD = "com.kvtube.android.player.FORWARD"
         private const val CARD_ACCENT_COLOR = 0xFFD32F2F.toInt()
+
+        // Android Auto category IDs
+        private const val ROOT_ID = "ROOT"
+        private const val CATEGORY_SUBSCRIPTIONS = "CATEGORY_SUBSCRIPTIONS"
+        private const val CATEGORY_HISTORY = "CATEGORY_HISTORY"
+        private const val CATEGORY_DOWNLOADS = "CATEGORY_DOWNLOADS"
+        private const val CATEGORY_TRENDING = "CATEGORY_TRENDING"
     }
 
     @Inject
     lateinit var playbackManager: PlaybackManager
+    @Inject
+    lateinit var historyRepository: HistoryRepository
+    @Inject
+    lateinit var subscriptionRepository: SubscriptionRepository
+    @Inject
+    lateinit var videoRepository: VideoRepository
+    @Inject
+    lateinit var downloadRepository: DownloadRepository
 
-    private var mediaSession: MediaSession? = null
+    private var mediaLibrarySession: MediaLibrarySession? = null
     private var largeIconBitmap: Bitmap? = null
     private var loadedThumbnailUrl: String? = null
     private var lastCardKey: String? = null
 
+    private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private val artworkExecutor = Executors.newSingleThreadExecutor()
 
     override fun onCreate() {
@@ -84,6 +113,7 @@ class PlaybackService : MediaSessionService() {
         // notification as soon as our listeners paint it (see below).
         dischargeForegroundObligation()
 
+        val callback = AutoLibrarySessionCallback()
         try {
             val sessionActivity = PendingIntent.getActivity(
                 this,
@@ -91,12 +121,12 @@ class PlaybackService : MediaSessionService() {
                 Intent(this, MainActivity::class.java),
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
             )
-            mediaSession = MediaSession.Builder(this, playbackManager.player)
+            mediaLibrarySession = MediaLibrarySession.Builder(this, playbackManager.player, callback)
                 .setSessionActivity(sessionActivity)
                 .build()
         } catch (t: Throwable) {
             Log.w(TAG, "Session with activity intent failed: ${t.message}")
-            mediaSession = MediaSession.Builder(this, playbackManager.player).build()
+            mediaLibrarySession = MediaLibrarySession.Builder(this, playbackManager.player, callback).build()
         }
 
         // Paint & keep updating the media card ourselves. onEvents fires for
@@ -192,7 +222,7 @@ class PlaybackService : MediaSessionService() {
     @Suppress("DEPRECATION", "RestrictedApi")
     private fun updateMediaCard() {
         try {
-            val session = mediaSession ?: return
+            val session = mediaLibrarySession ?: return
             val player = playbackManager.player
             if (player.mediaItemCount == 0) return
 
@@ -308,11 +338,11 @@ class PlaybackService : MediaSessionService() {
         }
     }
 
-    override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaSession? =
-        mediaSession
+    override fun onGetSession(controllerInfo: MediaSession.ControllerInfo): MediaLibrarySession? =
+        mediaLibrarySession
 
     override fun onTaskRemoved(rootIntent: Intent?) {
-        val player = mediaSession?.player
+        val player = mediaLibrarySession?.player
         if (player == null ||
             !player.playWhenReady ||
             player.mediaItemCount == 0 ||
@@ -324,13 +354,321 @@ class PlaybackService : MediaSessionService() {
     }
 
     override fun onDestroy() {
+        serviceScope.cancel()
         artworkExecutor.shutdownNow()
         runCatching {
             getSystemService(NotificationManager::class.java)
                 .cancel(PLACEHOLDER_NOTIFICATION_ID)
         }
-        mediaSession?.release()
-        mediaSession = null
+        mediaLibrarySession?.release()
+        mediaLibrarySession = null
         super.onDestroy()
+    }
+
+    /**
+     * Handles browsing and playback requests from Android Auto and automotive head units.
+     */
+    private inner class AutoLibrarySessionCallback : MediaLibrarySession.Callback {
+
+        override fun onGetLibraryRoot(
+            session: MediaLibrarySession,
+            browser: MediaSession.ControllerInfo,
+            params: LibraryParams?
+        ): ListenableFuture<LibraryResult<MediaItem>> {
+            val rootItem = MediaItem.Builder()
+                .setMediaId(ROOT_ID)
+                .setMediaMetadata(
+                    MediaMetadata.Builder()
+                        .setTitle("KV-Tube")
+                        .setIsBrowsable(true)
+                        .setIsPlayable(false)
+                        .build()
+                )
+                .build()
+            return Futures.immediateFuture(LibraryResult.ofItem(rootItem, params))
+        }
+
+        override fun onGetChildren(
+            session: MediaLibrarySession,
+            browser: MediaSession.ControllerInfo,
+            parentId: String,
+            page: Int,
+            pageSize: Int,
+            params: LibraryParams?
+        ): ListenableFuture<LibraryResult<ImmutableList<MediaItem>>> {
+            val future = ResolvableFuture.create<LibraryResult<ImmutableList<MediaItem>>>()
+            serviceScope.launch(Dispatchers.IO) {
+                try {
+                    val items: List<MediaItem> = when (parentId) {
+                        ROOT_ID -> listOf(
+                            createCategoryItem(CATEGORY_SUBSCRIPTIONS, "Subscriptions"),
+                            createCategoryItem(CATEGORY_HISTORY, "Watch History"),
+                            createCategoryItem(CATEGORY_DOWNLOADS, "Downloads"),
+                            createCategoryItem(CATEGORY_TRENDING, "Trending")
+                        )
+                        CATEGORY_SUBSCRIPTIONS -> {
+                            val feed = subscriptionRepository.getFeed(
+                                offset = page * pageSize,
+                                pageSize = pageSize.coerceAtLeast(20)
+                            )
+                            feed.map { it.toCarMediaItem() }
+                        }
+                        CATEGORY_HISTORY -> {
+                            val history = historyRepository.getHistory(limit = pageSize.coerceAtLeast(30))
+                            history.map { it.toCarMediaItem() }
+                        }
+                        CATEGORY_DOWNLOADS -> {
+                            val downloads = downloadRepository.getAllDownloads().first()
+                            downloads.map { it.toCarMediaItem() }
+                        }
+                        CATEGORY_TRENDING -> {
+                            val trending = videoRepository.getTrending(limit = pageSize.coerceAtLeast(20))
+                            trending.map { it.toCarMediaItem() }
+                        }
+                        else -> emptyList()
+                    }
+                    future.set(LibraryResult.ofItemList(ImmutableList.copyOf(items), params))
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error fetching children for $parentId: ${e.message}", e)
+                    future.set(LibraryResult.ofError(LibraryResult.RESULT_ERROR_BAD_VALUE))
+                }
+            }
+            return future
+        }
+
+        override fun onGetItem(
+            session: MediaLibrarySession,
+            browser: MediaSession.ControllerInfo,
+            mediaId: String
+        ): ListenableFuture<LibraryResult<MediaItem>> {
+            val future = ResolvableFuture.create<LibraryResult<MediaItem>>()
+            serviceScope.launch(Dispatchers.IO) {
+                try {
+                    val download = downloadRepository.getDownload(mediaId)
+                    if (download != null) {
+                        future.set(LibraryResult.ofItem(download.toCarMediaItem(), null))
+                        return@launch
+                    }
+                    val video = videoRepository.getVideoInfo(mediaId)
+                    future.set(LibraryResult.ofItem(video.toCarMediaItem(), null))
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error fetching item for $mediaId: ${e.message}", e)
+                    future.set(LibraryResult.ofError(LibraryResult.RESULT_ERROR_BAD_VALUE))
+                }
+            }
+            return future
+        }
+
+        override fun onSearch(
+            session: MediaLibrarySession,
+            browser: MediaSession.ControllerInfo,
+            query: String,
+            params: LibraryParams?
+        ): ListenableFuture<LibraryResult<Void>> {
+            session.notifySearchResultChanged(browser, query, 20, params)
+            return Futures.immediateFuture(LibraryResult.ofVoid())
+        }
+
+        override fun onGetSearchResult(
+            session: MediaLibrarySession,
+            browser: MediaSession.ControllerInfo,
+            query: String,
+            page: Int,
+            pageSize: Int,
+            params: LibraryParams?
+        ): ListenableFuture<LibraryResult<ImmutableList<MediaItem>>> {
+            val future = ResolvableFuture.create<LibraryResult<ImmutableList<MediaItem>>>()
+            serviceScope.launch(Dispatchers.IO) {
+                try {
+                    val results = videoRepository.search(query, limit = pageSize.coerceAtLeast(20))
+                    val items = results.map { it.toCarMediaItem() }
+                    future.set(LibraryResult.ofItemList(ImmutableList.copyOf(items), params))
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error fetching search results for '$query': ${e.message}", e)
+                    future.set(LibraryResult.ofError(LibraryResult.RESULT_ERROR_UNKNOWN))
+                }
+            }
+            return future
+        }
+
+        override fun onAddMediaItems(
+            mediaSession: MediaSession,
+            controller: MediaSession.ControllerInfo,
+            mediaItems: MutableList<MediaItem>
+        ): ListenableFuture<MutableList<MediaItem>> {
+            val future = ResolvableFuture.create<MutableList<MediaItem>>()
+            serviceScope.launch(Dispatchers.IO) {
+                try {
+                    val resolvedList = mutableListOf<MediaItem>()
+                    for (item in mediaItems) {
+                        val resolved = resolvePlayableItem(item)
+                        if (resolved != null) {
+                            resolvedList.add(resolved)
+                        }
+                    }
+                    future.set(resolvedList)
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error resolving media items for Auto: ${e.message}", e)
+                    future.set(mediaItems)
+                }
+            }
+            return future
+        }
+
+        override fun onPlaybackResumption(
+            mediaSession: MediaSession,
+            controller: MediaSession.ControllerInfo
+        ): ListenableFuture<MediaSession.MediaItemsWithStartPosition> {
+            val future = ResolvableFuture.create<MediaSession.MediaItemsWithStartPosition>()
+            serviceScope.launch(Dispatchers.IO) {
+                try {
+                    val history = historyRepository.getHistory(limit = 1)
+                    val lastItem = history.firstOrNull()?.toCarMediaItem()
+                    if (lastItem != null) {
+                        val resolved = resolvePlayableItem(lastItem)
+                        if (resolved != null) {
+                            future.set(
+                                MediaSession.MediaItemsWithStartPosition(
+                                    listOf(resolved),
+                                    /* startIndex = */ 0,
+                                    /* startPositionMs = */ 0L
+                                )
+                            )
+                            return@launch
+                        }
+                    }
+                    future.setException(UnsupportedOperationException("No resumption item available"))
+                } catch (e: Exception) {
+                    future.setException(e)
+                }
+            }
+            return future
+        }
+    }
+
+    private suspend fun resolvePlayableItem(item: MediaItem): MediaItem? {
+        val videoId = item.mediaId
+        if (videoId.isBlank()) return item
+
+        // 1. Check offline downloads first
+        val download = downloadRepository.getDownload(videoId)
+        if (download != null) {
+            val localUri = download.contentUri?.takeIf { it.isNotBlank() }
+                ?: download.filePath.takeIf { File(it).exists() }?.let { Uri.fromFile(File(it)).toString() }
+            if (!localUri.isNullOrBlank()) {
+                val metadata = item.mediaMetadata.buildUpon()
+                    .setTitle(download.title.ifBlank { item.mediaMetadata.title })
+                    .setArtist(download.channelTitle.ifBlank { item.mediaMetadata.artist })
+                    .setArtworkUri(
+                        download.thumbnail.takeIf { it.isNotBlank() }?.let { Uri.parse(it) }
+                            ?: item.mediaMetadata.artworkUri
+                    )
+                    .setIsPlayable(true)
+                    .setIsBrowsable(false)
+                    .setMediaType(MediaMetadata.MEDIA_TYPE_PODCAST_EPISODE)
+                    .build()
+
+                playbackManager.setMetadata(
+                    videoId = videoId,
+                    title = download.title,
+                    channelTitle = download.channelTitle,
+                    thumbnail = download.thumbnail
+                )
+
+                return item.buildUpon()
+                    .setUri(Uri.parse(localUri))
+                    .setMediaMetadata(metadata)
+                    .build()
+            }
+        }
+
+        // 2. Online stream resolution
+        val playbackInfo = videoRepository.getPlaybackInfo(videoId)
+        val audioUrl = playbackInfo.audioFormat?.url?.takeIf { it.isNotBlank() }
+        val streamUrl = audioUrl
+            ?: QualityTiers.resolve(QualityTier.LOW, playbackInfo)?.first?.url
+            ?: return null
+
+        val title = item.mediaMetadata.title?.toString()?.takeIf { it.isNotBlank() }
+            ?: playbackInfo.title
+        val author = item.mediaMetadata.artist?.toString()?.takeIf { it.isNotBlank() }
+            ?: ""
+        val artworkUri = item.mediaMetadata.artworkUri
+
+        playbackManager.setMetadata(
+            videoId = videoId,
+            title = title,
+            channelTitle = author,
+            thumbnail = artworkUri?.toString().orEmpty()
+        )
+
+        // Record history so in-car playback appears in recent history
+        runCatching {
+            historyRepository.record(
+                videoId = videoId,
+                title = title,
+                thumbnail = artworkUri?.toString().orEmpty(),
+                uploader = author
+            )
+        }
+
+        val updatedMetadata = item.mediaMetadata.buildUpon()
+            .setTitle(title)
+            .setArtist(author)
+            .setArtworkUri(artworkUri)
+            .setIsPlayable(true)
+            .setIsBrowsable(false)
+            .setMediaType(MediaMetadata.MEDIA_TYPE_PODCAST_EPISODE)
+            .build()
+
+        return item.buildUpon()
+            .setUri(Uri.parse(streamUrl))
+            .setMediaMetadata(updatedMetadata)
+            .build()
+    }
+
+    private fun VideoData.toCarMediaItem(): MediaItem {
+        return MediaItem.Builder()
+            .setMediaId(id)
+            .setMediaMetadata(
+                MediaMetadata.Builder()
+                    .setTitle(title)
+                    .setArtist(displayChannelTitle)
+                    .setArtworkUri(displayThumbnail.takeIf { it.isNotBlank() }?.let { Uri.parse(it) })
+                    .setIsPlayable(true)
+                    .setIsBrowsable(false)
+                    .setMediaType(MediaMetadata.MEDIA_TYPE_PODCAST_EPISODE)
+                    .build()
+            )
+            .build()
+    }
+
+    private fun DownloadedVideoEntity.toCarMediaItem(): MediaItem {
+        return MediaItem.Builder()
+            .setMediaId(videoId)
+            .setMediaMetadata(
+                MediaMetadata.Builder()
+                    .setTitle(title)
+                    .setArtist(channelTitle)
+                    .setArtworkUri(thumbnail.takeIf { it.isNotBlank() }?.let { Uri.parse(it) })
+                    .setIsPlayable(true)
+                    .setIsBrowsable(false)
+                    .setMediaType(MediaMetadata.MEDIA_TYPE_PODCAST_EPISODE)
+                    .build()
+            )
+            .build()
+    }
+
+    private fun createCategoryItem(id: String, title: String): MediaItem {
+        return MediaItem.Builder()
+            .setMediaId(id)
+            .setMediaMetadata(
+                MediaMetadata.Builder()
+                    .setTitle(title)
+                    .setIsBrowsable(true)
+                    .setIsPlayable(false)
+                    .build()
+            )
+            .build()
     }
 }
