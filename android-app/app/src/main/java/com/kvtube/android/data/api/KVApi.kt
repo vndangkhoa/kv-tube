@@ -215,7 +215,7 @@ class KVApi(
         return try {
             val body = client.get("$baseUrl$prefix/stats").bodyAsText()
             val o = json.parseToJsonElement(body) as? JsonObject
-            o?.containsKey("version") == true
+            o?.containsKey("version") == true || o?.containsKey("software") == true
         } catch (e: Exception) {
             Log.d(TAG, "probe $prefix/stats: not invidious (${e.message})")
             false

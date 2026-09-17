@@ -72,40 +72,81 @@ class ShortsViewModel @Inject constructor(
         }
     }
 
+    private val streamCache = java.util.concurrent.ConcurrentHashMap<String, ExtractedStream>()
+
     fun refresh() {
+        streamCache.clear()
         loadShorts()
     }
 
+    fun prefetchStream(videoId: String) {
+        if (videoId.isBlank() || streamCache.containsKey(videoId)) return
+        viewModelScope.launch {
+            getStream(videoId)
+        }
+    }
+
     suspend fun getStream(videoId: String): ExtractedStream {
+        if (videoId.isBlank()) return ExtractedStream(videoUrl = "")
+        streamCache[videoId]?.let { cached ->
+            if (cached.videoUrl.isNotBlank()) return cached
+        }
+
         return try {
-            // 1. Fast on-device extraction first (~300ms) with full audio/video stream support
-            val extracted = extractorHelper.extractStreamUrl(videoId, Quality.RECOMMENDED)
-            if (extracted.videoUrl.isNotBlank()) {
-                return extracted
-            }
-            // 2. Server playback fallback with 2.5s timeout
-            val playback = kotlinx.coroutines.withTimeoutOrNull(2500L) {
+            // 1. Primary: Server playback info (Invidious proxied stream, bypasses YouTube IP/cipher blocks)
+            val playback = kotlinx.coroutines.withTimeoutOrNull(10_000L) {
                 runCatching { videoRepository.getPlaybackInfo(videoId) }.getOrNull()
             }
-            if (playback != null) {
+            if (playback != null && playback.videoFormats.isNotEmpty()) {
+                val resolved = com.kvtube.android.data.model.QualityTiers.resolve(
+                    com.kvtube.android.data.model.QualityTier.MID,
+                    playback
+                )
+                if (resolved != null && resolved.first.url.isNotBlank()) {
+                    val stream = ExtractedStream(
+                        videoUrl = resolved.first.url,
+                        audioUrl = resolved.second,
+                        height = resolved.first.height,
+                        isDash = !resolved.second.isNullOrBlank()
+                    )
+                    streamCache[videoId] = stream
+                    return stream
+                }
+
+                // Direct progressive or adaptive fallback from server
                 val progressive = playback.videoFormats.firstOrNull { it.hasAudio && it.url.isNotEmpty() }
                 if (progressive != null) {
-                    return ExtractedStream(
+                    val stream = ExtractedStream(
                         videoUrl = progressive.url,
                         height = progressive.height,
                         isDash = false
                     )
+                    streamCache[videoId] = stream
+                    return stream
                 }
+
                 val videoFormat = playback.videoFormats.firstOrNull { it.url.isNotEmpty() }
                 if (videoFormat != null) {
-                    return ExtractedStream(
+                    val stream = ExtractedStream(
                         videoUrl = videoFormat.url,
                         audioUrl = playback.audioFormat?.url,
                         height = videoFormat.height,
                         isDash = !playback.audioFormat?.url.isNullOrBlank()
                     )
+                    streamCache[videoId] = stream
+                    return stream
                 }
             }
+
+            // 2. Fallback: On-device extractor if server is down or returns empty
+            val extracted = kotlinx.coroutines.withTimeoutOrNull(6_000L) {
+                runCatching { extractorHelper.extractStreamUrl(videoId, Quality.RECOMMENDED) }.getOrNull()
+            }
+            if (extracted != null && extracted.videoUrl.isNotBlank()) {
+                streamCache[videoId] = extracted
+                return extracted
+            }
+
             ExtractedStream(videoUrl = "")
         } catch (e: Exception) {
             Log.w(TAG, "Failed to resolve stream for short $videoId: ${e.message}")

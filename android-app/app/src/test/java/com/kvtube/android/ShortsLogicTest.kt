@@ -4,6 +4,8 @@ import com.kvtube.android.data.model.ExtractedStream
 import com.kvtube.android.data.model.PlaybackFormat
 import com.kvtube.android.data.model.PlaybackInfo
 import com.kvtube.android.data.model.VideoData
+import io.ktor.client.request.get
+import io.ktor.client.statement.bodyAsText
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -100,11 +102,37 @@ class ShortsLogicTest {
             videoUrl = videoFormat!!.url,
             audioUrl = playback.audioFormat?.url,
             height = videoFormat.height,
-            isDash = !playback.audioFormat?.url.isNullOrBlank()
+            isDash = true
         )
 
+        assertTrue(stream.isDash)
         assertEquals("https://video-only-1080.mp4", stream.videoUrl)
         assertEquals("https://audio.m4a", stream.audioUrl)
-        assertTrue(stream.isDash)
+    }
+
+    @Test
+    fun `test Invidious playback info for Short`() = kotlinx.coroutines.runBlocking {
+        val json = kotlinx.serialization.json.Json {
+            ignoreUnknownKeys = true
+            isLenient = true
+        }
+        val client = io.ktor.client.HttpClient(io.ktor.client.engine.okhttp.OkHttp)
+        
+        val api = com.kvtube.android.data.api.KVApi(client, json)
+        api.setServerUrl("https://ut.khoavo.myds.me")
+
+        // Now test getting playback info for a real Short
+        val start = System.currentTimeMillis()
+        val playback = api.getPlaybackInfo("j8PDTJNaPc0")
+        val elapsed = System.currentTimeMillis() - start
+        println("Invidious getPlaybackInfo took ${elapsed}ms")
+        println("Playback title: ${playback.title}")
+        println("Video formats: ${playback.videoFormats.size}, Audio format: ${playback.audioFormat?.url != null}")
+        
+        val resolved = com.kvtube.android.data.model.QualityTiers.resolve(com.kvtube.android.data.model.QualityTier.MID, playback)
+        println("Resolved video: ${resolved?.first?.url?.take(80)}, audio: ${resolved?.second?.take(80)}")
+        assertNotNull("Resolved stream should not be null", resolved)
+        assertTrue("Video stream URL should not be blank", resolved!!.first.url.isNotBlank())
+        client.close()
     }
 }

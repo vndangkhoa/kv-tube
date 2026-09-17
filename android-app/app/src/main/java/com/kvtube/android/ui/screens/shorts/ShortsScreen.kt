@@ -183,10 +183,17 @@ fun ShortsScreen(
         }
     }
 
-    // Infinite scroll: auto load more when near the end of current list
+    // Infinite scroll & prefetching: auto load more when near end, prefetch next 2 shorts
     LaunchedEffect(pagerState.currentPage, uiState.videos.size) {
         if (uiState.videos.isNotEmpty() && pagerState.currentPage >= uiState.videos.size - 3) {
             viewModel.loadMoreShorts()
+        }
+        val cur = pagerState.currentPage
+        if (cur + 1 < uiState.videos.size) {
+            viewModel.prefetchStream(uiState.videos[cur + 1].id)
+        }
+        if (cur + 2 < uiState.videos.size) {
+            viewModel.prefetchStream(uiState.videos[cur + 2].id)
         }
     }
 
@@ -388,6 +395,9 @@ private fun ShortVideoItem(
     var isPlaying by remember { mutableStateOf(true) }
     var showPauseIcon by remember { mutableStateOf(false) }
     var isVideoReady by remember { mutableStateOf(false) }
+    var isPlaybackFailed by remember { mutableStateOf(false) }
+    var isStreamResolving by remember { mutableStateOf(false) }
+    var retryTrigger by remember { androidx.compose.runtime.mutableIntStateOf(0) }
 
     // Heart animation on double tap
     var showHeartAnim by remember { mutableStateOf(false) }
@@ -406,9 +416,25 @@ private fun ShortVideoItem(
     )
 
     val exoPlayer = remember {
-        ExoPlayer.Builder(context).build().apply {
-            repeatMode = Player.REPEAT_MODE_ONE
-        }
+        val httpFactory = DefaultHttpDataSource.Factory()
+            .setUserAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+            .setConnectTimeoutMs(15_000)
+            .setReadTimeoutMs(30_000)
+            .setAllowCrossProtocolRedirects(true)
+        ExoPlayer.Builder(context)
+            .setMediaSourceFactory(
+                androidx.media3.exoplayer.source.DefaultMediaSourceFactory(httpFactory)
+            )
+            .setAudioAttributes(
+                androidx.media3.common.AudioAttributes.Builder()
+                    .setUsage(androidx.media3.common.C.USAGE_MEDIA)
+                    .setContentType(androidx.media3.common.C.AUDIO_CONTENT_TYPE_MOVIE)
+                    .build(),
+                /* handleAudioFocus = */ true
+            )
+            .build().apply {
+                repeatMode = Player.REPEAT_MODE_ONE
+            }
     }
 
     // Reveal video seamlessly only when first frame is decoded & rendered
@@ -416,12 +442,20 @@ private fun ShortVideoItem(
         val listener = object : Player.Listener {
             override fun onRenderedFirstFrame() {
                 isVideoReady = true
+                isPlaybackFailed = false
             }
 
             override fun onPlaybackStateChanged(state: Int) {
                 if (state == Player.STATE_READY) {
                     isVideoReady = true
+                    isPlaybackFailed = false
                 }
+            }
+
+            override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
+                android.util.Log.e("ShortsScreen", "Short playback error for ${video.id}: ${error.errorCodeName}", error)
+                isPlaybackFailed = true
+                isStreamResolving = false
             }
         }
         exoPlayer.addListener(listener)
@@ -453,21 +487,23 @@ private fun ShortVideoItem(
         }
     }
 
-    LaunchedEffect(isCurrentPage) {
+    LaunchedEffect(isCurrentPage, retryTrigger) {
         if (isCurrentPage) {
             isVideoReady = false
+            isPlaybackFailed = false
+            isStreamResolving = true
             val stream = onGetStream()
+            isStreamResolving = false
             if (stream.videoUrl.isNotBlank()) {
-                val dataSourceFactory = DefaultHttpDataSource.Factory()
+                val httpFactory = DefaultHttpDataSource.Factory()
                     .setUserAgent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
-                    .setConnectTimeoutMs(12_000)
-                    .setReadTimeoutMs(15_000)
+                    .setConnectTimeoutMs(15_000)
+                    .setReadTimeoutMs(30_000)
                     .setAllowCrossProtocolRedirects(true)
-                val videoSource = ProgressiveMediaSource.Factory(dataSourceFactory)
-                    .createMediaSource(MediaItem.fromUri(Uri.parse(stream.videoUrl)))
+                val mediaSourceFactory = androidx.media3.exoplayer.source.DefaultMediaSourceFactory(httpFactory)
+                val videoSource = mediaSourceFactory.createMediaSource(MediaItem.fromUri(Uri.parse(stream.videoUrl)))
                 val mediaSource = if (!stream.audioUrl.isNullOrBlank()) {
-                    val audioSource = ProgressiveMediaSource.Factory(dataSourceFactory)
-                        .createMediaSource(MediaItem.fromUri(Uri.parse(stream.audioUrl)))
+                    val audioSource = mediaSourceFactory.createMediaSource(MediaItem.fromUri(Uri.parse(stream.audioUrl)))
                     MergingMediaSource(videoSource, audioSource)
                 } else {
                     videoSource
@@ -476,11 +512,15 @@ private fun ShortVideoItem(
                 exoPlayer.prepare()
                 exoPlayer.playWhenReady = true
                 isPlaying = true
+            } else {
+                isPlaybackFailed = true
             }
         } else {
             exoPlayer.pause()
             exoPlayer.stop()
             isVideoReady = false
+            isPlaybackFailed = false
+            isStreamResolving = false
         }
     }
 
@@ -554,6 +594,51 @@ private fun ShortVideoItem(
                     )
                 )
         )
+
+        // Loading indicator while resolving stream
+        if (isStreamResolving && !isVideoReady && !isPlaybackFailed) {
+            Box(
+                modifier = Modifier.fillMaxSize(),
+                contentAlignment = Alignment.Center
+            ) {
+                CircularProgressIndicator(color = YTBrandRed, modifier = Modifier.size(44.dp))
+            }
+        }
+
+        // Retry indicator on failure
+        if (isPlaybackFailed) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = 0.65f)),
+                contentAlignment = Alignment.Center
+            ) {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Text(
+                        text = "Unable to play video stream",
+                        color = Color.White,
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Medium
+                    )
+                    Surface(
+                        shape = RoundedCornerShape(18.dp),
+                        color = YTBrandRed,
+                        modifier = Modifier.clickable { retryTrigger++ }
+                    ) {
+                        Text(
+                            text = "Tap to Retry",
+                            color = Color.White,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 13.sp,
+                            modifier = Modifier.padding(horizontal = 18.dp, vertical = 8.dp)
+                        )
+                    }
+                }
+            }
+        }
 
         // Play/Pause momentary icon indicator
         AnimatedVisibility(
