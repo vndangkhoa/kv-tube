@@ -5,6 +5,17 @@ All notable changes to KV-Tube are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.4-tv] - 2026-09-19
+
+### Fixed
+- **Android TV (v1.1.4-tv, versionCode 7) — Search Remote Typing & Focus Stability**:
+  - Eliminated keystroke freezing by removing auto-search debounce on every character; full video search is now triggered explicitly on IME search action, search button, or chip selection.
+  - Retained lightweight live autocomplete suggestions with a smooth 300ms debounce.
+  - Replaced `onPreviewKeyEvent` with `onKeyEvent` in `TvTextField` to prevent D-pad stealing and accidental software keyboard (IME) dismissals.
+  - Fixed `TvTextField` external synchronization so clearing text and selecting suggestions work reliably.
+  - Added Back/Escape handlers to cleanly dismiss the software keyboard and clear focus.
+  - Stabilized pre-search discovery view to avoid flashing empty results while typing.
+
 ## [1.7.5] - 2026-09-17
 
 ### Added

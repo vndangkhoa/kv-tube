@@ -21,9 +21,10 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
-import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.TextFieldValue
@@ -34,10 +35,11 @@ import androidx.compose.ui.unit.dp
  *
  * A plain TextField traps the D-pad: LEFT/RIGHT move the caret and there is no
  * obvious way out on a remote. This wrapper guarantees escape routes:
- *  - UP / DOWN      → always moves focus out of the field
+ *  - UP / DOWN      → moves focus out of the field when remote navigates away
  *  - LEFT at pos 0  → moves focus to the previous focusable
  *  - RIGHT at end   → moves focus to the next focusable
- *  - IME Done/Search → runs [onImeAction] then clears focus
+ *  - IME Done/Search → runs [onImeAction], hides keyboard, then clears focus
+ *  - Back / Escape  → dismisses the keyboard and clears focus
  */
 @Composable
 fun TvTextField(
@@ -53,21 +55,22 @@ fun TvTextField(
     onImeAction: (() -> Unit)? = null,
 ) {
     val focusManager: FocusManager = LocalFocusManager.current
+    val keyboardController = LocalSoftwareKeyboardController.current
     var hasFocus by remember { mutableStateOf(false) }
     var fieldValue by remember {
         mutableStateOf(TextFieldValue(value, TextRange(value.length)))
     }
 
-    // Keep external value changes in sync while the field is not being edited.
+    // Always keep external value changes in sync (e.g. clear button, keyword clicks)
     LaunchedEffect(value) {
-        if (!hasFocus && fieldValue.text != value) {
+        if (fieldValue.text != value) {
             fieldValue = TextFieldValue(value, TextRange(value.length))
         }
     }
 
     Box(
-        modifier = modifier.onPreviewKeyEvent { e ->
-            if (e.type != KeyEventType.KeyUp) return@onPreviewKeyEvent false
+        modifier = modifier.onKeyEvent { e ->
+            if (e.type != KeyEventType.KeyUp) return@onKeyEvent false
             when (e.key) {
                 Key.DirectionUp -> { focusManager.moveFocus(FocusDirection.Up); true }
                 Key.DirectionDown -> { focusManager.moveFocus(FocusDirection.Down); true }
@@ -81,6 +84,13 @@ fun TvTextField(
                         fieldValue.selection.collapsed &&
                             fieldValue.selection.end == fieldValue.text.length
                     if (collapsedAtEnd) { focusManager.moveFocus(FocusDirection.Right); true } else false
+                }
+                Key.Back, Key.Escape -> {
+                    if (hasFocus) {
+                        keyboardController?.hide()
+                        focusManager.clearFocus()
+                        true
+                    } else false
                 }
                 else -> false
             }
@@ -100,10 +110,12 @@ fun TvTextField(
             keyboardOptions = KeyboardOptions(imeAction = imeAction),
             keyboardActions = KeyboardActions(
                 onDone = {
+                    keyboardController?.hide()
                     onImeAction?.invoke()
                     focusManager.clearFocus(force = true)
                 },
                 onSearch = {
+                    keyboardController?.hide()
                     onImeAction?.invoke()
                     focusManager.clearFocus(force = true)
                 },

@@ -16,11 +16,14 @@ import kotlinx.coroutines.launch
 class SearchViewModel : ViewModel() {
     private val repo = InvidiousRepository()
     private val keywordsRepo = TvTrendingKeywordsRepository.getInstance()
-    private var debounce: Job? = null
+    private var searchJob: Job? = null
     private var suggestionsJob: Job? = null
 
     private val _query = MutableStateFlow("")
     val query: StateFlow<String> = _query
+
+    private val _lastSearchedQuery = MutableStateFlow("")
+    val lastSearchedQuery: StateFlow<String> = _lastSearchedQuery
 
     private val _results = MutableStateFlow<List<TvVideo>>(emptyList())
     val results: StateFlow<List<TvVideo>> = _results
@@ -58,24 +61,21 @@ class SearchViewModel : ViewModel() {
 
     fun onQueryChange(q: String) {
         _query.value = q
-        debounce?.cancel()
         suggestionsJob?.cancel()
 
         if (q.isBlank()) {
+            _lastSearchedQuery.value = ""
             _results.value = emptyList()
             _suggestions.value = emptyList()
             _loading.value = false
             return
         }
 
+        // Fetch lightweight autocomplete suggestions with 300ms debounce
+        // Notice: Full video search is NOT auto-executed while typing to keep TV remote typing fluid
         suggestionsJob = viewModelScope.launch {
-            delay(200)
+            delay(300)
             _suggestions.value = keywordsRepo.getLiveSuggestions(q)
-        }
-
-        debounce = viewModelScope.launch {
-            delay(500)
-            executeSearch(q)
         }
     }
 
@@ -84,9 +84,9 @@ class SearchViewModel : ViewModel() {
         if (clean.isBlank()) return
         _query.value = clean
         _suggestions.value = emptyList()
-        debounce?.cancel()
         suggestionsJob?.cancel()
-        viewModelScope.launch {
+        searchJob?.cancel()
+        searchJob = viewModelScope.launch {
             executeSearch(clean)
         }
     }
@@ -94,10 +94,10 @@ class SearchViewModel : ViewModel() {
     fun searchNow() {
         val q = _query.value.trim()
         if (q.isBlank()) return
-        debounce?.cancel()
         suggestionsJob?.cancel()
         _suggestions.value = emptyList()
-        viewModelScope.launch {
+        searchJob?.cancel()
+        searchJob = viewModelScope.launch {
             executeSearch(q)
         }
     }
@@ -105,6 +105,7 @@ class SearchViewModel : ViewModel() {
     private suspend fun executeSearch(q: String) {
         val clean = q.trim()
         if (clean.isBlank()) return
+        _lastSearchedQuery.value = clean
         _loading.value = true
         keywordsRepo.addRecentSearch(clean)
         _results.value = try { repo.search(clean) } catch (_: Exception) { emptyList() }

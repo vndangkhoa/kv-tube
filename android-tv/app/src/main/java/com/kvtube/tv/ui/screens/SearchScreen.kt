@@ -39,14 +39,12 @@ fun SearchScreen(
     vm: SearchViewModel = viewModel(),
 ) {
     val query by vm.query.collectAsState()
+    val lastSearchedQuery by vm.lastSearchedQuery.collectAsState()
     val results by vm.results.collectAsState()
     val loading by vm.loading.collectAsState()
     val suggestions by vm.suggestions.collectAsState()
     val trendingKeywords by vm.trendingKeywords.collectAsState()
     val recentSearches by vm.recentSearches.collectAsState()
-    var text by remember { mutableStateOf(query) }
-
-    LaunchedEffect(query) { if (text != query) text = query }
 
     Column(
         Modifier
@@ -63,11 +61,8 @@ fun SearchScreen(
             verticalAlignment = Alignment.CenterVertically
         ) {
             com.kvtube.tv.ui.components.TvTextField(
-                value = text,
-                onValueChange = {
-                    text = it
-                    vm.onQueryChange(it)
-                },
+                value = query,
+                onValueChange = { vm.onQueryChange(it) },
                 modifier = Modifier.weight(1f),
                 placeholder = { Text("Tìm kiếm YouTube — bài hát, nghệ sĩ, phim, chủ đề…", color = Color(0xFFAAAAAA)) },
                 leadingIcon = {
@@ -79,9 +74,8 @@ fun SearchScreen(
                     )
                 },
                 trailingIcon = {
-                    if (text.isNotBlank()) {
+                    if (query.isNotBlank()) {
                         androidx.compose.material3.IconButton(onClick = {
-                            text = ""
                             vm.onQueryChange("")
                         }) {
                             Icon(Icons.Default.Clear, contentDescription = "Clear", tint = Color.White)
@@ -109,7 +103,7 @@ fun SearchScreen(
         }
 
         // Live Autocomplete Suggestions Row (shown when user is typing)
-        if (text.isNotBlank() && suggestions.isNotEmpty()) {
+        if (query.isNotBlank() && suggestions.isNotEmpty()) {
             Spacer(Modifier.height(10.dp))
             TvLazyRow(
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
@@ -120,7 +114,6 @@ fun SearchScreen(
                         text = suggestion,
                         icon = Icons.Default.Search,
                         onClick = {
-                            text = suggestion
                             vm.selectKeyword(suggestion)
                         }
                     )
@@ -131,7 +124,7 @@ fun SearchScreen(
         Spacer(Modifier.height(14.dp))
 
         // Main Content Area
-        if (query.isBlank() && results.isEmpty() && !loading) {
+        if (lastSearchedQuery.isBlank() && results.isEmpty() && !loading) {
             // Pre-Search Discover & Regional Trending View
             TvLazyColumn(
                 modifier = Modifier.fillMaxSize(),
@@ -186,7 +179,6 @@ fun SearchScreen(
                                         text = recent,
                                         icon = Icons.Default.History,
                                         onClick = {
-                                            text = recent
                                             vm.selectKeyword(recent)
                                         }
                                     )
@@ -255,7 +247,6 @@ fun SearchScreen(
                                     icon = Icons.AutoMirrored.Filled.TrendingUp,
                                     isPrimary = true,
                                     onClick = {
-                                        text = keyword
                                         vm.selectKeyword(keyword)
                                     }
                                 )
@@ -273,7 +264,6 @@ fun SearchScreen(
                                         icon = Icons.AutoMirrored.Filled.TrendingUp,
                                         isPrimary = false,
                                         onClick = {
-                                            text = keyword
                                             vm.selectKeyword(keyword)
                                         }
                                     )
@@ -307,7 +297,6 @@ fun SearchScreen(
                                         SearchKeywordChip(
                                             text = kw,
                                             onClick = {
-                                                text = kw
                                                 vm.selectKeyword(kw)
                                             }
                                         )
@@ -330,7 +319,7 @@ fun SearchScreen(
                 }
             }
 
-            if (results.isEmpty() && query.isNotBlank() && !loading) {
+            if (results.isEmpty() && lastSearchedQuery.isNotBlank() && !loading) {
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -342,7 +331,7 @@ fun SearchScreen(
                         verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         Text(
-                            "Không tìm thấy kết quả cho \"$query\"",
+                            "Không tìm thấy kết quả cho \"$lastSearchedQuery\"",
                             color = Color.White,
                             style = MaterialTheme.typography.titleMedium
                         )
