@@ -298,6 +298,9 @@ export class InvidiousService {
 
     if (isBrowser) {
       instancesToTry.push('/api/invidious');
+      for (const fb of InvidiousService.FALLBACK_INSTANCES) {
+        if (!instancesToTry.includes(fb)) instancesToTry.push(fb);
+      }
     } else {
       if (this.instanceUrl && !instancesToTry.includes(this.instanceUrl)) {
         instancesToTry.push(this.instanceUrl);

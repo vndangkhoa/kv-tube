@@ -18,6 +18,7 @@ import javax.inject.Inject
 
 data class HomeUiState(
     val videos: List<VideoData> = emptyList(),
+    val smartSuggestions: List<VideoData> = emptyList(),
     val isLoading: Boolean = false,
     val isLoadingMore: Boolean = false,
     val error: String? = null,
@@ -115,8 +116,19 @@ class HomeViewModel @Inject constructor(
                 val currentVideos = if (currentPage == 0) emptyList() else _uiState.value.videos
                 val combined = (currentVideos + fetchedVideos).distinctBy { it.id }
 
+                var suggestions = _uiState.value.smartSuggestions
+                if (category == "All" && currentPage == 0) {
+                    val fetchedSuggestions = runCatching {
+                        videoRepository.getSmartSuggestions(limit = 10)
+                    }.getOrNull()
+                    if (fetchedSuggestions != null) {
+                        suggestions = fetchedSuggestions
+                    }
+                }
+
                 _uiState.value = _uiState.value.copy(
                     videos = combined,
+                    smartSuggestions = suggestions,
                     isLoading = false,
                     isLoadingMore = false,
                     error = if (combined.isEmpty()) "No videos found. Pull down to refresh." else null,
@@ -134,6 +146,15 @@ class HomeViewModel @Inject constructor(
                     error = if (!hasVideos) "Unable to load videos. Tap to retry." else null
                 )
             }
+        }
+    }
+
+    fun refreshSuggestions() {
+        viewModelScope.launch {
+            val suggestions = runCatching {
+                videoRepository.getSmartSuggestions(limit = 10)
+            }.getOrNull() ?: emptyList()
+            _uiState.value = _uiState.value.copy(smartSuggestions = suggestions)
         }
     }
 

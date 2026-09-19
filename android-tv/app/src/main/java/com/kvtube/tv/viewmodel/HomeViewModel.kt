@@ -12,6 +12,7 @@ import kotlinx.coroutines.launch
 
 data class HomeUiState(
     val hero: List<TvVideo> = emptyList(),
+    val isSmartHero: Boolean = false,
     val rows: Map<String, List<TvVideo>> = emptyMap(),
     val filtered: List<TvVideo> = emptyList(),
     val filterLabel: String? = null,
@@ -75,7 +76,14 @@ class HomeViewModel : ViewModel() {
                 val mv = movies.await().shuffled()
                 val n = news.await().shuffled()
 
-                val hero = (p + m).distinctBy { it.id }.take(6)
+                val history = try { com.kvtube.tv.data.repository.TvHistoryRepository.getInstance().getHistory() } catch (_: Exception) { emptyList() }
+                val seedIds = history.take(4).map { it.videoId }.filter { it.isNotBlank() }
+                val smartHero = if (seedIds.isNotEmpty()) {
+                    try { repo.getSmartSuggestions(seedIds, limit = 8) } catch (_: Exception) { emptyList() }
+                } else emptyList()
+
+                val isSmartHero = smartHero.isNotEmpty()
+                val hero = if (isSmartHero) smartHero.take(8) else (p + m).distinctBy { it.id }.take(6)
                 val rows = linkedMapOf<String, List<TvVideo>>()
                 if (m.isNotEmpty()) rows["Nhạc"] = m.take(18)
                 if (g.isNotEmpty()) rows["Gaming VN"] = g.take(18)
@@ -87,7 +95,7 @@ class HomeViewModel : ViewModel() {
                 extra.forEach { (k, v) -> if (v.isNotEmpty()) rows[k] = v }
 
                 val errMsg = if (hero.isEmpty() && rows.isEmpty()) "Could not load feed from ${com.kvtube.tv.data.api.ApiClient.baseUrl}. Check instance in Settings." else null
-                _state.value = HomeUiState(hero = hero, rows = rows, isLoading = false, error = errMsg)
+                _state.value = HomeUiState(hero = hero, isSmartHero = isSmartHero, rows = rows, isLoading = false, error = errMsg)
             } catch (e: Exception) {
                 _state.value = _state.value.copy(isLoading = false, error = e.message ?: "Failed to load")
             }

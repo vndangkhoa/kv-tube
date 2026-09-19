@@ -1383,7 +1383,10 @@ function ShortCard({
             style={{
               height: '100%',
               backgroundColor: '#ff0000',
-              animation: isActive ? `shortsProgressBar ${video.lengthSeconds || 30}s linear infinite` : 'none',
+              animationName: isActive ? 'shortsProgressBar' : 'none',
+              animationDuration: `${video.lengthSeconds || 30}s`,
+              animationTimingFunction: 'linear',
+              animationIterationCount: 'infinite',
               animationPlayState: isPlaying ? 'running' : 'paused',
               transformOrigin: 'left center',
             }}

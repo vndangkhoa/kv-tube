@@ -21,8 +21,12 @@ object RepositoryModule {
 
     @Provides
     @Singleton
-    fun provideVideoRepository(api: KVApi, extractorHelper: ExtractorHelper): VideoRepository {
-        return VideoRepository(api, extractorHelper)
+    fun provideVideoRepository(
+        api: KVApi,
+        extractorHelper: ExtractorHelper,
+        watchHistoryDao: com.kvtube.android.data.local.WatchHistoryDao
+    ): VideoRepository {
+        return VideoRepository(api, extractorHelper, watchHistoryDao)
     }
 
     @Provides

@@ -210,10 +210,10 @@ if [ "$MODE" = "prod" ]; then
         exit 1
     fi
     start_detached frontend "$FRONTEND_LOG" "$FRONTEND_PIDFILE" \
-        env PORT="$FRONTEND_PORT" BACKEND_URL="http://127.0.0.1:$BACKEND_PORT" npm --prefix "$ROOT/frontend" run start
+        env PORT="$FRONTEND_PORT" BACKEND_URL="http://127.0.0.1:$BACKEND_PORT" INVIDIOUS_URL="${INVIDIOUS_URL:-http://127.0.0.1:7601}" NEXT_PUBLIC_INVIDIOUS_URL="${NEXT_PUBLIC_INVIDIOUS_URL:-http://127.0.0.1:7601}" npm --prefix "$ROOT/frontend" run start
 else
     start_detached frontend "$FRONTEND_LOG" "$FRONTEND_PIDFILE" \
-        env PORT="$FRONTEND_PORT" BACKEND_URL="http://127.0.0.1:$BACKEND_PORT" npm --prefix "$ROOT/frontend" run dev
+        env PORT="$FRONTEND_PORT" BACKEND_URL="http://127.0.0.1:$BACKEND_PORT" INVIDIOUS_URL="${INVIDIOUS_URL:-http://127.0.0.1:7601}" NEXT_PUBLIC_INVIDIOUS_URL="${NEXT_PUBLIC_INVIDIOUS_URL:-http://127.0.0.1:7601}" npm --prefix "$ROOT/frontend" run dev
 fi
 
 log "Waiting for frontend on :$FRONTEND_PORT..."

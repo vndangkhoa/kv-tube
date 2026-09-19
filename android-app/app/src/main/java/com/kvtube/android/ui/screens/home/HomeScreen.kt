@@ -119,6 +119,22 @@ fun HomeScreen(
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
+                // Smart Suggestions Shelf at the top of the feed for "All" category
+                if (uiState.selectedCategory == "All" && uiState.smartSuggestions.isNotEmpty()) {
+                    item(span = { GridItemSpan(maxLineSpan) }) {
+                        com.kvtube.android.ui.components.SmartSuggestionsShelf(
+                            suggestions = uiState.smartSuggestions,
+                            onVideoClick = { videoId ->
+                                navController.navigate(Screen.Watch.createRoute(videoId))
+                            },
+                            onChannelClick = { channelId ->
+                                navController.navigate(Screen.Channel.createRoute(channelId))
+                            },
+                            onRefresh = { viewModel.refreshSuggestions() }
+                        )
+                    }
+                }
+
                 items(
                     items = uiState.videos,
                     key = { it.id }

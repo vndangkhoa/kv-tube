@@ -2,12 +2,16 @@ package com.kvtube.android.data.repository
 
 import android.util.Log
 import com.kvtube.android.data.api.KVApi
+import com.kvtube.android.data.local.WatchHistoryDao
 import com.kvtube.android.data.model.Comment
 import com.kvtube.android.data.model.CommentsPage
 import com.kvtube.android.data.model.PlaybackInfo
 import com.kvtube.android.data.model.VideoData
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withTimeoutOrNull
 
 /**
@@ -19,7 +23,8 @@ import kotlinx.coroutines.withTimeoutOrNull
 @Singleton
 class VideoRepository @Inject constructor(
     private val api: KVApi,
-    private val extractorHelper: com.kvtube.android.data.extractor.ExtractorHelper
+    private val extractorHelper: com.kvtube.android.data.extractor.ExtractorHelper,
+    private val watchHistoryDao: WatchHistoryDao
 ) {
     companion object {
         private const val TAG = "VideoRepository"
@@ -153,4 +158,43 @@ class VideoRepository @Inject constructor(
 
     suspend fun getComments(videoId: String, limit: Int = 20): List<Comment> =
         getCommentsPage(videoId).comments.take(limit)
+
+    suspend fun getSmartSuggestions(limit: Int = 12): List<VideoData> {
+        val recentHistory = runCatching { watchHistoryDao.getRecentWatched(15) }.getOrNull() ?: emptyList()
+        if (recentHistory.isEmpty()) return emptyList()
+
+        val watchedIds = recentHistory.map { it.videoId }.toSet()
+        val seeds = recentHistory.take(4)
+
+        return coroutineScope {
+            val jobs = seeds.map { seed ->
+                async {
+                    bounded(SERVER_TIMEOUT_MS) {
+                        api.getRelatedVideos(seed.videoId, limit = 10)
+                    } ?: emptyList()
+                }
+            }
+            val pools = jobs.awaitAll()
+
+            val seen = mutableSetOf<String>()
+            seen.addAll(watchedIds)
+
+            val suggestions = mutableListOf<VideoData>()
+            val maxDepth = 10
+            for (depth in 0 until maxDepth) {
+                for (pool in pools) {
+                    if (depth < pool.size) {
+                        val video = pool[depth]
+                        if (video.id.isNotBlank() && seen.add(video.id)) {
+                            suggestions.add(video)
+                            if (suggestions.size >= limit) {
+                                return@coroutineScope suggestions
+                            }
+                        }
+                    }
+                }
+            }
+            suggestions
+        }
+    }
 }

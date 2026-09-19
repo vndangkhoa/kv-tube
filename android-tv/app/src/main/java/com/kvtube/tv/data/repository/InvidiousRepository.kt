@@ -8,6 +8,9 @@ import com.kvtube.tv.data.model.SearchResultItem
 import com.kvtube.tv.data.model.TvVideo
 import com.kvtube.tv.data.model.toTvVideo
 
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withTimeoutOrNull
 
 class InvidiousRepository {
@@ -120,5 +123,41 @@ class InvidiousRepository {
             if (list.isNotEmpty()) out[title] = list.take(18)
         }
         return out
+    }
+
+    suspend fun getSmartSuggestions(seedIds: List<String>, limit: Int = 12): List<TvVideo> {
+        if (seedIds.isEmpty()) return emptyList()
+        val seeds = seedIds.take(4)
+        val watchedSet = seedIds.toSet()
+
+        return coroutineScope {
+            val jobs = seeds.map { seedId ->
+                async {
+                    val v = videoOrNull(seedId)
+                    v?.recommendedVideos?.map { it.toTvVideo() } ?: emptyList()
+                }
+            }
+            val pools = jobs.awaitAll()
+
+            val seen = mutableSetOf<String>()
+            seen.addAll(watchedSet)
+
+            val suggestions = mutableListOf<TvVideo>()
+            val maxDepth = 12
+            for (depth in 0 until maxDepth) {
+                for (pool in pools) {
+                    if (depth < pool.size) {
+                        val video = pool[depth]
+                        if (video.id.isNotBlank() && seen.add(video.id)) {
+                            suggestions.add(video)
+                            if (suggestions.size >= limit) {
+                                return@coroutineScope suggestions
+                            }
+                        }
+                    }
+                }
+            }
+            suggestions
+        }
     }
 }

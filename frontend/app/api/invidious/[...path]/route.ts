@@ -73,17 +73,21 @@ async function handleProxy(req: NextRequest, pathParts: string[]) {
       ? customInstance
       : null;
 
-  const instance =
-    validCustomInstance ||
-    process.env.INVIDIOUS_URL ||
-    process.env.NEXT_PUBLIC_INVIDIOUS_URL ||
-    'http://invidious:3000';
-  const subPath = '/' + (pathParts || []).join('/');
-  const targetUrl = new URL(subPath, instance);
+  const candidateInstances: string[] = [];
+  if (validCustomInstance) candidateInstances.push(validCustomInstance);
+  if (process.env.INVIDIOUS_URL) candidateInstances.push(process.env.INVIDIOUS_URL);
+  if (process.env.NEXT_PUBLIC_INVIDIOUS_URL) candidateInstances.push(process.env.NEXT_PUBLIC_INVIDIOUS_URL);
+  // Support both host port (7601) and internal docker container hostname (invidious:3000)
+  candidateInstances.push('http://127.0.0.1:7601');
+  candidateInstances.push('http://invidious:3000');
+  // Public fallbacks in case local instance is unavailable
+  candidateInstances.push('https://yewtu.be');
+  candidateInstances.push('https://invidious.nerdvpn.de');
 
-  req.nextUrl.searchParams.forEach((val, key) => {
-    targetUrl.searchParams.set(key, val);
-  });
+  // Deduplicate candidates preserving priority order
+  const uniqueInstances = Array.from(new Set(candidateInstances.filter(Boolean)));
+
+  const subPath = '/' + (pathParts || []).join('/');
 
   const headers: Record<string, string> = {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) KV-Tube',
@@ -132,57 +136,76 @@ async function handleProxy(req: NextRequest, pathParts: string[]) {
     } catch {}
   }
 
-  try {
-    const res = await fetch(targetUrl.toString(), {
-      method: req.method,
-      headers,
-      body,
-      // @ts-ignore
-      duplex: 'half',
-    });
+  let lastError: any = null;
 
-    const upstreamContentType = res.headers.get('content-type') || '';
-    const isMedia =
-      upstreamContentType.startsWith('video/') ||
-      upstreamContentType.startsWith('audio/') ||
-      !!req.headers.get('range');
+  for (const instance of uniqueInstances) {
+    try {
+      const targetUrl = new URL(subPath, instance);
+      req.nextUrl.searchParams.forEach((val, key) => {
+        targetUrl.searchParams.set(key, val);
+      });
 
-    const responseHeaders = new Headers();
-    const headersToForward = [
-      'content-type',
-      'content-range',
-      'accept-ranges',
-      'location',
-    ];
-    headersToForward.forEach((h) => {
-      const val = res.headers.get(h);
-      if (val) responseHeaders.set(h, val);
-    });
+      const res = await fetch(targetUrl.toString(), {
+        method: req.method,
+        headers,
+        body,
+        // @ts-ignore
+        duplex: 'half',
+        signal: AbortSignal.timeout(6000),
+      });
 
-    responseHeaders.set('Access-Control-Allow-Origin', '*');
-    responseHeaders.set('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS, HEAD');
-    responseHeaders.set('Access-Control-Allow-Headers', '*');
+      // If upstream returned 5xx server error, try next candidate instance if available
+      if (!res.ok && res.status >= 500 && uniqueInstances.indexOf(instance) < uniqueInstances.length - 1) {
+        lastError = new Error(`Instance ${instance} returned status ${res.status}`);
+        continue;
+      }
 
-    // Media streams must be streamed through untouched (range support, low memory).
-    if (isMedia) {
-      const len = res.headers.get('content-length');
-      if (len) responseHeaders.set('content-length', len);
-      return new NextResponse(res.body, {
+      const upstreamContentType = res.headers.get('content-type') || '';
+      const isMedia =
+        upstreamContentType.startsWith('video/') ||
+        upstreamContentType.startsWith('audio/') ||
+        !!req.headers.get('range');
+
+      const responseHeaders = new Headers();
+      const headersToForward = [
+        'content-type',
+        'content-range',
+        'accept-ranges',
+        'location',
+      ];
+      headersToForward.forEach((h) => {
+        const val = res.headers.get(h);
+        if (val) responseHeaders.set(h, val);
+      });
+
+      responseHeaders.set('Access-Control-Allow-Origin', '*');
+      responseHeaders.set('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS, HEAD');
+      responseHeaders.set('Access-Control-Allow-Headers', '*');
+
+      // Media streams must be streamed through untouched (range support, low memory).
+      if (isMedia) {
+        const len = res.headers.get('content-length');
+        if (len) responseHeaders.set('content-length', len);
+        return new NextResponse(res.body, {
+          status: res.status,
+          headers: responseHeaders,
+        });
+      }
+
+      // JSON / other small payloads are buffered so the client always receives a
+      // complete body with a correct content-length (blind streaming can drop
+      // trailing bytes, producing truncated JSON in the browser).
+      const buf = await res.arrayBuffer();
+      responseHeaders.set('Cache-Control', 'no-store');
+      return new NextResponse(buf, {
         status: res.status,
         headers: responseHeaders,
       });
+    } catch (e: any) {
+      lastError = e;
+      continue;
     }
-
-    // JSON / other small payloads are buffered so the client always receives a
-    // complete body with a correct content-length (blind streaming can drop
-    // trailing bytes, producing truncated JSON in the browser).
-    const buf = await res.arrayBuffer();
-    responseHeaders.set('Cache-Control', 'no-store');
-    return new NextResponse(buf, {
-      status: res.status,
-      headers: responseHeaders,
-    });
-  } catch (e: any) {
-    return NextResponse.json({ error: e?.message || 'Proxy request failed' }, { status: 502 });
   }
+
+  return NextResponse.json({ error: lastError?.message || 'Proxy request failed' }, { status: 502 });
 }
