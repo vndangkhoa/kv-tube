@@ -160,6 +160,20 @@ export function addToHistory(video: {
   // Keep only last 150 items
   const updated = [newItem, ...filtered].slice(0, 150);
   saveToStorage(HISTORY_KEY, updated);
+
+  // Sync with backend history in background (fire-and-forget)
+  if (typeof window !== 'undefined') {
+    fetch('/api/history', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        video_id: video.videoId,
+        title: video.title || 'Untitled Video',
+        thumbnail: newItem.thumbnail,
+        uploader: video.channelTitle || '',
+      }),
+    }).catch(() => {});
+  }
 }
 
 export function removeFromHistory(videoId: string): void {
@@ -170,6 +184,21 @@ export function removeFromHistory(videoId: string): void {
 
 export function clearHistory(): void {
   saveToStorage(HISTORY_KEY, []);
+}
+
+// ==================== DISMISSED SUGGESTIONS ====================
+
+const DISMISSED_SUGGESTIONS_KEY = 'kvtube_dismissed_suggestions';
+
+export function getDismissedSuggestions(): string[] {
+  return getFromStorage<string>(DISMISSED_SUGGESTIONS_KEY);
+}
+
+export function dismissSuggestion(videoId: string): void {
+  const dismissed = getDismissedSuggestions();
+  if (!dismissed.includes(videoId)) {
+    saveToStorage(DISMISSED_SUGGESTIONS_KEY, [...dismissed, videoId].slice(-200));
+  }
 }
 
 // ==================== SUBSCRIPTIONS ====================

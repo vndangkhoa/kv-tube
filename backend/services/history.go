@@ -2,6 +2,8 @@ package services
 
 import (
 	"log"
+	"strings"
+	"sync"
 
 	"kvtube-go/models"
 )
@@ -83,11 +85,106 @@ func GetLikedVideos(limit int) ([]HistoryVideo, error) {
 	return scanUserVideos(limit, "liked")
 }
 
+// GetSmartSuggestions generates personalized video suggestions based on provided seed video IDs
+// or recently watched videos from the database. It queries YouTube's real "Up Next" graph
+// concurrently, excludes already-watched and dismissed videos, and round-robin interleaves
+// the results across seeds to provide maximum topic diversity.
+func GetSmartSuggestions(seedIDs []string, excludeIDs []string, limit int) ([]VideoData, error) {
+	if limit <= 0 {
+		limit = 12
+	}
+	if limit > 50 {
+		limit = 50
+	}
+
+	excludeSet := make(map[string]bool)
+	for _, id := range excludeIDs {
+		if id = strings.TrimSpace(id); id != "" {
+			excludeSet[id] = true
+		}
+	}
+
+	// If no seeds provided by caller, look up user's recent history from DB
+	effectiveSeeds := make([]string, 0, len(seedIDs))
+	for _, id := range seedIDs {
+		if id = strings.TrimSpace(id); id != "" {
+			effectiveSeeds = append(effectiveSeeds, id)
+			excludeSet[id] = true
+		}
+	}
+
+	if len(effectiveSeeds) == 0 {
+		history, err := GetHistory(10)
+		if err == nil {
+			for _, h := range history {
+				if h.ID != "" {
+					excludeSet[h.ID] = true
+					if len(effectiveSeeds) < 4 {
+						effectiveSeeds = append(effectiveSeeds, h.ID)
+					}
+				}
+			}
+		}
+	}
+
+	if len(effectiveSeeds) == 0 {
+		return []VideoData{}, nil
+	}
+
+	// Limit to top 4 seeds for performance & diversity
+	if len(effectiveSeeds) > 4 {
+		effectiveSeeds = effectiveSeeds[:4]
+	}
+
+	// Concurrently fetch related videos for each seed
+	type seedPool struct {
+		seedID string
+		videos []VideoData
+	}
+
+	pools := make([]seedPool, len(effectiveSeeds))
+	var wg sync.WaitGroup
+
+	for i, seed := range effectiveSeeds {
+		wg.Add(1)
+		go func(idx int, s string) {
+			defer wg.Done()
+			rel := GetRelatedVideos(s, 12)
+			pools[idx] = seedPool{
+				seedID: s,
+				videos: rel,
+			}
+		}(i, seed)
+	}
+	wg.Wait()
+
+	// Round-robin interleaving across seed pools with strict deduplication
+	seen := make(map[string]bool)
+	for k := range excludeSet {
+		seen[k] = true
+	}
+
+	var suggestions []VideoData
+	maxDepth := 12
+	for depth := 0; depth < maxDepth; depth++ {
+		for _, pool := range pools {
+			if depth < len(pool.videos) {
+				v := pool.videos[depth]
+				if v.ID != "" && !seen[v.ID] {
+					seen[v.ID] = true
+					suggestions = append(suggestions, v)
+					if len(suggestions) >= limit {
+						return suggestions, nil
+					}
+				}
+			}
+		}
+	}
+
+	return suggestions, nil
+}
+
 // GetSuggestions retrieves suggestions based on the user's recent history
-// NOTE: This function now returns empty results since we're using client-side YouTube API
-// The frontend should use the YouTube API directly for suggestions
 func GetSuggestions(limit int) ([]VideoData, error) {
-	// Return empty results - suggestions are now handled client-side
-	// Frontend should use YouTube API for suggestions
-	return []VideoData{}, nil
+	return GetSmartSuggestions(nil, nil, limit)
 }

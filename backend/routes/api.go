@@ -704,12 +704,33 @@ func handleGetLiked(c *gin.Context) {
 
 func handleGetSuggestions(c *gin.Context) {
 	limitStr := c.Query("limit")
-	limit := 20
+	limit := 12
 	if l, err := strconv.Atoi(limitStr); err == nil && l > 0 {
 		limit = l
 	}
 
-	suggestions, err := services.GetSuggestions(limit)
+	seedsParam := c.Query("seeds")
+	excludeParam := c.Query("exclude")
+
+	var seeds []string
+	if seedsParam != "" {
+		for _, s := range strings.Split(seedsParam, ",") {
+			if s = strings.TrimSpace(s); s != "" {
+				seeds = append(seeds, s)
+			}
+		}
+	}
+
+	var exclude []string
+	if excludeParam != "" {
+		for _, e := range strings.Split(excludeParam, ",") {
+			if e = strings.TrimSpace(e); e != "" {
+				exclude = append(exclude, e)
+			}
+		}
+	}
+
+	suggestions, err := services.GetSmartSuggestions(seeds, exclude, limit)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get suggestions"})
 		return

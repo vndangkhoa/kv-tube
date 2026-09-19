@@ -5,12 +5,14 @@ import { useSearchParams } from 'next/navigation';
 import VideoCard from './components/VideoCard';
 import ShortsShelf, { ShortItem } from './components/ShortsShelf';
 import ExploreTopicsShelf, { DEFAULT_EXPLORE_TOPICS } from './components/ExploreTopicsShelf';
+import SmartSuggestionsShelf from './components/SmartSuggestionsShelf';
 import InfiniteScrollTrigger from './components/InfiniteScrollTrigger';
 import { VideoData } from './constants';
 import { invidious } from './services/invidious';
 import { categoryQuery, getRegionContent } from './regionContent';
 import { searchVideosClient } from './clientActions';
 import { formatRelativeTime, proxiedImageUrl, isShortVideo } from './utils';
+import { getHistory, HistoryItem } from './storage';
 import { IoChevronBack, IoChevronForward, IoChevronDown } from 'react-icons/io5';
 
 const CATEGORY_TOPIC_MAP: Record<string, string[]> = {
@@ -256,6 +258,8 @@ export default function ClientHomePage() {
   const [clusterVideos, setClusterVideos] = useState<VideoData[]>([]);
   const [clusterLoading, setClusterLoading] = useState(false);
   const [isShelfHidden, setIsShelfHidden] = useState(false);
+  const [isSmartShelfHidden, setIsSmartShelfHidden] = useState(false);
+  const [historyItems, setHistoryItems] = useState<HistoryItem[]>([]);
   const [dismissedTopics, setDismissedTopics] = useState<string[]>([]);
 
   // Load preferences and choose dynamic initial subtopic on mount
@@ -263,6 +267,10 @@ export default function ClientHomePage() {
     try {
       const hidden = localStorage.getItem('kv_hide_explore_shelf') === 'true';
       setIsShelfHidden(hidden);
+      const smartHidden = localStorage.getItem('kv_hide_smart_shelf') === 'true';
+      setIsSmartShelfHidden(smartHidden);
+      const hist = getHistory(20);
+      if (Array.isArray(hist)) setHistoryItems(hist);
       const dismissed: string[] = JSON.parse(localStorage.getItem('kv_dismissed_subtopics') || '[]');
       if (Array.isArray(dismissed)) setDismissedTopics(dismissed);
 
@@ -339,6 +347,13 @@ export default function ClientHomePage() {
     setIsShelfHidden(true);
     try {
       localStorage.setItem('kv_hide_explore_shelf', 'true');
+    } catch {}
+  };
+
+  const handleHideSmartShelf = () => {
+    setIsSmartShelfHidden(true);
+    try {
+      localStorage.setItem('kv_hide_smart_shelf', 'true');
     } catch {}
   };
 
@@ -728,6 +743,14 @@ export default function ClientHomePage() {
         </div>
       ) : (
         <>
+          {/* Smart Suggestions Shelf based on watch history (top of main page) */}
+          {page === 1 && currentCategory === 'All' && !isSmartShelfHidden && historyItems.length > 0 && (
+            <SmartSuggestionsShelf
+              historyItems={historyItems}
+              onHideShelf={handleHideSmartShelf}
+            />
+          )}
+
           {/* Row 1: Top video cards */}
           <div className="home-video-grid">
             {videos.slice(0, 3).map((v) => (
