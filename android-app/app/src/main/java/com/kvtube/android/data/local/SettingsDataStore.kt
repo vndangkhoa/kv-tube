@@ -28,14 +28,13 @@ class SettingsDataStore @Inject constructor(
 
         // No hardcoded host: the app only ever talks to the server the user
         // enters in Settings. Empty means "not configured yet".
-        const val DEFAULT_SERVER_URL = ""
+        const val DEFAULT_SERVER_URL = "https://yt.khoavo.vndns.net"
         const val DEFAULT_THEME_MODE = "dark"
         const val DEFAULT_REGION = "GLOBAL"
     }
 
-    /** Exactly what the user saved — never silently replaced by a default. */
     val serverUrl: Flow<String> = context.dataStore.data.map { preferences ->
-        preferences[SERVER_URL]?.trim()?.removeSuffix("/") ?: ""
+        preferences[SERVER_URL]?.trim()?.removeSuffix("/")?.ifBlank { DEFAULT_SERVER_URL } ?: DEFAULT_SERVER_URL
     }
 
     val invidiousToken: Flow<String> = context.dataStore.data.map { preferences ->

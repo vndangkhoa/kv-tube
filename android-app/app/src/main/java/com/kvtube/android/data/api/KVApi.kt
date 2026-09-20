@@ -177,6 +177,16 @@ class KVApi(
         }
     }
 
+    private fun extractInvidiousVersion(obj: JsonObject?): String {
+        if (obj == null) return ""
+        val top = obj.str("version")
+        if (top.isNotBlank()) return top
+        val sw = obj["software"] as? JsonObject
+        val swVer = sw?.str("version") ?: ""
+        if (swVer.isNotBlank()) return swVer
+        return ""
+    }
+
     suspend fun testServerConnection(testUrl: String): ServerCheckResult {
         val clean = normalizeUrl(testUrl)
         if (clean.isBlank()) {
@@ -199,7 +209,7 @@ class KVApi(
                 } else {
                     val obj = runCatching { json.parseToJsonElement(body) as? JsonObject }.getOrNull()
                     if (obj?.containsKey("version") == true || obj?.containsKey("software") == true) {
-                        val ver = obj.str("version").ifBlank { "detected" }
+                        val ver = extractInvidiousVersion(obj).ifBlank { "detected" }
                         return ServerCheckResult(
                             ok = true,
                             isGateway = false,
@@ -227,7 +237,7 @@ class KVApi(
                 } else {
                     val obj = runCatching { json.parseToJsonElement(body) as? JsonObject }.getOrNull()
                     if (obj?.containsKey("version") == true || obj?.containsKey("software") == true) {
-                        val ver = obj.str("version").ifBlank { "detected" }
+                        val ver = extractInvidiousVersion(obj).ifBlank { "detected" }
                         return ServerCheckResult(
                             ok = true,
                             isGateway = true,
@@ -315,9 +325,13 @@ class KVApi(
     }
 
     private suspend fun invidiousOk(prefix: String): Boolean {
+        if (baseUrl.isBlank()) return false
         return try {
-            val body = client.get("$baseUrl$prefix/stats").bodyAsText()
-            val o = json.parseToJsonElement(body) as? JsonObject
+            val resp = client.get("$baseUrl$prefix/stats")
+            if (!resp.status.isSuccess()) return false
+            val body = resp.bodyAsText().trim()
+            if (body.startsWith("<") || body.contains("<html", ignoreCase = true)) return false
+            val o = runCatching { json.parseToJsonElement(body) as? JsonObject }.getOrNull()
             o?.containsKey("version") == true || o?.containsKey("software") == true
         } catch (e: Exception) {
             Log.d(TAG, "probe $prefix/stats: not invidious (${e.message})")
@@ -326,6 +340,9 @@ class KVApi(
     }
 
     private suspend fun api(path: String): String {
+        if (baseUrl.isBlank()) {
+            throw IllegalStateException("Server URL is not configured")
+        }
         resolveGateway()
         val p = if (path.startsWith("/")) path else "/$path"
         return if (gatewayMode == true) {
@@ -336,6 +353,7 @@ class KVApi(
     }
 
     private suspend fun getBody(path: String, params: Map<String, String> = emptyMap(), auth: Boolean = false): String? {
+        if (baseUrl.isBlank()) return null
         return try {
             val resp = client.get(api(path)) {
                 params.forEach { (k, v) -> parameter(k, v) }
@@ -729,6 +747,7 @@ class KVApi(
      * collection URL is rejected.
      */
     suspend fun subscribe(channelId: String, channelName: String, channelAvatar: String): Boolean {
+        if (baseUrl.isBlank()) return false
         return try {
             client.post(api("auth/subscriptions/$channelId")) {
                 applyAuth(this)
@@ -740,6 +759,7 @@ class KVApi(
     }
 
     suspend fun unsubscribe(channelId: String): Boolean {
+        if (baseUrl.isBlank()) return false
         return try {
             client.delete(api("auth/subscriptions/$channelId")) {
                 applyAuth(this)
@@ -751,6 +771,7 @@ class KVApi(
     }
 
     suspend fun isSubscribed(channelId: String): Boolean {
+        if (baseUrl.isBlank()) return false
         return getJsonArray("auth/subscriptions", auth = true)
             .any { it.str("authorId") == channelId }
     }
@@ -764,6 +785,7 @@ class KVApi(
      * token apart from a server that is simply unreachable.
      */
     suspend fun checkToken(): TokenCheck {
+        if (baseUrl.isBlank() || authToken.isBlank()) return TokenCheck.UNREACHABLE
         return try {
             val resp = client.get(api("auth/preferences")) { applyAuth(this) }
             when {
@@ -777,6 +799,7 @@ class KVApi(
     }
 
     suspend fun checkServerStatus(): Boolean {
+        if (baseUrl.isBlank()) return false
         return try {
             resolveGateway()
             client.get(api("stats")).status.isSuccess()

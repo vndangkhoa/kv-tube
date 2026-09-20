@@ -51,8 +51,8 @@ class SettingsViewModel @Inject constructor(
         const val PAIR_FALLBACK_BASE = "https://ut.khoavo.myds.me"
 
         val PRESET_INSTANCES = listOf(
-            "https://ut.khoavo.myds.me" to "KV-Tube Web (Gateway)",
-            "https://yt.khoavo.myds.me" to "KV-Tube Direct (Invidious)"
+            "https://yt.khoavo.vndns.net" to "yt.khoavo.vndns.net",
+            "https://invidious.khoavo.myds.me" to "invidious.khoavo.myds.me"
         )
     }
 
@@ -119,7 +119,7 @@ class SettingsViewModel @Inject constructor(
                 testSuccess = false,
                 testStatus = "Enter a server address first",
                 testLatencyMs = null,
-                testTroubleshootTip = "Please enter your server URL (e.g. https://ut.khoavo.myds.me) or choose a preset."
+                testTroubleshootTip = "Please enter your server URL (e.g. https://yt.khoavo.vndns.net) or choose a preset."
             )
             return
         }

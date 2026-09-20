@@ -293,7 +293,7 @@ fun SettingsScreen(
                 value = serverUrl,
                 onValueChange = { serverUrl = it },
                 label = { Text("Server Address") },
-                placeholder = { Text("https://ut.khoavo.myds.me") },
+                placeholder = { Text("https://yt.khoavo.vndns.net") },
                 singleLine = true,
                 trailingIcon = {
                     if (serverUrl.isNotBlank()) {
