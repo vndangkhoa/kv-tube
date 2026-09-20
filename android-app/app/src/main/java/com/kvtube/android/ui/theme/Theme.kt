@@ -7,6 +7,7 @@ import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.SideEffect
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalView
 import androidx.core.view.WindowCompat
@@ -23,6 +24,13 @@ private val DarkColorScheme = darkColorScheme(
     onSurfaceVariant = YTTextSecondaryDark,
     outline = YTBorderDark,
     error = YTBrandRed,
+)
+
+private val AmoledColorScheme = DarkColorScheme.copy(
+    background = Color.Black,
+    surface = Color(0xFF0C0C0C),
+    surfaceVariant = Color(0xFF181818),
+    outline = Color(0xFF2E2E2E),
 )
 
 private val LightColorScheme = lightColorScheme(
@@ -44,12 +52,17 @@ fun KVTubeTheme(
     themeMode: String = "dark",
     content: @Composable () -> Unit
 ) {
+    val isAmoled = themeMode == "amoled"
     val darkTheme = when (themeMode) {
         "light" -> false
         "system" -> isSystemInDarkTheme()
         else -> true
     }
-    val colorScheme = if (darkTheme) DarkColorScheme else LightColorScheme
+    val colorScheme = when {
+        isAmoled -> AmoledColorScheme
+        darkTheme -> DarkColorScheme
+        else -> LightColorScheme
+    }
 
     val view = LocalView.current
     if (!view.isInEditMode) {

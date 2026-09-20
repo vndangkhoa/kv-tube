@@ -30,6 +30,8 @@ data class SettingsUiState(
     val isTestingConnection: Boolean = false,
     val testSuccess: Boolean? = null,
     val testStatus: String? = null,
+    val testLatencyMs: Long? = null,
+    val testTroubleshootTip: String? = null,
     val saveMessage: String? = null
 )
 
@@ -115,7 +117,9 @@ class SettingsViewModel @Inject constructor(
             _uiState.value = _uiState.value.copy(
                 isTestingConnection = false,
                 testSuccess = false,
-                testStatus = "Enter a server address first"
+                testStatus = "Enter a server address first",
+                testLatencyMs = null,
+                testTroubleshootTip = "Please enter your server URL (e.g. https://ut.khoavo.myds.me) or choose a preset."
             )
             return
         }
@@ -123,13 +127,17 @@ class SettingsViewModel @Inject constructor(
             _uiState.value = _uiState.value.copy(
                 isTestingConnection = true,
                 testSuccess = null,
-                testStatus = "Testing connection..."
+                testStatus = "Testing connection...",
+                testLatencyMs = null,
+                testTroubleshootTip = null
             )
             val result = api.testServerConnection(cleanUrl)
             _uiState.value = _uiState.value.copy(
                 isTestingConnection = false,
                 testSuccess = result.ok,
-                testStatus = result.message
+                testStatus = result.message,
+                testLatencyMs = if (result.ok) result.latencyMs else null,
+                testTroubleshootTip = result.troubleshootTip
             )
         }
     }

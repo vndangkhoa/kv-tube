@@ -49,7 +49,11 @@ class KVApi(
             if (!s.startsWith("http://") && !s.startsWith("https://")) {
                 s = "https://$s"
             }
-            if (s.startsWith("http://") && !s.contains("192.168.") && !s.contains("127.0.0.1") && !s.contains("localhost")) {
+            // Only auto-upgrade http:// to https:// if not an explicit local/private network or custom port
+            val isLocalOrLan = s.contains("192.168.") || s.contains("127.0.0.1") ||
+                s.contains("localhost") || s.contains("10.") || s.contains("172.") ||
+                s.contains(".local") || Regex(":\\d{2,5}").containsMatchIn(s)
+            if (s.startsWith("http://") && !isLocalOrLan) {
                 s = s.replaceFirst("http://", "https://")
             }
             return s
@@ -133,54 +137,153 @@ class KVApi(
         val isGateway: Boolean = false,
         val version: String = "",
         val latencyMs: Long = 0L,
-        val message: String = ""
+        val message: String = "",
+        val troubleshootTip: String? = null
     )
+
+    private fun diagnoseException(e: Throwable): Pair<String, String?> {
+        val root = generateSequence(e) { it.cause }.lastOrNull() ?: e
+        val msg = root.message.orEmpty()
+
+        return when {
+            root is java.net.UnknownHostException || e is java.net.UnknownHostException -> {
+                "Cannot resolve hostname. Check domain spelling or internet connection." to
+                    "If using Synology DDNS (*.myds.me), make sure DDNS is active in DSM Control Panel → External Access."
+            }
+            root is java.net.SocketTimeoutException || e is java.net.SocketTimeoutException ||
+                root.javaClass.simpleName.contains("Timeout", ignoreCase = true) ||
+                e.javaClass.simpleName.contains("Timeout", ignoreCase = true) -> {
+                "Connection timed out." to
+                    "If on home Wi-Fi, your router may block NAT loopback. Try mobile data (4G/5G) or use your local NAS IP (e.g. 192.168.1.x). If connecting remotely, check that port 443 is forwarded on your router."
+            }
+            root is java.net.ConnectException || e is java.net.ConnectException -> {
+                "Connection refused." to
+                    "The IP was reached, but no service is listening on this port. Check if the Docker container is running."
+            }
+            root is javax.net.ssl.SSLException || e is javax.net.ssl.SSLException ||
+                root.javaClass.name.contains("ssl", ignoreCase = true) ||
+                e.javaClass.name.contains("ssl", ignoreCase = true) -> {
+                "SSL / TLS Certificate error." to
+                    "In Synology DSM: Control Panel → Security → Certificate → Settings, make sure your domain is assigned to a valid Let's Encrypt certificate (not the default self-signed cert)."
+            }
+            msg.contains("Cleartext", ignoreCase = true) -> {
+                "Unencrypted HTTP traffic blocked by Android." to
+                    "Use HTTPS or ensure cleartext traffic is permitted for local IP addresses."
+            }
+            else -> {
+                (e.message?.takeIf { it.isNotBlank() } ?: "Network connection failed (${e.javaClass.simpleName})") to
+                    "Check that the server address is reachable and Docker is running on your NAS."
+            }
+        }
+    }
 
     suspend fun testServerConnection(testUrl: String): ServerCheckResult {
         val clean = normalizeUrl(testUrl)
         if (clean.isBlank()) {
-            return ServerCheckResult(ok = false, message = "URL is empty")
+            return ServerCheckResult(ok = false, message = "Enter a server address first")
         }
         val start = android.os.SystemClock.elapsedRealtime()
-        return try {
-            // 1. Try direct Invidious /api/v1/stats
-            val directStats = try {
-                client.get("$clean/api/v1/stats").bodyAsText()
-            } catch (_: Exception) { null }
-            val directObj = directStats?.let { runCatching { json.parseToJsonElement(it) as? JsonObject }.getOrNull() }
-            if (directObj?.containsKey("version") == true) {
-                val latency = android.os.SystemClock.elapsedRealtime() - start
-                val ver = directObj.str("version")
-                return ServerCheckResult(
-                    ok = true,
-                    isGateway = false,
-                    version = ver,
-                    latencyMs = latency,
-                    message = "Invidious v$ver (${latency}ms)"
-                )
-            }
 
-            // 2. Try KV-Tube Gateway /api/invidious/api/v1/stats
-            val gatewayStats = try {
-                client.get("$clean/api/invidious/api/v1/stats").bodyAsText()
-            } catch (_: Exception) { null }
-            val gatewayObj = gatewayStats?.let { runCatching { json.parseToJsonElement(it) as? JsonObject }.getOrNull() }
-            if (gatewayObj?.containsKey("version") == true) {
-                val latency = android.os.SystemClock.elapsedRealtime() - start
-                val ver = gatewayObj.str("version")
-                return ServerCheckResult(
-                    ok = true,
-                    isGateway = true,
-                    version = ver,
-                    latencyMs = latency,
-                    message = "KV-Tube Web Gateway (Invidious v$ver, ${latency}ms)"
-                )
-            }
+        var lastException: Throwable? = null
+        var lastHttpError: String? = null
+        var sawHtmlBody = false
 
-            ServerCheckResult(ok = false, message = "No Invidious API detected at this address")
+        // 1. Try direct Invidious /api/v1/stats
+        try {
+            val resp = client.get("$clean/api/v1/stats")
+            val latency = android.os.SystemClock.elapsedRealtime() - start
+            if (resp.status.isSuccess()) {
+                val body = resp.bodyAsText().trim()
+                if (body.startsWith("<") || body.contains("<html", ignoreCase = true)) {
+                    sawHtmlBody = true
+                } else {
+                    val obj = runCatching { json.parseToJsonElement(body) as? JsonObject }.getOrNull()
+                    if (obj?.containsKey("version") == true || obj?.containsKey("software") == true) {
+                        val ver = obj.str("version").ifBlank { "detected" }
+                        return ServerCheckResult(
+                            ok = true,
+                            isGateway = false,
+                            version = ver,
+                            latencyMs = latency,
+                            message = "Direct Invidious v$ver (${latency}ms)"
+                        )
+                    }
+                }
+            } else {
+                lastHttpError = "HTTP ${resp.status.value} ${resp.status.description}"
+            }
         } catch (e: Exception) {
-            ServerCheckResult(ok = false, message = e.message ?: "Connection failed")
+            lastException = e
         }
+
+        // 2. Try KV-Tube Web Gateway /api/invidious/api/v1/stats
+        try {
+            val resp = client.get("$clean/api/invidious/api/v1/stats")
+            val latency = android.os.SystemClock.elapsedRealtime() - start
+            if (resp.status.isSuccess()) {
+                val body = resp.bodyAsText().trim()
+                if (body.startsWith("<") || body.contains("<html", ignoreCase = true)) {
+                    sawHtmlBody = true
+                } else {
+                    val obj = runCatching { json.parseToJsonElement(body) as? JsonObject }.getOrNull()
+                    if (obj?.containsKey("version") == true || obj?.containsKey("software") == true) {
+                        val ver = obj.str("version").ifBlank { "detected" }
+                        return ServerCheckResult(
+                            ok = true,
+                            isGateway = true,
+                            version = ver,
+                            latencyMs = latency,
+                            message = "KV-Tube Web Gateway (Invidious v$ver, ${latency}ms)"
+                        )
+                    }
+                }
+            } else {
+                lastHttpError = "HTTP ${resp.status.value} ${resp.status.description}"
+            }
+        } catch (e: Exception) {
+            if (lastException == null) lastException = e
+        }
+
+        // Neither succeeded — diagnose root cause
+        if (lastException != null) {
+            val (msg, tip) = diagnoseException(lastException)
+            return ServerCheckResult(
+                ok = false,
+                message = msg,
+                troubleshootTip = tip
+            )
+        }
+
+        if (lastHttpError != null) {
+            val tip = when {
+                lastHttpError.contains("502") || lastHttpError.contains("504") ->
+                    "In Synology DSM: Reverse Proxy is working, but the destination container (port 7601 or 3241) is stopped or restarting."
+                lastHttpError.contains("403") ->
+                    "The server or reverse proxy rejected the request. Check firewall or access permissions."
+                lastHttpError.contains("404") ->
+                    "The endpoint does not exist. Make sure this URL points to your Invidious instance or KV-Tube Web frontend."
+                else -> "Server responded with an HTTP error."
+            }
+            return ServerCheckResult(
+                ok = false,
+                message = "Server Error: $lastHttpError",
+                troubleshootTip = tip
+            )
+        }
+
+        if (sawHtmlBody) {
+            return ServerCheckResult(
+                ok = false,
+                message = "Received a web page (HTML) instead of JSON API.",
+                troubleshootTip = "This address points to a website that doesn't forward Invidious API requests. Make sure reverse proxy paths are configured correctly."
+            )
+        }
+
+        return ServerCheckResult(
+            ok = false,
+            message = "No Invidious API detected at this address.",
+            troubleshootTip = "Verify that Invidious is running and that the URL includes the correct port (e.g. :7601 or :3241) or reverse proxy subdomain."
+        )
     }
 
     /** Accepts absolute, protocol-relative and instance-relative URLs. */
