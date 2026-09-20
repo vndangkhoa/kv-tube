@@ -12,9 +12,13 @@ import com.kvtube.android.data.update.UpdateManager
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import android.content.Context
+import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import java.io.File
 import javax.inject.Inject
 
 data class SettingsUiState(
@@ -32,11 +36,13 @@ data class SettingsUiState(
     val testStatus: String? = null,
     val testLatencyMs: Long? = null,
     val testTroubleshootTip: String? = null,
-    val saveMessage: String? = null
+    val saveMessage: String? = null,
+    val cacheSizeBytes: Long = 0L
 )
 
 @HiltViewModel
 class SettingsViewModel @Inject constructor(
+    @ApplicationContext private val context: Context,
     private val settingsDataStore: SettingsDataStore,
     private val api: KVApi,
     private val pairApi: PairApi,
@@ -49,11 +55,6 @@ class SettingsViewModel @Inject constructor(
         /** Pairing codes live on the KV-Tube web frontend, not on raw
          *  Invidious — fall back to the production web instance like the TV app. */
         const val PAIR_FALLBACK_BASE = "https://ut.khoavo.myds.me"
-
-        val PRESET_INSTANCES = listOf(
-            "https://yt.khoavo.vndns.net" to "yt.khoavo.vndns.net",
-            "https://invidious.khoavo.myds.me" to "invidious.khoavo.myds.me"
-        )
     }
 
     private val _uiState = MutableStateFlow(SettingsUiState())
@@ -61,12 +62,21 @@ class SettingsViewModel @Inject constructor(
 
     init {
         viewModelScope.launch {
+            val sUrl = settingsDataStore.serverUrl.first()
+            val sToken = settingsDataStore.invidiousToken.first()
+            val sTheme = settingsDataStore.themeMode.first()
+            val sRegion = settingsDataStore.region.first()
+
             _uiState.value = SettingsUiState(
-                serverUrl = settingsDataStore.serverUrl.first(),
-                invidiousToken = settingsDataStore.invidiousToken.first(),
-                themeMode = settingsDataStore.themeMode.first(),
-                region = settingsDataStore.region.first()
+                serverUrl = sUrl,
+                invidiousToken = sToken,
+                themeMode = sTheme,
+                region = sRegion
             )
+            refreshCacheSize()
+            if (sUrl.isNotBlank()) {
+                testConnection(sUrl)
+            }
         }
     }
 
@@ -111,6 +121,62 @@ class SettingsViewModel @Inject constructor(
         }
     }
 
+    fun saveAndConnect(serverUrl: String, token: String, onComplete: (Boolean) -> Unit = {}) {
+        val cleanUrl = KVApi.normalizeUrl(serverUrl)
+        val cleanToken = token.trim()
+        if (cleanUrl.isBlank()) {
+            _uiState.value = _uiState.value.copy(
+                isTestingConnection = false,
+                testSuccess = false,
+                testStatus = "Enter a server address first",
+                testLatencyMs = null,
+                testTroubleshootTip = "Please enter your server address (e.g. https://yt.khoavo.vndns.net)."
+            )
+            onComplete(false)
+            return
+        }
+
+        viewModelScope.launch {
+            _uiState.value = _uiState.value.copy(
+                isTestingConnection = true,
+                testSuccess = null,
+                testStatus = "Testing & saving...",
+                testLatencyMs = null,
+                testTroubleshootTip = null
+            )
+            val result = api.testServerConnection(cleanUrl)
+            if (result.ok) {
+                settingsDataStore.setServerUrl(cleanUrl)
+                settingsDataStore.setInvidiousToken(cleanToken)
+                api.setServerUrl(cleanUrl)
+                api.setToken(cleanToken)
+                com.kvtube.android.data.local.ThumbnailRouter.setServer(cleanUrl, result.isGateway)
+                subscriptionRepository.clearCache()
+                playbackManager.stopAndClear()
+                _uiState.value = _uiState.value.copy(
+                    serverUrl = cleanUrl,
+                    invidiousToken = cleanToken,
+                    isTestingConnection = false,
+                    testSuccess = true,
+                    testStatus = result.message,
+                    testLatencyMs = result.latencyMs,
+                    testTroubleshootTip = null,
+                    saveMessage = "Connected & saved successfully"
+                )
+                onComplete(true)
+            } else {
+                _uiState.value = _uiState.value.copy(
+                    isTestingConnection = false,
+                    testSuccess = false,
+                    testStatus = result.message,
+                    testLatencyMs = null,
+                    testTroubleshootTip = result.troubleshootTip
+                )
+                onComplete(false)
+            }
+        }
+    }
+
     fun testConnection(url: String) {
         val cleanUrl = KVApi.normalizeUrl(url)
         if (cleanUrl.isBlank()) {
@@ -119,7 +185,7 @@ class SettingsViewModel @Inject constructor(
                 testSuccess = false,
                 testStatus = "Enter a server address first",
                 testLatencyMs = null,
-                testTroubleshootTip = "Please enter your server URL (e.g. https://yt.khoavo.vndns.net) or choose a preset."
+                testTroubleshootTip = "Please enter your server address (e.g. https://yt.khoavo.vndns.net)."
             )
             return
         }
@@ -158,6 +224,43 @@ class SettingsViewModel @Inject constructor(
             settingsDataStore.setRegion(region)
             _uiState.value = _uiState.value.copy(region = region)
         }
+    }
+
+    fun refreshCacheSize() {
+        viewModelScope.launch(Dispatchers.IO) {
+            val size = getDirSize(context.cacheDir)
+            _uiState.value = _uiState.value.copy(cacheSizeBytes = size)
+        }
+    }
+
+    fun clearCache() {
+        viewModelScope.launch(Dispatchers.IO) {
+            deleteDir(context.cacheDir)
+            refreshCacheSize()
+            _uiState.value = _uiState.value.copy(saveMessage = "Cache cleared successfully")
+        }
+    }
+
+    private fun getDirSize(dir: File?): Long {
+        if (dir == null || !dir.exists()) return 0L
+        var size = 0L
+        dir.listFiles()?.forEach { file ->
+            size += if (file.isDirectory) getDirSize(file) else file.length()
+        }
+        return size
+    }
+
+    private fun deleteDir(dir: File?): Boolean {
+        if (dir == null || !dir.exists()) return false
+        var deleted = true
+        dir.listFiles()?.forEach { file ->
+            if (file.isDirectory) {
+                deleted = deleted && deleteDir(file)
+            } else {
+                deleted = deleted && file.delete()
+            }
+        }
+        return deleted
     }
 
     /** Base URL of the KV-Tube web frontend that brokers pairing codes. */

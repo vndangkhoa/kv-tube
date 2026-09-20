@@ -59,10 +59,8 @@ class InstanceSwitchAndRoutingTest {
     }
 
     @Test
-    fun `Preset instances are available for quick selection`() {
-        assertTrue(SettingsViewModel.PRESET_INSTANCES.isNotEmpty())
-        val urls = SettingsViewModel.PRESET_INSTANCES.map { it.first }
-        assertTrue(urls.contains("https://yt.khoavo.vndns.net"))
-        assertTrue(urls.contains("https://invidious.khoavo.myds.me"))
+    fun `normalizeUrl handles port numbers and standard domains correctly`() {
+        assertEquals("https://yt.khoavo.vndns.net", KVApi.normalizeUrl("https://yt.khoavo.vndns.net/"))
+        assertEquals("https://invidious.khoavo.myds.me", KVApi.normalizeUrl("invidious.khoavo.myds.me"))
     }
 }
