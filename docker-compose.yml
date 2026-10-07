@@ -111,6 +111,7 @@ services:
         - NEXT_PUBLIC_INVIDIOUS_URL=http://127.0.0.1:7601
     container_name: Invidious-Materialious-UI
     restart: unless-stopped
+    mem_limit: 450m
     ports:
       - "3241:3000"
     environment:
@@ -123,6 +124,12 @@ services:
       - NEXT_PUBLIC_RYD_URL=https://returnyoutubedislikeapi.com
       - NEXT_PUBLIC_DEFAULT_REGION=VN
       - NODE_ENV=production
+      - NODE_OPTIONS=--max-old-space-size=256
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
     depends_on:
       - invidious
     networks:
