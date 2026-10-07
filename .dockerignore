@@ -14,3 +14,9 @@ backend/kvtube-go
 *.md
 doc
 stale
+android-app
+android-tv
+ios-app
+*.apk
+subscriptions-proof.png
+frontend/public/*.apk
