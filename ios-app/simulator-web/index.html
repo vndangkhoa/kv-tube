@@ -1,0 +1,595 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>KV-Tube — Live Interactive App Simulator</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+    <style>
+        :root {
+            --bg-color: #0d1117;
+            --panel-bg: #161b22;
+            --panel-border: #30363d;
+            --accent: #ff0000;
+            --accent-green: #238636;
+            --accent-blue: #58a6ff;
+            --text-primary: #f0f6fc;
+            --text-secondary: #8b949e;
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            -webkit-font-smoothing: antialiased;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Segoe UI", Roboto, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-primary);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 24px;
+            overflow-x: hidden;
+        }
+
+        .container {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 48px;
+            max-width: 1350px;
+            width: 100%;
+        }
+
+        /* Left Side Info & Actions Panel */
+        .info-panel {
+            flex: 1;
+            max-width: 460px;
+            background: var(--panel-bg);
+            border: 1px solid var(--panel-border);
+            border-radius: 24px;
+            padding: 32px;
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.6);
+        }
+
+        .info-panel h1 {
+            font-size: 26px;
+            font-weight: 800;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin-bottom: 8px;
+            letter-spacing: -0.5px;
+        }
+
+        .info-panel h1 i {
+            color: var(--accent);
+        }
+
+        .info-panel p.desc {
+            color: var(--text-secondary);
+            font-size: 14.5px;
+            line-height: 1.6;
+            margin-bottom: 24px;
+        }
+
+        .status-card {
+            background: #21262d;
+            border: 1px solid #30363d;
+            border-radius: 14px;
+            padding: 16px;
+            margin-bottom: 24px;
+        }
+
+        .status-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 13.5px;
+            margin-bottom: 10px;
+        }
+
+        .status-row:last-child {
+            margin-bottom: 0;
+        }
+
+        .status-indicator {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            font-weight: 600;
+            color: #3fb950;
+        }
+
+        .status-indicator::before {
+            content: '';
+            width: 8px;
+            height: 8px;
+            background: #3fb950;
+            border-radius: 50%;
+            box-shadow: 0 0 8px #3fb950;
+        }
+
+        .feature-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+            margin-bottom: 24px;
+        }
+
+        .feature-item {
+            background: #21262d;
+            border: 1px solid #30363d;
+            padding: 10px 14px;
+            border-radius: 10px;
+            font-size: 13px;
+            font-weight: 500;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .feature-item i {
+            color: var(--accent-blue);
+        }
+
+        .button-group {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .btn {
+            background: var(--accent-green);
+            color: #fff;
+            border: none;
+            padding: 13px 20px;
+            border-radius: 12px;
+            font-size: 14.5px;
+            font-weight: 700;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+            transition: all 0.2s;
+            text-decoration: none;
+        }
+
+        .btn:hover {
+            background: #2ea043;
+            transform: translateY(-1px);
+        }
+
+        .btn.secondary {
+            background: #21262d;
+            border: 1px solid #30363d;
+            color: #f0f6fc;
+        }
+
+        .btn.secondary:hover {
+            background: #30363d;
+        }
+
+        /* Right Side: Phone Simulation Wrapper */
+        .simulator-wrapper {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 16px;
+        }
+
+        /* Top Mini Toolbar */
+        .simulator-nav {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            background: var(--panel-bg);
+            border: 1px solid var(--panel-border);
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-size: 13px;
+        }
+
+        .nav-btn {
+            background: transparent;
+            border: none;
+            color: var(--text-secondary);
+            font-size: 14px;
+            cursor: pointer;
+            padding: 4px 8px;
+            border-radius: 6px;
+            transition: all 0.2s;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .nav-btn:hover {
+            color: #fff;
+            background: #30363d;
+        }
+
+        .nav-btn.active {
+            color: #fff;
+            background: #21262d;
+            font-weight: 600;
+        }
+
+        /* iPhone 16 Pro Titanium Hardware Shell */
+        .iphone-frame {
+            width: 412px;
+            height: 844px;
+            background: #000;
+            border-radius: 54px;
+            box-shadow: 0 0 0 12px #2d2d30, 0 0 0 14px #1c1c1e, 0 30px 80px rgba(0, 0, 0, 0.9);
+            position: relative;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            border: 4px solid #000;
+            transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+
+        /* Full-Screen App Mode */
+        body.fullscreen-app-mode {
+            padding: 0;
+            margin: 0;
+            overflow: hidden;
+            background: #000;
+        }
+
+        body.fullscreen-app-mode .container {
+            max-width: 100vw;
+            width: 100vw;
+            height: 100vh;
+            gap: 0;
+            padding: 0;
+        }
+
+        body.fullscreen-app-mode .info-panel {
+            display: none !important;
+        }
+
+        body.fullscreen-app-mode .simulator-wrapper {
+            width: 100vw;
+            height: 100vh;
+            gap: 0;
+            justify-content: center;
+        }
+
+        body.fullscreen-app-mode .simulator-nav {
+            position: fixed;
+            top: 12px;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 2000;
+            background: rgba(22, 27, 34, 0.9);
+            backdrop-filter: blur(16px);
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.8);
+            border: 1px solid rgba(255, 255, 255, 0.15);
+        }
+
+        body.fullscreen-app-mode .iphone-frame {
+            width: 100vw;
+            max-width: 460px;
+            height: 100vh;
+            border-radius: 0;
+            box-shadow: none;
+            border: none;
+        }
+
+        body.fullscreen-app-mode.expanded-view .iphone-frame {
+            max-width: 100vw;
+        }
+
+        body.fullscreen-app-mode.expanded-view .status-bar,
+        body.fullscreen-app-mode.expanded-view .dynamic-island,
+        body.fullscreen-app-mode.expanded-view .home-bar {
+            display: none !important;
+        }
+
+        body.fullscreen-app-mode.expanded-view .screen-viewport {
+            padding-top: 0 !important;
+        }
+
+        /* Dynamic Island Overlay */
+        .dynamic-island {
+            position: absolute;
+            top: 11px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 125px;
+            height: 35px;
+            background: #000;
+            border-radius: 20px;
+            z-index: 1000;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 14px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.8);
+            pointer-events: none;
+        }
+
+        .island-cam {
+            width: 12px;
+            height: 12px;
+            background: #111;
+            border-radius: 50%;
+            position: relative;
+        }
+
+        .island-cam::after {
+            content: '';
+            position: absolute;
+            top: 3px;
+            left: 3px;
+            width: 5px;
+            height: 5px;
+            background: #24294d;
+            border-radius: 50%;
+        }
+
+        .island-sensor {
+            width: 9px;
+            height: 9px;
+            background: #111;
+            border-radius: 50%;
+        }
+
+        /* iOS Status Bar Overlay */
+        .status-bar {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 48px;
+            padding: 14px 26px 0;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 14px;
+            font-weight: 600;
+            color: #fff;
+            z-index: 900;
+            pointer-events: none;
+            background: #000;
+        }
+
+        .status-icons {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 12px;
+        }
+
+        /* WebApp iframe Container */
+        .screen-viewport {
+            flex: 1;
+            width: 100%;
+            height: 100%;
+            position: relative;
+            background: #000;
+            overflow: hidden;
+            padding-top: 48px;
+            box-sizing: border-box;
+        }
+
+        .app-iframe {
+            width: 100%;
+            height: 100%;
+            border: none;
+            background: #000;
+        }
+
+        /* iOS Home Indicator Bar Overlay */
+        .home-bar {
+            position: absolute;
+            bottom: 6px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: 134px;
+            height: 5px;
+            background: rgba(255, 255, 255, 0.7);
+            border-radius: 10px;
+            z-index: 900;
+            pointer-events: none;
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <!-- Left Hand Info & Fast Testing Navigation -->
+    <div class="info-panel">
+        <h1><i class="fa-brands fa-youtube"></i> KV-Tube Live App</h1>
+        <p class="desc">
+            The actual <strong>KV-Tube Web & PWA application</strong> is running live inside the virtual iPhone 16 Pro frame on your screen. You can browse real trending videos, search, stream live media, and experience ad-free video playback.
+        </p>
+
+        <div class="status-card">
+            <div class="status-row">
+                <span>Frontend Gateway</span>
+                <span class="status-indicator">Online (:3241)</span>
+            </div>
+            <div class="status-row">
+                <span>Invidious Backend</span>
+                <span class="status-indicator">Online (:7601)</span>
+            </div>
+            <div class="status-row">
+                <span>Simulator Harness</span>
+                <span class="status-indicator">Active (:3250)</span>
+            </div>
+        </div>
+
+        <div class="feature-grid">
+            <div class="feature-item"><i class="fa-solid fa-play"></i> Real Video Streams</div>
+            <div class="feature-item"><i class="fa-solid fa-shield-halved"></i> SponsorBlock Active</div>
+            <div class="feature-item"><i class="fa-solid fa-thumbs-down"></i> Return YouTube Dislike</div>
+            <div class="feature-item"><i class="fa-solid fa-bolt"></i> Shorts Shelf</div>
+            <div class="feature-item"><i class="fa-solid fa-hand-sparkles"></i> Native Haptic Feedback</div>
+            <div class="feature-item"><i class="fa-solid fa-headphones"></i> Background Audio Mode</div>
+            <div class="feature-item"><i class="fa-solid fa-magnifying-glass"></i> Full-text Search</div>
+            <div class="feature-item"><i class="fa-solid fa-moon"></i> OLED Dark Theme</div>
+        </div>
+
+        <div class="button-group">
+            <a href="/KVTube-Ionic.ipa" download class="btn" style="background: #238636; border: 1px solid #3fb950;">
+                <i class="fa-solid fa-bolt"></i> Download KVTube-Ionic.ipa (1.2 MB)
+                <span style="font-size: 11px; background: rgba(0,0,0,0.3); padding: 2px 6px; border-radius: 6px; margin-left: 4px;">Production</span>
+            </a>
+            <button class="btn secondary" onclick="navTo('http://localhost:3241')">
+                <i class="fa-solid fa-house"></i> Load Live Home Feed
+            </button>
+            <button class="btn secondary" onclick="navTo('http://localhost:3241/shorts')">
+                <i class="fa-solid fa-bolt"></i> Test YouTube Shorts
+            </button>
+            <button class="btn secondary" onclick="navTo('http://localhost:3241/settings')">
+                <i class="fa-solid fa-gear"></i> App & Server Settings
+            </button>
+            <button class="btn" onclick="toggleFullscreen()" style="background: #1f6feb; border: 1px solid #388bfd; margin-top: 4px;">
+                <i class="fa-solid fa-expand"></i> Launch Full-Screen App Mode
+            </button>
+            <a href="http://localhost:3241?theme=dark" target="_blank" class="btn secondary">
+                <i class="fa-solid fa-arrow-up-right-from-square"></i> Open Full-Screen in New Tab
+            </a>
+        </div>
+    </div>
+
+    <!-- Right Hand Interactive Phone Simulator -->
+    <div class="simulator-wrapper">
+        <!-- Quick Navigation Bar matching Android phone app tabs -->
+        <div class="simulator-nav">
+            <button class="nav-btn" onclick="reloadFrame()" title="Reload App"><i class="fa-solid fa-rotate-right"></i></button>
+            <button class="nav-btn" onclick="navTo('http://localhost:3241/shorts')"><i class="fa-solid fa-bolt"></i> Shorts</button>
+            <button class="nav-btn active" onclick="navTo('http://localhost:3241')"><i class="fa-solid fa-house"></i> Home</button>
+            <button class="nav-btn" onclick="navTo('http://localhost:3241/feed/library')"><i class="fa-solid fa-user"></i> Account</button>
+            <button class="nav-btn" onclick="openSearchPrompt()"><i class="fa-solid fa-magnifying-glass"></i> Search</button>
+            <button class="nav-btn" id="themeBtn" onclick="toggleTheme()" title="Toggle Dark/Light Mode"><i class="fa-solid fa-moon"></i></button>
+            <button class="nav-btn" id="edgeBtn" onclick="toggleEdgeToEdge()" title="Toggle Phone Frame / Edge-to-Edge"><i class="fa-solid fa-mobile-screen"></i> Frame</button>
+            <button class="nav-btn" id="fsToggleBtn" onclick="toggleFullscreen()" style="color: #3fb950; font-weight: 700;" title="Full-Screen App Mode"><i class="fa-solid fa-expand"></i> Full Screen</button>
+        </div>
+
+        <!-- iPhone 16 Pro Frame -->
+        <div class="iphone-frame">
+            <!-- Dynamic Island -->
+            <div class="dynamic-island">
+                <div class="island-cam"></div>
+                <div class="island-sensor"></div>
+            </div>
+
+            <!-- iOS Status Bar -->
+            <div class="status-bar">
+                <span id="clockText">9:41</span>
+                <div class="status-icons">
+                    <i class="fa-solid fa-signal"></i>
+                    <i class="fa-solid fa-wifi"></i>
+                    <i class="fa-solid fa-battery-full"></i>
+                </div>
+            </div>
+
+            <!-- Actual Live App Viewport -->
+            <div class="screen-viewport">
+                <iframe id="liveAppFrame" class="app-iframe" src="http://localhost:3241?theme=dark"></iframe>
+            </div>
+
+            <!-- iOS Home Indicator -->
+            <div class="home-bar"></div>
+        </div>
+    </div>
+</div>
+
+<script>
+    // Live Clock
+    function updateClock() {
+        const d = new Date();
+        const hrs = d.getHours();
+        const mins = d.getMinutes().toString().padStart(2, '0');
+        document.getElementById('clockText').innerText = `${hrs}:${mins}`;
+    }
+    setInterval(updateClock, 1000);
+    updateClock();
+
+    const frame = document.getElementById('liveAppFrame');
+    let isFullscreen = false;
+    let isEdgeToEdge = false;
+    let currentTheme = 'dark';
+
+    function toggleFullscreen() {
+        isFullscreen = !isFullscreen;
+        document.body.classList.toggle('fullscreen-app-mode', isFullscreen);
+        const btn = document.getElementById('fsToggleBtn');
+        if (isFullscreen) {
+            btn.innerHTML = '<i class="fa-solid fa-compress"></i> Exit Full Screen';
+            btn.style.color = '#f85149';
+            if (document.documentElement.requestFullscreen && !document.fullscreenElement) {
+                document.documentElement.requestFullscreen().catch(() => {});
+            }
+        } else {
+            btn.innerHTML = '<i class="fa-solid fa-expand"></i> Full Screen';
+            btn.style.color = '#3fb950';
+            if (document.exitFullscreen && document.fullscreenElement) {
+                document.exitFullscreen().catch(() => {});
+            }
+        }
+    }
+
+    function toggleEdgeToEdge() {
+        isEdgeToEdge = !isEdgeToEdge;
+        document.body.classList.toggle('expanded-view', isEdgeToEdge);
+        const btn = document.getElementById('edgeBtn');
+        btn.innerHTML = isEdgeToEdge ? '<i class="fa-solid fa-maximize"></i> Full Width' : '<i class="fa-solid fa-mobile-screen"></i> Phone Frame';
+    }
+
+    function toggleTheme() {
+        currentTheme = currentTheme === 'dark' ? 'light' : 'dark';
+        const url = new URL(frame.src);
+        url.searchParams.set('theme', currentTheme);
+        frame.src = url.toString();
+        const btn = document.getElementById('themeBtn');
+        btn.innerHTML = currentTheme === 'dark' ? '<i class="fa-solid fa-moon"></i>' : '<i class="fa-solid fa-sun"></i>';
+    }
+
+    function navTo(url) {
+        const u = new URL(url, window.location.origin);
+        u.searchParams.set('theme', currentTheme);
+        frame.src = u.toString();
+        document.querySelectorAll('.simulator-nav .nav-btn').forEach(btn => {
+            btn.classList.remove('active');
+            if (btn.getAttribute('onclick') && btn.getAttribute('onclick').includes(url)) {
+                btn.classList.add('active');
+            }
+        });
+    }
+
+    function reloadFrame() {
+        frame.src = frame.src;
+    }
+
+    function openSearchPrompt() {
+        const query = prompt("Enter search query (e.g., 'nhac tre', 'lofi', 'apple'):", "nhac tre");
+        if (query) {
+            navTo(`http://localhost:3241/search?q=${encodeURIComponent(query)}`);
+        }
+    }
+
+    // Auto-enter fullscreen if ?fullscreen=1 in URL
+    if (new URLSearchParams(window.location.search).get('fullscreen') === '1') {
+        toggleFullscreen();
+    }
+
+    // ESC key to exit fullscreen
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && isFullscreen) {
+            toggleFullscreen();
+        }
+    });
+</script>
+
+</body>
+</html>

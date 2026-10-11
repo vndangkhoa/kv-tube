@@ -31,6 +31,7 @@ backend/kvtube-go
 backend/kv-tube
 backend/bin/
 *.exe
+/yt-dlp
 
 # Node
 node_modules/
@@ -67,3 +68,12 @@ nul
 # Local Invidious live-test credentials (never commit)
 android-app/.invidious-test.env
 .invidious-test.env
+
+# Swift / Xcode / iOS
+.build/
+*.xcodeproj/xcuserdata/
+*.xcworkspace/xcuserdata/
+DerivedData/
+*.ipa
+*.dSYM.zip
+*.dSYM

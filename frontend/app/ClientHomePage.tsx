@@ -139,22 +139,22 @@ interface CategoryConfig {
   searchQuery?: string;
 }
 
-// Matching the topic chips from user's YouTube screenshot, localized by region
+// Matching the category pills from the KV-Tube Android Phone App
 const CATEGORIES: CategoryConfig[] = [
   { id: 'All', label: 'All' },
+  { id: 'Trending', label: 'Trending' },
   { id: 'Music', label: 'Music' },
-  { id: 'Youth music', label: 'Youth music' },
   { id: 'Gaming', label: 'Gaming' },
-  { id: 'Electropop', label: 'Electropop', searchQuery: 'electropop official music hits' },
-  { id: 'Mixes', label: 'Mixes', searchQuery: 'dj nonstop remix mix nhạc' },
-  { id: 'Dance-Pop', label: 'Dance-Pop', searchQuery: 'dance pop songs official' },
-  { id: 'Graphics processing units', label: 'Graphics processing units', searchQuery: 'NVIDIA RTX AMD Radeon GPU review benchmark' },
-  { id: 'Computer Hardware', label: 'Computer Hardware', searchQuery: 'PC build computer hardware tech setup' },
-  { id: 'Podcasts', label: 'Podcasts' },
-  { id: 'AI', label: 'AI', searchQuery: 'artificial intelligence LLM machine learning' },
-  { id: 'Apple', label: 'Apple', searchQuery: 'Apple iPhone Mac iPad tech review' },
   { id: 'News', label: 'News' },
-  { id: 'Live', label: 'Live Streams' },
+  { id: 'Sports', label: 'Sports', searchQuery: 'sports highlights live matches games' },
+  { id: 'Live', label: 'Live' },
+  { id: 'Education', label: 'Education', searchQuery: 'education learning course tutorial' },
+  { id: 'Comedy', label: 'Comedy', searchQuery: 'comedy funny standup sketches' },
+  { id: 'Tech', label: 'Tech', searchQuery: 'tech technology gadgets review' },
+  { id: 'Food', label: 'Food', searchQuery: 'food cooking recipes street food' },
+  { id: 'Travel', label: 'Travel', searchQuery: 'travel vlog tourism guide explore' },
+  { id: 'Fashion', label: 'Fashion', searchQuery: 'fashion style outfit trends' },
+  { id: 'Science', label: 'Science', searchQuery: 'science physics astronomy discoveries' },
 ];
 
 function isUsableFreshVideo(v: any): boolean {

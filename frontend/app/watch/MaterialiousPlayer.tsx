@@ -5,6 +5,7 @@ import { useSearchParams, useRouter } from 'next/navigation';
 import { usePlayer } from '../context/PlayerContext';
 import { invidious } from '../services/invidious';
 import { fetchSponsorSegments, SponsorSegment, SPONSOR_CATEGORY_COLORS } from '../services/sponsorblock';
+import { triggerHapticImpact } from '../utils/nativeBridge';
 import { useMediaSession, setMediaSessionPlaybackState, updateMediaSessionPosition } from '../hooks/useMediaSession';
 import LoadingSpinner from '../components/LoadingSpinner';
 import {
@@ -615,6 +616,7 @@ export default function MaterialiousPlayer({
           if (cur >= start && cur < end - 0.5) {
             if (lastSkippedSegment !== i) {
               setLastSkippedSegment(i);
+              triggerHapticImpact();
               video.currentTime = end;
               if (needsSeparateAudio && audio) audio.currentTime = end;
               const catName = seg.category.replace(/_/g, ' ');
@@ -2487,20 +2489,21 @@ export default function MaterialiousPlayer({
 
         @media (max-width: 768px) {
           .mp-compact-container {
-            bottom: 70px !important;
-            left: 8px !important;
-            right: 8px !important;
-            width: calc(100vw - 16px) !important;
-            max-width: calc(100vw - 16px) !important;
-            height: 72px !important;
-            border-radius: 12px !important;
+            bottom: calc(48px + env(safe-area-inset-bottom, 0px)) !important;
+            left: 0 !important;
+            right: 0 !important;
+            width: 100% !important;
+            max-width: 100% !important;
+            height: 56px !important;
+            border-radius: 0 !important;
+            border-top: 1px solid rgba(255, 255, 255, 0.12) !important;
             overflow: hidden !important;
           }
           .mp-compact-video,
           .mp-compact-thumb,
           .mp-compact-expand {
-            width: 128px !important;
-            height: 72px !important;
+            width: 96px !important;
+            height: 56px !important;
           }
         }
         @media (min-width: 769px) {

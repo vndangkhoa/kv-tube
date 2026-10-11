@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
+import { useRouter, usePathname } from 'next/navigation';
 import { useState, useRef, useEffect } from 'react';
 import {
   IoMenuOutline,
@@ -55,6 +55,7 @@ export default function Header() {
   const accountMenuRef = useRef<HTMLDivElement>(null);
   const notifMenuRef = useRef<HTMLDivElement>(null);
   const router = useRouter();
+  const pathname = usePathname();
   const { toggleMobileMenu, toggleSidebar } = useSidebar();
 
   const {
@@ -189,13 +190,13 @@ export default function Header() {
 
   return (
     <>
-      <header className="yt-header">
+      <header className={`yt-header ${pathname === '/shorts' ? 'shorts-chromeless' : ''}`}>
         {!isMobileSearchActive ? (
           <>
-            {/* Left: Hamburger & KV-Tube Logo */}
+            {/* Left: Hamburger (Desktop only) & KV-Tube Logo */}
             <div className="yt-header-left">
               <button
-                className="yt-icon-btn hamburger-btn"
+                className="yt-icon-btn hamburger-btn hidden-mobile"
                 onClick={handleHamburgerClick}
                 title="Guide"
                 aria-label="Guide"
@@ -281,16 +282,8 @@ export default function Header() {
               )}
             </div>
 
-            {/* Right: + Create, Notifications, User Profile */}
+            {/* Right: Notifications, Search (Mobile & Desktop), Create, User Profile */}
             <div className="yt-header-right">
-              <button
-                className="yt-icon-btn visible-mobile"
-                onClick={() => setIsMobileSearchActive(true)}
-                title="Search"
-              >
-                <SearchIcon size={22} />
-              </button>
-
               {/* + Create Button */}
               <button
                 className="yt-create-pill-btn hidden-mobile"
@@ -431,8 +424,18 @@ export default function Header() {
                 )}
               </div>
 
-              {/* User Avatar Circle Button */}
-              <div className="yt-account-menu-container" ref={accountMenuRef}>
+              {/* Mobile Search Button (Placed after notifications bell) */}
+              <button
+                className="yt-icon-btn visible-mobile"
+                onClick={() => setIsMobileSearchActive(true)}
+                title="Search"
+                aria-label="Search"
+              >
+                <SearchIcon size={22} />
+              </button>
+
+              {/* User Avatar Circle Button (Desktop only, mobile has Account tab) */}
+              <div className="yt-account-menu-container hidden-mobile" ref={accountMenuRef}>
                 <button
                   className="yt-avatar-btn"
                   onClick={() => {

@@ -4,21 +4,21 @@
 
 @layer base {
   :root {
-    --yt-background: #ffffff;
-    --yt-surface: #ffffff;
-    --yt-hover: #f2f2f2;
-    --yt-active: #e5e5e5;
-    --yt-border: #e5e5e5;
+    --yt-background: #0f0f0f;
+    --yt-surface: #0f0f0f;
+    --yt-hover: #272727;
+    --yt-active: #3f3f3f;
+    --yt-border: #383838;
 
-    --yt-text-primary: #0f0f0f;
-    --yt-text-secondary: #606060;
+    --yt-text-primary: #f1f1f1;
+    --yt-text-secondary: #aaaaaa;
 
     --yt-brand-red: #ff0000;
-    --yt-blue: #065fd4;
+    --yt-blue: #3ea6ff;
 
-    --yt-search-bg: #ffffff;
-    --yt-search-border: #cccccc;
-    --yt-search-btn: #f8f8f8;
+    --yt-search-bg: #121212;
+    --yt-search-border: #303030;
+    --yt-search-btn: #222222;
 
     --yt-header-height: 56px;
     --yt-sidebar-width-full: 240px;
@@ -27,11 +27,11 @@
     --background: var(--yt-background);
     --foreground: var(--yt-text-primary);
 
-    --yt-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
-    --yt-shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.12);
+    --yt-shadow: 0 4px 12px rgba(0, 0, 0, 0.5);
+    --yt-shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.6);
     --yt-transition: all 0.2s cubic-bezier(0.05, 0, 0, 1);
 
-    --yt-card-hover-shadow: 0 4px 16px rgba(0, 0, 0, 0.08);
+    --yt-card-hover-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
     --yt-avatar-bg: #808080;
   }
 
@@ -247,7 +247,10 @@
 
 @media (max-width: 768px) {
   .yt-header {
-    padding: 0 8px;
+    padding: 0 12px;
+  }
+  .yt-header.shorts-chromeless {
+    display: none !important;
   }
 }
 
@@ -634,14 +637,14 @@ a {
   bottom: 0;
   left: 0;
   right: 0;
-  height: 56px;
-  background-color: var(--yt-background);
-  border-top: 1px solid var(--yt-border);
+  height: calc(48px + env(safe-area-inset-bottom, 0px));
+  background-color: var(--yt-background, #0F0F0F);
+  border-top: 0.8px solid var(--yt-border, rgba(255, 255, 255, 0.15));
   display: none;
   justify-content: space-around;
   align-items: center;
   z-index: 100;
-  padding: 0 4px;
+  padding: 0;
 }
 
 .mobile-search-overlay {
@@ -2084,12 +2087,48 @@ a {
   width: fit-content;
 }
 
-/* Mobile & Small Screens (< 900px) */
-@media (max-width: 900px) {
+/* YouTube Redesigned Watch Page Recommendations Grid */
+.watch-recommendations-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 20px 16px;
+  width: 100%;
+}
+
+.watch-sidebar-sticky {
+  position: sticky;
+  top: 72px;
+  height: calc(100vh - 88px);
+  display: flex;
+  flex-direction: row;
+  align-items: stretch;
+  flex-shrink: 0;
+  z-index: 20;
+}
+
+.watch-context-drawer {
+  box-shadow: var(--yt-shadow, 0 4px 12px rgba(0, 0, 0, 0.5));
+}
+
+.watch-context-drawer ::-webkit-scrollbar {
+  width: 6px;
+}
+
+.watch-context-drawer ::-webkit-scrollbar-thumb {
+  background-color: var(--yt-border);
+  border-radius: 3px;
+}
+
+.watch-context-drawer ::-webkit-scrollbar-thumb:hover {
+  background-color: var(--yt-text-secondary);
+}
+
+/* Mobile & Small Screens (< 1024px) */
+@media (max-width: 1024px) {
   .watch-page-container {
     grid-template-columns: 1fr !important;
-    padding: 0 0 80px 0 !important;
-    gap: 0 !important;
+    padding: 0 12px 80px !important;
+    gap: 16px !important;
   }
 
   .watch-main {
@@ -2098,7 +2137,7 @@ a {
 
   .watch-main-body {
     box-sizing: border-box !important;
-    padding: 0 12px !important;
+    padding: 0 !important;
   }
 
   .watch-main,
@@ -2114,14 +2153,12 @@ a {
   }
 
   .watch-sidebar {
-    position: relative !important;
-    top: 0 !important;
-    height: auto !important;
-    max-height: none !important;
-    overflow: visible !important;
-    padding: 0 12px 40px !important;
-    gap: 12px !important;
-    box-sizing: border-box !important;
+    display: none !important;
+  }
+
+  .watch-recommendations-grid {
+    grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)) !important;
+    gap: 16px 12px !important;
   }
 
   /* Mix playlist compact on mobile */
@@ -2272,6 +2309,12 @@ a {
   .player-time-display {
     font-size: 11px !important;
     margin-left: 2px !important;
+  }
+}
+
+@media (max-width: 640px) {
+  .watch-recommendations-grid {
+    grid-template-columns: 1fr !important;
   }
 }
 

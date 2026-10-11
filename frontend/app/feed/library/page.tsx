@@ -25,6 +25,10 @@ import {
   IoListOutline,
   IoChevronForwardOutline,
   IoPersonCircleOutline,
+  IoPerson,
+  IoSettingsOutline,
+  IoNotificationsOutline,
+  IoChevronForward,
 } from 'react-icons/io5';
 
 export default function LibraryPage() {
@@ -68,47 +72,223 @@ export default function LibraryPage() {
 
   return (
     <div style={{ maxWidth: '1750px', margin: '0 auto', padding: '24px 24px 60px' }}>
-      {/* Profile & Library Header */}
+      {/* Profile & Account Header matching Android LibraryScreen */}
       <div
         style={{
           display: 'flex',
           alignItems: 'center',
-          gap: '20px',
-          paddingBottom: '24px',
-          borderBottom: '1px solid var(--yt-border, rgba(255,255,255,0.1))',
-          marginBottom: '32px',
+          gap: '16px',
+          paddingBottom: '20px',
+          borderBottom: '1px solid rgba(255, 255, 255, 0.1)',
+          marginBottom: '20px',
         }}
       >
         <div
           style={{
-            width: '64px',
-            height: '64px',
+            width: '56px',
+            height: '56px',
             borderRadius: '50%',
-            backgroundColor: 'var(--md-sys-color-primary-container, rgba(62,166,255,0.15))',
+            backgroundColor: '#FF0000',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            color: 'var(--md-sys-color-primary, #3ea6ff)',
+            color: '#FFFFFF',
+            flexShrink: 0,
+            boxShadow: '0 2px 10px rgba(255, 0, 0, 0.3)',
           }}
         >
-          <IoPersonCircleOutline size={48} />
+          <IoPerson size={30} />
         </div>
         <div>
-          <h1 style={{ fontSize: '26px', fontWeight: 700, margin: '0 0 6px', color: 'var(--yt-text-primary)' }}>
-            You
+          <h1
+            style={{
+              fontSize: '18px',
+              fontWeight: 700,
+              margin: '0 0 2px',
+              color: 'var(--yt-text-primary, #F1F1F1)',
+            }}
+          >
+            KV-Tube User
           </h1>
-          <div style={{ display: 'flex', gap: '16px', fontSize: '13px', color: 'var(--yt-text-secondary)', flexWrap: 'wrap' }}>
-            <span><b>{history.length}</b> in history</span>
-            <span>•</span>
-            <span><b>{saved.length}</b> watch later</span>
-            <span>•</span>
-            <span><b>{liked.length}</b> liked</span>
-            <span>•</span>
-            <span><b>{playlists.length}</b> playlists</span>
-            <span>•</span>
-            <span><b>{downloads.length}</b> downloads</span>
+          <div
+            style={{
+              fontSize: '12px',
+              color: 'var(--yt-text-secondary, #AAAAAA)',
+            }}
+          >
+            Connected to KV-Tube Server
           </div>
         </div>
+      </div>
+
+      {/* 4 Primary Account Action Cards matching Android LibraryScreen */}
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
+          gap: '10px',
+          marginBottom: '32px',
+        }}
+      >
+        <Link
+          href="/feed/history"
+          style={{
+            backgroundColor: 'var(--yt-hover, #272727)',
+            borderRadius: '12px',
+            padding: '14px 16px',
+            display: 'flex',
+            alignItems: 'center',
+            textDecoration: 'none',
+            color: 'inherit',
+            transition: 'background-color 0.2s',
+          }}
+        >
+          <div
+            style={{
+              width: '40px',
+              height: '40px',
+              borderRadius: '50%',
+              backgroundColor: 'var(--yt-active, rgba(128, 128, 128, 0.16))',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              color: 'var(--yt-text-primary, #F1F1F1)',
+              marginRight: '14px',
+              flexShrink: 0,
+            }}
+          >
+            <IoTimeOutline size={22} />
+          </div>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: '15px', fontWeight: 600, color: 'var(--yt-text-primary, #F1F1F1)' }}>
+              History
+            </div>
+            <div style={{ fontSize: '12px', color: 'var(--yt-text-secondary, #AAAAAA)' }}>
+              {history.length === 0 ? 'Videos you watch will appear here' : `${history.length} watched video${history.length === 1 ? '' : 's'}`}
+            </div>
+          </div>
+          <IoChevronForward size={18} color="var(--yt-text-secondary, #AAAAAA)" />
+        </Link>
+
+        <Link
+          href="/feed/subscriptions"
+          style={{
+            backgroundColor: 'var(--yt-hover, #272727)',
+            borderRadius: '12px',
+            padding: '14px 16px',
+            display: 'flex',
+            alignItems: 'center',
+            textDecoration: 'none',
+            color: 'inherit',
+            transition: 'background-color 0.2s',
+          }}
+        >
+          <div
+            style={{
+              width: '40px',
+              height: '40px',
+              borderRadius: '50%',
+              backgroundColor: 'var(--yt-active, rgba(128, 128, 128, 0.16))',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              color: 'var(--yt-text-primary, #F1F1F1)',
+              marginRight: '14px',
+              flexShrink: 0,
+            }}
+          >
+            <IoNotificationsOutline size={22} />
+          </div>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: '15px', fontWeight: 600, color: 'var(--yt-text-primary, #F1F1F1)' }}>
+              Subscriptions
+            </div>
+            <div style={{ fontSize: '12px', color: 'var(--yt-text-secondary, #AAAAAA)' }}>
+              Latest videos from your channels
+            </div>
+          </div>
+          <IoChevronForward size={18} color="var(--yt-text-secondary, #AAAAAA)" />
+        </Link>
+
+        <Link
+          href="/downloads"
+          style={{
+            backgroundColor: 'var(--yt-hover, #272727)',
+            borderRadius: '12px',
+            padding: '14px 16px',
+            display: 'flex',
+            alignItems: 'center',
+            textDecoration: 'none',
+            color: 'inherit',
+            transition: 'background-color 0.2s',
+          }}
+        >
+          <div
+            style={{
+              width: '40px',
+              height: '40px',
+              borderRadius: '50%',
+              backgroundColor: 'var(--yt-active, rgba(128, 128, 128, 0.16))',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              color: 'var(--yt-text-primary, #F1F1F1)',
+              marginRight: '14px',
+              flexShrink: 0,
+            }}
+          >
+            <IoDownloadOutline size={22} />
+          </div>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: '15px', fontWeight: 600, color: 'var(--yt-text-primary, #F1F1F1)' }}>
+              Downloads
+            </div>
+            <div style={{ fontSize: '12px', color: 'var(--yt-text-secondary, #AAAAAA)' }}>
+              Watch downloaded videos offline
+            </div>
+          </div>
+          <IoChevronForward size={18} color="var(--yt-text-secondary, #AAAAAA)" />
+        </Link>
+
+        <Link
+          href="/settings"
+          style={{
+            backgroundColor: 'var(--yt-hover, #272727)',
+            borderRadius: '12px',
+            padding: '14px 16px',
+            display: 'flex',
+            alignItems: 'center',
+            textDecoration: 'none',
+            color: 'inherit',
+            transition: 'background-color 0.2s',
+          }}
+        >
+          <div
+            style={{
+              width: '40px',
+              height: '40px',
+              borderRadius: '50%',
+              backgroundColor: 'var(--yt-active, rgba(128, 128, 128, 0.16))',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              color: 'var(--yt-text-primary, #F1F1F1)',
+              marginRight: '14px',
+              flexShrink: 0,
+            }}
+          >
+            <IoSettingsOutline size={22} />
+          </div>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: '15px', fontWeight: 600, color: 'var(--yt-text-primary, #F1F1F1)' }}>
+              Settings
+            </div>
+            <div style={{ fontSize: '12px', color: 'var(--yt-text-secondary, #AAAAAA)' }}>
+              Server, Invidious token, region, theme & updates
+            </div>
+          </div>
+          <IoChevronForward size={18} color="var(--yt-text-secondary, #AAAAAA)" />
+        </Link>
       </div>
 
       {/* 1. History Shelf */}

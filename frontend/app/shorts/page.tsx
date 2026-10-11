@@ -2004,15 +2004,14 @@ function ShortsPageContent() {
           z-index: 15;
         }
 
-        /* Mobile Full Viewport Coverage with 64px MobileNav Safe Area */
+        /* Mobile Full Viewport Coverage with 48px MobileNav Safe Area & Chromeless Top */
         @media (max-width: 768px) {
           .shorts-page-container {
-            height: calc(100vh - 120px) !important;
-            height: calc(100dvh - var(--yt-header-height) - 64px) !important;
+            height: calc(100dvh - 48px - env(safe-area-inset-bottom, 0px)) !important;
+            padding-top: env(safe-area-inset-top, 0px) !important;
           }
           .short-card-container {
-            height: calc(100vh - 120px) !important;
-            height: calc(100dvh - var(--yt-header-height) - 64px) !important;
+            height: calc(100dvh - 48px - env(safe-area-inset-bottom, 0px)) !important;
             display: block !important;
             position: relative !important;
             padding: 0 !important;

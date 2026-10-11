@@ -27,7 +27,7 @@ interface ThemeContextType {
 const ThemeContext = createContext<ThemeContextType | undefined>(undefined);
 
 export function ThemeProvider({ children }: { children: React.ReactNode }) {
-  const [themeMode, setThemeModeState] = useState<ThemeMode>('light');
+  const [themeMode, setThemeModeState] = useState<ThemeMode>('dark');
   const [currentPreset, setCurrentPreset] = useState<string>('dynamic');
   const [seedColor, setSeedColor] = useState<string>('#3880ff');
   const [dynamicColor, setDynamicColor] = useState<string | null>(null);
@@ -35,11 +35,23 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
   const activeSeed = dynamicColor || seedColor;
   const colors = generateMaterial3Theme(activeSeed, themeMode);
 
-  // Initialize from LocalStorage
+  // Initialize from LocalStorage or default to dark
   useEffect(() => {
     try {
-      const savedMode = (localStorage.getItem('kv_theme_mode') as ThemeMode) || 
-                        (localStorage.getItem('theme') === 'dark' ? 'dark' : 'light');
+      const urlTheme = typeof window !== 'undefined' ? (new URLSearchParams(window.location.search).get('theme') as ThemeMode) : null;
+      
+      // Auto-migrate legacy light default to dark
+      const isMigrated = localStorage.getItem('kv_theme_migrated_v2') === 'true';
+      if (!isMigrated) {
+        localStorage.setItem('kv_theme_mode', 'dark');
+        localStorage.setItem('theme', 'dark');
+        localStorage.setItem('kv_theme_migrated_v2', 'true');
+      }
+
+      const savedMode = urlTheme ||
+                        (localStorage.getItem('kv_theme_mode') as ThemeMode) || 
+                        (localStorage.getItem('theme') as ThemeMode) ||
+                        'dark';
       const savedPreset = localStorage.getItem('kv_theme_preset') || 'dynamic';
       const savedSeed = localStorage.getItem('kv_theme_seed') || '#3880ff';
 

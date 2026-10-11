@@ -11,6 +11,9 @@ import { invidious } from '../services/invidious';
 import LoadingSpinner from '../components/LoadingSpinner';
 import Link from 'next/link';
 import { usePlayer } from '../context/PlayerContext';
+import VideoCard from '../components/VideoCard';
+import ShortsShelf from '../components/ShortsShelf';
+import WatchSidePanel, { WatchRightTab } from './WatchSidePanel';
 
 // Stale-while-revalidate cache (like React Query staleTime + gcTime)
 const apiCache = new Map<string, { data: any; timestamp: number }>();
@@ -173,6 +176,9 @@ function VideoInfo({
     onToggleWide,
     onStartMix,
     isMixActive,
+    onOpenTab,
+    isMobile,
+    activeRightTab,
 }: {
     video: any;
     onOpenDownload?: () => void;
@@ -186,6 +192,9 @@ function VideoInfo({
     onToggleWide?: () => void;
     onStartMix?: () => void;
     isMixActive?: boolean;
+    onOpenTab?: (tab: WatchRightTab) => void;
+    isMobile?: boolean;
+    activeRightTab?: WatchRightTab | null;
 }) {
     const [expanded, setExpanded] = useState(false);
     const [subscribed, setSubscribed] = useState(false);
@@ -361,17 +370,40 @@ function VideoInfo({
     
     return (
         <div style={{ padding: '12px 0 16px' }}>
-            {/* 1. Title */}
-            <h1 style={{ 
-                fontSize: '20px', 
-                fontWeight: '700', 
-                margin: '0 0 10px', 
-                color: 'var(--yt-text-primary)',
-                lineHeight: '1.35',
-                letterSpacing: '-0.1px',
-            }}>
-                {video.title || 'Untitled Video'}
-            </h1>
+            {/* 1. Title & Meta */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '16px', margin: '0 0 10px', flexWrap: 'wrap' }}>
+                <h1 style={{ 
+                    fontSize: '20px', 
+                    fontWeight: '700', 
+                    margin: 0, 
+                    color: 'var(--yt-text-primary)',
+                    lineHeight: '1.35',
+                    letterSpacing: '-0.1px',
+                    flex: '1 1 300px',
+                }}>
+                    {video.title || 'Untitled Video'}
+                </h1>
+                <div
+                    onClick={() => onOpenTab && onOpenTab('description')}
+                    title="View description in side panel"
+                    style={{
+                        fontSize: '13px',
+                        color: 'var(--yt-text-secondary)',
+                        fontWeight: 500,
+                        whiteSpace: 'nowrap',
+                        flexShrink: 0,
+                        marginTop: '4px',
+                        cursor: onOpenTab ? 'pointer' : 'default',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                    }}
+                >
+                    <span>{formatViews(video.viewCount)}</span>
+                    <span>•</span>
+                    <span>{formatRelativeTime(video.publishedAt) || video.publishedAt || 'Recently'}</span>
+                </div>
+            </div>
             
             {/* 2. Unified Channel & Actions Row */}
             <div className="watch-meta-container">
@@ -647,98 +679,57 @@ function VideoInfo({
                 </div>
             </div>
             
-            {/* 3. Description Box */}
-            <div 
-                onClick={() => !expanded && setExpanded(true)}
-                style={{
-                    backgroundColor: 'var(--yt-hover)',
-                    borderRadius: '12px',
-                    padding: '12px 14px',
-                    marginTop: '12px',
-                    cursor: expanded ? 'default' : 'pointer',
-                    transition: 'background-color 0.15s ease',
-                }}
-                onMouseEnter={(e) => {
-                    if (!expanded) e.currentTarget.style.backgroundColor = 'var(--yt-active)';
-                }}
-                onMouseLeave={(e) => {
-                    if (!expanded) e.currentTarget.style.backgroundColor = 'var(--yt-hover)';
-                }}
-            >
-                {/* Views and Date Header */}
-                <div style={{ 
-                    display: 'flex', 
-                    flexWrap: 'wrap',
-                    alignItems: 'center',
-                    gap: '8px', 
-                    marginBottom: '6px', 
-                    fontSize: '14px', 
-                    fontWeight: '700', 
-                    color: 'var(--yt-text-primary)' 
-                }}>
-                    <span>{formatViews(video.viewCount)}</span>
-                    {video.publishedAt && (
-                        <span>{formatRelativeTime(video.publishedAt) || video.publishedAt}</span>
-                    )}
-                    {video.tags && video.tags.slice(0, 3).map((tag: string, i: number) => (
-                        <span key={i} style={{ color: 'var(--yt-blue)', fontWeight: '500' }}>#{tag}</span>
-                    ))}
-                </div>
-                
-                {/* Description Body with auto-links */}
-                {hasDescription ? (
-                    <div style={{ 
-                        fontSize: '14px', 
-                        color: 'var(--yt-text-primary)',
-                        lineHeight: '1.45',
-                        whiteSpace: 'pre-wrap',
-                        wordBreak: 'break-word',
-                    }}>
-                        {expanded ? linkifyText(description) : linkifyText(displayDescription)}
-                        {!expanded && shouldTruncate && (
-                            <button 
-                                onClick={(e) => {
-                                    e.stopPropagation();
-                                    setExpanded(true);
-                                }}
-                                style={{
-                                    background: 'none',
-                                    border: 'none',
-                                    color: 'var(--yt-text-primary)',
-                                    cursor: 'pointer',
-                                    fontWeight: '700',
-                                    padding: 0,
-                                    marginLeft: '4px',
-                                }}
-                            >
-                                ...more
-                            </button>
-                        )}
-                    </div>
-                ) : null}
-
-                {/* Show Less button */}
-                {expanded && (
-                    <button 
-                        onClick={(e) => {
-                            e.stopPropagation();
-                            setExpanded(false);
-                        }}
+            {/* Mobile-only compact description & comments preview cards */}
+            {isMobile && (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', marginTop: '12px' }}>
+                    {/* Compact Description Card */}
+                    <div
+                        onClick={() => onOpenTab && onOpenTab('description')}
                         style={{
-                            background: 'none',
-                            border: 'none',
-                            color: 'var(--yt-text-primary)',
+                            backgroundColor: 'var(--yt-hover)',
+                            borderRadius: '12px',
+                            padding: '12px 14px',
                             cursor: 'pointer',
-                            fontWeight: '700',
-                            padding: '12px 0 0',
-                            fontSize: '14px',
-                            display: 'block',
                         }}
                     >
-                        Show less
-                    </button>
-                )}
-            </div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px', fontWeight: 600, color: 'var(--yt-text-primary)', marginBottom: '4px' }}>
+                            <span>{formatViews(video.viewCount)}</span>
+                            <span>•</span>
+                            <span>{formatRelativeTime(video.publishedAt) || video.publishedAt || 'Recently'}</span>
+                        </div>
+                        <div style={{
+                            fontSize: '13px',
+                            color: 'var(--yt-text-secondary)',
+                            display: '-webkit-box',
+                            WebkitLineClamp: 2,
+                            WebkitBoxOrient: 'vertical',
+                            overflow: 'hidden',
+                            lineHeight: '1.4',
+                        }}>
+                            {video.description || 'Tap to view description'}
+                        </div>
+                    </div>
+
+                    {/* Compact Comments Preview Bar */}
+                    <div
+                        onClick={() => onOpenTab && onOpenTab('comments')}
+                        style={{
+                            backgroundColor: 'var(--yt-hover)',
+                            borderRadius: '12px',
+                            padding: '12px 14px',
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                        }}
+                    >
+                        <div style={{ fontSize: '13px', fontWeight: 600, color: 'var(--yt-text-primary)' }}>
+                            Comments
+                        </div>
+                        <IoChevronForward size={16} color="var(--yt-text-secondary)" />
+                    </div>
+                </div>
+            )}
         </div>
     );
 }
@@ -1400,6 +1391,30 @@ export default function ClientWatchPage() {
     const [wideMode, setWideMode] = useState(false);
     const [showDownload, setShowDownload] = useState(false);
     const [selectedChip, setSelectedChip] = useState('All');
+    const [activeRightTab, setActiveRightTab] = useState<WatchRightTab | null>('description');
+    const [isMobile, setIsMobile] = useState(false);
+
+    useEffect(() => {
+        const checkMobile = () => {
+            const mobile = window.innerWidth < 1024;
+            setIsMobile(mobile);
+            if (mobile) {
+                setActiveRightTab(null);
+            } else {
+                setActiveRightTab(prev => (prev === null ? 'description' : prev));
+            }
+        };
+        checkMobile();
+        window.addEventListener('resize', checkMobile);
+        return () => window.removeEventListener('resize', checkMobile);
+    }, []);
+
+    // When playlist or mix is loaded, open 'playlist' tab on desktop
+    useEffect(() => {
+        if ((playlistId || mixPlaylist.length > 0) && !isMobile) {
+            setActiveRightTab('playlist');
+        }
+    }, [playlistId, mixPlaylist.length, isMobile]);
 
     const handleStartMix = useCallback(() => {
         if (!videoId) return;
@@ -1800,17 +1815,18 @@ export default function ClientWatchPage() {
             )}
 
             <div className="watch-page-container" style={{ 
-                maxWidth: '1750px', 
+                maxWidth: '1840px', 
                 width: '100%',
                 margin: '0 auto',
-                padding: '24px',
+                padding: isMobile ? '0 12px 80px' : '20px 24px',
                 display: 'grid',
-                gridTemplateColumns: 'minmax(0, 1fr) 402px',
+                gridTemplateColumns: isMobile ? '1fr' : (activeRightTab ? 'minmax(0, 1fr) 464px' : 'minmax(0, 1fr) 64px'),
                 gap: '24px',
                 boxSizing: 'border-box',
+                transition: 'grid-template-columns 0.2s cubic-bezier(0.05, 0, 0, 1)',
             }}>
-                {/* Main Content (Player, Info, Comments) */}
-                <div className="watch-main" style={{ minWidth: 0 }}>
+                {/* Main Content (Player, Info, Recommendations Grid) */}
+                <div className="watch-main" style={{ minWidth: 0, width: '100%' }}>
                     {/* Video Player in Default (non-theater) mode */}
                     {!wideMode && (
                         <div style={{ position: 'relative', width: '100%', aspectRatio: '16/9', backgroundColor: '#000000', borderRadius: '16px', overflow: 'hidden' }}>
@@ -1818,7 +1834,7 @@ export default function ClientWatchPage() {
                         </div>
                     )}
 
-                    {/* Video Info and Comments Body */}
+                    {/* Video Info Body */}
                     <div className="watch-main-body" style={{ width: '100%' }}>
                         <VideoInfo
                             video={videoInfo}
@@ -1833,40 +1849,14 @@ export default function ClientWatchPage() {
                             onToggleWide={() => setWideMode(!wideMode)}
                             onStartMix={handleStartMix}
                             isMixActive={mixPlaylist.length > 0 && !isMixDismissed}
+                            onOpenTab={(tab) => setActiveRightTab(tab)}
+                            isMobile={isMobile}
+                            activeRightTab={activeRightTab}
                         />
-
-                        {/* Comments */}
-                        <CommentSection videoId={videoId} />
                     </div>
-                </div>
-
-                {/* Sidebar (Mix Playlist, Topic Chips, Related Videos Stream) */}
-                <div className="watch-sidebar" style={{
-                    width: '100%',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    gap: '12px',
-                    boxSizing: 'border-box',
-                }}>
-                    {/* Mix Playlist Drawer at top of sidebar (exact YouTube desktop layout) */}
-                    {mixPlaylist.length > 0 && !isMixDismissed && (
-                        <div style={{ width: '100%' }}>
-                            <MixPlaylist 
-                                videos={mixPlaylist}
-                                currentIndex={currentIndex}
-                                onVideoSelect={handleVideoSelect}
-                                title={mixTitle || (videoInfo?.title ? `Mix - ${videoInfo.title}` : 'Mix Playlist')}
-                                isShuffle={isShuffle}
-                                onToggleShuffle={() => setIsShuffle(prev => !prev)}
-                                isLoop={isMixLoop}
-                                onToggleLoop={() => setIsMixLoop(prev => !prev)}
-                                onClose={() => setIsMixDismissed(true)}
-                            />
-                        </div>
-                    )}
 
                     {/* Topic Filter Chips with YouTube Scroll Arrow */}
-                    <div style={{ position: 'relative', display: 'flex', alignItems: 'center', width: '100%' }}>
+                    <div style={{ position: 'relative', display: 'flex', alignItems: 'center', width: '100%', margin: '8px 0 16px' }}>
                         <div ref={chipBarRef} className="yt-chip-bar" style={{ flex: 1 }}>
                             {filterChips.map((chip) => (
                                 <button
@@ -1917,119 +1907,111 @@ export default function ClientWatchPage() {
                             color: 'var(--yt-text-secondary)',
                             fontSize: '12px',
                             textAlign: 'center',
+                            marginBottom: '16px',
                         }}>
                             {apiError}
                         </div>
                     )}
 
-                    {/* YouTube Free-Flowing Related Videos Stream (168px x 94px) */}
-                    <div className="yt-related-list">
-                        {/* Fallback Mix Card when drawer was closed/dismissed */}
-                        {mixPlaylist.length > 0 && isMixDismissed && (
-                            <div 
-                                onClick={() => {
-                                    setIsMixDismissed(false);
-                                    window.scrollTo({ top: 0, behavior: 'smooth' });
-                                }}
-                                className="yt-related-card"
-                                style={{ 
-                                    cursor: 'pointer',
-                                    border: '1px solid var(--yt-border)',
-                                    borderRadius: '10px',
-                                    padding: '8px',
-                                    marginBottom: '6px',
-                                    backgroundColor: 'var(--yt-surface)',
-                                }}
-                            >
-                                <div className="yt-related-thumb-container" style={{ position: 'relative' }}>
-                                    <img 
-                                        src={mixPlaylist[0]?.thumbnail ? proxiedImageUrl(mixPlaylist[0].thumbnail) : getThumbnailCascade(videoId, 0)}
-                                        alt={mixTitle || 'Mix Playlist'}
-                                        loading="lazy"
-                                        decoding="async"
-                                    />
-                                    <div style={{
-                                        position: 'absolute',
-                                        bottom: 0,
-                                        left: 0,
-                                        right: 0,
-                                        backgroundColor: 'rgba(0, 0, 0, 0.82)',
-                                        color: '#fff',
-                                        display: 'flex',
-                                        alignItems: 'center',
-                                        justifyContent: 'space-between',
-                                        padding: '4px 8px',
-                                        fontSize: '11px',
-                                        fontWeight: 600,
-                                    }}>
-                                        <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                                            <IoPlay size={12} color="var(--yt-blue)" /> Mix
-                                        </span>
-                                        <span>25+ tracks</span>
-                                    </div>
-                                </div>
-                                <div className="yt-related-info">
-                                    <h4 className="yt-related-title" title={mixTitle || 'Mix Playlist'}>
-                                        {mixTitle || `Mix - ${videoInfo?.title || 'YouTube'}`}
-                                    </h4>
-                                    <div className="yt-related-channel">YouTube</div>
-                                    <div className="yt-related-meta">Mixes are playlists YouTube makes for you</div>
-                                </div>
-                            </div>
-                        )}
-                        {filteredRelated.slice(0, 35).map((video, index) => (
-                            <Link 
-                                key={`${video.id}-${index}`}
-                                href={`/watch?v=${video.id}&idx=${index}`}
-                                onClick={(e) => {
-                                    if (!e.ctrlKey && !e.metaKey && !e.shiftKey && e.button === 0) {
-                                        e.preventDefault();
-                                        handleVideoSelect(video, index);
-                                    }
-                                }}
-                                onMouseEnter={() => handlePrefetchEnter(video.id)}
-                                onMouseLeave={() => handlePrefetchLeave(video.id)}
-                                className={`yt-related-card ${videoId === video.id ? 'active' : ''}`}
-                            >
-                                {/* Thumbnail Container (168px x 94px) */}
-                                <div className="yt-related-thumb-container">
-                                    <img 
-                                        src={video.thumbnail ? proxiedImageUrl(video.thumbnail) : getThumbnailCascade(video.id, 0)}
-                                        alt={video.title}
-                                        loading="lazy"
-                                        decoding="async"
-                                        onError={(e) => {
-                                            (e.target as HTMLImageElement).src = getThumbnailCascade(video.id, 1);
-                                        }}
-                                    />
-                                    {video.duration && (
-                                        <div className="yt-related-duration">
-                                            {video.duration}
-                                        </div>
-                                    )}
-                                </div>
+                    {/* YouTube Redesigned Multi-Column Recommendation Video Grid */}
+                    <div 
+                        className="watch-recommendations-grid" 
+                        style={{
+                            display: 'grid',
+                            gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))',
+                            gap: '20px 16px',
+                            width: '100%',
+                        }}
+                    >
+                        {filteredRelated.slice(0, 6).map((video, index) => (
+                            <VideoCard key={`${video.id}-${index}`} video={video} />
+                        ))}
 
-                                {/* Metadata Details */}
-                                <div className="yt-related-info">
-                                    <h4 className="yt-related-title" title={video.title}>
-                                        {video.title}
-                                    </h4>
-                                    <div className="yt-related-channel">
-                                        <span>{video.uploader}</span>
-                                        <svg className="shrink-0" viewBox="0 0 24 24" width="12" height="12" fill="var(--yt-text-secondary)">
-                                            <path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10 10-4.5 10-10S17.5 2 12 2zm-1.9 14.7l-4.2-4.2 1.4-1.4 2.8 2.8 6.8-6.8 1.4 1.4-8.2 8.2z"/>
-                                        </svg>
-                                    </div>
-                                    <div className="yt-related-meta">
-                                        {video.view_count ? `${typeof video.view_count === 'number' ? (video.view_count >= 1000000 ? (video.view_count / 1000000).toFixed(1) + 'M' : video.view_count >= 1000 ? (video.view_count / 1000).toFixed(0) + 'K' : video.view_count) : video.view_count} views • ` : ''}
-                                        {formatRelativeTime(video.upload_date) || video.upload_date || 'Recently'}
-                                    </div>
-                                </div>
-                            </Link>
+                        {/* YouTube Shorts Shelf Carousel (matches Screenshot 5) */}
+                        <div style={{ gridColumn: '1 / -1', margin: '8px 0 12px' }}>
+                            <ShortsShelf />
+                        </div>
+
+                        {filteredRelated.slice(6, 40).map((video, index) => (
+                            <VideoCard key={`${video.id}-${index + 6}`} video={video} />
                         ))}
                     </div>
                 </div>
+
+                {/* Sticky Right Sidebar (Drawer Panel + Vertical Tab Strip) */}
+                {!isMobile && (
+                    <div className="watch-sidebar" style={{
+                        position: 'sticky',
+                        top: '72px',
+                        height: 'calc(100vh - 88px)',
+                        display: 'flex',
+                        flexDirection: 'row',
+                        alignItems: 'stretch',
+                        flexShrink: 0,
+                        zIndex: 20,
+                    }}>
+                        <WatchSidePanel
+                            activeTab={activeRightTab}
+                            onSelectTab={(tab) => setActiveRightTab(prev => prev === tab ? null : tab)}
+                            onClose={() => setActiveRightTab(null)}
+                            video={videoInfo}
+                            videoId={videoId}
+                            mixPlaylist={mixPlaylist}
+                            currentIndex={currentIndex}
+                            onVideoSelect={handleVideoSelect}
+                            mixTitle={mixTitle}
+                            isShuffle={isShuffle}
+                            onToggleShuffle={() => setIsShuffle(prev => !prev)}
+                            isLoop={isMixLoop}
+                            onToggleLoop={() => setIsMixLoop(prev => !prev)}
+                        />
+                    </div>
+                )}
             </div>
+
+            {/* Mobile Bottom Sheet Modal */}
+            {isMobile && activeRightTab && (
+                <div
+                    style={{
+                        position: 'fixed',
+                        inset: 0,
+                        backgroundColor: 'rgba(0, 0, 0, 0.65)',
+                        zIndex: 9999,
+                        display: 'flex',
+                        flexDirection: 'column',
+                        justifyContent: 'flex-end',
+                    }}
+                    onClick={() => setActiveRightTab(null)}
+                >
+                    <div
+                        style={{
+                            maxHeight: '80vh',
+                            height: '75vh',
+                            backgroundColor: 'var(--yt-surface)',
+                            borderRadius: '16px 16px 0 0',
+                            overflow: 'hidden',
+                        }}
+                        onClick={(e) => e.stopPropagation()}
+                    >
+                        <WatchSidePanel
+                            activeTab={activeRightTab}
+                            onSelectTab={setActiveRightTab}
+                            onClose={() => setActiveRightTab(null)}
+                            video={videoInfo}
+                            videoId={videoId}
+                            mixPlaylist={mixPlaylist}
+                            currentIndex={currentIndex}
+                            onVideoSelect={handleVideoSelect}
+                            mixTitle={mixTitle}
+                            isShuffle={isShuffle}
+                            onToggleShuffle={() => setIsShuffle(prev => !prev)}
+                            isLoop={isMixLoop}
+                            onToggleLoop={() => setIsMixLoop(prev => !prev)}
+                            isMobileSheet={true}
+                        />
+                    </div>
+                </div>
+            )}
 
             {/* Download sheet */}
             {showDownload && (
@@ -2049,7 +2031,7 @@ export default function ClientWatchPage() {
                         gap: 16px !important;
                     }
                     .watch-sidebar {
-                        width: 100% !important;
+                        display: none !important;
                     }
                 }
             `}</style>
