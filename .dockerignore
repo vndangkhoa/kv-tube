@@ -17,6 +17,7 @@ stale
 android-app
 android-tv
 ios-app
+companion
 *.apk
 subscriptions-proof.png
 frontend/public/*.apk

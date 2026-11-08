@@ -39,7 +39,7 @@ fun YtTvVideoCard(
     var isFocused by remember { mutableStateOf(false) }
     LaunchedEffect(isFocused) {
         if (isFocused && video.id.isNotBlank()) {
-            delay(350)
+            delay(120)
             PlayerViewModel.prefetch(video.id)
         }
     }
@@ -70,7 +70,7 @@ fun YtTvVideoCard(
                 AsyncImage(
                     model = ImageRequest.Builder(LocalContext.current)
                         .data(video.thumbnail)
-                        .crossfade(true)
+                        .crossfade(false)
                         .build(),
                     contentDescription = video.title,
                     modifier = Modifier.fillMaxSize(),
@@ -144,7 +144,7 @@ fun YtTvVideoCard(
                         AsyncImage(
                             model = ImageRequest.Builder(LocalContext.current)
                                 .data(video.avatarUrl)
-                                .crossfade(true)
+                                .crossfade(false)
                                 .build(),
                             contentDescription = null,
                             modifier = Modifier
@@ -212,7 +212,7 @@ fun YtTvVideoRowCard(
     var isFocused by remember { mutableStateOf(false) }
     LaunchedEffect(isFocused) {
         if (isFocused && video.id.isNotBlank()) {
-            delay(350)
+            delay(120)
             PlayerViewModel.prefetch(video.id)
         }
     }

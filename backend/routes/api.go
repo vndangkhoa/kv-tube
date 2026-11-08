@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"strconv"
@@ -263,6 +264,22 @@ func handleGetVideoInfo(c *gin.Context) {
 	c.JSON(http.StatusOK, video)
 }
 
+// videoProxyClient streams media segments via HTTP(S)_PROXY when configured,
+// with connection/header timeouts rather than a hard 60s full-body timeout so
+// long-lived range streams are not truncated mid-playback.
+var videoProxyClient = &http.Client{
+	Transport: &http.Transport{
+		Proxy:                 http.ProxyFromEnvironment,
+		DialContext:           (&net.Dialer{Timeout: 15 * time.Second, KeepAlive: 30 * time.Second}).DialContext,
+		ForceAttemptHTTP2:     true,
+		MaxIdleConns:          100,
+		IdleConnTimeout:       90 * time.Second,
+		TLSHandshakeTimeout:   10 * time.Second,
+		ExpectContinueTimeout: 1 * time.Second,
+		ResponseHeaderTimeout: 30 * time.Second,
+	},
+}
+
 // handleVideoProxy fetches a remote URL and streams the response.
 // Used by the MSE player to proxy YouTube CDN segments. Range requests from
 // the browser are forwarded so seeking works (the CDN answers 206 Partial
@@ -274,8 +291,7 @@ func handleVideoProxy(c *gin.Context) {
 		return
 	}
 
-	client := &http.Client{Timeout: 60 * time.Second}
-	req, err := http.NewRequest("GET", urlStr, nil)
+	req, err := http.NewRequestWithContext(c.Request.Context(), "GET", urlStr, nil)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid url"})
 		return
@@ -285,7 +301,7 @@ func handleVideoProxy(c *gin.Context) {
 		req.Header.Set("Range", r)
 	}
 
-	resp, err := client.Do(req)
+	resp, err := videoProxyClient.Do(req)
 	if err != nil {
 		c.JSON(http.StatusBadGateway, gin.H{"error": "failed to fetch url"})
 		return

@@ -50,14 +50,8 @@ private fun TvShell() {
     // Initial boot splash/loading state
     val homeVm: HomeViewModel = viewModel()
     val homeState by homeVm.state.collectAsState()
-    var minSplashFinished by remember { mutableStateOf(false) }
 
-    LaunchedEffect(Unit) {
-        kotlinx.coroutines.delay(1200) // Minimum showcase time for YouTube TV boot animation
-        minSplashFinished = true
-    }
-
-    val isBootLoading = !minSplashFinished || (homeState.isLoading && homeState.hero.isEmpty() && homeState.rows.isEmpty())
+    val isBootLoading = homeState.isLoading && homeState.hero.isEmpty() && homeState.rows.isEmpty()
 
     androidx.compose.runtime.CompositionLocalProvider(com.kvtube.tv.ui.navigation.LocalTvNav provides nav) {
         Box(Modifier.fillMaxSize()) {

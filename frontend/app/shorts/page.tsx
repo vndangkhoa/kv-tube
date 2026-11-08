@@ -1240,6 +1240,7 @@ function ShortCard({
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '10px' }}>
             <Link
               href={video.channelId ? `/channel/${video.channelId}` : `/watch?v=${video.id}`}
+              prefetch={false}
               style={{
                 display: 'flex',
                 alignItems: 'center',

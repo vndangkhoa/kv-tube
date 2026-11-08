@@ -93,7 +93,7 @@ export default function SettingsPage() {
 
   const [status, setStatus] = useState<SettingsStatus | null>(null);
   const [loadingBackend, setLoadingBackend] = useState(true);
-  const [invidiousUrl, setInvidiousUrl] = useState('https://yt.khoavo.myds.me');
+  const [invidiousUrl, setInvidiousUrl] = useState('');
   const [instanceStatus, setInstanceStatus] = useState<'idle' | 'testing' | 'ok' | 'fail'>('idle');
   const [instanceMessage, setInstanceMessage] = useState<string | null>(null);
   const [defaultQuality, setDefaultQuality] = useState('auto');
@@ -148,7 +148,9 @@ export default function SettingsPage() {
     try {
       const url = invidiousUrl.trim();
       invidious.setInstanceUrl(url);
-      const test = await invidious.testInstance(url);
+      const effectiveUrl = invidious.getInstanceUrl();
+      setInvidiousUrl(effectiveUrl);
+      const test = await invidious.testInstance(effectiveUrl);
       if (test.success) {
         setInstanceStatus('ok');
         setInstanceMessage(test.message);
@@ -779,7 +781,7 @@ export default function SettingsPage() {
                   type="url"
                   value={invidiousUrl}
                   onChange={(e) => setInvidiousUrl(e.target.value)}
-                  placeholder="https://yt.khoavo.myds.me"
+                  placeholder="https://ut.khoavo.myds.me"
                   className="yt-input-field"
                   style={{ flex: 1 }}
                 />

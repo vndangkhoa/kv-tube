@@ -789,6 +789,7 @@ export default function ClientSearchPage() {
               >
                 <Link
                   href={`/watch?v=${vidId}`}
+                  prefetch={false}
                   style={{
                     position: 'relative',
                     width: '240px',
@@ -821,7 +822,7 @@ export default function ClientSearchPage() {
                 </Link>
 
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <Link href={`/watch?v=${vidId}`} style={{ textDecoration: 'none', color: 'inherit' }}>
+                  <Link href={`/watch?v=${vidId}`} prefetch={false} style={{ textDecoration: 'none', color: 'inherit' }}>
                     <h3
                       style={{
                         fontSize: '15px',
@@ -842,6 +843,7 @@ export default function ClientSearchPage() {
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', fontSize: '12px', color: 'var(--yt-text-secondary)' }}>
                     <Link
                       href={item.authorId ? `/channel/${item.authorId}` : `/watch?v=${vidId}`}
+                      prefetch={false}
                       style={{ color: 'var(--yt-text-secondary)', textDecoration: 'none', fontWeight: 500 }}
                     >
                       {item.author}

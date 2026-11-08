@@ -2,7 +2,6 @@ import { Suspense } from 'react';
 import type { Metadata } from 'next';
 import ClientWatchPage from './ClientWatchPage';
 import LoadingSpinner from '../components/LoadingSpinner';
-import { invidious } from '../services/invidious';
 
 type WatchPageProps = {
     searchParams: Promise<{ v?: string }>;
@@ -10,8 +9,9 @@ type WatchPageProps = {
 
 // Dynamic Open Graph metadata so that sharing a watch URL to Messenger,
 // Facebook, Discord, Slack, etc. shows the video title + thumbnail (and lets
-// the platform offer a video card). The crawler fetches this HTML server-side,
-// so we hydrate the tags from the backend before returning the page.
+// the platform offer a video card). Uses YouTube's lightweight oEmbed endpoint
+// with a strict AbortSignal timeout so SSR metadata never triggers heavy
+// uncancelled player extractions against Companion/YouTube.
 export async function generateMetadata({ searchParams }: WatchPageProps): Promise<Metadata> {
     const params = await searchParams;
     const videoId = params?.v;
@@ -31,15 +31,22 @@ export async function generateMetadata({ searchParams }: WatchPageProps): Promis
     let uploader = '';
 
     try {
-        const fetchPromise = invidious.getVideo(videoId);
-        const timeoutPromise = new Promise<null>((resolve) => setTimeout(() => resolve(null), 600));
-        const invVideo = await Promise.race([fetchPromise, timeoutPromise]);
-        if (invVideo) {
-            if (invVideo.title) title = invVideo.title;
-            if (invVideo.author) uploader = invVideo.author;
+        const oembedUrl = `https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=${encodeURIComponent(videoId)}&format=json`;
+        const res = await fetch(oembedUrl, {
+            signal: AbortSignal.timeout(1200),
+            headers: {
+                Accept: 'application/json',
+            },
+        });
+        if (res.ok) {
+            const oembed = await res.json();
+            if (oembed?.title) title = oembed.title;
+            if (oembed?.author_name) uploader = oembed.author_name;
             description = `Xem "${title}" bởi ${uploader || 'kênh YouTube'} không quảng cáo trên KV-Tube.`;
         }
-    } catch (_) {}
+    } catch (_) {
+        // Graceful fallback to static title and YouTube thumbnail CDN on timeout/error
+    }
 
     // Use reliable high-resolution HTTPS YouTube thumbnail CDN for social media crawlers
     // (Facebook/Messenger crawler requires secure HTTPS and rejects unreachable internal proxy URLs).

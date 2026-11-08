@@ -1,4 +1,53 @@
 services:
+  # 0. Userspace Cloudflare WARP MASQUE (HTTP/3 QUIC over UDP 443) HTTP Proxy
+  # Avoids ISP WireGuard DPI throttling and requires no kernel modules or NET_ADMIN.
+  warp:
+    image: alpine:3.21
+    container_name: kvtube-warp
+    hostname: warp
+    restart: unless-stopped
+    environment:
+      TZ: ${TZ:-Asia/Ho_Chi_Minh}
+    command:
+      - /bin/sh
+      - -eu
+      - -c
+      - |
+        mkdir -p /warp/bin
+        cd /warp
+        if [ ! -x /warp/bin/usque ]; then
+          apk add --no-cache ca-certificates curl unzip
+          curl -fsSL https://github.com/Diniboy1123/usque/releases/download/v4.2.1/usque_4.2.1_linux_amd64.zip -o /tmp/usque.zip
+          unzip -o /tmp/usque.zip usque -d /warp/bin
+          rm -f /tmp/usque.zip
+          chmod 0755 /warp/bin/usque
+        fi
+        if [ ! -s /warp/config.json ]; then
+          /warp/bin/usque register --accept-tos -c /warp/config.json
+        fi
+        chmod 0600 /warp/config.json
+        exec /warp/bin/usque -c /warp/config.json http-proxy \
+          --always-reconnect \
+          -b 0.0.0.0 \
+          -p 29083 \
+          -d 1.1.1.1 \
+          -d 2606:4700:4700::1111
+    volumes:
+      - ./data/warp:/warp
+    dns:
+      - 1.1.1.1
+      - 8.8.8.8
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD-SHELL", "http_proxy=http://127.0.0.1:29083 wget -q -T 6 -O /dev/null http://cp.cloudflare.com/generate_204"]
+      interval: 20s
+      timeout: 8s
+      retries: 6
+      start_period: 10s
+    networks:
+      - invidious-net
+
   # 1. Invidious PostgreSQL Database
   invidious-db:
     image: postgres:16-alpine
@@ -21,17 +70,26 @@ services:
     networks:
       - invidious-net
 
-  # 2. Invidious Companion (YouTube Token Decryptor)
+  # 2. Invidious Companion (YouTube PO Token & Stream Decryptor over WARP)
   companion:
     image: quay.io/invidious/invidious-companion:latest
     container_name: Invidious-COMPANION
     hostname: companion
+    mem_limit: 768m
     environment:
       # Must stay identical to invidious_companion_key below.
       SERVER_SECRET_KEY: KXyzWwrtQlgMiJZA
-    # Explicit DNS: the companion must always resolve youtube.com even when
-    # the host/NAS DNS is broken (otherwise: "Temporary failure in name
-    # resolution" → player 500s, no PO token, no playable streams).
+      HOST: 0.0.0.0
+      PORT: 8282
+      # Use Companion's native PROXY setting (do NOT set HTTP_PROXY/http_proxy,
+      # which causes the built-in /thc healthcheck binary to proxy 0.0.0.0:8282
+      # through WARP and mark the container unhealthy).
+      PROXY: http://warp:29083
+      # Default (KVTUBE_CUSTOM_PLAYER_REQ=0) runs stock anonymous PO-token WARP
+      # flow + storyboards {} normalization (prevents Invidious video_json.cr crash).
+      # Set KVTUBE_CUSTOM_PLAYER_REQ=1 to enable cookie/SSO WEB_EMBEDDED_PLAYER mode.
+      YT_PLAYER_REQ_LOCATION: "file:///var/tmp/youtubePlayerReq.ts"
+      KVTUBE_CUSTOM_PLAYER_REQ: "${KVTUBE_CUSTOM_PLAYER_REQ:-0}"
     dns:
       - 8.8.8.8
       - 1.1.1.1
@@ -42,8 +100,12 @@ services:
       - /tmp
     volumes:
       - ./data/invidious/companion:/var/tmp:rw
+      - ./companion/youtubePlayerReq.ts:/var/tmp/youtubePlayerReq.ts:ro
     security_opt:
       - no-new-privileges:true
+    depends_on:
+      warp:
+        condition: service_healthy
     restart: unless-stopped
     networks:
       - invidious-net
@@ -53,7 +115,7 @@ services:
     image: quay.io/invidious/invidious:master
     container_name: Invidious
     healthcheck:
-      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:3000 || exit 1"]
+      test: ["CMD-SHELL", "wget -Y off -q -T 5 -O /dev/null http://127.0.0.1:3000 || exit 1"]
       interval: 10s
       timeout: 5s
       retries: 3
@@ -82,16 +144,24 @@ services:
         default_user_preferences:
           locale: vi
           region: VN
+          local: true
         external_port: 443
+        domain: ut.khoavo.myds.me
+        https_only: true
+        http_proxy:
+          type: http
+          host: warp
+          port: 29083
         invidious_companion:
           - private_url: "http://companion:8282/companion"
+            public_url: "https://ut.khoavo.myds.me/api/invidious/companion"
         invidious_companion_key: KXyzWwrtQlgMiJZA
         hmac_key: e216a52a6d3f8ee752a0bbb4f6a4981b7287c4b39425d510ac86fe499fb8ec6f
-        domain: yt.khoavo.myds.me
-        https_only: true
     restart: unless-stopped
     depends_on:
       invidious-db:
+        condition: service_healthy
+      warp:
         condition: service_healthy
       companion:
         condition: service_started
@@ -100,38 +170,60 @@ services:
 
   # 4. KV-Tube Materialious-Inspired Frontend WebApp
   # Pre-built image (no source build required). To build from source instead,
-  # uncomment the build section and run `docker compose up -d --build`.
+  # run `docker compose up -d --build`.
   kv-tube:
     image: vndangkhoa/kv-tube-ui:latest
     build:
       context: ./frontend
       dockerfile: Dockerfile
       args:
-        # Browser-facing Invidious URL, inlined into the client bundle at build time.
-        - NEXT_PUBLIC_INVIDIOUS_URL=http://127.0.0.1:7601
+        # Empty so browser clients always route through same-origin /api/invidious/*
+        - NEXT_PUBLIC_INVIDIOUS_URL=
     container_name: Invidious-Materialious-UI
+    dns:
+      - 8.8.8.8
+      - 1.1.1.1
     restart: unless-stopped
     mem_limit: 450m
     ports:
       - "3241:3000"
     environment:
-      # Internal Invidious docker network URL (fast direct server-to-server)
+      # Internal Docker network URLs (fast direct server-to-server)
       - INVIDIOUS_URL=http://invidious:3000
-      # Public Invidious instance domain for client-side playback/thumbnails
-      - NEXT_PUBLIC_INVIDIOUS_URL=http://127.0.0.1:7601
-      - NEXT_PUBLIC_SITE_URL=https://youtube.khoavo.myds.me
+      - COMPANION_URL=http://companion:8282
+      # Same-origin proxy mode (empty NEXT_PUBLIC_INVIDIOUS_URL avoids mixed-content/127.0.0.1 leaks)
+      - NEXT_PUBLIC_INVIDIOUS_URL=
+      - NEXT_PUBLIC_SITE_URL=https://ut.khoavo.myds.me
       - NEXT_PUBLIC_SPONSORBLOCK_URL=https://sponsor.ajay.app
       - NEXT_PUBLIC_RYD_URL=https://returnyoutubedislikeapi.com
       - NEXT_PUBLIC_DEFAULT_REGION=VN
       - NODE_ENV=production
       - NODE_OPTIONS=--max-old-space-size=256
+      - NODE_USE_ENV_PROXY=1
+      - HTTP_PROXY=http://warp:29083
+      - HTTPS_PROXY=http://warp:29083
+      - http_proxy=http://warp:29083
+      - https_proxy=http://warp:29083
+      - NO_PROXY=localhost,127.0.0.1,0.0.0.0,invidious,companion,invidious-db,warp
+      - no_proxy=localhost,127.0.0.1,0.0.0.0,invidious,companion,invidious-db,warp
     logging:
       driver: "json-file"
       options:
         max-size: "10m"
         max-file: "3"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -Y off -q -T 5 -O /dev/null http://127.0.0.1:3000 || exit 1"]
+      interval: 20s
+      timeout: 6s
+      retries: 5
+      start_period: 20s
     depends_on:
-      - invidious
+      warp:
+        condition: service_healthy
+      invidious:
+        condition: service_started
+      companion:
+        condition: service_started
     networks:
       - invidious-net
 

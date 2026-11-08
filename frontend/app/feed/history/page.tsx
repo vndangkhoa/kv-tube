@@ -546,6 +546,7 @@ export default function HistoryPage() {
                         {/* 16:9 Thumbnail */}
                         <Link
                           href={`/watch?v=${item.videoId}`}
+                          prefetch={false}
                           style={{
                             position: 'relative',
                             width: '180px',
@@ -592,6 +593,7 @@ export default function HistoryPage() {
                         <div style={{ flex: 1, minWidth: 0, paddingRight: '36px' }}>
                           <Link
                             href={`/watch?v=${item.videoId}`}
+                            prefetch={false}
                             style={{ textDecoration: 'none', color: 'inherit' }}
                           >
                             <h3
@@ -642,6 +644,7 @@ export default function HistoryPage() {
 
                             <Link
                               href={item.channelId ? `/channel/${item.channelId}` : `/watch?v=${item.videoId}`}
+                              prefetch={false}
                               style={{
                                 color: 'var(--yt-text-secondary)',
                                 textDecoration: 'none',

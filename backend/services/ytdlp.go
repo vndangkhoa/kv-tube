@@ -742,6 +742,7 @@ func FetchCookiesFromBrowser(browser string) error {
 		"--no-warnings",
 		"https://www.youtube.com/watch?v=dQw4w9WgXcQ",
 	}
+	args = appendYtDlpProxy(args)
 	args = append(args, ipFamilyArgs()...)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
@@ -806,6 +807,7 @@ func refreshAnonymousCookiesOnce() error {
 		"--quiet",
 		"https://www.youtube.com/watch?v=dQw4w9WgXcQ",
 	}
+	args = appendYtDlpProxy(args)
 	args = append(args, ipFamilyArgs()...)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Second)
@@ -1000,13 +1002,15 @@ func appendYtDlpCookies(args []string) []string {
 	return args
 }
 
-// ytDlpProxyArgs returns proxy arguments for yt-dlp from the YTDLP_PROXY
-// environment variable. Supports SOCKS5 and HTTP proxies, e.g.:
+// ytDlpProxyArgs returns proxy arguments for yt-dlp from YTDLP_PROXY (falling
+// back to HTTPS_PROXY / HTTP_PROXY). Supports SOCKS5 and HTTP proxies, e.g.:
 //   - YTDLP_PROXY=socks5://user:pass@host:port
 //   - YTDLP_PROXY=http://user:pass@host:port
 func ytDlpProxyArgs() []string {
-	if p := os.Getenv("YTDLP_PROXY"); p != "" {
-		return []string{"--proxy", p}
+	for _, k := range []string{"YTDLP_PROXY", "HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy"} {
+		if p := strings.TrimSpace(os.Getenv(k)); p != "" {
+			return []string{"--proxy", p}
+		}
 	}
 	return nil
 }
@@ -1100,8 +1104,8 @@ func runYtDlpArgsMode(cmdArgs []string, withCookies bool, ignoreBlock bool, forc
 		}
 
 		// IPv6 is the best weapon against IPv4 bot-blocks; on network-level
-		// failures flip the family and retry once.
-		if isNetworkFailure(stderr) {
+		// failures flip the family and retry once (unless an outbound proxy is set).
+		if isNetworkFailure(stderr) && !hasOutboundProxy() {
 			other := alternateIPFamily(family)
 			log.Printf("[ytdlp] network failure on %s (%s), retrying over %s", family, strings.TrimSpace(stderr), other)
 			out2, stderr2, err2 := runYtDlpArgsOnce(cmdArgs, other, withCookies, forceUserCookies)

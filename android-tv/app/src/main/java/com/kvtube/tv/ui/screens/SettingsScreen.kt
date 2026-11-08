@@ -318,7 +318,7 @@ fun SettingsScreen() {
         TvEditValueDialog(
             title = "Instance URL",
             initialValue = instanceUrl,
-            placeholder = "https://invidious.khoavo.myds.me",
+            placeholder = "https://yt.khoavo.vndns.net",
             onDismiss = { showEditInstance = false },
             onSave = { url ->
                 showEditInstance = false

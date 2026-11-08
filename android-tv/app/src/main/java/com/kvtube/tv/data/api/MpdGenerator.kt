@@ -39,7 +39,7 @@ object MpdGenerator {
 
             val mpd = """
 <?xml version="1.0" encoding="UTF-8"?>
-<MPD xmlns="urn:mpeg:dash:schema:mpd:2011" type="static" mediaPresentationDuration="$duration" minBufferTime="PT1.5S" profiles="urn:mpeg:dash:profile:isoff-on-demand:2011">
+<MPD xmlns="urn:mpeg:dash:schema:mpd:2011" type="static" mediaPresentationDuration="$duration" minBufferTime="PT0.25S" profiles="urn:mpeg:dash:profile:isoff-on-demand:2011">
   <Period>
     <AdaptationSet mimeType="$videoMime" codecs="$videoCodecs" segmentAlignment="true" startWithSAP="1" width="$w" height="$h" maxWidth="$w" maxHeight="$h">
       <Representation id="${video.itag}" bandwidth="$videoBandwidth" width="$w" height="$h" codecs="$videoCodecs" mimeType="$videoMime">

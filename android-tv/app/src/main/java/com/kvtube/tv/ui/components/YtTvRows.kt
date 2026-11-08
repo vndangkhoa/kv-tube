@@ -34,7 +34,7 @@ fun YtCategoryRow(
             contentPadding = PaddingValues(horizontal = 32.dp),
             horizontalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-            itemsIndexed(distinct, key = { i, v -> "${title}_${v.id}_$i" }) { _, v ->
+            itemsIndexed(distinct, key = { _, v -> "${title}_${v.id}" }) { _, v ->
                 YtTvVideoCard(video = v, onClick = { onVideoClick(v) })
             }
         }
@@ -53,7 +53,7 @@ fun YtHeroRow(
     Column(modifier.padding(vertical = 8.dp)) {
         Text(title, style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold, fontSize = 18.sp), modifier = Modifier.padding(start = 32.dp, bottom = 8.dp))
         TvLazyRow(contentPadding = PaddingValues(horizontal = 32.dp), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-            itemsIndexed(videos.take(6), key = { i, v -> "hero_${v.id}_$i" }) { _, v ->
+            itemsIndexed(videos.take(6), key = { _, v -> "hero_${v.id}" }) { _, v ->
                 YtTvHeroCard(video = v, onClick = { onVideoClick(v) })
             }
         }

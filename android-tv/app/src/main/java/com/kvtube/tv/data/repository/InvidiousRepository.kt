@@ -8,6 +8,7 @@ import com.kvtube.tv.data.model.SearchResultItem
 import com.kvtube.tv.data.model.TvVideo
 import com.kvtube.tv.data.model.toTvVideo
 
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
@@ -39,47 +40,46 @@ class InvidiousRepository {
         api.search(query)
     } catch (_: Exception) { emptyList() }
 
-    // Resilient video fetch: try Invidious first with fast timeout, then fall back to direct InnerTube ANDROID client
-    suspend fun video(videoId: String): InvidiousVideo {
+    // Resilient video fetch: race Invidious with direct InnerTube for sub-second start
+    suspend fun video(videoId: String): InvidiousVideo = coroutineScope {
         val id = videoId.trim()
         require(id.isNotBlank()) { "Empty videoId" }
-        var lastInvidiousError: Exception? = null
-        var invidiousVideo: InvidiousVideo? = null
-        try {
-            invidiousVideo = withTimeoutOrNull(2500) {
-                try {
-                    api.getVideo(id, local = true)
-                } catch (_: Exception) {
-                    api.getVideo(id)
-                }
-            }
-            if (invidiousVideo != null && hasPlayableStreams(invidiousVideo)) return invidiousVideo
-            lastInvidiousError = IllegalStateException("Invidious returned no playable streams or timed out")
-        } catch (e: Exception) {
-            lastInvidiousError = e
+
+        val innerTubeDeferred = async(Dispatchers.IO) {
+            runCatching { com.kvtube.tv.data.api.InnerTubeApi.getVideo(id) }.getOrNull()
         }
 
-        // --- InnerTube fallback (ANDROID client, no PO token, no decipher) ---
-        try {
-            val fallback = com.kvtube.tv.data.api.InnerTubeApi.getVideo(id)
-            // If Invidious gave us metadata (title/channel) but no streams, merge it
-            if (invidiousVideo != null && fallback.title.isNotBlank()) {
-                // Prefer Invidious metadata (more complete) + InnerTube streams
-                return invidiousVideo.copy(
-                    dashUrl = fallback.dashUrl ?: invidiousVideo.dashUrl,
-                    hlsUrl = fallback.hlsUrl ?: invidiousVideo.hlsUrl,
-                    formatStreams = if (invidiousVideo.formatStreams.isEmpty()) fallback.formatStreams else invidiousVideo.formatStreams,
-                    adaptiveFormats = if (invidiousVideo.adaptiveFormats.isEmpty()) fallback.adaptiveFormats else invidiousVideo.adaptiveFormats
-                ).let { merged ->
-                    if (hasPlayableStreams(merged)) merged else fallback
+        val invidiousDeferred = async(Dispatchers.IO) {
+            withTimeoutOrNull(900) {
+                try {
+                    api.getVideo(id, local = false)
+                } catch (_: Exception) {
+                    try { api.getVideo(id) } catch (_: Exception) { null }
                 }
             }
-            return fallback
-        } catch (fallbackErr: Exception) {
-            // Both failed — throw the more informative Invidious error if available
-            lastInvidiousError?.let { throw it }
-            throw fallbackErr
         }
+
+        val invidious = invidiousDeferred.await()
+        if (invidious != null && hasPlayableStreams(invidious)) {
+            innerTubeDeferred.cancel()
+            return@coroutineScope invidious
+        }
+
+        val fallback = innerTubeDeferred.await()
+        if (fallback != null && hasPlayableStreams(fallback)) {
+            if (invidious != null && invidious.title.isNotBlank()) {
+                val merged = invidious.copy(
+                    dashUrl = fallback.dashUrl ?: invidious.dashUrl,
+                    hlsUrl = fallback.hlsUrl ?: invidious.hlsUrl,
+                    formatStreams = fallback.formatStreams.ifEmpty { invidious.formatStreams },
+                    adaptiveFormats = fallback.adaptiveFormats.ifEmpty { invidious.adaptiveFormats }
+                )
+                if (hasPlayableStreams(merged)) return@coroutineScope merged
+            }
+            return@coroutineScope fallback
+        }
+
+        throw IllegalStateException("Unable to resolve playable video streams for $id")
     }
 
     private fun hasPlayableStreams(v: InvidiousVideo): Boolean =

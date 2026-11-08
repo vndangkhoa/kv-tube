@@ -1,4 +1,4 @@
-FROM node:20-alpine AS base
+FROM node:22-alpine AS base
 RUN apk add --no-cache libc6-compat ffmpeg
 
 # Install dependencies only when needed
@@ -18,7 +18,7 @@ COPY . .
 # Public Invidious URL used by the browser for playback/thumbnails. Inlined
 # into the client bundle at build time, so it must be passed as a build arg
 # (or overridden via --build-arg) — a runtime env alone won't affect the client.
-ARG NEXT_PUBLIC_INVIDIOUS_URL=https://yt.khoavo.myds.me
+ARG NEXT_PUBLIC_INVIDIOUS_URL=""
 ENV NEXT_PUBLIC_INVIDIOUS_URL=$NEXT_PUBLIC_INVIDIOUS_URL
 
 # Next.js telemetry is disabled

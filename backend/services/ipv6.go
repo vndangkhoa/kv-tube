@@ -118,14 +118,35 @@ func firstIPv6Addr(host string) string {
 	return ""
 }
 
+// hasOutboundProxy reports whether an outbound proxy is configured via
+// YTDLP_PROXY or standard HTTP(S)_PROXY environment variables. When a proxy is
+// active, passing --force-ipv4/--force-ipv6 to yt-dlp forces the local socket
+// family toward the proxy or breaks proxy resolution, so family flags are skipped.
+func hasOutboundProxy() bool {
+	for _, k := range []string{"YTDLP_PROXY", "HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy", "ALL_PROXY", "all_proxy"} {
+		if strings.TrimSpace(os.Getenv(k)) != "" {
+			return true
+		}
+	}
+	return false
+}
+
 // ipFamilyArgs returns the --force-ipv6/--force-ipv4 flag to pass to yt-dlp,
-// based on the FORCE_IPV6 override or the startup probe result.
+// based on the FORCE_IPV6 override or the startup probe result. Skipped when
+// an outbound proxy is configured.
 func ipFamilyArgs() []string {
+	if hasOutboundProxy() {
+		return nil
+	}
 	return ipFamilyArgsFor(currentIPFamily())
 }
 
-// ipFamilyArgsFor returns the family flag for an explicit family choice.
+// ipFamilyArgsFor returns the family flag for an explicit family choice, or
+// nil when an outbound proxy is configured.
 func ipFamilyArgsFor(family string) []string {
+	if hasOutboundProxy() {
+		return nil
+	}
 	if family == "ipv6" {
 		return []string{"--force-ipv6"}
 	}

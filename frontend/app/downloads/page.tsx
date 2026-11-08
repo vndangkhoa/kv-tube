@@ -178,7 +178,7 @@ export default function DownloadsPage() {
               }}
             >
               <div style={{ display: 'flex', gap: '16px', alignItems: 'center', flex: 1, minWidth: '260px' }}>
-                <Link href={`/watch?v=${item.videoId}`} style={{ flexShrink: 0, position: 'relative' }}>
+                <Link href={`/watch?v=${item.videoId}`} prefetch={false} style={{ flexShrink: 0, position: 'relative' }}>
                   <img
                     src={item.thumbnail || `https://i.ytimg.com/vi/${item.videoId}/mqdefault.jpg`}
                     alt={item.title}
@@ -212,6 +212,7 @@ export default function DownloadsPage() {
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <Link
                     href={`/watch?v=${item.videoId}`}
+                    prefetch={false}
                     style={{
                       textDecoration: 'none',
                       color: 'var(--yt-text-primary)',
@@ -250,6 +251,7 @@ export default function DownloadsPage() {
               <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                 <Link
                   href={`/watch?v=${item.videoId}`}
+                  prefetch={false}
                   style={{
                     display: 'inline-flex',
                     alignItems: 'center',

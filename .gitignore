@@ -59,6 +59,7 @@ tmp_*/
 # Windows reserved names
 nul
 .gemini/
+.openclaude/
 
 
 

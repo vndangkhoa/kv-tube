@@ -7,8 +7,12 @@ import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.util.UnstableApi
+import androidx.media3.database.StandaloneDatabaseProvider
 import androidx.media3.datasource.DefaultDataSource
-import androidx.media3.datasource.DefaultHttpDataSource
+import androidx.media3.datasource.cache.CacheDataSource
+import androidx.media3.datasource.cache.LeastRecentlyUsedCacheEvictor
+import androidx.media3.datasource.cache.SimpleCache
+import androidx.media3.datasource.okhttp.OkHttpDataSource
 import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.dash.DashMediaSource
@@ -17,10 +21,12 @@ import androidx.media3.exoplayer.source.MediaSource
 import androidx.media3.exoplayer.source.MergingMediaSource
 import androidx.media3.exoplayer.source.ProgressiveMediaSource
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
+import com.kvtube.tv.data.api.ApiClient
 import com.kvtube.tv.data.api.MpdGenerator
 import com.kvtube.tv.data.model.InvidiousAdaptiveFormat
 import com.kvtube.tv.data.model.InvidiousVideo
 import com.kvtube.tv.viewmodel.PlayerViewModel
+import java.io.File
 
 /**
  * Reusable, application-scoped ExoPlayer manager for Android TV.
@@ -34,6 +40,19 @@ class TvPlaybackManager private constructor(context: Context) {
     companion object {
         @Volatile
         private var instance: TvPlaybackManager? = null
+        @Volatile
+        private var mediaCache: SimpleCache? = null
+
+        @Synchronized
+        fun getMediaCache(context: Context): SimpleCache {
+            if (mediaCache == null) {
+                val cacheDir = File(context.applicationContext.cacheDir, "exoplayer_media_cache")
+                val evictor = LeastRecentlyUsedCacheEvictor(200L * 1024 * 1024) // 200 MB disk media cache
+                val databaseProvider = StandaloneDatabaseProvider(context.applicationContext)
+                mediaCache = SimpleCache(cacheDir, evictor, databaseProvider)
+            }
+            return mediaCache!!
+        }
 
         fun getInstance(context: Context): TvPlaybackManager =
             instance ?: synchronized(this) {
@@ -41,11 +60,8 @@ class TvPlaybackManager private constructor(context: Context) {
             }
     }
 
-    val httpFactory: DefaultHttpDataSource.Factory = DefaultHttpDataSource.Factory()
+    val okHttpFactory: OkHttpDataSource.Factory = OkHttpDataSource.Factory(ApiClient.okHttp)
         .setUserAgent("com.google.android.youtube/20.10.38 (Linux; U; Android 11) gzip")
-        .setConnectTimeoutMs(15_000)
-        .setReadTimeoutMs(30_000)
-        .setAllowCrossProtocolRedirects(true)
         .setDefaultRequestProperties(
             mapOf(
                 "Referer" to "https://www.youtube.com/",
@@ -53,8 +69,14 @@ class TvPlaybackManager private constructor(context: Context) {
             )
         )
 
+    private val simpleCache = getMediaCache(context)
+    val cacheDataSourceFactory = CacheDataSource.Factory()
+        .setCache(simpleCache)
+        .setUpstreamDataSourceFactory(okHttpFactory)
+        .setFlags(CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR)
+
     val dataSourceFactory: DefaultDataSource.Factory =
-        DefaultDataSource.Factory(context.applicationContext, httpFactory)
+        DefaultDataSource.Factory(context.applicationContext, cacheDataSourceFactory)
 
     val trackSelector: DefaultTrackSelector = DefaultTrackSelector(context).apply {
         setParameters(
@@ -67,18 +89,18 @@ class TvPlaybackManager private constructor(context: Context) {
 
     /**
      * Tuned buffer thresholds:
-     * - bufferForPlaybackMs = 500: Starts rendering as soon as 0.5s of chunks are loaded (fast start).
-     * - bufferForPlaybackAfterRebufferMs = 1500: Recovers quickly if network dips.
-     * - minBufferMs = 15,000 / maxBufferMs = 50,000: Ample headroom without hogging TV RAM.
+     * - bufferForPlaybackMs = 250: Starts rendering as soon as 0.25s of chunks are loaded (sub-second start).
+     * - bufferForPlaybackAfterRebufferMs = 1000: Recovers quickly if network dips.
+     * - minBufferMs = 10,000 / maxBufferMs = 40,000: Ample headroom without hogging TV RAM.
      */
     val loadControl: DefaultLoadControl = DefaultLoadControl.Builder()
         .setBufferDurationsMs(
-            /* minBufferMs = */ 15_000,
-            /* maxBufferMs = */ 50_000,
-            /* bufferForPlaybackMs = */ 500,
-            /* bufferForPlaybackAfterRebufferMs = */ 1500
+            /* minBufferMs = */ 10_000,
+            /* maxBufferMs = */ 40_000,
+            /* bufferForPlaybackMs = */ 250,
+            /* bufferForPlaybackAfterRebufferMs = */ 1000
         )
-        .setBackBuffer(30_000, true)
+        .setBackBuffer(20_000, true)
         .setPrioritizeTimeOverSizeThresholds(true)
         .build()
 

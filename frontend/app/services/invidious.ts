@@ -186,41 +186,110 @@ export interface SearchOptions {
   hl?: string;
 }
 
+function isStaleOrLoopbackInstance(urlStr?: string | null): boolean {
+  if (!urlStr || !urlStr.trim()) return true;
+  const trimmed = urlStr.trim();
+  try {
+    const u = new URL(trimmed.startsWith('http') ? trimmed : `https://${trimmed}`);
+    const host = u.hostname.toLowerCase().replace(/^\[|\]$/g, '');
+    return (
+      host === '127.0.0.1' ||
+      host === 'localhost' ||
+      host === '0.0.0.0' ||
+      host === '::1' ||
+      host === 'yt.khoavo.myds.me' ||
+      host === 'youtube.khoavo.myds.me'
+    );
+  } catch {
+    return /^(https?:\/\/)?(127\.0\.0\.1|localhost|0\.0\.0\.0|\[::1\]|yt\.khoavo\.myds\.me|youtube\.khoavo\.myds\.me)(:\d+)?(\/|$)/i.test(
+      trimmed
+    );
+  }
+}
+
+function isStaleInvidiousDomain(urlStr?: string | null): boolean {
+  if (!urlStr || !urlStr.trim()) return false;
+  try {
+    const u = new URL(urlStr.trim().startsWith('http') ? urlStr.trim() : `https://${urlStr.trim()}`);
+    const host = u.hostname.toLowerCase();
+    return host === 'yt.khoavo.myds.me' || host === 'youtube.khoavo.myds.me';
+  } catch {
+    return /(^|\/\/)(yt|youtube)\.khoavo\.myds\.me(\/|:|$)/i.test(urlStr.trim());
+  }
+}
+
+function appendQueryParamRaw(rawSearch: string, key: string, value: string): string {
+  const encoded = `${encodeURIComponent(key)}=${encodeURIComponent(value)}`;
+  if (!rawSearch || rawSearch === '?') return `?${encoded}`;
+  const prefix = rawSearch.startsWith('?') ? rawSearch : `?${rawSearch}`;
+  return `${prefix}&${encoded}`;
+}
+
 export class InvidiousService {
   private instanceUrl: string;
   private videoCache = new Map<string, { data: InvidiousVideo; expiry: number }>();
   private inFlightVideoPromises = new Map<string, Promise<InvidiousVideo>>();
 
   constructor() {
-    this.instanceUrl =
-      (typeof window === 'undefined'
-        ? process.env.INVIDIOUS_URL || process.env.NEXT_PUBLIC_INVIDIOUS_URL
-        : process.env.NEXT_PUBLIC_INVIDIOUS_URL) || '';
+    const serverEnvUrl = process.env.INVIDIOUS_URL?.trim();
+    const publicEnvUrl = process.env.NEXT_PUBLIC_INVIDIOUS_URL?.trim();
+    const serverDefaultUrl =
+      (serverEnvUrl && !isStaleInvidiousDomain(serverEnvUrl) ? serverEnvUrl : '') ||
+      (publicEnvUrl && !isStaleOrLoopbackInstance(publicEnvUrl) ? publicEnvUrl : '') ||
+      'http://invidious:3000';
 
-    if (typeof window !== 'undefined') {
-      const custom = localStorage.getItem('kv_invidious_instance');
-      if (custom && custom.trim()) {
-        this.instanceUrl = custom.replace(/\/$/, '');
-      } else {
-        // If NEXT_PUBLIC_INVIDIOUS_URL is loopback (127.0.0.1/localhost) but client is accessing
-        // from another machine/phone, or under HTTPS where mixed content blocks HTTP,
-        // fallback to window.location.origin to route via /api/invidious proxy.
-        const isLoopbackInstance = !this.instanceUrl || /^(https?:\/\/)?(127\.0\.0\.1|localhost)(:\d+)?$/i.test(this.instanceUrl);
-        const isClientLoopback = /^(127\.0\.0\.1|localhost)$/i.test(window.location.hostname);
-        const isMixedContent = window.location.protocol === 'https:' && /^http:\/\//i.test(this.instanceUrl);
+    if (typeof window === 'undefined') {
+      this.instanceUrl = serverDefaultUrl.replace(/\/+$/, '');
+      return;
+    }
 
-        if ((isLoopbackInstance && !isClientLoopback) || isMixedContent || !this.instanceUrl) {
-          this.instanceUrl = window.location.origin;
+    let resolved =
+      publicEnvUrl && !isStaleOrLoopbackInstance(publicEnvUrl)
+        ? publicEnvUrl.replace(/\/+$/, '')
+        : window.location.origin;
+
+    try {
+      const saved = localStorage.getItem('kv_invidious_instance');
+      if (saved !== null) {
+        const cleanedSaved = saved.trim().replace(/\/+$/, '');
+        if (!cleanedSaved || isStaleOrLoopbackInstance(cleanedSaved)) {
+          localStorage.removeItem('kv_invidious_instance');
+          resolved = window.location.origin;
+        } else {
+          resolved = cleanedSaved;
         }
       }
+    } catch {}
+
+    const isMixedContent = window.location.protocol === 'https:' && /^http:\/\//i.test(resolved);
+    if (!resolved || isStaleOrLoopbackInstance(resolved) || isMixedContent) {
+      try {
+        localStorage.removeItem('kv_invidious_instance');
+      } catch {}
+      resolved = window.location.origin;
     }
+
+    this.instanceUrl = resolved;
   }
 
   public setInstanceUrl(url: string) {
-    this.instanceUrl = url.replace(/\/$/, '');
+    const cleaned = (url || '').trim().replace(/\/+$/, '');
     if (typeof window !== 'undefined') {
-      localStorage.setItem('kv_invidious_instance', this.instanceUrl);
+      const isSameOrigin = cleaned.toLowerCase() === window.location.origin.toLowerCase();
+      if (!cleaned || isStaleOrLoopbackInstance(cleaned) || isSameOrigin) {
+        try {
+          localStorage.removeItem('kv_invidious_instance');
+        } catch {}
+        this.instanceUrl = window.location.origin;
+        return;
+      }
+      this.instanceUrl = cleaned;
+      try {
+        localStorage.setItem('kv_invidious_instance', this.instanceUrl);
+      } catch {}
+      return;
     }
+    this.instanceUrl = cleaned && !isStaleInvidiousDomain(cleaned) ? cleaned : 'http://invidious:3000';
   }
 
   public getInstanceUrl(): string {
@@ -228,42 +297,93 @@ export class InvidiousService {
   }
 
   /**
-   * Rewrite an Invidious-hosted stream/manifest URL through the same-origin
-   * `/api/invidious` proxy; leave third-party CDN URLs (googlevideo,
-   * i.ytimg, ggpht, …) untouched so media keeps streaming direct.
-   *
-   * Why: Invidious returns absolute manifest URLs bound to its configured
-   * `domain` (e.g. https://yt.example.com/api/manifest/…). Loading those
-   * direct breaks as soon as the browser can't reach that host — DDNS-only
-   * setups, reverse-proxy gaps, or HTTP/HTTPS mixed content on phones.
-   * The server-side proxy only needs INVIDIOUS_URL (container network), so
-   * routing manifests through it works on every client.
+   * Rewrite Invidious/Companion stream, manifest, and IP-bound googlevideo.com
+   * URLs through the same-origin `/api/invidious` proxy so media streams exit
+   * through Companion's WARP tunnel IP (matching player extraction IP), while
+   * keeping static image CDNs (ytimg, ggpht, googleusercontent) direct.
    */
   public proxyUrl(raw?: string | null): string {
     if (!raw) return '';
-    if (raw.startsWith('/api/invidious')) return raw;
-    if (raw.startsWith('/')) return `/api/invidious${raw}`;
-    if (!/^https?:\/\//i.test(raw)) return `/api/invidious/${raw}`;
+    const trimmed = raw.trim();
+    if (!trimmed) return '';
+    if (/^(blob|data):/i.test(trimmed)) return trimmed;
+    if (
+      trimmed === '/api/invidious' ||
+      trimmed.startsWith('/api/invidious/') ||
+      trimmed.startsWith('/api/invidious?')
+    ) {
+      return trimmed;
+    }
+    if (trimmed.startsWith('/')) return `/api/invidious${trimmed}`;
+    if (!/^https?:\/\//i.test(trimmed)) return `/api/invidious/${trimmed}`;
+
     let u: URL;
     try {
-      u = new URL(raw);
+      u = new URL(trimmed);
     } catch {
-      return raw;
+      return trimmed;
     }
+
     const path = `${u.pathname}${u.search}`;
+    if (u.pathname === '/api/invidious' || u.pathname.startsWith('/api/invidious/')) {
+      return path;
+    }
+
+    const host = u.hostname.toLowerCase();
+
+    // Keep static image CDNs direct
+    if (
+      host === 'ytimg.com' ||
+      host.endsWith('.ytimg.com') ||
+      host === 'ggpht.com' ||
+      host.endsWith('.ggpht.com') ||
+      host === 'googleusercontent.com' ||
+      host.endsWith('.googleusercontent.com')
+    ) {
+      return trimmed;
+    }
+
+    // Rewrite manifest.googlevideo.com through Companion so manifest fetches use WARP egress
+    if (host === 'manifest.googlevideo.com') {
+      return `/api/invidious/companion${u.pathname}${u.search}`;
+    }
+
+    // Rewrite *.googlevideo.com (e.g. /videoplayback) through Companion, preserving exact signed params
+    if (host === 'googlevideo.com' || host.endsWith('.googlevideo.com')) {
+      const search = u.searchParams.has('host')
+        ? u.search
+        : appendQueryParamRaw(u.search, 'host', u.hostname);
+      return `/api/invidious/companion${u.pathname}${search}`;
+    }
+
+    if (host === 'youtube.com' || host.endsWith('.youtube.com')) {
+      return trimmed;
+    }
+
+    if (isStaleOrLoopbackInstance(trimmed) || host === 'companion' || host === 'kvtube-companion') {
+      if (u.pathname === '/companion' || u.pathname.startsWith('/companion/')) {
+        return `/api/invidious${path}`;
+      }
+      if (/^\/(api|videoplayback|latest_version)(\/|$)/.test(u.pathname)) {
+        return `/api/invidious${path}`;
+      }
+      return `/api/invidious${path}`;
+    }
+
     try {
-      if (this.instanceUrl && u.host === new URL(this.instanceUrl).host) {
+      if (this.instanceUrl && u.host.toLowerCase() === new URL(this.instanceUrl).host.toLowerCase()) {
         return `/api/invidious${path}`;
       }
     } catch {
       // Unparseable instance URL — fall through to path-based detection.
     }
-    // Invidious/companion API + manifest paths on any host are served by our
-    // backend; everything else (googlevideo, ytimg, ggpht, …) stays direct.
-    if (/^\/(api|companion)\//.test(u.pathname)) {
+
+    // Invidious/companion API, manifest, and playback paths on any non-Google host
+    // are served by our backend; everything else stays direct.
+    if (/^\/(api|companion|videoplayback|latest_version)(\/|$)/.test(u.pathname)) {
       return `/api/invidious${path}`;
     }
-    return raw;
+    return trimmed;
   }
 
   public getToken(): string | null {
@@ -285,28 +405,58 @@ export class InvidiousService {
   }
 
   private static readonly FALLBACK_INSTANCES = [
-    'https://yewtu.be',
     'https://invidious.nerdvpn.de',
-    'https://invidious.snopyta.org',
-    'https://inv.tux.pizza',
+    'https://inv.nadeko.net',
+    'https://yewtu.be',
   ];
 
   // Generic Public API fetcher with multi-node resilient fallback
   public async fetchApi<T>(endpoint: string, params: Record<string, any> = {}): Promise<T> {
     const isBrowser = typeof window !== 'undefined';
+    const isVideosEndpoint = endpoint === '/videos' || endpoint.startsWith('/videos/');
     const instancesToTry: string[] = [];
+    const seen = new Set<string>();
+
+    const pushUnique = (candidate?: string | null) => {
+      if (!candidate) return;
+      const cleaned = candidate.trim().replace(/\/+$/, '');
+      if (!cleaned || isStaleInvidiousDomain(cleaned)) return;
+      if (!seen.has(cleaned)) {
+        seen.add(cleaned);
+        instancesToTry.push(cleaned);
+      }
+    };
 
     if (isBrowser) {
-      instancesToTry.push('/api/invidious');
-      for (const fb of InvidiousService.FALLBACK_INSTANCES) {
-        if (!instancesToTry.includes(fb)) instancesToTry.push(fb);
-      }
+      pushUnique('/api/invidious');
     } else {
-      if (this.instanceUrl && !instancesToTry.includes(this.instanceUrl)) {
-        instancesToTry.push(this.instanceUrl);
+      const configuredLocalEnv = process.env.INVIDIOUS_URL?.trim();
+      const hasConfiguredLocalInvidious = Boolean(
+        configuredLocalEnv && !isStaleInvidiousDomain(configuredLocalEnv)
+      );
+
+      pushUnique(configuredLocalEnv);
+      if (!isStaleOrLoopbackInstance(this.instanceUrl)) {
+        pushUnique(this.instanceUrl);
       }
-      for (const fb of InvidiousService.FALLBACK_INSTANCES) {
-        if (!instancesToTry.includes(fb)) instancesToTry.push(fb);
+      pushUnique('http://invidious:3000');
+      pushUnique('http://kvtube-invidious:3000');
+      if (
+        process.env.NEXT_PUBLIC_INVIDIOUS_URL &&
+        !isStaleOrLoopbackInstance(process.env.NEXT_PUBLIC_INVIDIOUS_URL)
+      ) {
+        pushUnique(process.env.NEXT_PUBLIC_INVIDIOUS_URL);
+      }
+      if (!hasConfiguredLocalInvidious) {
+        pushUnique('http://127.0.0.1:7601');
+      }
+
+      // Never fall back to dead public Invidious instances when local INVIDIOUS_URL is configured
+      // or on /videos/* (which would return 401/403 or streams signed for foreign IPs).
+      if (!hasConfiguredLocalInvidious && !isVideosEndpoint) {
+        for (const fb of InvidiousService.FALLBACK_INSTANCES) {
+          pushUnique(fb);
+        }
       }
     }
 
@@ -332,20 +482,28 @@ export class InvidiousService {
           Accept: 'application/json',
           'Accept-Language': 'vi-VN,vi;q=0.9,en-US;q=0.8,en;q=0.7',
         };
-        if (isBrowser && isRelative && this.instanceUrl) {
-          const isLoopback = /^(https?:\/\/)?(127\.0\.0\.1|localhost|0\.0\.0\.0)(:\d+)?$/i.test(this.instanceUrl);
+        if (isBrowser && isRelative && this.instanceUrl && !isStaleOrLoopbackInstance(this.instanceUrl)) {
           let isSameOrigin = false;
           try {
             const u = new URL(this.instanceUrl.startsWith('http') ? this.instanceUrl : `https://${this.instanceUrl}`);
-            isSameOrigin = u.host.toLowerCase() === window.location.host.toLowerCase() || u.hostname.toLowerCase().startsWith('ut.');
-          } catch {}
-          if (!isLoopback && !isSameOrigin) {
+            const targetHostname = u.hostname.toLowerCase();
+            isSameOrigin =
+              u.host.toLowerCase() === window.location.host.toLowerCase() ||
+              targetHostname === window.location.hostname.toLowerCase() ||
+              targetHostname.startsWith('ut.') ||
+              targetHostname.startsWith('u.');
+          } catch {
+            isSameOrigin = true;
+          }
+          if (!isSameOrigin) {
             reqHeaders['x-invidious-instance'] = this.instanceUrl;
           }
         }
 
+        const isPublicFallback = InvidiousService.FALLBACK_INSTANCES.includes(base);
+        const timeoutMs = isPublicFallback ? 3_000 : isVideosEndpoint ? 16_000 : 9_000;
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 7000);
+        const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
         const res = await fetch(url.toString(), {
           headers: reqHeaders,
@@ -355,6 +513,11 @@ export class InvidiousService {
         clearTimeout(timeoutId);
 
         if (res.ok) {
+          const contentType = (res.headers.get('content-type') || '').toLowerCase();
+          if (contentType.includes('text/html')) {
+            lastError = new Error(`Invidious instance ${base} returned HTML challenge instead of JSON for ${endpoint}`);
+            continue;
+          }
           return await res.json();
         } else {
           let errDetail = `HTTP ${res.status}`;
@@ -438,7 +601,11 @@ export class InvidiousService {
   // Test connectivity to Invidious instance (with proxy fallback for Mixed Content / CORS)
   public async testInstance(targetUrl?: string): Promise<{ success: boolean; message: string; count?: number }> {
     const raw = (targetUrl !== undefined ? targetUrl : this.instanceUrl).trim();
-    const isLocalOrProxy = !raw || raw.startsWith('/') || raw.includes('localhost') || raw.includes('127.0.0.1');
+    const isSameOrigin =
+      typeof window !== 'undefined' &&
+      raw.replace(/\/+$/, '').toLowerCase() === window.location.origin.toLowerCase();
+    const isLocalOrProxy =
+      !raw || raw.startsWith('/') || isStaleOrLoopbackInstance(raw) || isSameOrigin;
 
     // 1. Try local Next.js proxy route first
     if (isLocalOrProxy) {
@@ -561,9 +728,17 @@ export class InvidiousService {
   // -------------------------------------------------------------
   // 2. VIDEOS & PLAYBACK
   // -------------------------------------------------------------
-  async getVideo(videoId: string, params?: { region?: string; hl?: string }, retries: number = 2): Promise<InvidiousVideo> {
+  async getVideo(
+    videoId: string,
+    paramsOrRegion?: string | { region?: string; hl?: string; local?: string },
+    retries: number = 2
+  ): Promise<InvidiousVideo> {
     if (!videoId) throw new Error('videoId is required');
-    const cacheKey = `${videoId}_${params?.region || ''}_${params?.hl || ''}`;
+    const requestParams: { region?: string; hl?: string; local: string } =
+      typeof paramsOrRegion === 'string'
+        ? { region: paramsOrRegion, local: 'true' }
+        : { ...(paramsOrRegion || {}), local: 'true' };
+    const cacheKey = `${videoId}_${requestParams.region || ''}_${requestParams.hl || ''}`;
     const cached = this.videoCache.get(cacheKey);
     if (cached && Date.now() < cached.expiry) {
       return cached.data;
@@ -575,7 +750,10 @@ export class InvidiousService {
 
     const fetchWithRetry = async (attempt: number = 0): Promise<InvidiousVideo> => {
       try {
-        const data = await this.fetchApi<InvidiousVideo>(`/videos/${encodeURIComponent(videoId)}`, params);
+        const data = await this.fetchApi<InvidiousVideo>(
+          `/videos/${encodeURIComponent(videoId)}`,
+          requestParams
+        );
         if (data && (data.videoId || (data as any).id)) {
           this.videoCache.set(cacheKey, { data, expiry: Date.now() + 10 * 60 * 1000 });
         }

@@ -1,13 +1,12 @@
 import { NextRequest } from 'next/server';
-import https from 'https';
-import http from 'http';
 import { spawn } from 'child_process';
+import {
+  fetchWithCompanionRedirects,
+  getCompanionRoot,
+  normalizeStreamUrlToCompanion,
+} from '../../services/companionUrl';
 
 export const dynamic = 'force-dynamic';
-
-const httpsAgent = new https.Agent({
-  rejectUnauthorized: false,
-});
 
 function sanitizeFilename(name: string, ext: string): { ascii: string; utf8: string } {
   const base = name.trim().replace(/[\\/:*?"<>|]/g, '_') || 'video';
@@ -27,18 +26,22 @@ export async function GET(req: NextRequest) {
   const ext = req.nextUrl.searchParams.get('ext') || 'mp4';
 
   const { ascii, utf8 } = sanitizeFilename(title, ext);
+  const companionRoot = getCompanionRoot(process.env.COMPANION_URL);
 
   // CASE 1: Video + Audio Muxing (e.g. 1080p, 720p adaptive formats)
   if (videoUrl && audioUrl) {
     try {
+      const normalizedVideoUrl = normalizeStreamUrlToCompanion(videoUrl, companionRoot);
+      const normalizedAudioUrl = normalizeStreamUrlToCompanion(audioUrl, companionRoot);
+
       const ffmpegArgs = [
         '-y',
         '-reconnect', '1',
         '-reconnect_at_eof', '1',
         '-reconnect_streamed', '1',
         '-reconnect_delay_max', '5',
-        '-i', videoUrl,
-        '-i', audioUrl,
+        '-i', normalizedVideoUrl,
+        '-i', normalizedAudioUrl,
         '-c:v', 'copy',
         '-c:a', 'aac',
         '-movflags', 'frag_keyframe+empty_moov+default_base_moof',
@@ -48,28 +51,47 @@ export async function GET(req: NextRequest) {
 
       const ffmpegProcess = spawn('ffmpeg', ffmpegArgs);
 
+      const killFfmpeg = () => {
+        if (!ffmpegProcess.killed) {
+          ffmpegProcess.kill('SIGTERM');
+        }
+      };
+      req.signal.addEventListener('abort', killFfmpeg, { once: true });
+
       const stream = new ReadableStream({
         start(controller) {
+          let settled = false;
+
           ffmpegProcess.stdout.on('data', (chunk) => {
-            controller.enqueue(chunk);
+            if (!settled) {
+              controller.enqueue(chunk);
+            }
           });
 
           ffmpegProcess.stdout.on('end', () => {
-            controller.close();
+            if (!settled) {
+              settled = true;
+              req.signal.removeEventListener('abort', killFfmpeg);
+              controller.close();
+            }
           });
 
           ffmpegProcess.on('error', (err) => {
             console.error('[download:ffmpeg] Error:', err);
-            controller.error(err);
+            if (!settled) {
+              settled = true;
+              req.signal.removeEventListener('abort', killFfmpeg);
+              controller.error(err);
+            }
           });
 
-          ffmpegProcess.stderr.on('data', (data) => {
-            // Uncomment for debugging if needed:
-            // console.debug('[ffmpeg]:', data.toString());
+          ffmpegProcess.stderr.on('data', () => {
+            // Drain stderr so ffmpeg pipe buffer never blocks on long remuxes
           });
         },
         cancel() {
-          ffmpegProcess.kill('SIGTERM');
+          req.signal.removeEventListener('abort', killFfmpeg);
+          killFfmpeg();
         },
       });
 
@@ -92,159 +114,71 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  // CASE 2: Single Stream Proxy (audio or pre-combined video)
+  // CASE 2: Single Stream Proxy (audio or pre-combined video) via Companion -> WARP
   if (!targetUrl) {
     return new Response('Missing url parameter', { status: 400 });
   }
 
-  return new Promise<Response>((resolve) => {
-    try {
-      const parsedUrl = new URL(targetUrl);
-      const isHttps = parsedUrl.protocol === 'https:';
-      const client = isHttps ? https : http;
-
-      const rangeHeader = req.headers.get('range');
-      const headers: Record<string, string> = {
-        'User-Agent':
-          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'Accept': '*/*',
-        'Host': parsedUrl.host,
-      };
-
-      if (rangeHeader) {
-        headers['Range'] = rangeHeader;
-      }
-
-      const options: https.RequestOptions = {
-        method: 'GET',
-        headers,
-        agent: isHttps ? httpsAgent : undefined,
-      };
-
-      const proxyReq = client.request(targetUrl, options, (proxyRes) => {
-        // Handle 301/302 Redirects
-        if (
-          proxyRes.statusCode &&
-          [301, 302, 303, 307, 308].includes(proxyRes.statusCode) &&
-          proxyRes.headers.location
-        ) {
-          let redirectUrl = proxyRes.headers.location;
-          if (redirectUrl.startsWith('/')) {
-            redirectUrl = `${parsedUrl.protocol}//${parsedUrl.host}${redirectUrl}`;
-          }
-
-          const redirectParsed = new URL(redirectUrl);
-          const redirectIsHttps = redirectParsed.protocol === 'https:';
-          const redirectClient = redirectIsHttps ? https : http;
-
-          const redirectReq = redirectClient.request(
-            redirectUrl,
-            {
-              method: 'GET',
-              headers: {
-                ...headers,
-                Host: redirectParsed.host,
-              },
-              agent: redirectIsHttps ? httpsAgent : undefined,
-            },
-            (redirectRes) => {
-              const resHeaders = new Headers();
-              resHeaders.set('Access-Control-Allow-Origin', '*');
-              resHeaders.set('Accept-Ranges', 'bytes');
-              resHeaders.set(
-                'Content-Disposition',
-                `attachment; filename="${ascii}"; filename*=UTF-8''${utf8}`
-              );
-
-              if (redirectRes.headers['content-type']) {
-                resHeaders.set('Content-Type', redirectRes.headers['content-type']);
-              } else {
-                resHeaders.set('Content-Type', 'application/octet-stream');
-              }
-              if (redirectRes.headers['content-length']) {
-                resHeaders.set('Content-Length', redirectRes.headers['content-length']);
-              }
-              if (redirectRes.headers['content-range']) {
-                resHeaders.set('Content-Range', redirectRes.headers['content-range']);
-              }
-
-              const stream = new ReadableStream({
-                start(controller) {
-                  redirectRes.on('data', (chunk) => controller.enqueue(chunk));
-                  redirectRes.on('end', () => controller.close());
-                  redirectRes.on('error', (err) => controller.error(err));
-                },
-                cancel() {
-                  redirectRes.destroy();
-                },
-              });
-
-              resolve(
-                new Response(stream, {
-                  status: redirectRes.statusCode || 200,
-                  headers: resHeaders,
-                })
-              );
-            }
-          );
-
-          redirectReq.on('error', (err) => {
-            console.error('[download] Redirect error:', err);
-            resolve(new Response(err?.message || 'Redirect fetch error', { status: 502 }));
-          });
-
-          redirectReq.end();
-          return;
-        }
-
-        const resHeaders = new Headers();
-        resHeaders.set('Access-Control-Allow-Origin', '*');
-        resHeaders.set('Accept-Ranges', 'bytes');
-        resHeaders.set(
-          'Content-Disposition',
-          `attachment; filename="${ascii}"; filename*=UTF-8''${utf8}`
-        );
-
-        if (proxyRes.headers['content-type']) {
-          resHeaders.set('Content-Type', proxyRes.headers['content-type']);
-        } else {
-          resHeaders.set('Content-Type', 'application/octet-stream');
-        }
-        if (proxyRes.headers['content-length']) {
-          resHeaders.set('Content-Length', proxyRes.headers['content-length']);
-        }
-        if (proxyRes.headers['content-range']) {
-          resHeaders.set('Content-Range', proxyRes.headers['content-range']);
-        }
-
-        const stream = new ReadableStream({
-          start(controller) {
-            proxyRes.on('data', (chunk) => controller.enqueue(chunk));
-            proxyRes.on('end', () => controller.close());
-            proxyRes.on('error', (err) => controller.error(err));
-          },
-          cancel() {
-            proxyRes.destroy();
-          },
-        });
-
-        resolve(
-          new Response(stream, {
-            status: proxyRes.statusCode || 200,
-            headers: resHeaders,
-          })
-        );
-      });
-
-      proxyReq.on('error', (err) => {
-        console.error('[download] Request error:', err);
-        resolve(new Response(err?.message || 'Download request error', { status: 502 }));
-      });
-
-      proxyReq.end();
-    } catch (e: any) {
-      console.error('[download] Exception:', e);
-      resolve(new Response(e?.message || 'Internal download error', { status: 500 }));
+  try {
+    const normalizedTargetUrl = normalizeStreamUrlToCompanion(targetUrl, companionRoot);
+    if (!normalizedTargetUrl) {
+      return new Response('Invalid url parameter', { status: 400 });
     }
-  });
+
+    const rangeHeader = req.headers.get('range');
+    const headers: Record<string, string> = {
+      'User-Agent':
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36',
+      Accept: '*/*',
+      'Accept-Encoding': 'identity',
+    };
+
+    if (rangeHeader) {
+      headers['Range'] = rangeHeader;
+    }
+
+    const upstream = await fetchWithCompanionRedirects(normalizedTargetUrl, {
+      method: 'GET',
+      headers,
+      headerTimeoutMs: 20_000,
+      maxRedirects: 4,
+      clientSignal: req.signal,
+      companionRoot,
+    });
+
+    const resHeaders = new Headers();
+    resHeaders.set('Access-Control-Allow-Origin', '*');
+    resHeaders.set('Accept-Ranges', upstream.headers.get('accept-ranges') || 'bytes');
+    resHeaders.set(
+      'Content-Disposition',
+      `attachment; filename="${ascii}"; filename*=UTF-8''${utf8}`
+    );
+    resHeaders.set(
+      'Content-Type',
+      upstream.headers.get('content-type') || 'application/octet-stream'
+    );
+
+    const contentEncoding = (upstream.headers.get('content-encoding') || '').toLowerCase();
+    const hasIdentityLength = !contentEncoding || contentEncoding === 'identity';
+    const contentLength = upstream.headers.get('content-length');
+    if (contentLength && hasIdentityLength) {
+      resHeaders.set('Content-Length', contentLength);
+    }
+
+    const contentRange = upstream.headers.get('content-range');
+    if (contentRange) {
+      resHeaders.set('Content-Range', contentRange);
+    }
+
+    return new Response(upstream.body, {
+      status: upstream.status,
+      headers: resHeaders,
+    });
+  } catch (e: any) {
+    if (req.signal.aborted) {
+      return new Response(null, { status: 499 });
+    }
+    console.error('[download] Request error:', e);
+    return new Response(e?.message || 'Download request error', { status: 502 });
+  }
 }

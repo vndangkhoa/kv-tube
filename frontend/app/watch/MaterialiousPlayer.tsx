@@ -170,6 +170,9 @@ export default function MaterialiousPlayer({
   const videoRef = useRef<HTMLVideoElement>(null);
   const audioRef = useRef<HTMLAudioElement>(null);
   const shakaPlayerRef = useRef<any>(null);
+  const usingProgressiveRef = useRef<boolean>(false);
+  const triedLatestVersionFallbackRef = useRef<boolean>(false);
+  const playbackStartedRef = useRef<boolean>(false);
   const videoDataRef = useRef<any>(null);
   const scrubberRef = useRef<HTMLDivElement>(null);
   const hideControlsTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -262,6 +265,10 @@ export default function MaterialiousPlayer({
     const video = videoRef.current;
     if (!video || !videoId) return;
 
+    usingProgressiveRef.current = false;
+    triedLatestVersionFallbackRef.current = false;
+    playbackStartedRef.current = false;
+    setDataLoaded(false);
     setErrorMsg(null);
     setIsBuffering(true);
     setCurrentQuality('Auto');
@@ -399,8 +406,18 @@ export default function MaterialiousPlayer({
         // Check if Shaka Player is supported and can load DASH/HLS
         if (shakaModule && shakaModule.Player && shakaModule.Player.isBrowserSupported()) {
           shakaModule.polyfill.installAll();
+          if (shakaPlayerRef.current) {
+            await shakaPlayerRef.current.destroy().catch(() => {});
+            shakaPlayerRef.current = null;
+          }
           const player = new shakaModule.Player(vid);
           shakaPlayerRef.current = player;
+
+          player.getNetworkingEngine()?.registerRequestFilter((_type: any, request: any) => {
+            if (Array.isArray(request?.uris)) {
+              request.uris = request.uris.map((uri: string) => invidious.proxyUrl(uri));
+            }
+          });
 
           // Configure networking buffer for fast start
           player.configure({
@@ -422,6 +439,7 @@ export default function MaterialiousPlayer({
             try {
               const dashUrl = invidious.proxyUrl(dashManifest);
               await player.load(dashUrl);
+              usingProgressiveRef.current = false;
               setNeedsSeparateAudio(false);
               
               // Sync variant tracks with quality menu
@@ -458,6 +476,7 @@ export default function MaterialiousPlayer({
             try {
               const hlsUrl = invidious.proxyUrl(hlsManifest);
               await player.load(hlsUrl);
+              usingProgressiveRef.current = false;
               setNeedsSeparateAudio(false);
               if (autoplay) vid.play().catch(() => {});
               setIsBuffering(false);
@@ -466,6 +485,12 @@ export default function MaterialiousPlayer({
               console.warn('[MaterialiousPlayer] Shaka HLS load failed, trying progressive stream:', hlsErr);
             }
           }
+
+          // Neither DASH nor HLS succeeded via Shaka — detach cleanly before native <video> fallback
+          await player.destroy().catch(() => {});
+          if (shakaPlayerRef.current === player) {
+            shakaPlayerRef.current = null;
+          }
         }
 
         // Direct Progressive Format Streams (720p/360p MP4) Fallback
@@ -473,6 +498,7 @@ export default function MaterialiousPlayer({
         const progressive = formatStreams.find((f: any) => f.url && f.container === 'mp4') || formatStreams[0];
         if (progressive?.url) {
           const directUrl = invidious.proxyUrl(progressive.url);
+          usingProgressiveRef.current = true;
           setNeedsSeparateAudio(false);
           vid.src = directUrl;
           vid.load();
@@ -482,7 +508,11 @@ export default function MaterialiousPlayer({
         }
 
         // Invidious Latest Version stream URL fallback
-        const itag = formatStreams[0]?.itag || 22; // 720p or 360p (18)
+        const itag = formatStreams[0]?.itag || 18; // 360p (18) progressive MP4
+        usingProgressiveRef.current = true;
+        if (Number(itag) === 18) {
+          triedLatestVersionFallbackRef.current = true;
+        }
         setNeedsSeparateAudio(false);
         vid.src = `/api/invidious/latest_version?id=${videoId}&itag=${itag}`;
         vid.load();
@@ -647,6 +677,7 @@ export default function MaterialiousPlayer({
       setIsBuffering(true);
     };
     const onPlaying = () => {
+      playbackStartedRef.current = true;
       setIsBuffering(false);
       setMediaSessionPlaybackState('playing');
       const dur = video.duration || duration || 0;
@@ -943,6 +974,11 @@ export default function MaterialiousPlayer({
 
         if (newSrc) {
           setIsBuffering(true);
+          if (shakaPlayerRef.current) {
+            shakaPlayerRef.current.destroy().catch(() => {});
+            shakaPlayerRef.current = null;
+          }
+          usingProgressiveRef.current = true;
 
           if (!isProgressive && bestAudioUrl) {
             // Video-only high-res (1080p, 1440p, 4K): Enable separate audio track
@@ -1237,6 +1273,46 @@ export default function MaterialiousPlayer({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [volume, duration, isMuted, isPlaying, compact]);
 
+  const handleVideoElementError = useCallback(() => {
+    const vid = videoRef.current;
+    if (!vid || !videoId) return;
+    const currentSrc = vid.getAttribute('src') || '';
+    if (!currentSrc) return;
+    // While Shaka MSE is attached and loading DASH/HLS, let Shaka's load() catch/fallback handle errors
+    if (shakaPlayerRef.current && !usingProgressiveRef.current) return;
+
+    const fallbackUrl = `/api/invidious/latest_version?id=${videoId}&itag=18`;
+    if (
+      usingProgressiveRef.current &&
+      !playbackStartedRef.current &&
+      !triedLatestVersionFallbackRef.current &&
+      !currentSrc.includes(`latest_version?id=${videoId}&itag=18`)
+    ) {
+      triedLatestVersionFallbackRef.current = true;
+      console.warn(
+        '[MaterialiousPlayer] Progressive stream failed before playback start, falling back to latest_version itag=18'
+      );
+      setErrorMsg(null);
+      setIsBuffering(true);
+      setNeedsSeparateAudio(false);
+      if (audioRef.current) {
+        audioRef.current.pause();
+      }
+      vid.src = fallbackUrl;
+      vid.load();
+      if (autoplay) {
+        vid.play().catch(() => {});
+      }
+      return;
+    }
+
+    setIsBuffering(false);
+    if (!playbackStartedRef.current) {
+      setErrorMsg('Unable to load video stream from Invidious.');
+      onError?.();
+    }
+  }, [videoId, autoplay, onError]);
+
   const progressPercent = duration > 0 ? (currentTime / duration) * 100 : 0;
   const bufferedPercent = duration > 0 ? (buffered / duration) * 100 : 0;
 
@@ -1291,7 +1367,11 @@ export default function MaterialiousPlayer({
         playsInline
         muted={needsSeparateAudio ? true : isMuted}
         onLoadStart={() => setDataLoaded(false)}
-        onLoadedData={() => setDataLoaded(true)}
+        onLoadedData={() => {
+          playbackStartedRef.current = true;
+          setDataLoaded(true);
+        }}
+        onError={handleVideoElementError}
         style={
           compact
             ? {

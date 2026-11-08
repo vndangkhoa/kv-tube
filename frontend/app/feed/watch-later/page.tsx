@@ -126,6 +126,7 @@ export default function WatchLaterPage() {
           {firstVideoId && (
             <Link
               href={`/watch?v=${firstVideoId}`}
+              prefetch={false}
               style={{
                 display: 'inline-flex',
                 alignItems: 'center',

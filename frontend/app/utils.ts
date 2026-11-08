@@ -99,7 +99,7 @@ export function proxiedImageUrl(raw: string | undefined | null, videoId?: string
     const resolvedId = viMatch ? viMatch[1] : videoId;
 
     if (resolvedId) {
-        // If served by an Invidious instance (e.g. yt.khoavo.myds.me, localhost, relative path)
+        // If served by an Invidious instance (localhost, custom host, or relative path)
         // or requesting maxres.jpg (which frequently 404s on non-HD/shorts), rewrite to YouTube's edge CDN
         const isInvidiousHost = !url.includes('i.ytimg.com') && (url.includes('/vi/') || !url.startsWith('http'));
         const isMaxres = url.includes('maxres');

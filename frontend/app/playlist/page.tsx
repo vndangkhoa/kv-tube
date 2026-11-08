@@ -144,6 +144,7 @@ function PlaylistContent() {
         {firstVideoId && (
           <Link
             href={`/watch?v=${firstVideoId}&list=${playlist.playlistId}`}
+            prefetch={false}
             style={{
               display: 'inline-flex',
               alignItems: 'center',

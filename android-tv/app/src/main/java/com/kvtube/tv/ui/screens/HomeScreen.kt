@@ -107,10 +107,10 @@ fun HomeScreen(
         } else {
             if (state.hero.isNotEmpty()) {
                 val heroTitle = if (state.isSmartHero) "Dành cho bạn • Đề xuất thông minh" else "Dành cho bạn"
-                item { YtHeroRow(title = heroTitle, videos = state.hero, onVideoClick = { onVideoClick(it.id) }) }
+                item(key = "hero_section") { YtHeroRow(title = heroTitle, videos = state.hero, onVideoClick = { onVideoClick(it.id) }) }
             }
             state.rows.forEach { (title, list) ->
-                item { YtCategoryRow(title = title, videos = list, onVideoClick = { onVideoClick(it.id) }) }
+                item(key = "cat_row_$title") { YtCategoryRow(title = title, videos = list, onVideoClick = { onVideoClick(it.id) }) }
             }
         }
     }

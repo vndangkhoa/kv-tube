@@ -14,10 +14,27 @@ class TvPrefs(private val context: Context) {
         val KEY_TOKEN = stringPreferencesKey("kv_invidious_token")
         val KEY_THEME = stringPreferencesKey("kv_tv_theme") // default | youtube
 
-        const val DEFAULT_INSTANCE = "https://invidious.khoavo.myds.me"
+        const val DEFAULT_INSTANCE = "https://yt.khoavo.vndns.net"
+
+        private val LEGACY_INSTANCES = setOf(
+            "https://invidious.khoavo.myds.me",
+            "http://invidious.khoavo.myds.me",
+            "https://yt.khoavo.myds.me",
+            "http://yt.khoavo.myds.me",
+            "https://ut.khoavo.myds.me",
+            "http://ut.khoavo.myds.me"
+        )
+
+        fun resolveInstance(raw: String?): String {
+            val trimmed = raw?.trim()?.removeSuffix("/") ?: ""
+            if (trimmed.isBlank() || LEGACY_INSTANCES.any { trimmed.equals(it, ignoreCase = true) }) {
+                return DEFAULT_INSTANCE
+            }
+            return trimmed
+        }
     }
 
-    val instanceUrl: Flow<String> = context.tvDataStore.data.map { it[KEY_INSTANCE]?.trim()?.removeSuffix("/")?.ifBlank { DEFAULT_INSTANCE } ?: DEFAULT_INSTANCE }
+    val instanceUrl: Flow<String> = context.tvDataStore.data.map { resolveInstance(it[KEY_INSTANCE]) }
     val token: Flow<String?> = context.tvDataStore.data.map { it[KEY_TOKEN]?.trim()?.ifBlank { null } }
     val theme: Flow<String> = context.tvDataStore.data.map { it[KEY_THEME] ?: "youtube" }
 
@@ -40,8 +57,12 @@ class TvPrefs(private val context: Context) {
 
     suspend fun bootstrap() {
         val prefs = context.tvDataStore.data.first()
-        val rawInst = prefs[KEY_INSTANCE]?.trim()?.ifBlank { DEFAULT_INSTANCE } ?: DEFAULT_INSTANCE
-        val clean = ApiClient.normalizeInstanceUrl(rawInst)
+        val rawInst = prefs[KEY_INSTANCE]
+        val resolved = resolveInstance(rawInst)
+        if (rawInst != null && resolved != rawInst.trim().removeSuffix("/")) {
+            context.tvDataStore.edit { it[KEY_INSTANCE] = resolved }
+        }
+        val clean = ApiClient.normalizeInstanceUrl(resolved)
         val tok = prefs[KEY_TOKEN]?.trim()?.ifBlank { null }
         ApiClient.setInstance(clean, tok)
     }

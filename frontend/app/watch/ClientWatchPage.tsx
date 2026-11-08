@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState, useCallback, useMemo, lazy, Suspense, useRef } from 'react';
-import { useSearchParams, useRouter } from 'next/navigation';
+import { useSearchParams } from 'next/navigation';
 import DownloadSheet from './DownloadSheet';
 import { getVideoDetailsClient, getRelatedVideosClient, getCommentsClient, getCommentsPageClient, searchVideosClient } from '../clientActions';
 import { VideoData } from '../constants';
@@ -411,6 +411,7 @@ function VideoInfo({
                 <div className="watch-channel-group">
                     <Link
                         href={video.channelId ? `/channel/${video.channelId}` : `/watch?v=${video.id}`}
+                        prefetch={false}
                         className="watch-channel-link"
                     >
                         <div
@@ -1371,7 +1372,6 @@ function CommentSection({ videoId }: { videoId: string }) {
 
 export default function ClientWatchPage() {
     const searchParams = useSearchParams();
-    const router = useRouter();
     const paramVideoId = searchParams.get('v');
     const [activeVideoId, setActiveVideoId] = useState<string | null>(paramVideoId);
     const videoId = activeVideoId || paramVideoId;
@@ -1474,29 +1474,6 @@ export default function ClientWatchPage() {
         };
         window.addEventListener('keydown', handleKeyDown);
         return () => window.removeEventListener('keydown', handleKeyDown);
-    }, []);
-
-    // Hover prefetch: debounce 120ms, prefetch Next.js route AND warm Invidious video cache
-    const prefetchTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
-    const prefetched = useRef<Set<string>>(new Set());
-
-    const handlePrefetchEnter = useCallback((vidId: string) => {
-        const timer = setTimeout(() => {
-            if (!prefetched.current.has(vidId)) {
-                prefetched.current.add(vidId);
-                router.prefetch(`/watch?v=${vidId}`);
-                invidious.getVideo(vidId).catch(() => {});
-            }
-        }, 120);
-        prefetchTimers.current.set(vidId, timer);
-    }, [router]);
-
-    const handlePrefetchLeave = useCallback((vidId: string) => {
-        const timer = prefetchTimers.current.get(vidId);
-        if (timer) {
-            clearTimeout(timer);
-            prefetchTimers.current.delete(vidId);
-        }
     }, []);
 
     // Scroll to top when video changes or page loads

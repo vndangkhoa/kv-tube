@@ -134,6 +134,7 @@ function VideoCard({
       <div className="yt-card-thumb-wrapper">
         <Link
           href={destination}
+          prefetch={false}
           onClick={handleNavigateToWatch}
           className="yt-card-thumb-link"
         >
@@ -228,7 +229,7 @@ function VideoCard({
 
         {/* Text Details */}
         <div className="yt-card-text-container">
-          <Link href={destination} onClick={handleNavigateToWatch} className="yt-card-title-link">
+          <Link href={destination} prefetch={false} onClick={handleNavigateToWatch} className="yt-card-title-link">
             <h3 className="yt-card-title" title={video.title}>
               {video.title}
             </h3>

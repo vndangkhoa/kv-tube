@@ -113,3 +113,31 @@ YouTube blocks many residential **IPv4** routes but allows the same traffic over
 - Cookie state: shared `CookieStore` between the HTTP client (innerTube API calls) and the Netscape file serializer
 - Clear in-memory caches after any cookie refresh so everything re-fetches with the new session
 - Keep the error body informative: `Download failed. stderr: <yt-dlp output>` — it is the fastest diagnostic for users
+
+---
+
+## 8. 2026 Synology + VNPT + `usque` WARP MASQUE (`443/udp`) + Strict Companion Stream IP-Symmetry (KV-Tube)
+
+In late 2026 on residential Vietnamese ISPs (notably **VNPT**) and Synology NAS hosts without routable IPv6:
+1. Residential IPv4 ranges get flagged by YouTube (`Sign in to confirm you're not a bot` / `403 Forbidden`), AND WireGuard UDP ports (`2408/udp`, `500/udp`, `1701/udp`, `4500/udp`) are frequently throttled or DPI-blocked by ISP middleboxes.
+2. **Cloudflare WARP over MASQUE (`usque`, HTTP/3 QUIC on `443/udp`)** bypasses WireGuard DPI cleanly because it looks identical to standard QUIC `443/udp` web traffic while providing a clean Cloudflare egress IP (`HTTP_PROXY` / `SOCKS5` sidecar on the internal Docker network).
+
+### Critical Rule #1: Strict Stream IP-Symmetry (Extraction IP == Playback IP)
+YouTube binds signed `googlevideo.com/videoplayback` URLs (`ip=<egress-ip>` inside `sparams` + `sig`) to **the exact IP address that extracted the player response**:
+- If **Invidious Companion** extracts `/api/v1/videos/:id` via the `usque` WARP proxy IP, **the browser MUST NOT fetch `*.googlevideo.com` directly** from the user's residential/mobile IP — `googlevideo.com` immediately rejects the mismatched IP with `403 Forbidden`!
+- Similarly, server-side single-stream downloads (`/api/download`), `ffmpeg` dual-stream HD muxing (`-i videoUrl -i audioUrl`), and `/api/media-proxy` **must NOT fetch `googlevideo.com` directly over raw container WAN** if Companion extracted via WARP.
+- **Required end-to-end flow**:
+  1. Frontend requests `/api/v1/videos/:id?local=true` (`invidious.getVideo` always passes `local=true`), and `/api/invidious/[...path]` injects `local=true` on DASH manifests (`/api/manifest/dash/`), HLS manifests (`/api/manifest/hls_variant/`, `/api/manifest/hls_playlist/`), and `/latest_version`.
+  2. `invidious.proxyUrl(raw)` keeps static image CDNs (`ytimg.com`, `ggpht.com`, `googleusercontent.com`) direct, **never leaves `*.googlevideo.com` direct**, rewrites `manifest.googlevideo.com/...` -> `/api/invidious/companion/...`, and rewrites `*.googlevideo.com/videoplayback?...` -> `/api/invidious/companion/videoplayback?...&host=<edge-host>` (preserving exact percent-encoding of signed query params).
+  3. `/api/invidious/[...path]`, `/api/download`, and `/api/media-proxy` normalize `/api/invidious/companion/...`, `/companion/...`, `127.0.0.1:8282`, `localhost:8282`, and `*.googlevideo.com` URLs (including manual `301`/`302`/`303`/`307`/`308` redirect hops) to internal `${COMPANION_URL}/companion/...` so **100% of stream bytes exit through Companion -> `usque` WARP**.
+  4. Never fall back to public Invidious mirrors (`nerdvpn.de`, `nadeko.net`, `yewtu.be`) for `/videos/*` or media/manifest routes — public mirrors either 401/403 or return streams signed for foreign server IPs.
+
+### Critical Rule #2: Node 22 Native Env Proxy (`NODE_USE_ENV_PROXY=1`)
+- Run the Next.js standalone container on **`node:22-alpine`** (`NODE_USE_ENV_PROXY=1`) so Node's built-in global `fetch()` (`undici`) natively honors `HTTP_PROXY`, `HTTPS_PROXY`, and `NO_PROXY` across server routes (`/api/mix`, `/api/shorts/*`, `/api/channel-avatar`, oEmbed metadata) without custom `https.Agent` hacks while keeping internal container traffic (`companion`, `invidious`, `backend`, `127.0.0.1`, `localhost`) bypassed via `NO_PROXY`.
+
+### Critical Rule #3: Eliminate Next.js RSC Prefetch Storms & Stream Cutoff Timeouts
+- **Next.js `<Link>` RSC Prefetch Storm**: By default in Next.js App Router, rendering 20–40 `<Link href="/watch?v=...">` video cards in the viewport triggers 20–40 background RSC prefetches, each invoking `generateMetadata` on `/watch`. If `generateMetadata` calls `invidious.getVideo(videoId)` (especially inside an uncancelled `Promise.race`), opening `/` or `/watch` unleashes dozens of concurrent player + PO-token extractions that rate-limit (`429`) Companion and WARP instantly!
+  - **Fix A**: Add `prefetch={false}` to **every** `<Link>` pointing to `/watch...`, and never call `router.prefetch('/watch...')` or `invidious.getVideo()` on hover.
+  - **Fix B**: In `app/watch/page.tsx` (`generateMetadata`), use YouTube's lightweight `https://www.youtube.com/oembed?url=https://www.youtube.com/watch?v=<id>&format=json` with `AbortSignal.timeout(1200)` and fall back to `https://i.ytimg.com/vi/<id>/hqdefault.jpg`.
+- **Response-Header-Only Timeouts**: Never pass `AbortSignal.timeout(30_000)` to a streaming `fetch()` proxy — `undici` aborts the response body stream when the timer fires, cutting off video playback at the 30-second mark! Use a manual `AbortController` + `setTimeout` that calls `clearTimeout(timer)` **as soon as `await fetch(...)` resolves response headers**, while wiring `req.signal` (`abort` event) to cancel upstream Range fetches cleanly when the client seeks or disconnects.
+- **0-Byte `200 OK` Protection & Domain Hygiene**: Reject `0`-byte / empty `200 OK` bodies on `/api/v1/*` JSON routes as `502` upstream errors instead of forwarding empty bodies that crash `res.json()` in the browser, and auto-evict stale `localStorage` (`kv_invidious_instance`) entries pointing at retired/reassigned domains (`yt.khoavo.myds.me` — now TypeType, `youtube.khoavo.myds.me`) or loopback (`127.0.0.1`, `localhost`).

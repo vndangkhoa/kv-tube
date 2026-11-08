@@ -230,7 +230,7 @@ export async function POST(request: NextRequest) {
 
     // Fallback: search for other shorts with this sound title or creator
     if (soundTitle) {
-      const invidiousBase = process.env.INVIDIOUS_URL || 'https://yt.khoavo.myds.me';
+      const invidiousBase = (process.env.INVIDIOUS_URL || 'http://invidious:3000').replace(/\/+$/, '');
       const cleanTitle = soundTitle.replace(/^(?:Âm thanh gốc|Original Sound)\s*[-·:]*\s*/i, '').trim() || soundTitle;
       const searchRes = await fetch(
         `${invidiousBase}/api/v1/search?q=${encodeURIComponent(cleanTitle + ' #shorts')}&type=video&duration=short`,

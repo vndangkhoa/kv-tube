@@ -23,7 +23,9 @@ fun LatestScreen(
     val state by vm.state.collectAsState()
 
     LaunchedEffect(Unit) {
-        vm.refresh()
+        if (state.hero.isEmpty() && state.rows.isEmpty()) {
+            vm.refresh()
+        }
     }
 
     TvLazyColumn(

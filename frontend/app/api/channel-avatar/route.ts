@@ -3,14 +3,15 @@ import { NextRequest, NextResponse } from 'next/server';
 const avatarCache = new Map<string, { buffer: ArrayBuffer; contentType: string; timestamp: number }>();
 const CACHE_TTL = 7 * 24 * 60 * 60 * 1000; // 7 days in memory
 
-const INVIDIOUS_FALLBACKS = [
-  process.env.INVIDIOUS_URL,
-  'https://yt.khoavo.myds.me',
-  'https://inv.tux.pizza',
-  'https://invidious.nerdvpn.de',
-  'https://yewtu.be',
-  'https://invidious.privacydev.net',
-].filter(Boolean) as string[];
+const INVIDIOUS_FALLBACKS = Array.from(
+  new Set(
+    [
+      process.env.INVIDIOUS_URL?.trim().replace(/\/+$/, ''),
+      'http://invidious:3000',
+      'http://kvtube-invidious:3000',
+    ].filter(Boolean) as string[]
+  )
+);
 
 async function resolveAvatarUrl(channelId: string): Promise<string | null> {
   const cleanId = channelId.trim();

@@ -10,17 +10,19 @@ COPY backend/ ./
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o kv-tube .
 
 # ---- Frontend Builder ----
-FROM node:20-alpine AS frontend-deps
+FROM node:22-alpine AS frontend-deps
 RUN apk add --no-cache libc6-compat
 WORKDIR /app
 COPY frontend/package.json frontend/package-lock.json ./
 RUN npm ci
 
-FROM node:20-alpine AS frontend-builder
+FROM node:22-alpine AS frontend-builder
 WORKDIR /app
 COPY --from=frontend-deps /app/node_modules ./node_modules
 COPY frontend/ ./
-ENV NEXT_TELEMETRY_DISABLED 1
+ARG NEXT_PUBLIC_INVIDIOUS_URL=""
+ENV NEXT_PUBLIC_INVIDIOUS_URL=$NEXT_PUBLIC_INVIDIOUS_URL
+ENV NEXT_TELEMETRY_DISABLED=1
 RUN npm run build
 
 # ---- Final Unified Image ----

@@ -22,7 +22,7 @@ import java.util.concurrent.TimeUnit
  */
 object TvPairApi {
     private const val TAG = "TvPairApi"
-    const val PRIMARY_BASE_URL = "https://ut.khoavo.myds.me"
+    const val PRIMARY_BASE_URL = "https://u.khoavo.vndns.net"
 
     private class CreateResp(val code: String?)
     private class StatusResp(

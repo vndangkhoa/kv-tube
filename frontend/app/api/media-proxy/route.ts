@@ -1,164 +1,89 @@
 import { NextRequest } from 'next/server';
-import https from 'https';
-import http from 'http';
+import {
+  fetchWithCompanionRedirects,
+  getCompanionRoot,
+  normalizeStreamUrlToCompanion,
+} from '../../services/companionUrl';
 
 export const dynamic = 'force-dynamic';
 
-const httpsAgent = new https.Agent({
-  rejectUnauthorized: false,
-});
-
-export async function GET(req: NextRequest) {
+async function handleMediaProxy(req: NextRequest) {
   const targetUrl = req.nextUrl.searchParams.get('url');
 
   if (!targetUrl) {
     return new Response('Missing url parameter', { status: 400 });
   }
 
-  return new Promise<Response>((resolve) => {
-    try {
-      const parsedUrl = new URL(targetUrl);
-      const isHttps = parsedUrl.protocol === 'https:';
-      const client = isHttps ? https : http;
-
-      const rangeHeader = req.headers.get('range');
-      const headers: Record<string, string> = {
-        'User-Agent':
-          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'Accept': '*/*',
-        'Host': parsedUrl.host,
-      };
-
-      if (rangeHeader) {
-        headers['Range'] = rangeHeader;
-      }
-
-      const options: https.RequestOptions = {
-        method: 'GET',
-        headers,
-        agent: isHttps ? httpsAgent : undefined,
-      };
-
-      const proxyReq = client.request(targetUrl, options, (proxyRes) => {
-        // Handle 301/302 Redirects
-        if (
-          proxyRes.statusCode &&
-          [301, 302, 303, 307, 308].includes(proxyRes.statusCode) &&
-          proxyRes.headers.location
-        ) {
-          let redirectUrl = proxyRes.headers.location;
-          if (redirectUrl.startsWith('/')) {
-            redirectUrl = `${parsedUrl.protocol}//${parsedUrl.host}${redirectUrl}`;
-          }
-
-          // Follow redirect
-          const redirectParsed = new URL(redirectUrl);
-          const redirectIsHttps = redirectParsed.protocol === 'https:';
-          const redirectClient = redirectIsHttps ? https : http;
-
-          const redirectReq = redirectClient.request(
-            redirectUrl,
-            {
-              method: 'GET',
-              headers: {
-                ...headers,
-                Host: redirectParsed.host,
-              },
-              agent: redirectIsHttps ? httpsAgent : undefined,
-            },
-            (redirectRes) => {
-              const resHeaders = new Headers();
-              resHeaders.set('Access-Control-Allow-Origin', '*');
-              resHeaders.set('Access-Control-Allow-Methods', 'GET, HEAD, OPTIONS');
-              resHeaders.set('Access-Control-Allow-Headers', 'Range, Content-Type, Accept');
-              resHeaders.set('Accept-Ranges', 'bytes');
-
-              if (redirectRes.headers['content-type']) {
-                resHeaders.set('Content-Type', redirectRes.headers['content-type']);
-              }
-              if (redirectRes.headers['content-length']) {
-                resHeaders.set('Content-Length', redirectRes.headers['content-length']);
-              }
-              if (redirectRes.headers['content-range']) {
-                resHeaders.set('Content-Range', redirectRes.headers['content-range']);
-              }
-
-              // Create stream from response
-              const stream = new ReadableStream({
-                start(controller) {
-                  redirectRes.on('data', (chunk) => controller.enqueue(chunk));
-                  redirectRes.on('end', () => controller.close());
-                  redirectRes.on('error', (err) => controller.error(err));
-                },
-                cancel() {
-                  redirectRes.destroy();
-                },
-              });
-
-              resolve(
-                new Response(stream, {
-                  status: redirectRes.statusCode || 200,
-                  headers: resHeaders,
-                })
-              );
-            }
-          );
-
-          redirectReq.on('error', (err) => {
-            console.error('[media-proxy] Redirect error:', err);
-            resolve(new Response(err?.message || 'Redirect fetch error', { status: 502 }));
-          });
-
-          redirectReq.end();
-          return;
-        }
-
-        const resHeaders = new Headers();
-        resHeaders.set('Access-Control-Allow-Origin', '*');
-        resHeaders.set('Access-Control-Allow-Methods', 'GET, HEAD, OPTIONS');
-        resHeaders.set('Access-Control-Allow-Headers', 'Range, Content-Type, Accept');
-        resHeaders.set('Accept-Ranges', 'bytes');
-
-        if (proxyRes.headers['content-type']) {
-          resHeaders.set('Content-Type', proxyRes.headers['content-type']);
-        }
-        if (proxyRes.headers['content-length']) {
-          resHeaders.set('Content-Length', proxyRes.headers['content-length']);
-        }
-        if (proxyRes.headers['content-range']) {
-          resHeaders.set('Content-Range', proxyRes.headers['content-range']);
-        }
-
-        const stream = new ReadableStream({
-          start(controller) {
-            proxyRes.on('data', (chunk) => controller.enqueue(chunk));
-            proxyRes.on('end', () => controller.close());
-            proxyRes.on('error', (err) => controller.error(err));
-          },
-          cancel() {
-            proxyRes.destroy();
-          },
-        });
-
-        resolve(
-          new Response(stream, {
-            status: proxyRes.statusCode || 200,
-            headers: resHeaders,
-          })
-        );
-      });
-
-      proxyReq.on('error', (err) => {
-        console.error('[media-proxy] Request error:', err);
-        resolve(new Response(err?.message || 'Proxy request error', { status: 502 }));
-      });
-
-      proxyReq.end();
-    } catch (e: any) {
-      console.error('[media-proxy] Exception:', e);
-      resolve(new Response(e?.message || 'Internal proxy error', { status: 500 }));
+  try {
+    const companionRoot = getCompanionRoot(process.env.COMPANION_URL);
+    const normalizedTargetUrl = normalizeStreamUrlToCompanion(targetUrl, companionRoot);
+    if (!normalizedTargetUrl) {
+      return new Response('Invalid url parameter', { status: 400 });
     }
-  });
+
+    const rangeHeader = req.headers.get('range');
+    const headers: Record<string, string> = {
+      'User-Agent':
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36',
+      Accept: req.headers.get('accept') || '*/*',
+      'Accept-Encoding': 'identity',
+    };
+
+    if (rangeHeader) {
+      headers['Range'] = rangeHeader;
+    }
+
+    const upstream = await fetchWithCompanionRedirects(normalizedTargetUrl, {
+      method: req.method,
+      headers,
+      headerTimeoutMs: 20_000,
+      maxRedirects: 4,
+      clientSignal: req.signal,
+      companionRoot,
+    });
+
+    const resHeaders = new Headers();
+    resHeaders.set('Access-Control-Allow-Origin', '*');
+    resHeaders.set('Access-Control-Allow-Methods', 'GET, HEAD, OPTIONS');
+    resHeaders.set('Access-Control-Allow-Headers', 'Range, Content-Type, Accept');
+    resHeaders.set('Accept-Ranges', upstream.headers.get('accept-ranges') || 'bytes');
+
+    const contentType = upstream.headers.get('content-type');
+    if (contentType) {
+      resHeaders.set('Content-Type', contentType);
+    }
+
+    const contentEncoding = (upstream.headers.get('content-encoding') || '').toLowerCase();
+    const hasIdentityLength = !contentEncoding || contentEncoding === 'identity';
+    const contentLength = upstream.headers.get('content-length');
+    if (contentLength && hasIdentityLength) {
+      resHeaders.set('Content-Length', contentLength);
+    }
+
+    const contentRange = upstream.headers.get('content-range');
+    if (contentRange) {
+      resHeaders.set('Content-Range', contentRange);
+    }
+
+    return new Response(req.method === 'HEAD' ? null : upstream.body, {
+      status: upstream.status,
+      headers: resHeaders,
+    });
+  } catch (e: any) {
+    if (req.signal.aborted) {
+      return new Response(null, { status: 499 });
+    }
+    console.error('[media-proxy] Request error:', e);
+    return new Response(e?.message || 'Proxy request error', { status: 502 });
+  }
+}
+
+export async function GET(req: NextRequest) {
+  return handleMediaProxy(req);
+}
+
+export async function HEAD(req: NextRequest) {
+  return handleMediaProxy(req);
 }
 
 export async function OPTIONS() {
