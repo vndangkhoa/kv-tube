@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
@@ -165,11 +166,11 @@ fun BottomNavBar(
             color = MaterialTheme.colorScheme.outlineVariant
         )
 
-        // Compact 48dp YouTube bar
+        // 60dp bar: icon pill (28dp) + label must fit without clipping
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(48.dp),
+                .heightIn(min = 60.dp),
             horizontalArrangement = Arrangement.SpaceAround,
             verticalAlignment = Alignment.CenterVertically
         ) {
@@ -205,7 +206,7 @@ fun BottomNavBar(
                                 }
                             }
                         }
-                        .padding(vertical = 4.dp)
+                        .padding(top = 6.dp, bottom = 6.dp)
                 ) {
                     Box(contentAlignment = Alignment.TopEnd) {
                         // Astryx selected state: overlay-pressed pill on the icon
@@ -253,9 +254,11 @@ fun BottomNavBar(
                     Text(
                         text = item.label,
                         color = itemColor,
-                        fontSize = 10.sp,
+                        fontSize = 11.sp,
+                        lineHeight = 14.sp,
                         fontWeight = if (selected) FontWeight.Medium else FontWeight.Normal,
-                        maxLines = 1
+                        maxLines = 1,
+                        softWrap = false
                     )
                 }
             }

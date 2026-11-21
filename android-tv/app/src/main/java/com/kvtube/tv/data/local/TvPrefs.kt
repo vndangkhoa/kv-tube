@@ -14,9 +14,13 @@ class TvPrefs(private val context: Context) {
         val KEY_TOKEN = stringPreferencesKey("kv_invidious_token")
         val KEY_THEME = stringPreferencesKey("kv_tv_theme") // default | youtube
 
-        const val DEFAULT_INSTANCE = "https://yt.khoavo.vndns.net"
+        // KV-Tube web gateway (fast video proxy + DASH). The raw Invidious host
+        // yt.khoavo.vndns.net stalls on videoplayback, so it is upgraded below.
+        const val DEFAULT_INSTANCE = "https://u.khoavo.vndns.net"
 
         private val LEGACY_INSTANCES = setOf(
+            "https://yt.khoavo.vndns.net",
+            "http://yt.khoavo.vndns.net",
             "https://invidious.khoavo.myds.me",
             "http://invidious.khoavo.myds.me",
             "https://yt.khoavo.myds.me",

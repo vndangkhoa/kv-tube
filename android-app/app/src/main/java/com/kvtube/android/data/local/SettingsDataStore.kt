@@ -28,13 +28,26 @@ class SettingsDataStore @Inject constructor(
 
         // No hardcoded host: the app only ever talks to the server the user
         // enters in Settings. Empty means "not configured yet".
-        const val DEFAULT_SERVER_URL = "https://yt.khoavo.vndns.net"
+        // The KV-Tube web gateway (Next.js) in front of Invidious. It serves the
+        // same API under /api/invidious and, crucially, a fast video proxy +
+        // DASH path. The raw Invidious host (yt.khoavo.vndns.net) stalls on
+        // videoplayback (companion round-trips), which showed up as "time runs
+        // but no video".
+        const val DEFAULT_SERVER_URL = "https://u.khoavo.vndns.net"
+
+        /** Previously shipped defaults that must now point at the gateway. */
+        private val LEGACY_SERVER_URLS = setOf("https://yt.khoavo.vndns.net", "http://yt.khoavo.vndns.net")
+
+        fun upgradeLegacyServer(url: String): String =
+            if (url.trim().removeSuffix("/").lowercase() in LEGACY_SERVER_URLS) DEFAULT_SERVER_URL else url
         const val DEFAULT_THEME_MODE = "dark"
         const val DEFAULT_REGION = "GLOBAL"
     }
 
     val serverUrl: Flow<String> = context.dataStore.data.map { preferences ->
-        preferences[SERVER_URL]?.trim()?.removeSuffix("/")?.ifBlank { DEFAULT_SERVER_URL } ?: DEFAULT_SERVER_URL
+        upgradeLegacyServer(
+            preferences[SERVER_URL]?.trim()?.removeSuffix("/")?.ifBlank { DEFAULT_SERVER_URL } ?: DEFAULT_SERVER_URL
+        )
     }
 
     val invidiousToken: Flow<String> = context.dataStore.data.map { preferences ->

@@ -88,6 +88,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 private const val TAG = "ExoPlayerView"
+private const val STALL_TIMEOUT_MS = 20_000L
 private const val USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
 
 @Composable
@@ -167,7 +168,7 @@ fun ExoPlayerView(
     }
 
     var isPlaying by remember { mutableStateOf(true) }
-    var isBuffering by remember { mutableStateOf(false) }
+    var isBuffering by remember { mutableStateOf(exoPlayer.playbackState == Player.STATE_BUFFERING) }
     var isEnded by remember { mutableStateOf(false) }
     var currentPosition by remember { mutableLongStateOf(0L) }
     var duration by remember { mutableLongStateOf(1L) }
@@ -245,6 +246,23 @@ fun ExoPlayerView(
             if (ownsPlayer) {
                 exoPlayer.release()
             }
+        }
+    }
+
+    // Stall watchdog: a stream that stays in BUFFERING (server accepted the
+    // request but never delivers bytes) used to hang forever with only the
+    // clock visible. After STALL_TIMEOUT_MS without leaving BUFFERING, fail
+    // over (DASH → progressive) or surface the retry overlay.
+    var stallEpoch by remember { mutableStateOf(0) }
+    LaunchedEffect(isBuffering, stallEpoch) {
+        if (!isBuffering) return@LaunchedEffect
+        kotlinx.coroutines.delay(STALL_TIMEOUT_MS)
+        if (exoPlayer.playbackState == Player.STATE_BUFFERING && !hasError) {
+            Log.w(TAG, "Playback stalled in BUFFERING for ${STALL_TIMEOUT_MS}ms — failing over")
+            hasError = true
+            errorMessage = "The server is not delivering video. Tap retry."
+            stallEpoch++
+            onError?.invoke()
         }
     }
 

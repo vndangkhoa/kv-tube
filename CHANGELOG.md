@@ -5,6 +5,13 @@ All notable changes to KV-Tube are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.12.1] - 2026-11-21
+
+### Fixed
+- **Android phone (v1.8.1) & TV (v1.2.1-tv) — video not playing (clock runs, no picture)**: the apps defaulted to the raw Invidious host (`yt.khoavo.vndns.net`) whose `videoplayback` stalls; they now default to the KV-Tube gateway (`u.khoavo.vndns.net`) and existing installs on the old host are migrated automatically. Verified on an emulator: adaptive DASH starts through the gateway and renders video.
+- **Stall watchdog**: playback stuck in BUFFERING for 20 s now fails over (DASH → progressive / fallback ladder, retry overlay) instead of hanging silently.
+- **Android phone bottom navigation**: labels were clipped (48 dp bar too short for icon + label); bar is now ≥ 60 dp with an 11 sp label.
+
 ## [4.12.0] - 2026-11-21
 
 ### Added

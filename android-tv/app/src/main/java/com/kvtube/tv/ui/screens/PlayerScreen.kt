@@ -101,6 +101,7 @@ fun PlayerScreen(
     val rootFocusRequester = remember { FocusRequester() }
 
     var playerError by remember { mutableStateOf<String?>(null) }
+    var errorListenerRef by remember { mutableStateOf<Player.Listener?>(null) }
     var qualityBadge by remember { mutableStateOf<String?>(null) }
     var currentCfg by remember { mutableStateOf<PlayerViewModel.PlaybackConfig?>(null) }
     var fallbackIndex by remember { mutableStateOf(0) }
@@ -292,7 +293,35 @@ fun PlayerScreen(
             }
         }
         exo.addListener(listener)
-        onDispose { exo.removeListener(listener) }
+        errorListenerRef = listener
+        onDispose { exo.removeListener(listener); errorListenerRef = null }
+    }
+
+    // Stall watchdog: a stream stuck in BUFFERING (server accepts the request
+    // but never sends bytes) used to hang with only the clock moving. After
+    // 20 s of continuous buffering, run the normal failure ladder (fast DASH →
+    // config fallbacks → InnerTube) instead of waiting forever.
+    LaunchedEffect(exo) {
+        var bufferingSince = 0L
+        while (true) {
+            kotlinx.coroutines.delay(1_000)
+            if (exo.playbackState == Player.STATE_BUFFERING && exo.playWhenReady) {
+                val now = android.os.SystemClock.elapsedRealtime()
+                if (bufferingSince == 0L) bufferingSince = now
+                if (now - bufferingSince >= 20_000L) {
+                    bufferingSince = 0L
+                    android.util.Log.w("PlayerScreen", "Stalled in BUFFERING for 20s — failing over")
+                    errorListenerRef?.onPlayerError(
+                        androidx.media3.exoplayer.ExoPlaybackException.createForSource(
+                            java.io.IOException("stalled buffering"),
+                            androidx.media3.common.PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_TIMEOUT
+                        )
+                    )
+                }
+            } else {
+                bufferingSince = 0L
+            }
+        }
     }
 
     LaunchedEffect(exo) {

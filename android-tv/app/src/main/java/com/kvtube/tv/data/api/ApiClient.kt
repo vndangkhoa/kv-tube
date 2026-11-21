@@ -20,9 +20,9 @@ import java.util.concurrent.TimeUnit
  * Default instance: https://yt.khoavo.myds.me (from docker-compose domain).
  */
 object ApiClient {
-    const val DEFAULT_INSTANCE = "https://yt.khoavo.vndns.net"
+    const val DEFAULT_INSTANCE = "https://u.khoavo.vndns.net"
 
-    private var _baseUrl: String = "https://yt.khoavo.vndns.net/"
+    private var _baseUrl: String = "https://u.khoavo.vndns.net/"
     private var _token: String? = null
 
     private val _instanceFlow = MutableStateFlow(_baseUrl.trimEnd('/'))
