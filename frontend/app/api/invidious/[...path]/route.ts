@@ -543,6 +543,68 @@ function isValidCustomInstance(raw?: string | null, req?: NextRequest): boolean 
   return true;
 }
 
+// ---- Thumbnail fast path ---------------------------------------------------
+// Invidious proxies /vi/... through the same WARP tunnel as video traffic,
+// which times out after ~5 s and returns an empty 200 — so poster images never
+// loaded in the Android apps. i.ytimg.com / yt3.ggpht.com are reachable
+// directly from the server, so serve them straight from there and cache.
+type ThumbEntry = { body: Uint8Array; contentType: string; expires: number };
+const THUMB_CACHE = new Map<string, ThumbEntry>();
+const THUMB_INFLIGHT = new Map<string, Promise<ThumbEntry | null>>();
+const THUMB_TTL_MS = 24 * 60 * 60 * 1000;
+const THUMB_MAX_ENTRIES = 1500;
+const THUMB_VIDEO_RE = /^\/vi(?:_webp)?\/([A-Za-z0-9_-]{6,15})\/([a-z0-9_]{3,24})\.(jpg|webp)$/;
+const THUMB_GGPHT_RE = /^\/ggpht\/([A-Za-z0-9_\-=./]{3,300})$/;
+
+function thumbUpstreamUrl(subPath: string): string | null {
+  const v = THUMB_VIDEO_RE.exec(subPath);
+  if (v) {
+    const dir = subPath.startsWith('/vi_webp/') ? 'vi_webp' : 'vi';
+    return `https://i.ytimg.com/${dir}/${v[1]}/${v[2]}.${v[3]}`;
+  }
+  const g = THUMB_GGPHT_RE.exec(subPath);
+  if (g && !g[1].includes('..')) return `https://yt3.ggpht.com/${g[1]}`;
+  return null;
+}
+
+async function fetchThumb(url: string): Promise<ThumbEntry | null> {
+  const now = Date.now();
+  const hit = THUMB_CACHE.get(url);
+  if (hit && hit.expires > now) return hit;
+  const running = THUMB_INFLIGHT.get(url);
+  if (running) return running;
+  const job = (async () => {
+    // Direct first (fast); fall back to hqdefault when a size does not exist.
+    const candidates = [url];
+    const m = /\/(maxresdefault|sddefault|hq720)\.(jpg|webp)$/.exec(url);
+    if (m) candidates.push(url.replace(m[0], `/hqdefault.${m[2]}`));
+    for (const u of candidates) {
+      try {
+        const res = await fetch(u, {
+          headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36' },
+          signal: AbortSignal.timeout(6000),
+        });
+        const ct = res.headers.get('content-type') || '';
+        if (!res.ok || !ct.startsWith('image/')) continue;
+        const body = new Uint8Array(await res.arrayBuffer());
+        if (body.byteLength === 0) continue;
+        const entry: ThumbEntry = { body, contentType: ct, expires: Date.now() + THUMB_TTL_MS };
+        if (THUMB_CACHE.size >= THUMB_MAX_ENTRIES) {
+          const first = THUMB_CACHE.keys().next().value;
+          if (first) THUMB_CACHE.delete(first);
+        }
+        THUMB_CACHE.set(url, entry);
+        return entry;
+      } catch {
+        // try next candidate
+      }
+    }
+    return null;
+  })().finally(() => THUMB_INFLIGHT.delete(url));
+  THUMB_INFLIGHT.set(url, job);
+  return job;
+}
+
 async function handleProxy(req: NextRequest, pathParts: string[]) {
   const subPath = '/' + (pathParts || []).join('/');
   const isApiV1 = subPath.startsWith('/api/v1/');
@@ -563,6 +625,26 @@ async function handleProxy(req: NextRequest, pathParts: string[]) {
     /^\/(videoplayback|latest_version)(\/|$)/.test(subPath) ||
     /^\/companion\/(videoplayback|latest_version)(\/|$)/.test(subPath);
   const isMediaOrManifestRoute = isDirectCompanionStream || isManifestOrLatestVersion;
+
+  // Thumbnail fast path (direct to YouTube's image CDN, cached 24 h).
+  if (req.method === 'GET' || req.method === 'HEAD') {
+    const thumbUrl = thumbUpstreamUrl(subPath);
+    if (thumbUrl) {
+      const entry = await fetchThumb(thumbUrl);
+      if (entry) {
+        return new NextResponse(req.method === 'HEAD' ? null : (entry.body as unknown as BodyInit), {
+          status: 200,
+          headers: {
+            'content-type': entry.contentType,
+            'content-length': String(entry.body.byteLength),
+            'Access-Control-Allow-Origin': '*',
+            'Cache-Control': 'public, max-age=86400, stale-while-revalidate=604800, immutable',
+          },
+        });
+      }
+      // else: fall through to the Invidious proxy path
+    }
+  }
 
   // Fast path: single direct POST to googlevideo (cached 302 edge + coalesced init/sidx/segment-1 prefix)
   if (

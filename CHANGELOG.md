@@ -5,6 +5,14 @@ All notable changes to KV-Tube are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.12.2] - 2026-11-21
+
+### Fixed
+- **Thumbnails not loading in the Android apps**: Invidious fetched `/vi/...` images through the WARP tunnel and answered an empty 200 after ~5 s. The gateway (`/api/invidious/vi/...`, `/vi_webp/...`, `/ggpht/...`) now fetches YouTube's image CDN directly, with a 24 h in-memory cache, request coalescing and fallback to the old path.
+
+### Changed
+- **Faster playback start (Android phone v1.8.2 / TV v1.2.2-tv)**: one shared OkHttp client (HTTP/2, connection reuse) for ExoPlayer segments and image loading; known KV-Tube gateway hosts skip the API-mode probe round-trips; first session (no saved bandwidth) starts on a modest rung and ramps up; first-frame time is logged. Emulator: first frame ~2.3 s after source set (was ~20 s+).
+
 ## [4.12.1] - 2026-11-21
 
 ### Fixed

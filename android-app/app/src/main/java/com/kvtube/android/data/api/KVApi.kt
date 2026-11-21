@@ -42,6 +42,7 @@ class KVApi(
         private const val TAG = "KVApi"
         /** Set exclusively from user input (Settings). Empty = not configured. */
         private const val DEFAULT_BASE_URL = ""
+        private val KNOWN_GATEWAY_HOSTS = setOf("u.khoavo.vndns.net")
 
         fun normalizeUrl(raw: String): String {
             var s = raw.trim().trimEnd('/')
@@ -106,12 +107,17 @@ class KVApi(
     fun setServerUrl(url: String) {
         val clean = normalizeUrl(url)
         if (clean != baseUrl) {
-            gatewayMode = null
+            // Known KV-Tube gateway hosts skip the two sequential probe requests
+            // (saves ~2 round trips before the very first API / manifest call).
+            gatewayMode = if (isKnownGateway(clean)) true else null
         }
         baseUrl = clean
         com.kvtube.android.data.local.ThumbnailRouter.setServer(clean, gatewayMode == true)
         Log.d(TAG, "Server URL set to: ${if (baseUrl.isBlank()) "<not configured>" else baseUrl}")
     }
+
+    private fun isKnownGateway(url: String): Boolean =
+        runCatching { java.net.URI(url).host?.lowercase() }.getOrNull() in KNOWN_GATEWAY_HOSTS
 
     fun isGateway(): Boolean = gatewayMode == true
 

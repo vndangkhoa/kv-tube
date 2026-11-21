@@ -13,8 +13,8 @@ android {
         applicationId = "com.kvtube.tv"
         minSdk = 24
         targetSdk = 35
-        versionCode = 10
-        versionName = "1.2.1-tv"
+        versionCode = 11
+        versionName = "1.2.2-tv"
     }
 
     signingConfigs {

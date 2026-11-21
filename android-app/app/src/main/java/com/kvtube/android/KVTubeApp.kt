@@ -61,7 +61,7 @@ class KVTubeApp : Application(), Configuration.Provider, SingletonImageLoader.Fa
             }
             kvApi.setToken(settingsDataStore.invidiousToken.first())
             // All images route through the Invidious proxy too.
-            com.kvtube.android.data.local.ThumbnailRouter.setServer(url)
+            com.kvtube.android.data.local.ThumbnailRouter.setServer(url, kvApi.isGateway())
             logToFile("Startup", "server=$url token=${settingsDataStore.invidiousToken.first().isNotBlank()}")
         }
 
@@ -92,7 +92,7 @@ class KVTubeApp : Application(), Configuration.Provider, SingletonImageLoader.Fa
     }
 
     override fun newImageLoader(context: Context): ImageLoader {
-        val okHttpClient = OkHttpClient.Builder().build()
+        val okHttpClient = com.kvtube.android.data.net.KvHttp.client
         return ImageLoader.Builder(context)
             .components {
                 add(OkHttpNetworkFetcherFactory(okHttpClient))

@@ -108,7 +108,8 @@ class TvPlaybackManager private constructor(context: Context) {
     private val bandwidthMeter: DefaultBandwidthMeter = DefaultBandwidthMeter.Builder(context.applicationContext)
         .apply {
             val saved = prefs.getLong("bw_bps", 0L)
-            if (saved >= 500_000L) setInitialBitrateEstimate(saved.coerceAtMost(120_000_000L))
+            // No history: start on a modest 4 Mbps rung (fast first frame), ramp from there.
+            setInitialBitrateEstimate(if (saved >= 500_000L) saved.coerceAtMost(120_000_000L) else 4_000_000L)
         }
         .build()
 

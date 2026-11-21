@@ -9,7 +9,8 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
 import androidx.media3.common.MimeTypes
 import androidx.media3.common.VideoSize
-import androidx.media3.datasource.DefaultHttpDataSource
+import androidx.media3.datasource.okhttp.OkHttpDataSource
+import com.kvtube.android.data.net.KvHttp
 import androidx.media3.datasource.ResolvingDataSource
 import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.ExoPlayer
@@ -106,7 +107,12 @@ class PlaybackManager @Inject constructor(
     private val bandwidthMeter: DefaultBandwidthMeter by lazy {
         val builder = DefaultBandwidthMeter.Builder(context)
         val saved = prefs.getLong(PREF_BANDWIDTH_BPS, 0L)
-        if (saved >= 500_000L) builder.setInitialBitrateEstimate(saved.coerceAtMost(80_000_000L))
+        // No history yet: assume a modest 3 Mbps so the very first session starts
+        // on a small rung (fast first frame) and ramps up as real throughput is
+        // measured, instead of opening a 1080p/AV1 segment on an unknown link.
+        builder.setInitialBitrateEstimate(
+            if (saved >= 500_000L) saved.coerceAtMost(80_000_000L) else 3_000_000L
+        )
         builder.build()
     }
 
@@ -177,10 +183,8 @@ class PlaybackManager @Inject constructor(
         if (allowAv1 && hardwareAv1) arrayOf(MimeTypes.VIDEO_AV1, MimeTypes.VIDEO_H264)
         else arrayOf(MimeTypes.VIDEO_H264)
 
-    private val httpFactory = DefaultHttpDataSource.Factory()
-        .setConnectTimeoutMs(15_000)
-        .setReadTimeoutMs(30_000)
-        .setDefaultRequestProperties(mapOf("User-Agent" to USER_AGENT))
+    private val httpFactory = OkHttpDataSource.Factory(KvHttp.client)
+        .setUserAgent(USER_AGENT)
 
     val player: ExoPlayer by lazy {
         ExoPlayer.Builder(context)
@@ -232,6 +236,12 @@ class PlaybackManager @Inject constructor(
 
                     override fun onVideoSizeChanged(videoSize: VideoSize) {
                         if (videoSize.height > 0) _activeHeight.value = videoSize.height
+                    }
+
+                    override fun onRenderedFirstFrame() {
+                        val ms = android.os.SystemClock.elapsedRealtime() - lastSwitchAt
+                        Log.w(TAG, "first frame ${ms}ms after source set (h=${_activeHeight.value})")
+                        logToFile(TAG, "first frame ${ms}ms after source set (h=${_activeHeight.value})")
                     }
                 })
                 addAnalyticsListener(object : AnalyticsListener {

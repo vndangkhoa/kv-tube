@@ -15,8 +15,8 @@ android {
         applicationId = "com.kvtube.android"
         minSdk = 21
         targetSdk = 34
-        versionCode = 35
-        versionName = "1.8.1"
+        versionCode = 36
+        versionName = "1.8.2"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -130,6 +130,7 @@ dependencies {
     implementation(libs.exoplayer.dash)
     implementation(libs.exoplayer.ui)
     implementation(libs.exoplayer.session)
+    implementation(libs.exoplayer.okhttp)
 
     // MediaStyle notification for the media card in the shade / lock screen
     implementation(libs.androidx.media)

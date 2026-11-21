@@ -53,7 +53,9 @@ object ApiClient {
         _baseUrl = "$clean/"
         _token = tok?.trim()?.ifBlank { null }
         _instanceFlow.value = clean
-        isGatewayMode = false
+        // Known KV-Tube gateway: skip the probe round-trip (thumbnails + API paths
+        // are correct from the very first request).
+        isGatewayMode = runCatching { java.net.URI(clean).host?.lowercase() }.getOrNull() == "u.khoavo.vndns.net"
         synchronized(this) { _api = null }
     }
 
