@@ -533,14 +533,22 @@ class WatchViewModel @Inject constructor(
         viewModelScope.launch {
             // Related videos must ALWAYS be present: if the per-video
             // recommendation sources fail or come up empty, fall back to
-            // trending so the section is never blank.
-            var related = runCatching { videoRepository.getRelatedVideos(videoId) }
-                .getOrNull().orEmpty()
-            if (related.isEmpty()) {
-                related = runCatching { videoRepository.getTrending(15) }
+            // trending so the section is never blank. A busy link (the video
+            // stream saturating the connection while playback starts) can make
+            // these small API calls time out, so retry a couple of times
+            // instead of leaving the section empty for the whole session.
+            var filtered: List<VideoData> = emptyList()
+            for (attempt in 0..2) {
+                if (attempt > 0) kotlinx.coroutines.delay(2_500L * attempt)
+                var related = runCatching { videoRepository.getRelatedVideos(videoId) }
                     .getOrNull().orEmpty()
+                if (related.isEmpty()) {
+                    related = runCatching { videoRepository.getTrending(15) }
+                        .getOrNull().orEmpty()
+                }
+                filtered = related.filter { it.id != videoId && it.id.isNotBlank() }
+                if (filtered.isNotEmpty()) break
             }
-            val filtered = related.filter { it.id != videoId && it.id.isNotBlank() }
             if (filtered.isNotEmpty()) {
                 _uiState.value = _uiState.value.copy(relatedVideos = filtered)
             }

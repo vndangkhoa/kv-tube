@@ -5,6 +5,13 @@ All notable changes to KV-Tube are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.15.1] - 2026-11-21
+
+### Fixed
+- **Android phone (v1.11.1)** — verified the 1.11.0 foldable/tablet layouts on emulator window sizes (foldable portrait & landscape, tablet landscape, phone) and fixed what testing found:
+  - Watch screen: the system status bar was painted with the theme colour over the black strip above the player (grey band); it is now black with white icons while watching and restored afterwards.
+  - Related videos: retried up to 3× when the first request times out while the video stream is starting (section stayed empty for the whole session on a busy link).
+
 ## [4.15.0] - 2026-11-21
 
 ### Added

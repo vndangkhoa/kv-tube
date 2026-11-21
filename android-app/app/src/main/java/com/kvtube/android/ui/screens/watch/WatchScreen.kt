@@ -121,15 +121,23 @@ fun WatchScreen(
     val theaterMode = isTheater && canToggleTheater
 
     // Watch screen top strip behind the player is pure black: keep status icons white
-    // (including in light theme) and restore the theme appearance on exit.
+    // (including in light theme), paint the system status bar black (the theme paints it
+    // with the app background, which would show as a grey band above the player) and
+    // restore the theme appearance on exit.
     DisposableEffect(activity) {
         val window = activity?.window
         if (window != null) {
             val controller = WindowCompat.getInsetsController(window, window.decorView)
             val prevLight = controller.isAppearanceLightStatusBars
+            @Suppress("DEPRECATION")
+            val prevStatusColor = window.statusBarColor
             controller.isAppearanceLightStatusBars = false
+            @Suppress("DEPRECATION")
+            window.statusBarColor = android.graphics.Color.BLACK
             onDispose {
                 controller.isAppearanceLightStatusBars = prevLight
+                @Suppress("DEPRECATION")
+                window.statusBarColor = prevStatusColor
             }
         } else {
             onDispose {}
