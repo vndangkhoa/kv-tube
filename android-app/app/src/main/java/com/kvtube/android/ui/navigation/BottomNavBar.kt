@@ -7,6 +7,12 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.only
+import androidx.compose.foundation.layout.systemBars
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -15,6 +21,7 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.draw.clip
@@ -31,8 +38,10 @@ import androidx.compose.material.icons.outlined.Subscriptions
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.NavigationRail
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.VerticalDivider
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
@@ -43,10 +52,14 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.vector.path
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
 import androidx.navigation.compose.currentBackStackEntryAsState
+import androidx.navigation.compose.rememberNavController
+import com.kvtube.android.ui.adaptive.WidthClass
+import com.kvtube.android.ui.theme.KVTubeTheme
 import com.kvtube.android.ui.theme.YTBrandRed
 
 // YouTube Shorts Icon Vector
@@ -144,6 +157,103 @@ val bottomNavItems = listOf(
     )
 )
 
+/**
+ * Tab tap behaviour shared by [BottomNavBar] and [AppNavigationRail]:
+ * reselect resets the tab, otherwise pop back to it or navigate to it.
+ */
+private fun handleNavTabClick(
+    navController: NavController,
+    route: String,
+    currentRoute: String?,
+    onTabClick: (String) -> Unit
+) {
+    onTabClick(route)
+    if (currentRoute?.startsWith(route) == true) {
+        // Already on this tab: reset its content to the first item
+        TabReselect.notify(route)
+    } else if (navController.popBackStack(route, inclusive = false)) {
+        // Tab root exists deeper in the stack (e.g. Account under
+        // Subscriptions/History): jump straight back to it instantly
+    } else {
+        navController.navigate(route) {
+            popUpTo(Screen.Home.route)
+            launchSingleTop = true
+        }
+    }
+}
+
+/** Icon pill + 11sp label (+ download badge): the visual shared by bar and rail items. */
+@Composable
+private fun NavItemVisual(
+    item: BottomNavItem,
+    selected: Boolean,
+    activeDownloadsCount: Int,
+    modifier: Modifier = Modifier
+) {
+    val itemColor = if (selected) MaterialTheme.colorScheme.onSurface
+    else MaterialTheme.colorScheme.onSurfaceVariant
+    val iconVector = if (selected) item.selectedIcon else item.unselectedIcon
+
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
+        modifier = modifier
+    ) {
+        Box(contentAlignment = Alignment.TopEnd) {
+            // Astryx selected state: overlay-pressed pill on the icon
+            Box(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(AstryxRadius.element))
+                    .background(
+                        if (selected) MaterialTheme.colorScheme.surfaceVariant
+                        else Color.Transparent
+                    )
+                    .padding(horizontal = 14.dp, vertical = 3.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = iconVector,
+                    contentDescription = item.label,
+                    tint = itemColor,
+                    modifier = Modifier.size(22.dp)
+                )
+            }
+
+            // Download count badge
+            if (item.route == Screen.Downloads.route && activeDownloadsCount > 0) {
+                Surface(
+                    shape = CircleShape,
+                    color = YTBrandRed,
+                    modifier = Modifier
+                        .size(12.dp)
+                        .offset(x = 4.dp, y = (-2).dp)
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Text(
+                            text = activeDownloadsCount.toString(),
+                            color = Color.White,
+                            fontSize = 8.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(2.dp))
+
+        Text(
+            text = item.label,
+            color = itemColor,
+            fontSize = 11.sp,
+            lineHeight = 14.sp,
+            fontWeight = if (selected) FontWeight.Medium else FontWeight.Normal,
+            maxLines = 1,
+            softWrap = false
+        )
+    }
+}
+
 @Composable
 fun BottomNavBar(
     navController: NavController,
@@ -176,92 +286,104 @@ fun BottomNavBar(
         ) {
             bottomNavItems.forEach { item ->
                 val selected = currentRoute?.startsWith(item.route) == true
-
-                val activeColor = MaterialTheme.colorScheme.onSurface
-                val inactiveColor = MaterialTheme.colorScheme.onSurfaceVariant
-
-                val itemColor = if (selected) activeColor else inactiveColor
-                val iconVector = if (selected) item.selectedIcon else item.unselectedIcon
-
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.Center,
+                NavItemVisual(
+                    item = item,
+                    selected = selected,
+                    activeDownloadsCount = activeDownloadsCount,
                     modifier = Modifier
                         .weight(1f)
                         .clickable(
                             interactionSource = remember { MutableInteractionSource() },
                             indication = null
                         ) {
-                            onTabClick(item.route)
-                            if (currentRoute?.startsWith(item.route) == true) {
-                                // Already on this tab: reset its content to the first item
-                                TabReselect.notify(item.route)
-                            } else if (navController.popBackStack(item.route, inclusive = false)) {
-                                // Tab root exists deeper in the stack (e.g. Account under
-                                // Subscriptions/History): jump straight back to it instantly
-                            } else {
-                                navController.navigate(item.route) {
-                                    popUpTo(Screen.Home.route)
-                                    launchSingleTop = true
-                                }
-                            }
+                            handleNavTabClick(navController, item.route, currentRoute, onTabClick)
                         }
                         .padding(top = 6.dp, bottom = 6.dp)
-                ) {
-                    Box(contentAlignment = Alignment.TopEnd) {
-                        // Astryx selected state: overlay-pressed pill on the icon
-                        Box(
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(AstryxRadius.element))
-                                .background(
-                                    if (selected) MaterialTheme.colorScheme.surfaceVariant
-                                    else androidx.compose.ui.graphics.Color.Transparent
-                                )
-                                .padding(horizontal = 14.dp, vertical = 3.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                imageVector = iconVector,
-                                contentDescription = item.label,
-                                tint = itemColor,
-                                modifier = Modifier.size(22.dp)
-                            )
-                        }
-
-                        // Download count badge
-                        if (item.route == Screen.Downloads.route && activeDownloadsCount > 0) {
-                            Surface(
-                                shape = CircleShape,
-                                color = YTBrandRed,
-                                modifier = Modifier
-                                    .size(12.dp)
-                                    .offset(x = 4.dp, y = (-2).dp)
-                            ) {
-                                Box(contentAlignment = Alignment.Center) {
-                                    Text(
-                                        text = activeDownloadsCount.toString(),
-                                        color = Color.White,
-                                        fontSize = 8.sp,
-                                        fontWeight = FontWeight.Bold
-                                    )
-                                }
-                            }
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(2.dp))
-
-                    Text(
-                        text = item.label,
-                        color = itemColor,
-                        fontSize = 11.sp,
-                        lineHeight = 14.sp,
-                        fontWeight = if (selected) FontWeight.Medium else FontWeight.Normal,
-                        maxLines = 1,
-                        softWrap = false
-                    )
-                }
+                )
             }
         }
     }
 }
+
+/**
+ * Start-edge navigation rail for Medium/Expanded windows (tablets, unfolded
+ * foldables). Same destinations and behaviour as [BottomNavBar]. Pads for the
+ * start/top/bottom system bars itself; items are tall enough that the icon
+ * pill and the 11sp label are never clipped.
+ */
+@Composable
+fun AppNavigationRail(
+    navController: NavController,
+    activeDownloadsCount: Int = 0,
+    modifier: Modifier = Modifier,
+    onTabClick: (String) -> Unit = {}
+) {
+    val navBackStackEntry by navController.currentBackStackEntryAsState()
+    val currentRoute = navBackStackEntry?.destination?.route
+
+    Row(modifier = modifier.fillMaxHeight()) {
+        NavigationRail(
+            // Fixed width: items use fillMaxWidth(), which would otherwise stretch the
+            // rail across the whole window inside the parent Row.
+            modifier = Modifier.width(88.dp),
+            containerColor = MaterialTheme.colorScheme.background,
+            contentColor = MaterialTheme.colorScheme.onSurface,
+            windowInsets = WindowInsets.systemBars.only(
+                WindowInsetsSides.Start + WindowInsetsSides.Top + WindowInsetsSides.Bottom
+            )
+        ) {
+            Spacer(modifier = Modifier.height(12.dp))
+            bottomNavItems.forEach { item ->
+                val selected = currentRoute?.startsWith(item.route) == true
+                NavItemVisual(
+                    item = item,
+                    selected = selected,
+                    activeDownloadsCount = activeDownloadsCount,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 64.dp)
+                        .clickable(
+                            interactionSource = remember { MutableInteractionSource() },
+                            indication = null
+                        ) {
+                            handleNavTabClick(navController, item.route, currentRoute, onTabClick)
+                        }
+                        .padding(vertical = 8.dp)
+                )
+            }
+        }
+        VerticalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+    }
+}
+
+// ---- Previews: navigation chrome per window width class ----
+
+@Composable
+private fun NavChromePreview(widthClass: WidthClass) {
+    KVTubeTheme {
+        val navController = rememberNavController()
+        if (widthClass.isCompact) {
+            Column(modifier = Modifier.fillMaxSize()) {
+                Box(modifier = Modifier.weight(1f))
+                BottomNavBar(navController = navController)
+            }
+        } else {
+            Row(modifier = Modifier.fillMaxSize()) {
+                AppNavigationRail(navController = navController)
+                Box(modifier = Modifier.weight(1f))
+            }
+        }
+    }
+}
+
+@Preview(name = "Compact", widthDp = 360, heightDp = 640, showBackground = true)
+@Composable
+private fun NavChromeCompactPreview() = NavChromePreview(WidthClass.Compact)
+
+@Preview(name = "Medium", widthDp = 700, heightDp = 900, showBackground = true)
+@Composable
+private fun NavChromeMediumPreview() = NavChromePreview(WidthClass.Medium)
+
+@Preview(name = "Expanded", widthDp = 1100, heightDp = 800, showBackground = true)
+@Composable
+private fun NavChromeExpandedPreview() = NavChromePreview(WidthClass.Expanded)

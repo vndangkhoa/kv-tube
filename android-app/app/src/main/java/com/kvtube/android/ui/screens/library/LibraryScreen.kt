@@ -40,7 +40,9 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavController
+import com.kvtube.android.ui.components.CenteredContent
 import com.kvtube.android.ui.components.LoadingSpinner
+import com.kvtube.android.ui.components.MaxReadableWidthDp
 import com.kvtube.android.ui.navigation.Screen
 import com.kvtube.android.ui.navigation.TabReselect
 import com.kvtube.android.ui.theme.YTBrandRed
@@ -66,6 +68,7 @@ fun LibraryScreen(
         }
     }
 
+    CenteredContent(maxWidth = MaxReadableWidthDp.dp) {
     LazyColumn(
         state = listState,
         modifier = Modifier.fillMaxSize(),
@@ -171,6 +174,7 @@ fun LibraryScreen(
                 )
             }
         }
+    }
     }
 }
 

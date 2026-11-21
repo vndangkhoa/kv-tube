@@ -32,6 +32,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.kvtube.android.data.model.VideoData
+import com.kvtube.android.ui.adaptive.LocalWidthClass
 import com.kvtube.android.ui.theme.YTBrandRed
 
 @Composable
@@ -43,6 +44,9 @@ fun SmartSuggestionsShelf(
     modifier: Modifier = Modifier
 ) {
     if (suggestions.isEmpty()) return
+
+    // Fixed card width; wide windows simply fit more cards per row.
+    val cardWidth = if (LocalWidthClass.current.isWide) 320.dp else 260.dp
 
     Column(
         modifier = modifier
@@ -122,7 +126,7 @@ fun SmartSuggestionsShelf(
                     onVideoClick = onVideoClick,
                     onChannelClick = onChannelClick,
                     showChannelAvatar = true,
-                    modifier = Modifier.width(260.dp)
+                    modifier = Modifier.width(cardWidth)
                 )
             }
         }

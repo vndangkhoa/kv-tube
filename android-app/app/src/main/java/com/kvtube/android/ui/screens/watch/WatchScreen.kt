@@ -12,17 +12,22 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -70,6 +75,7 @@ import androidx.navigation.NavController
 import com.kvtube.android.data.model.Comment
 import com.kvtube.android.data.model.QualityTier
 import com.kvtube.android.data.model.VideoData
+import com.kvtube.android.ui.adaptive.LocalWidthClass
 import com.kvtube.android.ui.components.ChannelAvatar
 import com.kvtube.android.ui.components.DownloadBottomSheet
 import com.kvtube.android.ui.components.LoadingSpinner
@@ -88,6 +94,7 @@ fun WatchScreen(
     val uiState by viewModel.uiState.collectAsState()
     val context = LocalContext.current
     val activity = context as? Activity
+    val widthClass = LocalWidthClass.current
 
     var showDownloadSheet by remember { mutableStateOf(false) }
     var isFullscreen by remember { mutableStateOf(false) }
@@ -203,14 +210,12 @@ fun WatchScreen(
             }
         }
     } else {
-        // Normal portrait layout
-        Column(modifier = Modifier.fillMaxSize()) {
+        // ---- Shared building blocks (used by both compact and wide layouts) ----
+        val playerContent: @Composable (Modifier) -> Unit = { playerModifier ->
             if (uiState.useIframeFallback) {
                 YouTubeIframePlayer(
                     videoId = videoId,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .aspectRatio(16f / 9f),
+                    modifier = playerModifier.aspectRatio(16f / 9f),
                     onBackClick = { navController.popBackStack() }
                 )
             } else {
@@ -224,172 +229,216 @@ fun WatchScreen(
                         onError = { viewModel.fallbackToIframe() },
                         onEnterPip = pipAction,
                         onBackClick = { navController.popBackStack() },
-                        modifier = Modifier.fillMaxWidth()
+                        modifier = playerModifier
                     )
                 }
             }
+        }
 
-            LazyColumn(
-                modifier = Modifier.fillMaxSize()
+        // Title / channel / actions / comments
+        val infoItems: LazyListScope.() -> Unit = {
+        // Video Info Section
+        item {
+            uiState.video?.let { video ->
+                VideoInfoSection(
+                    video = video,
+                    tierDescriptions = uiState.tierDescriptions,
+                    selectedTier = uiState.selectedTier,
+                    isSubscribed = uiState.isSubscribed,
+                    onSubscribeClick = { viewModel.toggleSubscription() },
+                    onTierSelected = { tier -> viewModel.selectQualityTier(tier) },
+                    onDownloadClick = { showDownloadSheet = true },
+                    onShareClick = {
+                        val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                            type = "text/plain"
+                            putExtra(Intent.EXTRA_SUBJECT, video.title)
+                            val base = uiState.serverBaseUrl.ifBlank { "https://youtube.com" }
+                            putExtra(Intent.EXTRA_TEXT, "$base/watch?v=$videoId")
+                        }
+                        context.startActivity(Intent.createChooser(shareIntent, "Share video"))
+                    },
+                    onChannelClick = { channelId ->
+                        navController.navigate(Screen.Channel.createRoute(channelId))
+                    }
+                )
+            }
+        }
+
+        // Comments preview box
+        item {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 14.dp, vertical = 6.dp)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(MaterialTheme.colorScheme.surfaceVariant)
+                    .clickable { viewModel.toggleComments() }
+                    .padding(12.dp)
             ) {
-                // Video Info Section
-                item {
-                    uiState.video?.let { video ->
-                        VideoInfoSection(
-                            video = video,
-                            tierDescriptions = uiState.tierDescriptions,
-                            selectedTier = uiState.selectedTier,
-                            isSubscribed = uiState.isSubscribed,
-                            onSubscribeClick = { viewModel.toggleSubscription() },
-                            onTierSelected = { tier -> viewModel.selectQualityTier(tier) },
-                            onDownloadClick = { showDownloadSheet = true },
-                            onShareClick = {
-                                val shareIntent = Intent(Intent.ACTION_SEND).apply {
-                                    type = "text/plain"
-                                    putExtra(Intent.EXTRA_SUBJECT, video.title)
-                                    val base = uiState.serverBaseUrl.ifBlank { "https://youtube.com" }
-                                    putExtra(Intent.EXTRA_TEXT, "$base/watch?v=$videoId")
-                                }
-                                context.startActivity(Intent.createChooser(shareIntent, "Share video"))
-                            },
-                            onChannelClick = { channelId ->
-                                navController.navigate(Screen.Channel.createRoute(channelId))
-                            }
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    val countLabel = uiState.commentsCount?.let { " ($it)" } ?: if (uiState.comments.isNotEmpty()) " (${uiState.comments.size})" else ""
+                    Text(
+                        text = "Comments$countLabel",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.weight(1f)
+                    )
+                    Text(
+                        text = if (uiState.showComments) "Hide" else "Show",
+                        color = Color(0xFF3EA6FF),
+                        style = MaterialTheme.typography.bodySmall,
+                        fontWeight = FontWeight.Medium
+                    )
+                }
+                if (!uiState.showComments && uiState.comments.isNotEmpty()) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    val topComment = uiState.comments.first()
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        ChannelAvatar(
+                            avatarUrl = topComment.authorThumbnail.ifBlank { null },
+                            channelName = topComment.author,
+                            size = 22.dp
+                        )
+                        Text(
+                            text = topComment.text,
+                            style = MaterialTheme.typography.bodySmall,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
                 }
+            }
+        }
 
-                // Comments preview box
+        // Comments list
+        if (uiState.showComments) {
+            if (uiState.isLoadingComments && uiState.comments.isEmpty()) {
                 item {
-                    Column(
+                    Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = 14.dp, vertical = 6.dp)
-                            .clip(RoundedCornerShape(12.dp))
-                            .background(MaterialTheme.colorScheme.surfaceVariant)
-                            .clickable { viewModel.toggleComments() }
-                            .padding(12.dp)
+                            .padding(vertical = 16.dp),
+                        contentAlignment = Alignment.Center
                     ) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            val countLabel = uiState.commentsCount?.let { " ($it)" } ?: if (uiState.comments.isNotEmpty()) " (${uiState.comments.size})" else ""
-                            Text(
-                                text = "Comments$countLabel",
-                                style = MaterialTheme.typography.titleSmall,
-                                fontWeight = FontWeight.Bold,
-                                modifier = Modifier.weight(1f)
-                            )
-                            Text(
-                                text = if (uiState.showComments) "Hide" else "Show",
-                                color = Color(0xFF3EA6FF),
-                                style = MaterialTheme.typography.bodySmall,
-                                fontWeight = FontWeight.Medium
-                            )
-                        }
-                        if (!uiState.showComments && uiState.comments.isNotEmpty()) {
-                            Spacer(modifier = Modifier.height(8.dp))
-                            val topComment = uiState.comments.first()
-                            Row(
-                                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                ChannelAvatar(
-                                    avatarUrl = topComment.authorThumbnail.ifBlank { null },
-                                    channelName = topComment.author,
-                                    size = 22.dp
-                                )
-                                Text(
-                                    text = topComment.text,
-                                    style = MaterialTheme.typography.bodySmall,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                        }
+                        CircularProgressIndicator(modifier = Modifier.size(24.dp), strokeWidth = 2.dp)
                     }
                 }
+            } else if (uiState.comments.isEmpty()) {
+                item {
+                    Text(
+                        text = "No comments available",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp)
+                    )
+                }
+            } else {
+                items(uiState.comments, key = { it.id.ifEmpty { it.hashCode().toString() } }) { comment ->
+                    CommentItem(comment = comment)
+                }
 
-                // Comments list
-                if (uiState.showComments) {
-                    if (uiState.isLoadingComments && uiState.comments.isEmpty()) {
-                        item {
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(vertical = 16.dp),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                CircularProgressIndicator(modifier = Modifier.size(24.dp), strokeWidth = 2.dp)
-                            }
-                        }
-                    } else if (uiState.comments.isEmpty()) {
-                        item {
-                            Text(
-                                text = "No comments available",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp)
-                            )
-                        }
-                    } else {
-                        items(uiState.comments, key = { it.id.ifEmpty { it.hashCode().toString() } }) { comment ->
-                            CommentItem(comment = comment)
-                        }
-
-                        if (!uiState.commentsContinuation.isNullOrBlank()) {
-                            item {
-                                Box(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(horizontal = 14.dp, vertical = 8.dp),
-                                    contentAlignment = Alignment.Center
+                if (!uiState.commentsContinuation.isNullOrBlank()) {
+                    item {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 14.dp, vertical = 8.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            if (uiState.isLoadingMoreComments) {
+                                CircularProgressIndicator(modifier = Modifier.size(22.dp), strokeWidth = 2.dp)
+                            } else {
+                                TextButton(
+                                    onClick = { viewModel.loadMoreComments() }
                                 ) {
-                                    if (uiState.isLoadingMoreComments) {
-                                        CircularProgressIndicator(modifier = Modifier.size(22.dp), strokeWidth = 2.dp)
-                                    } else {
-                                        TextButton(
-                                            onClick = { viewModel.loadMoreComments() }
-                                        ) {
-                                            Text(
-                                                text = "Load more comments",
-                                                style = MaterialTheme.typography.bodySmall,
-                                                color = Color(0xFF3EA6FF)
-                                            )
-                                        }
-                                    }
+                                    Text(
+                                        text = "Load more comments",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = Color(0xFF3EA6FF)
+                                    )
                                 }
                             }
                         }
                     }
                 }
+            }
+        }
+        }
 
-                // Related videos header
-                item {
-                    Text(
-                        text = "Related videos",
-                        style = MaterialTheme.typography.titleSmall.copy(
-                            fontSize = 15.sp,
-                            fontWeight = FontWeight.Bold
-                        ),
-                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp)
-                    )
+        // Related videos (header + list)
+        val relatedItems: LazyListScope.() -> Unit = {
+        // Related videos header
+        item {
+            Text(
+                text = "Related videos",
+                style = MaterialTheme.typography.titleSmall.copy(
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.Bold
+                ),
+                modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp)
+            )
+        }
+
+        // Related videos
+        items(uiState.relatedVideos) { related ->
+            VideoCard(
+                video = related,
+                onVideoClick = { id ->
+                    navController.navigate(Screen.Watch.createRoute(id))
+                },
+                onChannelClick = { channelId ->
+                    navController.navigate(Screen.Channel.createRoute(channelId))
+                },
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 2.dp)
+            )
+        }
+        }
+
+        if (widthClass.isCompact) {
+            // Compact: 16:9 player on top, everything else scrolls below
+            Column(modifier = Modifier.fillMaxSize()) {
+                playerContent(Modifier.fillMaxWidth())
+                LazyColumn(modifier = Modifier.fillMaxSize()) {
+                    infoItems()
+                    relatedItems()
                 }
-
-                // Related videos
-                items(uiState.relatedVideos) { related ->
-                    VideoCard(
-                        video = related,
-                        onVideoClick = { id ->
-                            navController.navigate(Screen.Watch.createRoute(id))
-                        },
-                        onChannelClick = { channelId ->
-                            navController.navigate(Screen.Channel.createRoute(channelId))
-                        },
-                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 2.dp)
-                    )
+            }
+        } else {
+            // Medium / Expanded: two panes that scroll independently
+            Row(modifier = Modifier.fillMaxSize()) {
+                BoxWithConstraints(modifier = Modifier.weight(0.68f).fillMaxHeight()) {
+                    val maxPlayerHeight = maxHeight * 0.62f
+                    Column(modifier = Modifier.fillMaxSize()) {
+                        Box(
+                            modifier = Modifier.fillMaxWidth(),
+                            contentAlignment = Alignment.TopCenter
+                        ) {
+                            playerContent(
+                                Modifier
+                                    .widthIn(max = 1100.dp)
+                                    .heightIn(max = maxPlayerHeight)
+                                    .fillMaxWidth()
+                            )
+                        }
+                        LazyColumn(modifier = Modifier.fillMaxSize()) {
+                            infoItems()
+                        }
+                    }
+                }
+                LazyColumn(
+                    modifier = Modifier
+                        .weight(0.32f)
+                        .widthIn(min = 320.dp)
+                        .fillMaxHeight()
+                ) {
+                    relatedItems()
                 }
             }
         }

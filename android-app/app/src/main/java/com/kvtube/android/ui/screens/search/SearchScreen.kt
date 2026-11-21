@@ -10,7 +10,6 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.material3.Button
@@ -27,7 +26,9 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavController
+import com.kvtube.android.ui.components.CenteredContent
 import com.kvtube.android.ui.components.SearchBar
+import com.kvtube.android.ui.components.rememberVideoGridCells
 import com.kvtube.android.ui.components.VideoCard
 import com.kvtube.android.ui.components.VideoGridSkeleton
 import com.kvtube.android.ui.navigation.Screen
@@ -59,6 +60,7 @@ fun SearchScreen(
         }
     }
 
+    CenteredContent {
     Column(
         modifier = Modifier.fillMaxSize()
     ) {
@@ -119,7 +121,7 @@ fun SearchScreen(
 
             else -> {
                 LazyVerticalGrid(
-                    columns = GridCells.Adaptive(minSize = 180.dp),
+                    columns = rememberVideoGridCells(),
                     contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
                     horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp),
                     verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(16.dp)
@@ -141,5 +143,6 @@ fun SearchScreen(
                 }
             }
         }
+    }
     }
 }

@@ -25,6 +25,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -106,6 +107,7 @@ import com.kvtube.android.ui.navigation.Screen
 import com.kvtube.android.ui.navigation.TabReselect
 import com.kvtube.android.ui.theme.YTBrandRed
 import kotlinx.coroutines.launch
+import com.kvtube.android.ui.adaptive.LocalWidthClass
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -202,6 +204,14 @@ fun ShortsScreen(
             .fillMaxSize()
             .background(Color.Black)
     ) {
+        // On wide windows keep a centred 9:16-style column with black side areas
+        // instead of stretching the vertical pager across the whole window.
+        val shortsColumnModifier = if (LocalWidthClass.current.isWide) {
+            Modifier.align(Alignment.Center).widthIn(max = 480.dp).fillMaxSize()
+        } else {
+            Modifier.fillMaxSize()
+        }
+        Box(modifier = shortsColumnModifier) {
         VerticalPager(
             state = pagerState,
             modifier = Modifier.fillMaxSize()
@@ -236,6 +246,7 @@ fun ShortsScreen(
                 tint = Color.White,
                 modifier = Modifier.size(22.dp)
             )
+        }
         }
 
         // Shorts comments bottom sheet

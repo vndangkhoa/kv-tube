@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.MoreVert
@@ -31,6 +32,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
 import com.kvtube.android.data.model.VideoData
+import com.kvtube.android.ui.adaptive.LocalWidthClass
 import com.kvtube.android.ui.theme.AstryxRadius
 
 /** Thumbnail — the URL is already Invidious-proxied upstream (see
@@ -58,8 +60,10 @@ fun VideoCard(
     showChannelName: Boolean = true,
     modifier: Modifier = Modifier
 ) {
+    val isWide = LocalWidthClass.current.isWide
     Column(
         modifier = modifier
+            .then(if (isWide) Modifier.widthIn(max = MaxVideoCardWidthDp.dp) else Modifier)
             .fillMaxWidth()
             .clickable { onVideoClick(video.id) }
             .padding(bottom = 16.dp)

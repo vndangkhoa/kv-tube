@@ -16,8 +16,8 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -45,7 +45,10 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavController
 import coil3.compose.AsyncImage
 import com.kvtube.android.data.model.VideoData
+import com.kvtube.android.ui.adaptive.LocalWidthClass
+import com.kvtube.android.ui.components.CenteredContent
 import com.kvtube.android.ui.components.DurationBadge
+import com.kvtube.android.ui.components.rememberRowGridCells
 import com.kvtube.android.ui.navigation.Screen
 
 @Composable
@@ -55,6 +58,7 @@ fun HistoryScreen(
 ) {
     val history by viewModel.history.collectAsState()
 
+    CenteredContent {
     Column(modifier = Modifier.fillMaxSize()) {
         // Compact header (no big top-app-bar)
         Row(
@@ -120,23 +124,31 @@ fun HistoryScreen(
                 }
             }
         } else {
-            LazyColumn(
+            val isCompact = LocalWidthClass.current.isCompact
+            LazyVerticalGrid(
+                columns = rememberRowGridCells(),
                 modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(vertical = 8.dp)
+                contentPadding = PaddingValues(vertical = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 items(history, key = { it.id }) { video ->
-                    HistoryRow(
-                        video = video,
-                        onClick = { navController.navigate(Screen.Watch.createRoute(video.id)) },
-                        onRemove = { viewModel.remove(video.id) }
-                    )
-                    HorizontalDivider(
-                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
-                        thickness = 0.6.dp
-                    )
+                    Column {
+                        HistoryRow(
+                            video = video,
+                            onClick = { navController.navigate(Screen.Watch.createRoute(video.id)) },
+                            onRemove = { viewModel.remove(video.id) }
+                        )
+                        if (isCompact) {
+                            HorizontalDivider(
+                                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+                                thickness = 0.6.dp
+                            )
+                        }
+                    }
                 }
             }
         }
+    }
     }
 }
 

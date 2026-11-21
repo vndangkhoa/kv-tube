@@ -113,8 +113,9 @@ fun VideoCardSkeleton(modifier: Modifier = Modifier) {
 
 @Composable
 fun VideoGridSkeleton() {
+    CenteredContent {
     LazyVerticalGrid(
-        columns = GridCells.Adaptive(minSize = 180.dp),
+        columns = rememberVideoGridCells(),
         contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 12.dp, vertical = 8.dp),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)
@@ -122,5 +123,6 @@ fun VideoGridSkeleton() {
         items(12) {
             VideoCardSkeleton()
         }
+    }
     }
 }

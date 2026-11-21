@@ -5,6 +5,16 @@ All notable changes to KV-Tube are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.13.0] - 2026-11-21
+
+### Added
+- **Android phone app (v1.9.0) — foldable & tablet support (adaptive layout)**:
+  - New window-width classes (Compact < 600 dp, Medium 600–839 dp, Expanded ≥ 840 dp) driven by the live window size, so unfolding a foldable, rotating or split-screen re-lays out instantly.
+  - Navigation: bottom bar on phones, side `NavigationRail` on Medium/Expanded (mini player stays at the bottom of the content area).
+  - Watch screen: two panes on wide windows (player + details left, related videos right, independent scroll); fullscreen unchanged.
+  - Grids: video lists use 1/2/3/4 columns by width (Home, Subscriptions, Search, Channel, History, Downloads), content centred and capped on very wide windows; Library and Settings capped to a readable width; Shorts centred in a 9:16 column.
+  - Fixed: rail stretching across the window (found in emulator testing).
+
 ## [4.12.2] - 2026-11-21
 
 ### Fixed

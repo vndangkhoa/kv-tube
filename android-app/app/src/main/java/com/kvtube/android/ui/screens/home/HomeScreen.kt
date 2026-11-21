@@ -10,7 +10,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
@@ -38,6 +37,8 @@ import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavController
 import com.kvtube.android.ui.components.CategoryPills
+import com.kvtube.android.ui.components.CenteredContent
+import com.kvtube.android.ui.components.rememberVideoGridCells
 import com.kvtube.android.ui.components.LoadingSpinner
 import com.kvtube.android.ui.components.VideoCard
 import com.kvtube.android.ui.components.VideoGridSkeleton
@@ -60,6 +61,7 @@ fun HomeScreen(
         }
     }
 
+    CenteredContent {
     Column(
         modifier = Modifier.fillMaxSize()
     ) {
@@ -113,7 +115,7 @@ fun HomeScreen(
             }
         } else {
             LazyVerticalGrid(
-                columns = GridCells.Adaptive(minSize = 300.dp),
+                columns = rememberVideoGridCells(),
                 state = gridState,
                 contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -202,5 +204,6 @@ fun HomeScreen(
                 }
             }
         }
+    }
     }
 }

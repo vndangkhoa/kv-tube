@@ -16,6 +16,16 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.consumeWindowInsets
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.only
+import androidx.compose.foundation.layout.systemBars
+import androidx.compose.material3.ScaffoldDefaults
+import com.kvtube.android.ui.adaptive.LocalWidthClass
+import com.kvtube.android.ui.navigation.AppNavigationRail
 import androidx.compose.ui.res.painterResource
 import com.kvtube.android.R
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -149,224 +159,267 @@ fun MainScreen() {
         isNotificationsOpen = false
     }
 
-    Scaffold(
-        topBar = {
-            if (!isPlayerFullscreen) {
-                Box(modifier = Modifier.animateContentSize()) {
-                if (isSearchActive) {
-                    // Compact expanding search field — just enough space to type
-                    TopAppBar(
-                        title = {
-                            TextField(
-                                value = searchUiState.query,
-                                onValueChange = { searchViewModel.onQueryChanged(it) },
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .focusRequester(focusRequester),
-                                placeholder = {
-                                    Text(
-                                        text = "Search...",
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+    // Compact: bottom bar. Medium/Expanded: start-edge NavigationRail next to the
+    // content (hidden together with the bottom bar when the player is fullscreen).
+    val widthClass = LocalWidthClass.current
+    val showRail = widthClass.isWide && !isPlayerFullscreen
+    val onNavTabClick: (String) -> Unit = {
+        isSearchActive = false
+        searchViewModel.onQueryChanged("")
+        focusManager.clearFocus()
+    }
+
+    Row(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background)
+    ) {
+        if (showRail) {
+            AppNavigationRail(
+                navController = navController,
+                activeDownloadsCount = activeDownloadsCount,
+                onTabClick = onNavTabClick
+            )
+        }
+        Scaffold(
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxHeight()
+                .then(
+                    if (showRail) {
+                        Modifier.consumeWindowInsets(
+                            WindowInsets.systemBars.only(WindowInsetsSides.Start)
+                        )
+                    } else {
+                        Modifier
+                    }
+                ),
+            // The rail already pads for the start inset, so Scaffold only handles the rest
+            contentWindowInsets = if (showRail) {
+                WindowInsets.systemBars.only(
+                    WindowInsetsSides.Top + WindowInsetsSides.End + WindowInsetsSides.Bottom
+                )
+            } else {
+                ScaffoldDefaults.contentWindowInsets
+            },
+            topBar = {
+                if (!isPlayerFullscreen) {
+                    Box(modifier = Modifier.animateContentSize()) {
+                    if (isSearchActive) {
+                        // Compact expanding search field — just enough space to type
+                        TopAppBar(
+                            title = {
+                                TextField(
+                                    value = searchUiState.query,
+                                    onValueChange = { searchViewModel.onQueryChanged(it) },
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .focusRequester(focusRequester),
+                                    placeholder = {
+                                        Text(
+                                            text = "Search...",
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    },
+                                    singleLine = true,
+                                    colors = TextFieldDefaults.colors(
+                                        focusedContainerColor = Color.Transparent,
+                                        unfocusedContainerColor = Color.Transparent,
+                                        disabledContainerColor = Color.Transparent,
+                                        focusedIndicatorColor = Color.Transparent,
+                                        unfocusedIndicatorColor = Color.Transparent,
+                                        cursorColor = MaterialTheme.colorScheme.onSurface
+                                    ),
+                                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                                    keyboardActions = KeyboardActions(
+                                        onSearch = {
+                                            searchViewModel.searchImmediate(searchUiState.query)
+                                            focusManager.clearFocus()
+                                        }
                                     )
-                                },
-                                singleLine = true,
-                                colors = TextFieldDefaults.colors(
-                                    focusedContainerColor = Color.Transparent,
-                                    unfocusedContainerColor = Color.Transparent,
-                                    disabledContainerColor = Color.Transparent,
-                                    focusedIndicatorColor = Color.Transparent,
-                                    unfocusedIndicatorColor = Color.Transparent,
-                                    cursorColor = MaterialTheme.colorScheme.onSurface
-                                ),
-                                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                                keyboardActions = KeyboardActions(
-                                    onSearch = {
-                                        searchViewModel.searchImmediate(searchUiState.query)
+                                )
+                            },
+                            navigationIcon = {
+                                IconButton(onClick = {
+                                    if (searchUiState.query.isNotEmpty()) {
+                                        // First back: clear query, stay in compact search
+                                        searchViewModel.onQueryChanged("")
+                                        focusRequester.requestFocus()
+                                    } else {
+                                        isSearchActive = false
                                         focusManager.clearFocus()
                                     }
-                                )
-                            )
-                        },
-                        navigationIcon = {
-                            IconButton(onClick = {
+                                }) {
+                                    Icon(
+                                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                                        contentDescription = "Back"
+                                    )
+                                }
+                            },
+                            actions = {
                                 if (searchUiState.query.isNotEmpty()) {
-                                    // First back: clear query, stay in compact search
-                                    searchViewModel.onQueryChanged("")
-                                    focusRequester.requestFocus()
-                                } else {
+                                    IconButton(onClick = {
+                                        searchViewModel.onQueryChanged("")
+                                        focusRequester.requestFocus()
+                                    }) {
+                                        Icon(
+                                            imageVector = Icons.Filled.Close,
+                                            contentDescription = "Clear"
+                                        )
+                                    }
+                                }
+                            },
+                            colors = TopAppBarDefaults.topAppBarColors(
+                                containerColor = MaterialTheme.colorScheme.background,
+                                titleContentColor = MaterialTheme.colorScheme.onSurface
+                            )
+                        )
+                    } else if (currentRoute != Screen.Shorts.route) {
+                        TopAppBar(
+                            title = {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    Image(
+                                        painter = painterResource(id = R.drawable.ic_splash_logo),
+                                        contentDescription = null,
+                                        modifier = Modifier.size(24.dp)
+                                    )
+                                    Text(
+                                        text = "KV-Tube",
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 20.sp
+                                    )
+                                }
+                            },
+                            actions = {
+                                // Subscription updates: badge shows how many feed
+                                // videos arrived since the panel was last opened.
+                                IconButton(onClick = {
+                                    isNotificationsOpen = true
                                     isSearchActive = false
                                     focusManager.clearFocus()
-                                }
-                            }) {
-                                Icon(
-                                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                                    contentDescription = "Back"
-                                )
-                            }
-                        },
-                        actions = {
-                            if (searchUiState.query.isNotEmpty()) {
-                                IconButton(onClick = {
-                                    searchViewModel.onQueryChanged("")
-                                    focusRequester.requestFocus()
+                                    highlightNewIds = notifUiState.unseenIds
+                                    notifViewModel.markAllSeen()
+                                    notifViewModel.refresh()
                                 }) {
-                                    Icon(
-                                        imageVector = Icons.Filled.Close,
-                                        contentDescription = "Clear"
-                                    )
-                                }
-                            }
-                        },
-                        colors = TopAppBarDefaults.topAppBarColors(
-                            containerColor = MaterialTheme.colorScheme.background,
-                            titleContentColor = MaterialTheme.colorScheme.onSurface
-                        )
-                    )
-                } else if (currentRoute != Screen.Shorts.route) {
-                    TopAppBar(
-                        title = {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
-                                Image(
-                                    painter = painterResource(id = R.drawable.ic_splash_logo),
-                                    contentDescription = null,
-                                    modifier = Modifier.size(24.dp)
-                                )
-                                Text(
-                                    text = "KV-Tube",
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 20.sp
-                                )
-                            }
-                        },
-                        actions = {
-                            // Subscription updates: badge shows how many feed
-                            // videos arrived since the panel was last opened.
-                            IconButton(onClick = {
-                                isNotificationsOpen = true
-                                isSearchActive = false
-                                focusManager.clearFocus()
-                                highlightNewIds = notifUiState.unseenIds
-                                notifViewModel.markAllSeen()
-                                notifViewModel.refresh()
-                            }) {
-                                BadgedBox(badge = {
-                                    val unseen = notifUiState.unseenIds.size
-                                    if (unseen > 0) {
-                                        Badge {
-                                            Text(if (unseen > 99) "99+" else unseen.toString())
+                                    BadgedBox(badge = {
+                                        val unseen = notifUiState.unseenIds.size
+                                        if (unseen > 0) {
+                                            Badge {
+                                                Text(if (unseen > 99) "99+" else unseen.toString())
+                                            }
                                         }
+                                    }) {
+                                        Icon(
+                                            imageVector = Icons.Filled.Notifications,
+                                            contentDescription = "New subscription videos"
+                                        )
                                     }
+                                }
+                                IconButton(onClick = {
+                                    isNotificationsOpen = false
+                                    isSearchActive = true
                                 }) {
                                     Icon(
-                                        imageVector = Icons.Filled.Notifications,
-                                        contentDescription = "New subscription videos"
+                                        imageVector = Icons.Filled.Search,
+                                        contentDescription = "Search"
                                     )
                                 }
-                            }
-                            IconButton(onClick = {
-                                isNotificationsOpen = false
-                                isSearchActive = true
-                            }) {
-                                Icon(
-                                    imageVector = Icons.Filled.Search,
-                                    contentDescription = "Search"
+                            },
+                            colors = TopAppBarDefaults.topAppBarColors(
+                                containerColor = MaterialTheme.colorScheme.background,
+                                titleContentColor = MaterialTheme.colorScheme.onSurface
+                            )
+                        )
+                    }
+                    // Shorts route: chromeless — no top bar, the video is full page (#6)
+                    }
+                }
+            },
+            bottomBar = {
+                if (!isPlayerFullscreen) {
+                    // Wide: the rail owns the nav bar, so this column only hosts the
+                    // mini player and pads for the system navigation bar itself.
+                    Column(modifier = if (showRail) Modifier.navigationBarsPadding() else Modifier) {
+                        // Mini player: keeps playing after leaving the watch page
+                        AnimatedVisibility(
+                            visible = showMiniPlayer,
+                            enter = slideInVertically(initialOffsetY = { it }) + fadeIn(),
+                            exit = slideOutVertically(targetOffsetY = { it }) + fadeOut()
+                        ) {
+                            nowPlaying?.let { np ->
+                                MiniPlayer(
+                                    nowPlaying = np,
+                                    player = playbackManager.player,
+                                    onOpen = {
+                                        navController.navigate(Screen.Watch.createRoute(np.videoId)) {
+                                            launchSingleTop = true
+                                        }
+                                    },
+                                    onClose = { playbackManager.stopAndClear() }
                                 )
                             }
-                        },
-                        colors = TopAppBarDefaults.topAppBarColors(
-                            containerColor = MaterialTheme.colorScheme.background,
-                            titleContentColor = MaterialTheme.colorScheme.onSurface
-                        )
-                    )
-                }
-                // Shorts route: chromeless — no top bar, the video is full page (#6)
-                }
-            }
-        },
-        bottomBar = {
-            if (!isPlayerFullscreen) {
-                Column {
-                    // Mini player: keeps playing after leaving the watch page
-                    AnimatedVisibility(
-                        visible = showMiniPlayer,
-                        enter = slideInVertically(initialOffsetY = { it }) + fadeIn(),
-                        exit = slideOutVertically(targetOffsetY = { it }) + fadeOut()
-                    ) {
-                        nowPlaying?.let { np ->
-                            MiniPlayer(
-                                nowPlaying = np,
-                                player = playbackManager.player,
-                                onOpen = {
-                                    navController.navigate(Screen.Watch.createRoute(np.videoId)) {
-                                        launchSingleTop = true
-                                    }
-                                },
-                                onClose = { playbackManager.stopAndClear() }
+                        }
+
+                        if (!showRail) {
+                            BottomNavBar(
+                                navController = navController,
+                                activeDownloadsCount = activeDownloadsCount,
+                                onTabClick = onNavTabClick
                             )
                         }
                     }
-
-                    BottomNavBar(
-                        navController = navController,
-                        activeDownloadsCount = activeDownloadsCount,
-                        onTabClick = {
-                            isSearchActive = false
-                            searchViewModel.onQueryChanged("")
-                            focusManager.clearFocus()
-                        }
-                    )
                 }
-            }
-        },
-        containerColor = MaterialTheme.colorScheme.background
-    ) { innerPadding ->
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .then(if (isPlayerFullscreen) Modifier else Modifier.padding(innerPadding))
-        ) {
-            when {
-                showFullResults -> {
-                    SearchResultsContent(
-                        uiState = searchUiState,
-                        onVideoClick = { videoId ->
-                            isSearchActive = false
-                            searchViewModel.onQueryChanged("")
-                            navController.navigate(Screen.Watch.createRoute(videoId))
-                        },
-                        onChannelClick = { channelId ->
-                            isSearchActive = false
-                            searchViewModel.onQueryChanged("")
-                            navController.navigate(Screen.Channel.createRoute(channelId))
-                        }
-                    )
-                }
-                isNotificationsOpen -> {
-                    NotificationsPanel(
-                        uiState = notifUiState,
-                        highlightIds = highlightNewIds,
-                        onClose = { isNotificationsOpen = false },
-                        onVideoClick = { videoId ->
-                            isNotificationsOpen = false
-                            navController.navigate(Screen.Watch.createRoute(videoId))
-                        },
-                        onChannelClick = { channelId ->
-                            isNotificationsOpen = false
-                            navController.navigate(Screen.Channel.createRoute(channelId))
-                        }
-                    )
-                }
-                else -> {
-                    NavGraph(
-                        navController = navController,
-                        onOpenSearch = {
-                            isSearchActive = true
-                            searchViewModel.onQueryChanged("")
-                        }
-                    )
+            },
+            containerColor = MaterialTheme.colorScheme.background
+        ) { innerPadding ->
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .then(if (isPlayerFullscreen) Modifier else Modifier.padding(innerPadding))
+            ) {
+                when {
+                    showFullResults -> {
+                        SearchResultsContent(
+                            uiState = searchUiState,
+                            onVideoClick = { videoId ->
+                                isSearchActive = false
+                                searchViewModel.onQueryChanged("")
+                                navController.navigate(Screen.Watch.createRoute(videoId))
+                            },
+                            onChannelClick = { channelId ->
+                                isSearchActive = false
+                                searchViewModel.onQueryChanged("")
+                                navController.navigate(Screen.Channel.createRoute(channelId))
+                            }
+                        )
+                    }
+                    isNotificationsOpen -> {
+                        NotificationsPanel(
+                            uiState = notifUiState,
+                            highlightIds = highlightNewIds,
+                            onClose = { isNotificationsOpen = false },
+                            onVideoClick = { videoId ->
+                                isNotificationsOpen = false
+                                navController.navigate(Screen.Watch.createRoute(videoId))
+                            },
+                            onChannelClick = { channelId ->
+                                isNotificationsOpen = false
+                                navController.navigate(Screen.Channel.createRoute(channelId))
+                            }
+                        )
+                    }
+                    else -> {
+                        NavGraph(
+                            navController = navController,
+                            onOpenSearch = {
+                                isSearchActive = true
+                                searchViewModel.onQueryChanged("")
+                            }
+                        )
+                    }
                 }
             }
         }

@@ -14,7 +14,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
@@ -43,7 +42,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavController
+import com.kvtube.android.ui.components.CenteredContent
 import com.kvtube.android.ui.components.ChannelAvatar
+import com.kvtube.android.ui.components.rememberVideoGridCells
 import com.kvtube.android.ui.components.LoadingSpinner
 import com.kvtube.android.ui.components.VideoCard
 import com.kvtube.android.ui.navigation.Screen
@@ -58,6 +59,7 @@ fun SubscriptionsScreen(
     // Reload every time the tab is opened so new subscriptions/uploads show up.
     LaunchedEffect(Unit) { viewModel.refresh() }
 
+    CenteredContent {
     Column(
         modifier = Modifier.fillMaxSize()
     ) {
@@ -154,7 +156,7 @@ fun SubscriptionsScreen(
                 val gridState = rememberLazyGridState()
 
                 LazyVerticalGrid(
-                    columns = GridCells.Adaptive(minSize = 300.dp),
+                    columns = rememberVideoGridCells(),
                     state = gridState,
                     contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -225,5 +227,6 @@ fun SubscriptionsScreen(
                 }
             }
         }
+    }
     }
 }

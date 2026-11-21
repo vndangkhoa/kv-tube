@@ -102,6 +102,7 @@ class MainActivity : ComponentActivity() {
             val pipAudioUrl by pipAudioUrl.collectAsState()
 
             KVTubeTheme(themeMode = themeMode) {
+                com.kvtube.android.ui.adaptive.ProvideWidthClass {
                 Surface(modifier = Modifier.fillMaxSize()) {
                 if (isInPip && pipVideoUrl != null) {
                     // PiP mode: reattach to the app-wide player instead of
@@ -126,6 +127,7 @@ class MainActivity : ComponentActivity() {
                     )
                 } else {
                     AppEntry()
+                }
                 }
                 }
             }

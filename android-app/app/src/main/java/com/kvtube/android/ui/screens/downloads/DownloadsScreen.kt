@@ -17,8 +17,8 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Sort
@@ -63,7 +63,9 @@ import com.kvtube.android.data.local.DownloadedVideoEntity
 import com.kvtube.android.data.model.DownloadProgress
 import com.kvtube.android.data.model.DownloadStatus
 import com.kvtube.android.data.model.SortCriteria
+import com.kvtube.android.ui.components.CenteredContent
 import com.kvtube.android.ui.components.DurationBadge
+import com.kvtube.android.ui.components.rememberRowGridCells
 import com.kvtube.android.ui.components.SearchBar
 import com.kvtube.android.ui.navigation.Screen
 import com.kvtube.android.ui.theme.YTBrandRed
@@ -122,10 +124,9 @@ fun DownloadsScreen(
         )
     }
 
+    CenteredContent(modifier = Modifier.background(MaterialTheme.colorScheme.background)) {
     Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background)
+        modifier = Modifier.fillMaxSize()
     ) {
         // Storage Card (YouTube Mobile Style)
         val totalBytes = uiState.downloads.sumOf { it.fileSize }
@@ -249,8 +250,10 @@ fun DownloadsScreen(
             }
 
             else -> {
-                LazyColumn(
+                LazyVerticalGrid(
+                    columns = rememberRowGridCells(),
                     contentPadding = PaddingValues(horizontal = 14.dp, vertical = 4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     items(uiState.downloads, key = { it.videoId }) { video ->
@@ -266,6 +269,7 @@ fun DownloadsScreen(
                 }
             }
         }
+    }
     }
 }
 
