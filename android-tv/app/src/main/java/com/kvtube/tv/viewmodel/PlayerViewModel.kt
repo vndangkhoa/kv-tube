@@ -123,6 +123,14 @@ class PlayerViewModel : ViewModel() {
         data object Unavailable : PlaybackConfig()
     }
 
+    /** Adaptive DASH manifest URL for [videoId] on the active instance (no metadata fetch needed). */
+    fun dashManifestUrl(videoId: String): String =
+        com.kvtube.tv.player.TvStreamUrls.dashManifestUrl(
+            baseUrl = com.kvtube.tv.data.api.ApiClient.baseUrl,
+            videoId = videoId.trim(),
+            gateway = com.kvtube.tv.data.api.ApiClient.isGatewayMode
+        )
+
     fun fixUrl(u: String): String = com.kvtube.tv.data.api.ApiClient.rewriteStreamUrl(u)
 
     suspend fun fallbackToInnerTube(videoId: String): InvidiousVideo? {

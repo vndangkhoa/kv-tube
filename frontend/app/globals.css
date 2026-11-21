@@ -222,6 +222,12 @@
   box-shadow: var(--yt-card-hover-shadow);
 }
 
+/* Below-the-fold deferred rendering (modern-web-guidance: defer-rendering-heavy-content) */
+.yt-deferred-card {
+  content-visibility: auto;
+  contain-intrinsic-size: auto none auto 310px;
+}
+
 /* ===== BASE LAYOUT ===== */
 
 .yt-header {

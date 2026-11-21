@@ -1,5 +1,6 @@
 package com.kvtube.android.ui.components
 
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -30,6 +31,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
 import com.kvtube.android.data.model.VideoData
+import com.kvtube.android.ui.theme.AstryxRadius
 
 /** Thumbnail — the URL is already Invidious-proxied upstream (see
  *  VideoData.displayThumbnail); nothing here ever touches Google hosts. */
@@ -67,7 +69,12 @@ fun VideoCard(
             modifier = Modifier
                 .fillMaxWidth()
                 .aspectRatio(16f / 9f)
-                .clip(RoundedCornerShape(12.dp))
+                .clip(RoundedCornerShape(AstryxRadius.container))
+                .border(
+                    1.dp,
+                    MaterialTheme.colorScheme.outlineVariant,
+                    RoundedCornerShape(AstryxRadius.container)
+                )
         ) {
             VideoThumb(
                 video = video,

@@ -99,14 +99,18 @@ export function transformVideo(raw: any): VideoData {
 }
 
 // Search videos using Invidious with client cache
-export async function searchVideosClient(query: string, limit: number = 20): Promise<VideoData[]> {
+export async function searchVideosClient(
+  query: string,
+  limit: number = 20,
+  priority?: 'low' | 'high' | 'auto'
+): Promise<VideoData[]> {
   if (!query) return [];
   const cacheKey = `srch_${query}_${limit}`;
   const cached = getClientCache<VideoData[]>(cacheKey);
   if (cached && cached.length > 0) return cached;
 
   try {
-    const res = await invidious.search(query, { page: 1 });
+    const res = await invidious.search(query, { page: 1, ...(priority ? { priority } : {}) });
     if (Array.isArray(res) && res.length > 0) {
       const transformed = res.map(transformVideo).filter((v) => v.id && v.title).slice(0, limit);
       setClientCache(cacheKey, transformed);

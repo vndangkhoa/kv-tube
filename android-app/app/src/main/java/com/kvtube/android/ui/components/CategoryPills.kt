@@ -20,6 +20,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.kvtube.android.ui.theme.AstryxRadius
 
 val categories = listOf(
     "All", "Trending", "Music", "Gaming", "News", "Sports",
@@ -45,9 +46,12 @@ fun CategoryPills(
             FilterChip(
                 selected = selected,
                 onClick = { onCategorySelected(category) },
-                shape = RoundedCornerShape(8.dp),
-                border = BorderStroke(0.dp, Color.Transparent),
-                modifier = Modifier.height(32.dp),
+                shape = RoundedCornerShape(AstryxRadius.element),
+                border = BorderStroke(
+                    1.dp,
+                    if (selected) Color.Transparent else MaterialTheme.colorScheme.outlineVariant
+                ),
+                modifier = Modifier.height(34.dp),
                 label = {
                     Text(
                         text = category,
@@ -56,8 +60,8 @@ fun CategoryPills(
                     )
                 },
                 colors = FilterChipDefaults.filterChipColors(
-                    selectedContainerColor = MaterialTheme.colorScheme.onSurface,
-                    selectedLabelColor = MaterialTheme.colorScheme.background,
+                    selectedContainerColor = MaterialTheme.colorScheme.primary,
+                    selectedLabelColor = MaterialTheme.colorScheme.onPrimary,
                     containerColor = MaterialTheme.colorScheme.surfaceVariant,
                     labelColor = MaterialTheme.colorScheme.onSurface
                 )

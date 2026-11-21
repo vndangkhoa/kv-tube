@@ -8,7 +8,17 @@ import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.database.StandaloneDatabaseProvider
+import androidx.media3.common.MimeTypes
+import androidx.media3.common.VideoSize
 import androidx.media3.datasource.DefaultDataSource
+import androidx.media3.datasource.ResolvingDataSource
+import androidx.media3.exoplayer.analytics.AnalyticsListener
+import androidx.media3.exoplayer.mediacodec.MediaCodecUtil
+import androidx.media3.exoplayer.trackselection.AdaptiveTrackSelection
+import androidx.media3.exoplayer.upstream.DefaultBandwidthMeter
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import androidx.media3.datasource.cache.CacheDataSource
 import androidx.media3.datasource.cache.LeastRecentlyUsedCacheEvictor
 import androidx.media3.datasource.cache.SimpleCache
@@ -75,15 +85,86 @@ class TvPlaybackManager private constructor(context: Context) {
         .setUpstreamDataSourceFactory(okHttpFactory)
         .setFlags(CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR)
 
-    val dataSourceFactory: DefaultDataSource.Factory =
-        DefaultDataSource.Factory(context.applicationContext, cacheDataSourceFactory)
+    /** Resolves gateway-relative segment URLs (`/companion/...`) onto `/api/invidious`. */
+    private val gatewayAwareUpstream = ResolvingDataSource.Factory(cacheDataSourceFactory) { dataSpec ->
+        val host = if (ApiClient.isGatewayMode) {
+            runCatching { java.net.URI(ApiClient.baseUrl).host }.getOrNull()
+        } else null
+        val original = dataSpec.uri.toString()
+        val rewritten = TvStreamUrls.rewriteGatewayUrl(original, host)
+        if (rewritten == original) dataSpec else dataSpec.withUri(Uri.parse(rewritten))
+    }
 
-    val trackSelector: DefaultTrackSelector = DefaultTrackSelector(context).apply {
+    val dataSourceFactory: DefaultDataSource.Factory =
+        DefaultDataSource.Factory(context.applicationContext, gatewayAwareUpstream)
+
+    // ---- adaptive bitrate (ABR) ---------------------------------------------
+
+    private val prefs = context.applicationContext.getSharedPreferences("kv_tv_playback", Context.MODE_PRIVATE)
+    private var lastBandwidthPersistAt = 0L
+
+    /** Meter seeded with the last measured throughput so the first segments
+     *  already fit the connection instead of crawling up from the lowest rung. */
+    private val bandwidthMeter: DefaultBandwidthMeter = DefaultBandwidthMeter.Builder(context.applicationContext)
+        .apply {
+            val saved = prefs.getLong("bw_bps", 0L)
+            if (saved >= 500_000L) setInitialBitrateEstimate(saved.coerceAtMost(120_000_000L))
+        }
+        .build()
+
+    private val hardwareAv1: Boolean = runCatching {
+        MediaCodecUtil.getDecoderInfos(MimeTypes.VIDEO_AV1, false, false).any { it.hardwareAccelerated }
+    }.getOrDefault(false)
+
+    private val _bandwidthMbps = MutableStateFlow(0f)
+    val bandwidthMbps: StateFlow<Float> = _bandwidthMbps.asStateFlow()
+
+    private val _activeHeight = MutableStateFlow(0)
+    val activeHeight: StateFlow<Int> = _activeHeight.asStateFlow()
+
+    @Volatile var isFastDashActive: Boolean = false
+        private set
+
+    /** 0 = Auto (ABR over the whole ladder); otherwise the max height to allow. */
+    @Volatile var maxHeightCap: Int = 0
+        private set
+
+    /**
+     * Applies a resolution cap by changing track-selection constraints only —
+     * the source, decoder and surface stay alive, so quality changes are
+     * seamless (no re-buffer, no black frame).
+     */
+    fun setMaxHeight(cap: Int) {
+        maxHeightCap = cap
+        trackSelector.setParameters(
+            trackSelector.buildUponParameters()
+                .clearVideoSizeConstraints()
+                .setExceedVideoConstraintsIfNecessary(true)
+                .apply { if (cap > 0) setMaxVideoSize(Int.MAX_VALUE, cap) }
+        )
+    }
+
+    val trackSelector: DefaultTrackSelector = DefaultTrackSelector(
+        context,
+        AdaptiveTrackSelection.Factory(
+            /* minDurationForQualityIncreaseMs = */ 3_000,
+            /* maxDurationForQualityDecreaseMs = */ 12_000,
+            /* minDurationToRetainAfterDiscardMs = */ 12_000,
+            /* bandwidthFraction = */ 0.85f
+        )
+    ).apply {
         setParameters(
             buildUponParameters()
-                .setMaxVideoSize(3840, 2160)
-                .setMaxVideoBitrate(Int.MAX_VALUE)
-                .setForceHighestSupportedBitrate(true)
+                // Adaptive (not "force highest"): resolution follows measured
+                // bandwidth and never exceeds the TV's own panel size.
+                .setForceHighestSupportedBitrate(false)
+                .setAllowVideoMixedMimeTypeAdaptiveness(false)
+                .setExceedVideoConstraintsIfNecessary(true)
+                // AV1 only with a hardware decoder, otherwise universally supported H.264.
+                .setPreferredVideoMimeTypes(
+                    *(if (hardwareAv1) arrayOf(MimeTypes.VIDEO_AV1, MimeTypes.VIDEO_H264)
+                    else arrayOf(MimeTypes.VIDEO_H264))
+                )
         )
     }
 
@@ -105,6 +186,7 @@ class TvPlaybackManager private constructor(context: Context) {
         .build()
 
     val player: ExoPlayer = ExoPlayer.Builder(context.applicationContext)
+        .setBandwidthMeter(bandwidthMeter)
         .setTrackSelector(trackSelector)
         .setLoadControl(loadControl)
         .setSeekForwardIncrementMs(10_000)
@@ -117,12 +199,67 @@ class TvPlaybackManager private constructor(context: Context) {
             /* handleAudioFocus = */ true
         )
         .build()
+        .also { exo ->
+            exo.addListener(object : androidx.media3.common.Player.Listener {
+                override fun onVideoSizeChanged(videoSize: VideoSize) {
+                    if (videoSize.height > 0) _activeHeight.value = videoSize.height
+                }
+            })
+            exo.addAnalyticsListener(object : AnalyticsListener {
+                override fun onBandwidthEstimate(
+                    eventTime: AnalyticsListener.EventTime,
+                    totalLoadTimeMs: Int,
+                    totalBytesLoaded: Long,
+                    bitrateEstimate: Long
+                ) {
+                    if (bitrateEstimate <= 0) return
+                    _bandwidthMbps.value = bitrateEstimate / 1_000_000f
+                    val now = android.os.SystemClock.elapsedRealtime()
+                    if (now - lastBandwidthPersistAt >= 4_000L) {
+                        lastBandwidthPersistAt = now
+                        prefs.edit().putLong("bw_bps", bitrateEstimate).apply()
+                    }
+                }
+            })
+        }
+
+    /**
+     * Starts adaptive DASH straight from the manifest at t=0 — no waiting for
+     * the `/videos/{id}` metadata round-trip. Returns false if it can't start.
+     */
+    fun playDashFast(manifestUrl: String): Boolean {
+        if (manifestUrl.isBlank()) return false
+        return try {
+            exoStopQuiet()
+            val item = MediaItem.Builder()
+                .setUri(manifestUrl)
+                .setMimeType(MimeTypes.APPLICATION_MPD)
+                .build()
+            val source = DashMediaSource.Factory(dataSourceFactory).createMediaSource(item)
+            _activeHeight.value = 0
+            isFastDashActive = true
+            player.setMediaSource(source)
+            player.prepare()
+            player.playWhenReady = true
+            true
+        } catch (_: Exception) {
+            isFastDashActive = false
+            false
+        }
+    }
+
+    fun markFastDashEnded() { isFastDashActive = false }
+
+    private fun exoStopQuiet() {
+        try { player.stop(); player.clearMediaItems() } catch (_: Exception) {}
+    }
 
     /**
      * Resets playback state without releasing underlying codecs or audio pipelines.
      * Call this when navigating back from PlayerScreen.
      */
     fun reset() {
+        isFastDashActive = false
         try {
             player.stop()
             player.clearMediaItems()

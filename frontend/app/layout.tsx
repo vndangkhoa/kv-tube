@@ -68,6 +68,10 @@ export default function RootLayout({
   return (
     <html lang="en" suppressHydrationWarning>
       <head>
+        <link rel="preconnect" href="https://i.ytimg.com" crossOrigin="" />
+        <link rel="preconnect" href="https://yt3.ggpht.com" crossOrigin="" />
+        <link rel="dns-prefetch" href="https://i.ytimg.com" />
+        <link rel="dns-prefetch" href="https://yt3.ggpht.com" />
         <script
           dangerouslySetInnerHTML={{
             __html: `

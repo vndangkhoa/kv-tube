@@ -100,6 +100,32 @@ fun PlayerScreen(
     val upNextFocusRequester = remember { FocusRequester() }
     val rootFocusRequester = remember { FocusRequester() }
 
+    var playerError by remember { mutableStateOf<String?>(null) }
+    var qualityBadge by remember { mutableStateOf<String?>(null) }
+    var currentCfg by remember { mutableStateOf<PlayerViewModel.PlaybackConfig?>(null) }
+    var fallbackIndex by remember { mutableStateOf(0) }
+    var fallbackList by remember { mutableStateOf<List<PlayerViewModel.PlaybackConfig>>(emptyList()) }
+    // Fast path: adaptive DASH started straight from the manifest, before metadata arrives.
+    var fastDashVideoId by remember { mutableStateOf<String?>(null) }
+    // 0 = Auto (bandwidth-adaptive); otherwise max resolution cap in px.
+    var qualityCap by remember { mutableIntStateOf(playbackManager.maxHeightCap) }
+
+    fun startFastDash(id: String) {
+        val manifest = vm.dashManifestUrl(id)
+        if (playbackManager.playDashFast(manifest)) {
+            fastDashVideoId = id.trim()
+            playerError = null
+            qualityBadge = null
+        } else {
+            fastDashVideoId = null
+        }
+    }
+
+    fun loadAndPlay(id: String) {
+        vm.load(id)
+        startFastDash(id)
+    }
+
     BackHandler(enabled = true) {
         when {
             countdownSeconds > 0 -> countdownSeconds = 0
@@ -124,7 +150,7 @@ fun PlayerScreen(
                 val next = state.recommended.firstOrNull()
                 countdownSeconds = 0
                 if (next != null) {
-                    vm.load(next.id)
+                    loadAndPlay(next.id)
                 }
             } else {
                 countdownSeconds--
@@ -132,18 +158,15 @@ fun PlayerScreen(
         }
     }
 
-    LaunchedEffect(videoId) { vm.load(videoId) }
+    LaunchedEffect(videoId) { loadAndPlay(videoId) }
 
-    var playerError by remember { mutableStateOf<String?>(null) }
-    var qualityBadge by remember { mutableStateOf<String?>(null) }
-    var currentCfg by remember { mutableStateOf<PlayerViewModel.PlaybackConfig?>(null) }
-    var fallbackIndex by remember { mutableStateOf(0) }
-    var fallbackList by remember { mutableStateOf<List<PlayerViewModel.PlaybackConfig>>(emptyList()) }
 
     fun playWithConfig(v: com.kvtube.tv.data.model.InvidiousVideo, cfg: PlayerViewModel.PlaybackConfig) {
         currentCfg = cfg
         playerError = null
-        qualityBadge = vm.qualityLabel(v)
+        playbackManager.markFastDashEnded()
+        fastDashVideoId = null
+        qualityBadge = null
         try {
             exo.stop()
             exo.clearMediaItems()
@@ -168,6 +191,15 @@ fun PlayerScreen(
     LaunchedEffect(state.video) {
         val v = state.video ?: return@LaunchedEffect
         val cfg = vm.getPlaybackConfig(v)
+        // Adaptive DASH is already playing for this video: just prepare the
+        // fallback ladder in case it fails — never restart playback at 0.
+        if (fastDashVideoId != null && fastDashVideoId == v.videoId.trim() && playbackManager.isFastDashActive) {
+            if (cfg !is PlayerViewModel.PlaybackConfig.Unavailable) {
+                fallbackList = vm.getFallbackConfigs(v, cfg)
+                fallbackIndex = 0
+            }
+            return@LaunchedEffect
+        }
         if (cfg is PlayerViewModel.PlaybackConfig.Unavailable) {
             if (!triedInnerTubeFallback) {
                 triedInnerTubeFallback = true
@@ -192,25 +224,12 @@ fun PlayerScreen(
 
     DisposableEffect(exo) {
         val listener = object : Player.Listener {
-            override fun onTracksChanged(tracks: Tracks) {
-                // Update badge to actual selected video height (ensures DASH 4K is truly playing, not just labeled)
-                try {
-                    for (group in tracks.groups) {
-                        if (group.type == androidx.media3.common.C.TRACK_TYPE_VIDEO) {
-                            for (i in 0 until group.length) {
-                                if (group.isTrackSelected(i)) {
-                                    val fmt = group.getTrackFormat(i)
-                                    val h = fmt.height
-                                    if (h >= 2160) qualityBadge = "DASH 4K"
-                                    else if (h >= 1440) qualityBadge = "DASH 1440p"
-                                    else if (h >= 1080) qualityBadge = "DASH 1080p"
-                                    else if (h > 0) qualityBadge = "DASH ${h}p"
-                                    android.util.Log.d("PlayerScreen", "Selected video track: ${fmt.width}x${h} ${fmt.codecs} ${fmt.bitrate}")
-                                }
-                            }
-                        }
-                    }
-                } catch (_: Exception) {}
+            override fun onVideoSizeChanged(videoSize: androidx.media3.common.VideoSize) {
+                // Badge = the resolution actually being decoded right now (follows ABR switches).
+                val h = videoSize.height
+                if (h > 0) {
+                    qualityBadge = if (qualityCap == 0) "Auto • ${h}p" else "${h}p"
+                }
             }
             override fun onPlaybackStateChanged(playbackState: Int) {
                 if (playbackState == Player.STATE_ENDED) {
@@ -221,6 +240,22 @@ fun PlayerScreen(
             }
             override fun onPlayerError(error: androidx.media3.common.PlaybackException) {
                 android.util.Log.e("PlayerScreen", "ExoPlayer error: ${error.message} code=${error.errorCodeName} cause=${error.cause?.message}", error)
+                // Fast adaptive DASH failed: hand over to the regular config
+                // ladder (immediately if metadata is here, else when it lands).
+                if (playbackManager.isFastDashActive) {
+                    playbackManager.markFastDashEnded()
+                    fastDashVideoId = null
+                    val loaded = state.video
+                    if (loaded != null) {
+                        val cfg = vm.getPlaybackConfig(loaded)
+                        if (cfg !is PlayerViewModel.PlaybackConfig.Unavailable) {
+                            fallbackList = vm.getFallbackConfigs(loaded, cfg)
+                            fallbackIndex = 0
+                            playWithConfig(loaded, cfg)
+                        }
+                    }
+                    return
+                }
                 val v = state.video
                 // Try next fallback config (lower resolution)
                 if (v != null && fallbackIndex < fallbackList.size) {
@@ -323,8 +358,8 @@ fun PlayerScreen(
             }
     ) {
         when {
-            state.isLoading -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text("Loading player…", color = Color.White) }
-            state.error != null -> Box(Modifier.fillMaxSize().padding(32.dp), contentAlignment = Alignment.Center) {
+            state.isLoading && fastDashVideoId == null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { Text("Loading player…", color = Color.White) }
+            state.error != null && fastDashVideoId == null -> Box(Modifier.fillMaxSize().padding(32.dp), contentAlignment = Alignment.Center) {
                 androidx.compose.foundation.layout.Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Text(state.error ?: "Error", color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.titleSmall)
                     Text("Invidious backend may be temporarily unavailable. Try another video or retry.", color = Color(0xFFAAAAAA), style = MaterialTheme.typography.bodySmall)
@@ -338,12 +373,14 @@ fun PlayerScreen(
                     androidx.tv.material3.Button(onClick = { state.video?.let { playWithConfig(it, vm.getPlaybackConfig(it)) } ?: vm.load(videoId) }) { Text("Retry") }
                 }
             }
-            state.video != null -> {
+            state.video != null || fastDashVideoId != null -> {
                 AndroidView(
                     factory = { c ->
                         PlayerView(c).apply {
                             player = exo
                             useController = false
+                            setKeepContentOnPlayerReset(true)
+                            setShutterBackgroundColor(android.graphics.Color.TRANSPARENT)
                             isFocusable = false
                             isFocusableInTouchMode = false
                             layoutParams = FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
@@ -387,6 +424,14 @@ fun PlayerScreen(
                     PlayerControlsOverlay(
                         video = state.video,
                         qualityBadge = qualityBadge,
+                        qualityCapLabel = if (qualityCap == 0) "Auto" else "${qualityCap}p",
+                        onCycleQuality = {
+                            // Auto → 1080p → 720p → 480p → Auto, applied seamlessly.
+                            val next = when (qualityCap) { 0 -> 1080; 1080 -> 720; 720 -> 480; else -> 0 }
+                            qualityCap = next
+                            playbackManager.setMaxHeight(next)
+                            qualityBadge = if (next == 0) "Auto" else "${next}p max"
+                        },
                         isPlaying = isPlaying,
                         currentPosition = currentPosition,
                         duration = duration,
@@ -470,7 +515,7 @@ fun PlayerScreen(
                                             showRecommendations = false
                                             triedInnerTubeFallback = false
                                             fallbackIndex = 0
-                                            vm.load(rv.id)
+                                            loadAndPlay(rv.id)
                                         },
                                         modifier = Modifier.onKeyEvent { keyEvent ->
                                             if (keyEvent.type == KeyEventType.KeyDown && keyEvent.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_DPAD_UP) {
@@ -525,7 +570,7 @@ fun PlayerScreen(
                                     onClick = {
                                         val n = state.recommended.firstOrNull()
                                         countdownSeconds = 0
-                                        if (n != null) vm.load(n.id)
+                                        if (n != null) loadAndPlay(n.id)
                                     },
                                     colors = androidx.tv.material3.ButtonDefaults.colors(containerColor = Color.White, contentColor = Color.Black)
                                 ) {
@@ -550,6 +595,8 @@ fun PlayerScreen(
 private fun PlayerControlsOverlay(
     video: com.kvtube.tv.data.model.InvidiousVideo?,
     qualityBadge: String? = null,
+    qualityCapLabel: String = "Auto",
+    onCycleQuality: () -> Unit = {},
     isPlaying: Boolean,
     currentPosition: Long,
     duration: Long,
@@ -642,6 +689,17 @@ private fun PlayerControlsOverlay(
                     )
                 }
             }
+            Spacer(Modifier.width(12.dp))
+            // Quality: Auto (bandwidth-adaptive) or a resolution cap
+            ControlIconButton(
+                icon = Icons.Default.HighQuality,
+                onClick = onCycleQuality,
+                size = 52.dp,
+                iconSize = 24.dp,
+                modifier = Modifier.focusProperties { down = playButtonFocusRequester }
+            )
+            Spacer(Modifier.width(8.dp))
+            Text(qualityCapLabel, color = Color.White.copy(0.8f), style = MaterialTheme.typography.labelMedium)
         }
         Row(
             modifier = Modifier.align(Alignment.Center),

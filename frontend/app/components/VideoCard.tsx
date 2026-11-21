@@ -1,10 +1,11 @@
 'use client';
 
 import Link from 'next/link';
-import { useState, useCallback, memo, useEffect } from 'react';
+import { useState, useCallback, memo, useEffect, useRef } from 'react';
 import { VideoData } from '@/app/constants';
 import { proxiedThumb, getThumbnailCascade } from '@/app/utils';
 import { isVideoSaved, toggleSaveVideo } from '@/app/storage';
+import { invidious } from '@/app/services/invidious';
 import LoadingSpinner from './LoadingSpinner';
 import { usePlayer } from '@/app/context/PlayerContext';
 import { IoEllipsisVertical, IoBookmark, IoBookmarkOutline, IoCheckmarkCircle } from 'react-icons/io5';
@@ -27,11 +28,16 @@ const DEFAULT_THUMBNAIL =
 function VideoCard({
   video,
   hideChannelAvatar,
+  priority = false,
+  deferred = false,
 }: {
   video: VideoData;
   hideChannelAvatar?: boolean;
+  priority?: boolean;
+  deferred?: boolean;
 }) {
   const { setPlayingVideo, setIsPlaying } = usePlayer();
+  const hoverPrefetchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const rawRel = video.upload_date || video.publishedAt || '';
   const relativeTime = rawRel && !/[\u0600-\u06FF]/.test(rawRel) ? rawRel : getStableRelativeTime(video.id);
   const [isNavigating, setIsNavigating] = useState(false);
@@ -103,6 +109,7 @@ function VideoCard({
   const handleNavigateToWatch = useCallback(() => {
     setIsNavigating(true);
     if (video.id) {
+      invidious.prefetchVideo(video.id);
       setPlayingVideo({
         id: video.id,
         title: video.title || '',
@@ -113,6 +120,35 @@ function VideoCard({
       setIsPlaying(true);
     }
   }, [video.id, video.title, channelName, thumbnailSrc, video.duration, setPlayingVideo, setIsPlaying]);
+
+  const handleCardMouseEnter = useCallback(() => {
+    if (!video.id) return;
+    if (hoverPrefetchTimerRef.current) clearTimeout(hoverPrefetchTimerRef.current);
+    hoverPrefetchTimerRef.current = setTimeout(() => {
+      invidious.prefetchVideo(video.id);
+    }, 75);
+  }, [video.id]);
+
+  const handleCardMouseLeave = useCallback(() => {
+    if (hoverPrefetchTimerRef.current) {
+      clearTimeout(hoverPrefetchTimerRef.current);
+      hoverPrefetchTimerRef.current = null;
+    }
+  }, []);
+
+  const handleCardPointerDown = useCallback(() => {
+    if (video.id) {
+      invidious.prefetchVideo(video.id);
+    }
+  }, [video.id]);
+
+  useEffect(() => {
+    return () => {
+      if (hoverPrefetchTimerRef.current) {
+        clearTimeout(hoverPrefetchTimerRef.current);
+      }
+    };
+  }, []);
 
   const rawAvatar = video.avatar_url || video.channelAvatar;
   let avatarSrc = '';
@@ -129,7 +165,12 @@ function VideoCard({
   }
 
   return (
-    <div className="yt-video-card-container">
+    <div
+      className={`yt-video-card-container${deferred ? ' yt-deferred-card' : ''}`}
+      onMouseEnter={handleCardMouseEnter}
+      onMouseLeave={handleCardMouseLeave}
+      onPointerDown={handleCardPointerDown}
+    >
       {/* 16:9 Thumbnail with 12px border radius */}
       <div className="yt-card-thumb-wrapper">
         <Link
@@ -141,7 +182,11 @@ function VideoCard({
           <img
             src={thumbnailSrc}
             alt={video.title}
-            loading="lazy"
+            width={640}
+            height={360}
+            {...(priority
+              ? ({ fetchpriority: 'high' } as any)
+              : { loading: 'lazy' as const })}
             decoding="async"
             onError={handleImageError}
             className="yt-card-thumb-img"
@@ -211,6 +256,8 @@ function VideoCard({
                 <img
                   src={avatarSrc}
                   alt={channelName}
+                  width={36}
+                  height={36}
                   loading="lazy"
                   decoding="async"
                   onError={(e) => {

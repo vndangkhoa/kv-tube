@@ -62,6 +62,424 @@ type ProxyCandidate = {
   kind: 'invidious' | 'companion' | 'public';
 };
 
+type CachedApiResponse = {
+  body: ArrayBuffer;
+  status: number;
+  contentType: string;
+  freshUntil: number;
+  staleUntil: number;
+};
+
+// Server-side in-memory Stale-While-Revalidate (SWR) LRU cache + in-flight coalescing
+const SERVER_API_CACHE = new Map<string, CachedApiResponse>();
+const SERVER_INFLIGHT = new Map<string, Promise<CachedApiResponse | null>>();
+const SERVER_BG_REFRESHING = new Set<string>();
+const MAX_SERVER_CACHE_ENTRIES = 400;
+
+// Direct videoplayback 302 redirect cache + initial stream prefix cache (Init + sidx + Segment #1)
+const VIDEOPLAYBACK_REDIRECT_CACHE = new Map<string, { url: string; expiry: number }>();
+const STREAM_PREFIX_CACHE = new Map<
+  string,
+  { buf: ArrayBuffer; contentType: string; clen: string; expiry: number }
+>();
+const STREAM_PREFIX_INFLIGHT = new Map<
+  string,
+  Promise<{ buf: ArrayBuffer; contentType: string; clen: string } | null>
+>();
+const VIDEOPLAYBACK_POST_BODY = new Uint8Array([0x78, 0]);
+const MAX_PREFIX_CACHE_ENTRIES = 20;
+
+function setRedirectCache(key: string, url: string) {
+  if (VIDEOPLAYBACK_REDIRECT_CACHE.has(key)) {
+    VIDEOPLAYBACK_REDIRECT_CACHE.delete(key);
+  }
+  VIDEOPLAYBACK_REDIRECT_CACHE.set(key, { url, expiry: Date.now() + 15 * 60 * 1000 });
+  if (VIDEOPLAYBACK_REDIRECT_CACHE.size > 500) {
+    const oldest = VIDEOPLAYBACK_REDIRECT_CACHE.keys().next().value;
+    if (oldest) VIDEOPLAYBACK_REDIRECT_CACHE.delete(oldest);
+  }
+}
+
+function getRedirectCache(key: string): string | null {
+  const entry = VIDEOPLAYBACK_REDIRECT_CACHE.get(key);
+  if (!entry) return null;
+  if (Date.now() > entry.expiry) {
+    VIDEOPLAYBACK_REDIRECT_CACHE.delete(key);
+    return null;
+  }
+  return entry.url;
+}
+
+function setPrefixCache(
+  key: string,
+  val: { buf: ArrayBuffer; contentType: string; clen: string }
+) {
+  if (STREAM_PREFIX_CACHE.has(key)) {
+    STREAM_PREFIX_CACHE.delete(key);
+  }
+  STREAM_PREFIX_CACHE.set(key, { ...val, expiry: Date.now() + 60 * 1000 });
+  if (STREAM_PREFIX_CACHE.size > MAX_PREFIX_CACHE_ENTRIES) {
+    const oldest = STREAM_PREFIX_CACHE.keys().next().value;
+    if (oldest) STREAM_PREFIX_CACHE.delete(oldest);
+  }
+}
+
+function getPrefixCache(
+  key: string
+): { buf: ArrayBuffer; contentType: string; clen: string } | null {
+  const entry = STREAM_PREFIX_CACHE.get(key);
+  if (!entry) return null;
+  if (Date.now() > entry.expiry) {
+    STREAM_PREFIX_CACHE.delete(key);
+    return null;
+  }
+  return entry;
+}
+
+function getGooglevideoHeaders(clientName: string | null): Record<string, string> {
+  const h: Record<string, string> = {
+    accept: '*/*',
+    'accept-encoding': 'identity',
+    'accept-language': 'en-us,en;q=0.5',
+    origin: 'https://www.youtube.com',
+    referer: 'https://www.youtube.com',
+  };
+  if (clientName === 'ANDROID') {
+    h['user-agent'] =
+      'com.google.android.youtube/1537338816 (Linux; U; Android 13; en_US; ; Build/TQ2A.230505.002; Cronet/113.0.5672.24)';
+  } else if (clientName === 'IOS') {
+    h['user-agent'] =
+      'com.google.ios.youtube/19.32.8 (iPhone14,5; U; CPU iOS 17_6 like Mac OS X;)';
+  } else {
+    h['user-agent'] =
+      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/128.0.0.0 Safari/537.36';
+  }
+  return h;
+}
+
+async function fetchDirectGooglevideoRange(
+  params: URLSearchParams,
+  rangeBytes: string | null,
+  signal?: AbortSignal
+): Promise<Response | null> {
+  const host = params.get('host');
+  const clientName = params.get('c');
+  const expire = params.get('expire');
+  if (!host || !/^[\w.-]+\.googlevideo\.com$/i.test(host) || !clientName || !expire) {
+    return null;
+  }
+  if (params.get('enc') === 'true') {
+    return null;
+  }
+
+  const id = params.get('id') || '';
+  const itag = params.get('itag') || '';
+  const cacheKey = `${id}:${itag}`;
+  const cachedRedirectBase = id && itag ? getRedirectCache(cacheKey) : null;
+
+  let targetUrl: string;
+  if (cachedRedirectBase) {
+    const cu = new URL(cachedRedirectBase);
+    if (rangeBytes) {
+      cu.searchParams.set('range', rangeBytes);
+    } else {
+      cu.searchParams.delete('range');
+    }
+    targetUrl = cu.toString();
+  } else {
+    const qp = new URLSearchParams(params);
+    qp.delete('host');
+    qp.delete('title');
+    qp.delete('local');
+    if (rangeBytes) {
+      qp.set('range', rangeBytes);
+    }
+    targetUrl = `https://${host}/videoplayback?${qp.toString()}`;
+  }
+
+  const headersToSend = getGooglevideoHeaders(clientName);
+
+  for (let hop = 0; hop < 4; hop++) {
+    const controller = new AbortController();
+    const onAbort = () => controller.abort();
+    if (signal) {
+      if (signal.aborted) throw new DOMException('Aborted', 'AbortError');
+      signal.addEventListener('abort', onAbort, { once: true });
+    }
+    const timer = setTimeout(() => controller.abort(), 14_000);
+    let res: Response;
+    try {
+      res = await fetch(targetUrl, {
+        method: 'POST',
+        body: VIDEOPLAYBACK_POST_BODY,
+        redirect: 'manual',
+        headers: headersToSend,
+        signal: controller.signal,
+      });
+    } finally {
+      clearTimeout(timer);
+      if (signal) signal.removeEventListener('abort', onAbort);
+    }
+
+    const isRedirect =
+      res.status === 301 ||
+      res.status === 302 ||
+      res.status === 303 ||
+      res.status === 307 ||
+      res.status === 308;
+    const loc = res.headers.get('location');
+    if (isRedirect && loc && hop < 3) {
+      res.body?.cancel().catch(() => {});
+      const locUrl = new URL(loc, targetUrl);
+      if (id && itag) {
+        const baseForCache = new URL(locUrl.toString());
+        baseForCache.searchParams.delete('range');
+        setRedirectCache(cacheKey, baseForCache.toString());
+      }
+      if (rangeBytes) {
+        locUrl.searchParams.set('range', rangeBytes);
+      }
+      targetUrl = locUrl.toString();
+      continue;
+    }
+
+    if (res.status === 200 || res.status === 206) {
+      return res;
+    }
+    res.body?.cancel().catch(() => {});
+    // If cached redirect expired or failed, clear it and retry once from original host
+    if (cachedRedirectBase && hop === 0 && id && itag) {
+      VIDEOPLAYBACK_REDIRECT_CACHE.delete(cacheKey);
+      const qp = new URLSearchParams(params);
+      qp.delete('host');
+      qp.delete('title');
+      qp.delete('local');
+      if (rangeBytes) qp.set('range', rangeBytes);
+      targetUrl = `https://${host}/videoplayback?${qp.toString()}`;
+      continue;
+    }
+    return null;
+  }
+  return null;
+}
+
+function ensureStreamPrefix(
+  params: URLSearchParams,
+  prefixBytes: number
+): Promise<{ buf: ArrayBuffer; contentType: string; clen: string } | null> {
+  const id = params.get('id') || '';
+  const itag = params.get('itag') || '';
+  if (!id || !itag) return Promise.resolve(null);
+  const cacheKey = `${id}:${itag}`;
+  const cached = getPrefixCache(cacheKey);
+  if (cached) return Promise.resolve(cached);
+  const inflight = STREAM_PREFIX_INFLIGHT.get(cacheKey);
+  if (inflight) return inflight;
+
+  const clenNum = parseInt(params.get('clen') || '0', 10);
+  const maxEnd = clenNum > 0 ? Math.min(prefixBytes - 1, clenNum - 1) : prefixBytes - 1;
+  const p = (async () => {
+    try {
+      const res = await fetchDirectGooglevideoRange(params, `0-${maxEnd}`);
+      if (!res) return null;
+      const buf = await res.arrayBuffer();
+      if (buf.byteLength === 0) return null;
+      const entry = {
+        buf,
+        contentType:
+          res.headers.get('content-type') ||
+          params.get('mime') ||
+          (itag === '140' ? 'audio/mp4' : 'video/mp4'),
+        clen: params.get('clen') || String(buf.byteLength),
+      };
+      setPrefixCache(cacheKey, entry);
+      return entry;
+    } catch {
+      return null;
+    } finally {
+      STREAM_PREFIX_INFLIGHT.delete(cacheKey);
+    }
+  })();
+  STREAM_PREFIX_INFLIGHT.set(cacheKey, p);
+  return p;
+}
+
+function prewarmDashInitialStreams(dashXml: string) {
+  try {
+    const matches = [...dashXml.matchAll(/<BaseURL>([^<]+)<\/BaseURL>/g)].map((m) =>
+      m[1].replace(/&amp;/g, '&')
+    );
+    if (matches.length === 0) return;
+    const audioUrl = matches.find((b) => b.includes('itag=140&'));
+    const videoUrl =
+      matches.find((b) => b.includes('itag=135&')) ||
+      matches.find((b) => b.includes('itag=136&')) ||
+      matches.find((b) => b.includes('itag=134&'));
+
+    if (audioUrl) {
+      const u = new URL(audioUrl, 'http://companion.internal');
+      void ensureStreamPrefix(u.searchParams, 163840);
+    }
+    if (videoUrl) {
+      const u = new URL(videoUrl, 'http://companion.internal');
+      void ensureStreamPrefix(u.searchParams, 294912);
+    }
+  } catch {}
+}
+
+async function handleDirectVideoPlayback(req: NextRequest): Promise<NextResponse | null> {
+  if (req.method !== 'GET' && req.method !== 'HEAD') return null;
+  const params = req.nextUrl.searchParams;
+  if (params.get('enc') === 'true' || !params.get('host')) return null;
+
+  const rangeHeader = req.headers.get('range');
+  const requestBytes = rangeHeader ? rangeHeader.replace(/^bytes=/i, '').trim() : params.get('range');
+  const [firstStr, lastStr] = (requestBytes || '').split('-');
+  const start = firstStr ? parseInt(firstStr, 10) : NaN;
+  const end = lastStr ? parseInt(lastStr, 10) : NaN;
+
+  const id = params.get('id') || '';
+  const itag = params.get('itag') || '';
+  const clen = params.get('clen') || '*';
+  const isAudio = itag === '140' || (params.get('mime') || '').startsWith('audio/');
+  const prefixBytes = isAudio ? 163840 : 294912;
+  const cacheKey = `${id}:${itag}`;
+
+  // 1. Coalesce initial SegmentBase Init (0-722) + sidx Index (723-1246) + first 3-4s segment into one prefix fetch
+  if (
+    req.method === 'GET' &&
+    id &&
+    itag &&
+    !isNaN(start) &&
+    !isNaN(end) &&
+    start >= 0 &&
+    end >= start &&
+    end < prefixBytes
+  ) {
+    let prefix = getPrefixCache(cacheKey);
+    if (!prefix) {
+      if ((start === 0 && end <= 4096) || STREAM_PREFIX_INFLIGHT.has(cacheKey)) {
+        prefix = await ensureStreamPrefix(params, prefixBytes);
+      }
+    }
+    if (prefix && end < prefix.buf.byteLength) {
+      const slice = prefix.buf.slice(start, end + 1);
+      const totalLen = prefix.clen || clen || '*';
+      return new NextResponse(slice, {
+        status: 206,
+        headers: {
+          'content-type': prefix.contentType,
+          'content-length': String(slice.byteLength),
+          'content-range': `bytes ${start}-${start + slice.byteLength - 1}/${totalLen}`,
+          'accept-ranges': 'bytes',
+          'Access-Control-Allow-Origin': '*',
+          'x-kv-stream': 'PREFIX-HIT',
+        },
+      });
+    }
+  }
+
+  // 2. Direct single-POST upstream fetch over WARP (skipping Companion's double HEAD+POST loop)
+  const upstreamRes = await fetchDirectGooglevideoRange(
+    params,
+    requestBytes || null,
+    req.signal
+  );
+  if (!upstreamRes) return null;
+
+  const contentType =
+    upstreamRes.headers.get('content-type') ||
+    params.get('mime') ||
+    (isAudio ? 'audio/mp4' : 'video/mp4');
+  const upstreamLen = upstreamRes.headers.get('content-length') || '';
+
+  const responseHeaders = new Headers();
+  responseHeaders.set('content-type', contentType);
+  responseHeaders.set('accept-ranges', 'bytes');
+  responseHeaders.set('Access-Control-Allow-Origin', '*');
+  responseHeaders.set('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS, HEAD');
+  responseHeaders.set('Access-Control-Allow-Headers', '*');
+  responseHeaders.set('x-kv-stream', 'DIRECT-POST');
+  if (upstreamLen) {
+    responseHeaders.set('content-length', upstreamLen);
+  }
+
+  let status = upstreamRes.status;
+  if (requestBytes && status === 200) {
+    if (!isNaN(start) && !isNaN(end)) {
+      status = 206;
+      responseHeaders.set('content-range', `bytes ${start}-${end}/${clen || '*'}`);
+    } else if (!isNaN(start) && upstreamLen) {
+      const total = start + parseInt(upstreamLen, 10);
+      if (start > 0) status = 206;
+      responseHeaders.set('content-range', `bytes ${start}-${total - 1}/${clen !== '*' ? clen : total}`);
+    }
+  } else {
+    const cr = upstreamRes.headers.get('content-range');
+    if (cr) responseHeaders.set('content-range', cr);
+  }
+
+  if (req.method === 'HEAD') {
+    upstreamRes.body?.cancel().catch(() => {});
+    return new NextResponse(null, { status, headers: responseHeaders });
+  }
+
+  return new NextResponse(upstreamRes.body, {
+    status,
+    headers: responseHeaders,
+  });
+}
+
+function getCacheTtls(subPath: string): { freshMs: number; staleMs: number } | null {
+  if (
+    subPath.startsWith('/api/v1/trending') ||
+    subPath.startsWith('/api/v1/popular') ||
+    subPath.startsWith('/api/v1/search') ||
+    subPath.startsWith('/api/v1/channels') ||
+    subPath.startsWith('/api/v1/comments') ||
+    subPath.startsWith('/api/v1/playlists') ||
+    subPath.startsWith('/api/v1/mixes')
+  ) {
+    return { freshMs: 3 * 60 * 1000, staleMs: 30 * 60 * 1000 };
+  }
+  if (subPath === '/api/v1/videos' || subPath.startsWith('/api/v1/videos/')) {
+    return { freshMs: 5 * 60 * 1000, staleMs: 20 * 60 * 1000 };
+  }
+  if (subPath.startsWith('/api/manifest/dash/')) {
+    return { freshMs: 2 * 60 * 1000, staleMs: 8 * 60 * 1000 };
+  }
+  return null;
+}
+
+function setServerCache(key: string, entry: CachedApiResponse) {
+  if (SERVER_API_CACHE.has(key)) {
+    SERVER_API_CACHE.delete(key);
+  }
+  SERVER_API_CACHE.set(key, entry);
+  if (SERVER_API_CACHE.size > MAX_SERVER_CACHE_ENTRIES) {
+    const oldestKey = SERVER_API_CACHE.keys().next().value;
+    if (oldestKey) SERVER_API_CACHE.delete(oldestKey);
+  }
+}
+
+let prewarmTriggered = false;
+function triggerServerCachePrewarm(origin: string) {
+  if (prewarmTriggered) return;
+  prewarmTriggered = true;
+  setTimeout(() => {
+    const warmPaths = [
+      '/api/invidious/api/v1/trending?region=VN',
+      '/api/invidious/api/v1/search?q=nh%E1%BA%A1c+tr%E1%BA%BB+th%E1%BB%8Bnh+h%C3%A0nh+vi%E1%BB%87t+nam&page=1&type=video&region=VN&date=month&sort_by=upload_date',
+      '/api/invidious/api/v1/search?q=nh%E1%BA%A1c+tr%E1%BA%BB+th%E1%BB%8Bnh+h%C3%A0nh+vi%E1%BB%87t+nam&page=1&type=video&region=VN&date=month&sort_by=view_count',
+    ];
+    for (const p of warmPaths) {
+      fetch(`${origin}${p}`, {
+        headers: { 'x-kv-prewarm': '1', Accept: 'application/json' },
+      }).catch(() => {});
+    }
+  }, 300);
+}
+
 function isLoopback(urlStr?: string | null): boolean {
   if (!urlStr) return false;
   try {
@@ -131,6 +549,10 @@ async function handleProxy(req: NextRequest, pathParts: string[]) {
   const isAuthApi = subPath.startsWith('/api/v1/auth');
   const isVideosApi = subPath === '/api/v1/videos' || subPath.startsWith('/api/v1/videos/');
 
+  if (!req.headers.get('x-kv-prewarm') && !req.headers.get('x-kv-bg-revalidate')) {
+    triggerServerCachePrewarm(req.nextUrl.origin);
+  }
+
   const isDirectCompanionStream =
     subPath === '/companion' ||
     subPath.startsWith('/companion/') ||
@@ -142,12 +564,100 @@ async function handleProxy(req: NextRequest, pathParts: string[]) {
     /^\/companion\/(videoplayback|latest_version)(\/|$)/.test(subPath);
   const isMediaOrManifestRoute = isDirectCompanionStream || isManifestOrLatestVersion;
 
-  const companionRoot = getCompanionRoot(process.env.COMPANION_URL);
+  // Fast path: single direct POST to googlevideo (cached 302 edge + coalesced init/sidx/segment-1 prefix)
+  if (
+    /^\/(companion\/)?videoplayback\/?$/.test(subPath) &&
+    (req.method === 'GET' || req.method === 'HEAD')
+  ) {
+    try {
+      const fast = await handleDirectVideoPlayback(req);
+      if (fast) return fast;
+    } catch (e) {
+      if (req.signal.aborted) return new NextResponse(null, { status: 499 });
+      // fall through to Companion proxy path
+    }
+  }
 
   const customInstance = req.headers.get('x-invidious-instance');
   const validCustomInstance = isValidCustomInstance(customInstance, req)
     ? customInstance!.trim().replace(/\/+$/, '')
     : null;
+
+  const cacheTtls =
+    req.method === 'GET' && !isAuthApi && !isStreamOrMediaPath && !req.headers.get('range')
+      ? getCacheTtls(subPath)
+      : null;
+  const cacheKey = cacheTtls
+    ? `${validCustomInstance || 'default'}:${subPath}?${req.nextUrl.searchParams.toString()}`
+    : null;
+  const isBgRevalidate = req.headers.get('x-kv-bg-revalidate') === '1';
+
+  if (cacheKey && !isBgRevalidate) {
+    const cached = SERVER_API_CACHE.get(cacheKey);
+    const now = Date.now();
+    if (cached && now < cached.staleUntil) {
+      if (subPath.startsWith('/api/manifest/dash/')) {
+        prewarmDashInitialStreams(new TextDecoder().decode(cached.body));
+      }
+      if (now >= cached.freshUntil && !SERVER_BG_REFRESHING.has(cacheKey)) {
+        SERVER_BG_REFRESHING.add(cacheKey);
+        fetch(req.url, {
+          headers: {
+            'x-kv-bg-revalidate': '1',
+            ...(validCustomInstance ? { 'x-invidious-instance': validCustomInstance } : {}),
+          },
+        })
+          .catch(() => {})
+          .finally(() => {
+            SERVER_BG_REFRESHING.delete(cacheKey);
+          });
+      }
+      return new NextResponse(cached.body, {
+        status: cached.status,
+        headers: {
+          'content-type': cached.contentType,
+          'Access-Control-Allow-Origin': '*',
+          'Cache-Control': 'public, max-age=30, stale-while-revalidate=300',
+          'x-kv-cache': now < cached.freshUntil ? 'HIT' : 'STALE',
+        },
+      });
+    }
+
+    const inflight = SERVER_INFLIGHT.get(cacheKey);
+    if (inflight) {
+      try {
+        const shared = await inflight;
+        if (shared) {
+          return new NextResponse(shared.body, {
+            status: shared.status,
+            headers: {
+              'content-type': shared.contentType,
+              'Access-Control-Allow-Origin': '*',
+              'Cache-Control': 'public, max-age=30, stale-while-revalidate=300',
+              'x-kv-cache': 'COALESCED',
+            },
+          });
+        }
+      } catch {}
+    }
+  }
+
+  let resolveInflight: ((val: CachedApiResponse | null) => void) | null = null;
+  if (cacheKey && !SERVER_INFLIGHT.has(cacheKey)) {
+    const p = new Promise<CachedApiResponse | null>((resolve) => {
+      resolveInflight = resolve;
+    });
+    SERVER_INFLIGHT.set(cacheKey, p);
+  }
+  const finishInflight = (val: CachedApiResponse | null) => {
+    if (cacheKey && resolveInflight) {
+      SERVER_INFLIGHT.delete(cacheKey);
+      resolveInflight(val);
+      resolveInflight = null;
+    }
+  };
+
+  const companionRoot = getCompanionRoot(process.env.COMPANION_URL);
 
   const configuredInvidiousEnv =
     process.env.INVIDIOUS_URL &&
@@ -445,13 +955,35 @@ async function handleProxy(req: NextRequest, pathParts: string[]) {
         }
       }
 
-      responseHeaders.set('Cache-Control', 'no-store');
+      if (subPath.startsWith('/api/manifest/dash/') && res.status === 200 && buf.byteLength > 0) {
+        prewarmDashInitialStreams(new TextDecoder().decode(buf));
+      }
+
+      if (cacheKey && cacheTtls && res.status === 200 && buf.byteLength > 0) {
+        const now = Date.now();
+        const entry: CachedApiResponse = {
+          body: buf,
+          status: res.status,
+          contentType: res.headers.get('content-type') || 'application/json',
+          freshUntil: now + cacheTtls.freshMs,
+          staleUntil: now + cacheTtls.staleMs,
+        };
+        setServerCache(cacheKey, entry);
+        finishInflight(entry);
+        responseHeaders.set('Cache-Control', 'public, max-age=30, stale-while-revalidate=300');
+        responseHeaders.set('x-kv-cache', 'MISS');
+      } else {
+        finishInflight(null);
+        responseHeaders.set('Cache-Control', 'private, no-cache');
+      }
+
       return new NextResponse(buf, {
         status: res.status,
         headers: responseHeaders,
       });
     } catch (e: any) {
       if (req.signal.aborted) {
+        finishInflight(null);
         return new NextResponse(null, { status: 499 });
       }
       lastError = e;
@@ -459,13 +991,14 @@ async function handleProxy(req: NextRequest, pathParts: string[]) {
     }
   }
 
+  finishInflight(null);
   return NextResponse.json(
     { error: (firstHttpError || lastError)?.message || 'Proxy request failed' },
     {
       status: primaryErrorStatus || 502,
       headers: {
         'Access-Control-Allow-Origin': '*',
-        'Cache-Control': 'no-store',
+        'Cache-Control': 'private, no-cache',
       },
     }
   );

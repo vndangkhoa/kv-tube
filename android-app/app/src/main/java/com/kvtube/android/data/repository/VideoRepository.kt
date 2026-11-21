@@ -70,6 +70,13 @@ class VideoRepository @Inject constructor(
         return fallback ?: info ?: VideoData(id = videoId)
     }
 
+    /** Adaptive DASH manifest URL for [videoId] (null when no server is configured). */
+    suspend fun dashManifestUrl(videoId: String): String? =
+        runCatching { api.dashManifestUrl(videoId) }.getOrNull()
+
+    /** Gateway host used to rewrite DASH segment URLs (null = raw Invidious). */
+    fun gatewayHost(): String? = api.gatewayHost()
+
     suspend fun getPlaybackInfo(videoId: String, audio: String = "opus"): PlaybackInfo {
         val serverInfo = bounded(PLAYBACK_TIMEOUT_MS) {
             api.getPlaybackInfo(videoId, audio)

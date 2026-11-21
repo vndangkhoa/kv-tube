@@ -101,4 +101,16 @@ class QualityTiersTest {
         assertNull(QualityTiers.resolve(QualityTier.HIGH, null))
         assertNull(QualityTiers.resolve(QualityTier.HIGH, PlaybackInfo()))
     }
+
+    @Test
+    fun autoIsTheDefaultTier() {
+        assertEquals(QualityTier.AUTO, QualityTiers.DEFAULT)
+    }
+
+    @Test
+    fun autoFallsBackToProgressive720WhenNoAdaptiveStreamIsAvailable() {
+        val (format, audioUrl) = QualityTiers.resolve(QualityTier.AUTO, typicalInfo())!!
+        assertEquals(720, format.height)
+        assertEquals("https://audio.example/140", audioUrl)
+    }
 }

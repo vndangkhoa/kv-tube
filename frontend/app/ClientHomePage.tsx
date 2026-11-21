@@ -242,6 +242,48 @@ function mapInvidiousVideo(v: any, regionCode: string = 'VN'): VideoData {
   };
 }
 
+const HOME_FEED_MEMORY_CACHE = new Map<string, { videos: VideoData[]; ts: number }>();
+const HOME_FEED_STORAGE_PREFIX = 'kv_home_feed_v2_';
+const HOME_FEED_MAX_AGE_MS = 30 * 60 * 1000;
+
+function getCachedHomeFeed(categoryId: string, regionCode: string): VideoData[] | null {
+  const key = `${categoryId}_${regionCode}`;
+  const mem = HOME_FEED_MEMORY_CACHE.get(key);
+  if (mem && mem.videos.length > 0 && Date.now() - mem.ts < HOME_FEED_MAX_AGE_MS) {
+    return mem.videos;
+  }
+  if (typeof window === 'undefined') return null;
+  try {
+    const raw = localStorage.getItem(`${HOME_FEED_STORAGE_PREFIX}${key}`);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (
+      parsed &&
+      Array.isArray(parsed.videos) &&
+      parsed.videos.length > 0 &&
+      Date.now() - (parsed.ts || 0) < HOME_FEED_MAX_AGE_MS
+    ) {
+      HOME_FEED_MEMORY_CACHE.set(key, { videos: parsed.videos, ts: parsed.ts });
+      return parsed.videos;
+    }
+  } catch {}
+  return null;
+}
+
+function setCachedHomeFeed(categoryId: string, regionCode: string, videos: VideoData[]): void {
+  if (!Array.isArray(videos) || videos.length === 0) return;
+  const key = `${categoryId}_${regionCode}`;
+  const ts = Date.now();
+  HOME_FEED_MEMORY_CACHE.set(key, { videos, ts });
+  if (typeof window === 'undefined') return;
+  try {
+    localStorage.setItem(
+      `${HOME_FEED_STORAGE_PREFIX}${key}`,
+      JSON.stringify({ videos: videos.slice(0, 40), ts })
+    );
+  } catch {}
+}
+
 export default function ClientHomePage() {
   const searchParams = useSearchParams();
   const categoryParam = searchParams.get('category') || 'All';
@@ -316,26 +358,29 @@ export default function ClientHomePage() {
     }
   }, [availableSubTopics, activeSubTopic]);
 
-  // Fetch videos for the inline Explore Topics cluster
+  // Fetch videos for the inline Explore Topics cluster (deferred slightly & low priority so main feed paints first)
   useEffect(() => {
     if (isShelfHidden || !activeSubTopic) return;
     let cancelled = false;
     setClusterLoading(true);
 
-    searchVideosClient(activeSubTopic, 9)
-      .then((items) => {
-        if (!cancelled) {
-          setClusterVideos(items || []);
-          setClusterLoading(false);
-        }
-      })
-      .catch((err) => {
-        console.warn('[ExploreTopicsShelf] Failed to fetch cluster videos:', err);
-        if (!cancelled) setClusterLoading(false);
-      });
+    const timer = setTimeout(() => {
+      searchVideosClient(activeSubTopic, 9, 'low')
+        .then((items) => {
+          if (!cancelled) {
+            setClusterVideos(items || []);
+            setClusterLoading(false);
+          }
+        })
+        .catch((err) => {
+          console.warn('[ExploreTopicsShelf] Failed to fetch cluster videos:', err);
+          if (!cancelled) setClusterLoading(false);
+        });
+    }, 180);
 
     return () => {
       cancelled = true;
+      clearTimeout(timer);
     };
   }, [activeSubTopic, isShelfHidden]);
 
@@ -412,9 +457,21 @@ export default function ClientHomePage() {
     return () => window.removeEventListener('regionchange', handleRegionChange);
   }, []);
 
-  // Fetch shorts for the home Shorts shelf
+  // Fetch shorts for the home Shorts shelf (session-cached + deferred low-priority background fetch)
   useEffect(() => {
-    async function loadShorts() {
+    let cancelled = false;
+    const cacheKey = `kv_home_shorts_${regionCode}`;
+    try {
+      const cached = sessionStorage.getItem(cacheKey);
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          setShorts(parsed);
+        }
+      }
+    } catch {}
+
+    const timer = setTimeout(async () => {
       try {
         const query = regionCode === 'VN' ? '#shorts việt nam' : '#shorts trending';
         const items = await invidious.search(query, {
@@ -422,9 +479,10 @@ export default function ClientHomePage() {
           type: 'video',
           duration: 'short',
           region: regionCode,
+          priority: 'low',
         });
 
-        if (Array.isArray(items) && items.length > 0) {
+        if (!cancelled && Array.isArray(items) && items.length > 0) {
           const filtered = items.filter(
             (v: any) => (!v.lengthSeconds || v.lengthSeconds <= 95) && (v.videoId || v.id)
           );
@@ -446,170 +504,238 @@ export default function ClientHomePage() {
 
           if (mapped.length > 0) {
             setShorts(mapped);
+            try {
+              sessionStorage.setItem(cacheKey, JSON.stringify(mapped));
+            } catch {}
           }
         }
       } catch (err) {
         console.error('Failed to load shorts for shelf:', err);
       }
-    }
-    loadShorts();
+    }, 240);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
   }, [regionCode]);
 
-  // Fetch videos for selected category directly via Invidious backend
-  const fetchFeed = useCallback(async (categoryId: string, pageNum: number): Promise<VideoData[]> => {
-    const cat = CATEGORIES.find((c) => c.id === categoryId) || CATEGORIES[0];
-    const rc = getRegionContent(regionCode);
+  // Fetch videos for selected category directly via Invidious backend with progressive first-paint callback
+  const fetchFeed = useCallback(
+    async (
+      categoryId: string,
+      pageNum: number,
+      onPartial?: (partial: VideoData[]) => void
+    ): Promise<VideoData[]> => {
+      const cat = CATEGORIES.find((c) => c.id === categoryId) || CATEGORIES[0];
+      const rc = getRegionContent(regionCode);
 
-    try {
-      let items: any[] = [];
+      try {
+        let items: any[] = [];
 
-      if (cat.id === 'All' && pageNum > 1) {
-        items = await invidious.search(rc.trending, {
-          page: pageNum,
-          type: 'video',
-          region: regionCode,
-          date: 'month',
-          sort_by: 'upload_date',
-        });
-        if (Array.isArray(items)) {
-          items = items.filter(isUsableFreshVideo);
-        }
-        if (!items || items.length === 0) {
+        if (cat.id === 'All' && pageNum > 1) {
           items = await invidious.search(rc.trending, {
             page: pageNum,
             type: 'video',
             region: regionCode,
             date: 'month',
-            sort_by: 'view_count',
+            sort_by: 'upload_date',
           });
           if (Array.isArray(items)) {
             items = items.filter(isUsableFreshVideo);
           }
-        }
-      } else if (cat.id === 'All') {
-        const [latestRes, popularRes, trendingRes] = await Promise.allSettled([
-          invidious.search(rc.trending, {
-            page: 1,
+          if (!items || items.length === 0) {
+            items = await invidious.search(rc.trending, {
+              page: pageNum,
+              type: 'video',
+              region: regionCode,
+              date: 'month',
+              sort_by: 'view_count',
+            });
+            if (Array.isArray(items)) {
+              items = items.filter(isUsableFreshVideo);
+            }
+          }
+        } else if (cat.id === 'All') {
+          let emittedPartial = false;
+          const emitPartialIfReady = (rawList: any[], filterFn: (v: any) => boolean) => {
+            if (emittedPartial || !onPartial || !Array.isArray(rawList)) return;
+            const usable = rawList.filter(filterFn);
+            if (usable.length >= 6) {
+              emittedPartial = true;
+              onPartial(usable.slice(0, 24).map((v) => mapInvidiousVideo(v, regionCode)));
+            }
+          };
+
+          const pLatest = invidious
+            .search(rc.trending, {
+              page: 1,
+              type: 'video',
+              region: regionCode,
+              date: 'month',
+              sort_by: 'upload_date',
+            })
+            .then((res) => {
+              emitPartialIfReady(res, isUsableFreshVideo);
+              return res;
+            });
+
+          const pPopular = invidious
+            .search(rc.trending, {
+              page: 1,
+              type: 'video',
+              region: regionCode,
+              date: 'month',
+              sort_by: 'view_count',
+            })
+            .then((res) => {
+              emitPartialIfReady(res, isUsableFreshVideo);
+              return res;
+            });
+
+          const pTrending = invidious.getTrending(regionCode).then((res) => {
+            emitPartialIfReady(res, isUsableTrendingVideo);
+            return res;
+          });
+
+          const [latestRes, popularRes, trendingRes] = await Promise.allSettled([
+            pLatest,
+            pPopular,
+            pTrending,
+          ]);
+          const latest =
+            latestRes.status === 'fulfilled'
+              ? (latestRes.value || []).filter(isUsableFreshVideo)
+              : [];
+          const popular =
+            popularRes.status === 'fulfilled'
+              ? (popularRes.value || []).filter(isUsableFreshVideo)
+              : [];
+          const trendingNow =
+            trendingRes.status === 'fulfilled'
+              ? (trendingRes.value || []).filter(isUsableTrendingVideo)
+              : [];
+
+          const seen = new Set<string>();
+          const merged: any[] = [];
+          let li = 0;
+          let pi = 0;
+          let ti = 0;
+          const total = latest.length + popular.length + trendingNow.length;
+          const targetCount = Math.min(total, 40);
+
+          while (merged.length < targetCount) {
+            for (let k = 0; k < 2 && li < latest.length; k++) {
+              const id = latest[li].videoId || latest[li].id;
+              if (id && !seen.has(id)) {
+                seen.add(id);
+                merged.push(latest[li]);
+              }
+              li++;
+            }
+            if (pi < popular.length) {
+              const id = popular[pi].videoId || popular[pi].id;
+              if (id && !seen.has(id)) {
+                seen.add(id);
+                merged.push(popular[pi]);
+              }
+              pi++;
+            }
+            if (ti < trendingNow.length) {
+              const id = trendingNow[ti].videoId || trendingNow[ti].id;
+              if (id && !seen.has(id)) {
+                seen.add(id);
+                merged.push(trendingNow[ti]);
+              }
+              ti++;
+            }
+            if (li >= latest.length && pi >= popular.length && ti >= trendingNow.length) break;
+          }
+          items = merged;
+        } else if (cat.id === 'Live') {
+          const localizedQuery = rc.categories['Live'] || 'live stream';
+          items = await invidious.search(localizedQuery, {
+            page: pageNum,
             type: 'video',
             region: regionCode,
-            date: 'month',
-            sort_by: 'upload_date',
-          }),
-          invidious.search(rc.trending, {
-            page: 1,
-            type: 'video',
-            region: regionCode,
-            date: 'month',
-            sort_by: 'view_count',
-          }),
-          invidious.getTrending(regionCode),
-        ]);
-        const latest =
-          latestRes.status === 'fulfilled'
-            ? (latestRes.value || []).filter(isUsableFreshVideo)
-            : [];
-        const popular =
-          popularRes.status === 'fulfilled'
-            ? (popularRes.value || []).filter(isUsableFreshVideo)
-            : [];
-        const trendingNow =
-          trendingRes.status === 'fulfilled'
-            ? (trendingRes.value || []).filter(isUsableTrendingVideo)
-            : [];
+            features: 'live',
+          });
+          if (!items || items.length === 0) {
+            items = await invidious.search(localizedQuery, {
+              page: pageNum,
+              type: 'video',
+              region: regionCode,
+            });
+          }
+          if (Array.isArray(items)) {
+            items = items.filter((v: any) => (v.videoId || v.id) && v.title);
+          }
+        } else {
+          const localizedQuery =
+            rc.categories[cat.id] || cat.searchQuery || categoryQuery(regionCode, cat.id);
 
-        const seen = new Set<string>();
-        const merged: any[] = [];
-        let li = 0;
-        let pi = 0;
-        let ti = 0;
-        const total = latest.length + popular.length + trendingNow.length;
-        const targetCount = Math.min(total, 40);
-
-        while (merged.length < targetCount) {
-          for (let k = 0; k < 2 && li < latest.length; k++) {
-            const id = latest[li].videoId || latest[li].id;
-            if (id && !seen.has(id)) {
-              seen.add(id);
-              merged.push(latest[li]);
-            }
-            li++;
-          }
-          if (pi < popular.length) {
-            const id = popular[pi].videoId || popular[pi].id;
-            if (id && !seen.has(id)) {
-              seen.add(id);
-              merged.push(popular[pi]);
-            }
-            pi++;
-          }
-          if (ti < trendingNow.length) {
-            const id = trendingNow[ti].videoId || trendingNow[ti].id;
-            if (id && !seen.has(id)) {
-              seen.add(id);
-              merged.push(trendingNow[ti]);
-            }
-            ti++;
-          }
-          if (li >= latest.length && pi >= popular.length && ti >= trendingNow.length) break;
-        }
-        items = merged;
-      } else if (cat.id === 'Live') {
-        const localizedQuery = rc.categories['Live'] || 'live stream';
-        items = await invidious.search(localizedQuery, {
-          page: pageNum,
-          type: 'video',
-          region: regionCode,
-          features: 'live',
-        });
-        if (!items || items.length === 0) {
           items = await invidious.search(localizedQuery, {
             page: pageNum,
             type: 'video',
             region: regionCode,
           });
+          if (Array.isArray(items)) {
+            const fresh = items.filter(isUsableFreshVideo);
+            items =
+              fresh.length >= 4
+                ? fresh
+                : items.filter((v: any) => (v.videoId || v.id) && v.title && !v.liveNow);
+          }
         }
-        if (Array.isArray(items)) {
-          items = items.filter((v: any) => (v.videoId || v.id) && v.title);
-        }
-      } else {
-        // Resolve localized query from region content first, then fallback to category query or cat.searchQuery
-        const localizedQuery =
-          rc.categories[cat.id] || cat.searchQuery || categoryQuery(regionCode, cat.id);
 
-        items = await invidious.search(localizedQuery, {
-          page: pageNum,
-          type: 'video',
-          region: regionCode,
-        });
-        if (Array.isArray(items)) {
-          const fresh = items.filter(isUsableFreshVideo);
-          items =
-            fresh.length >= 4
-              ? fresh
-              : items.filter((v: any) => (v.videoId || v.id) && v.title && !v.liveNow);
+        const mapped = items.map((v) => mapInvidiousVideo(v, regionCode));
+        if (pageNum === 1 && mapped.length > 0) {
+          setCachedHomeFeed(categoryId, regionCode, mapped);
         }
+        return mapped;
+      } catch (err) {
+        console.error('Error in fetchFeed:', err);
+        return [];
       }
+    },
+    [regionCode]
+  );
 
-      return items.map((v) => mapInvidiousVideo(v, regionCode));
-    } catch (err) {
-      console.error('Error in fetchFeed:', err);
-      return [];
-    }
-  }, [regionCode]);
-
-  // Load feed on category or region change
+  // Load feed on category or region change (0ms instant paint from SWR cache + progressive streaming)
   useEffect(() => {
     let cancelled = false;
-    setLoading(true);
     setPage(1);
     setHasMore(true);
 
-    fetchFeed(currentCategory, 1)
+    const cached = getCachedHomeFeed(currentCategory, regionCode);
+    const hasWarmCache = Boolean(cached && cached.length > 0);
+    if (hasWarmCache && cached) {
+      setVideos(cached);
+      setLoading(false);
+    } else {
+      setLoading(true);
+    }
+
+    fetchFeed(currentCategory, 1, (partialVideos) => {
+      if (!cancelled && !hasWarmCache && partialVideos.length > 0) {
+        setVideos(partialVideos);
+        setLoading(false);
+      }
+    })
       .then((res) => {
         if (!cancelled) {
-          setVideos(res);
-          setLoading(false);
-          if (res.length === 0) setHasMore(false);
+          if (res.length > 0) {
+            setVideos(res);
+            setLoading(false);
+            // Gently warm the #1 video in background after feed settles
+            if (res[0]?.id) {
+              setTimeout(() => invidious.prefetchVideo(res[0].id), 500);
+            }
+          } else if (!hasWarmCache) {
+            setVideos([]);
+            setLoading(false);
+            setHasMore(false);
+          }
         }
       })
       .catch(() => {
@@ -751,10 +877,10 @@ export default function ClientHomePage() {
             />
           )}
 
-          {/* Row 1: Top video cards */}
+          {/* Row 1: Top video cards (first 2 cards elevated for LCP) */}
           <div className="home-video-grid">
-            {videos.slice(0, 3).map((v) => (
-              <VideoCard key={v.id} video={v} />
+            {videos.slice(0, 3).map((v, idx) => (
+              <VideoCard key={v.id} video={v} priority={idx < 2} />
             ))}
           </div>
 
@@ -822,10 +948,10 @@ export default function ClientHomePage() {
           {/* YouTube Shorts Shelf */}
           {page === 1 && <ShortsShelf shorts={shorts} />}
 
-          {/* Row 3 onwards: Regular video cards */}
+          {/* Row 3 onwards: Regular video cards (offscreen cards use content-visibility: auto) */}
           <div className="home-video-grid">
-            {videos.slice(3).map((v) => (
-              <VideoCard key={v.id} video={v} />
+            {videos.slice(3).map((v, idx) => (
+              <VideoCard key={v.id} video={v} deferred={idx >= 6} />
             ))}
           </div>
 

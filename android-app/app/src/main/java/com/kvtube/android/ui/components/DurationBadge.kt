@@ -11,6 +11,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.kvtube.android.ui.theme.AstryxRadius
 
 @Composable
 fun DurationBadge(
@@ -21,8 +22,8 @@ fun DurationBadge(
     Box(
         modifier = modifier
             .background(
-                color = Color.Black.copy(alpha = 0.8f),
-                shape = RoundedCornerShape(4.dp)
+                color = Color.Black.copy(alpha = 0.78f),
+                shape = RoundedCornerShape(AstryxRadius.inner)
             )
             .padding(horizontal = 4.dp, vertical = 2.dp),
         contentAlignment = Alignment.Center
@@ -31,6 +32,7 @@ fun DurationBadge(
             text = duration,
             color = Color.White,
             fontSize = 11.sp,
+            fontWeight = androidx.compose.ui.text.font.FontWeight.Medium,
             lineHeight = 14.sp
         )
     }

@@ -11,6 +11,9 @@ import androidx.compose.ui.unit.dp
 import androidx.tv.foundation.lazy.list.TvLazyRow
 import androidx.tv.foundation.lazy.list.items
 import androidx.tv.material3.*
+import com.kvtube.tv.ui.theme.AstryxDark
+import com.kvtube.tv.ui.theme.AstryxRadius
+import com.kvtube.tv.ui.theme.YTChip
 
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
@@ -32,10 +35,10 @@ fun YtCategoryChips(
             Surface(
                 onClick = { onSelect(cat) },
                 modifier = Modifier.padding(vertical = 4.dp),
-                shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(8.dp)),
+                shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(AstryxRadius.element)),
                 colors = ClickableSurfaceDefaults.colors(
-                    containerColor = if (isSel) Color.White else Color(0xFF272727),
-                    contentColor = if (isSel) Color.Black else Color.White,
+                    containerColor = if (isSel) AstryxDark.accent else YTChip,
+                    contentColor = if (isSel) AstryxDark.onAccent else AstryxDark.textPrimary,
                     focusedContainerColor = Color.White,
                     focusedContentColor = Color.Black,
                 ),

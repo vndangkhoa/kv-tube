@@ -48,33 +48,50 @@ export async function POST(req: NextRequest) {
   }
 }
 
+const SUGGESTIONS_CACHE = new Map<string, { data: VideoSuggestionItem[]; source: string; expiry: number }>();
+
 async function handleSuggestions(seeds: string[], exclude: string[], limit: number) {
   const excludeSet = new Set<string>([...exclude, ...seeds]);
+  const cacheKey = `${seeds.slice(0, 3).join(',')}|${exclude.slice(0, 10).join(',')}|${limit}`;
+  const cached = SUGGESTIONS_CACHE.get(cacheKey);
+  if (cached && Date.now() < cached.expiry) {
+    return NextResponse.json(
+      { suggestions: cached.data, source: cached.source },
+      { headers: { 'Cache-Control': 'public, max-age=60, stale-while-revalidate=300' } }
+    );
+  }
 
-  // 1. Try Go backend first
-  const backendUrl = process.env.BACKEND_URL || 'http://127.0.0.1:8080';
-  try {
-    const query = new URLSearchParams();
-    if (seeds.length > 0) query.set('seeds', seeds.join(','));
-    if (exclude.length > 0) query.set('exclude', exclude.join(','));
-    query.set('limit', String(limit));
+  // 1. Try Go backend first only when BACKEND_URL is explicitly configured
+  const backendUrl = process.env.BACKEND_URL?.trim();
+  if (backendUrl) {
+    try {
+      const query = new URLSearchParams();
+      if (seeds.length > 0) query.set('seeds', seeds.join(','));
+      if (exclude.length > 0) query.set('exclude', exclude.join(','));
+      query.set('limit', String(limit));
 
-    const backendRes = await fetch(`${backendUrl}/api/suggestions?${query.toString()}`, {
-      headers: { 'User-Agent': 'KV-Tube-Frontend' },
-      signal: AbortSignal.timeout(3500),
-    });
+      const backendRes = await fetch(`${backendUrl}/api/suggestions?${query.toString()}`, {
+        headers: { 'User-Agent': 'KV-Tube-Frontend' },
+        signal: AbortSignal.timeout(2500),
+      });
 
-    if (backendRes.ok) {
-      const data = await backendRes.json();
-      if (Array.isArray(data) && data.length > 0) {
-        return NextResponse.json({
-          suggestions: data,
-          source: 'backend',
-        });
+      if (backendRes.ok) {
+        const data = await backendRes.json();
+        if (Array.isArray(data) && data.length > 0) {
+          SUGGESTIONS_CACHE.set(cacheKey, {
+            data,
+            source: 'backend',
+            expiry: Date.now() + 10 * 60 * 1000,
+          });
+          return NextResponse.json({
+            suggestions: data,
+            source: 'backend',
+          });
+        }
       }
+    } catch {
+      // Backend unavailable or timed out; proceed to fallback
     }
-  } catch {
-    // Backend unavailable or timed out; proceed to fallback
   }
 
   // 2. Fallback: Query Invidious API for related videos across seeds
@@ -130,6 +147,11 @@ async function handleSuggestions(seeds: string[], exclude: string[], limit: numb
             seen.add(item.id);
             interleaved.push(item);
             if (interleaved.length >= limit) {
+              SUGGESTIONS_CACHE.set(cacheKey, {
+                data: interleaved,
+                source: 'invidious-fallback',
+                expiry: Date.now() + 10 * 60 * 1000,
+              });
               return NextResponse.json({
                 suggestions: interleaved,
                 source: 'invidious-fallback',
@@ -140,6 +162,13 @@ async function handleSuggestions(seeds: string[], exclude: string[], limit: numb
       }
     }
 
+    if (interleaved.length > 0) {
+      SUGGESTIONS_CACHE.set(cacheKey, {
+        data: interleaved,
+        source: 'invidious-fallback',
+        expiry: Date.now() + 10 * 60 * 1000,
+      });
+    }
     return NextResponse.json({
       suggestions: interleaved,
       source: 'invidious-fallback',

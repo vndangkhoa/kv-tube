@@ -224,6 +224,12 @@ fun ExoPlayerView(
             override fun onPlaybackStateChanged(state: Int) {
                 isBuffering = state == Player.STATE_BUFFERING
                 isEnded = state == Player.STATE_ENDED
+                // A recovered stream (e.g. DASH → progressive fallback) must
+                // dismiss the stale error overlay on its own.
+                if (state == Player.STATE_READY && hasError) {
+                    hasError = false
+                    errorMessage = ""
+                }
             }
 
             override fun onPlayerError(error: PlaybackException) {
@@ -266,6 +272,11 @@ fun ExoPlayerView(
                 PlayerView(ctx).apply {
                     player = exoPlayer
                     useController = false
+                    // Keep the last decoded frame on screen across source/track
+                    // changes and never paint the shutter: quality switches
+                    // can't flash black.
+                    setKeepContentOnPlayerReset(true)
+                    setShutterBackgroundColor(android.graphics.Color.TRANSPARENT)
                     this.resizeMode = resizeMode
                     setShowNextButton(false)
                     setShowPreviousButton(false)
@@ -344,7 +355,7 @@ fun ExoPlayerView(
                 contentAlignment = Alignment.Center
             ) {
                 CircularProgressIndicator(
-                    color = YTBrandRed,
+                    color = Color.White,
                     strokeWidth = 3.dp,
                     modifier = Modifier.size(48.dp)
                 )
@@ -385,7 +396,7 @@ fun ExoPlayerView(
                             exoPlayer.play()
                         },
                         modifier = Modifier
-                            .background(YTBrandRed, CircleShape)
+                            .background(Color.White.copy(alpha = 0.2f), CircleShape)
                             .size(44.dp)
                     ) {
                         Icon(

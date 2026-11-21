@@ -184,6 +184,7 @@ export interface SearchOptions {
   features?: string;
   region?: string;
   hl?: string;
+  priority?: 'low' | 'high' | 'auto';
 }
 
 function isStaleOrLoopbackInstance(urlStr?: string | null): boolean {
@@ -229,6 +230,9 @@ export class InvidiousService {
   private instanceUrl: string;
   private videoCache = new Map<string, { data: InvidiousVideo; expiry: number }>();
   private inFlightVideoPromises = new Map<string, Promise<InvidiousVideo>>();
+  private apiResponseCache = new Map<string, { data: any; expiry: number }>();
+  private inFlightApiPromises = new Map<string, Promise<any>>();
+  private prefetchedVideoTimestamps = new Map<string, number>();
 
   constructor() {
     const serverEnvUrl = process.env.INVIDIOUS_URL?.trim();
@@ -410,130 +414,181 @@ export class InvidiousService {
     'https://yewtu.be',
   ];
 
-  // Generic Public API fetcher with multi-node resilient fallback
-  public async fetchApi<T>(endpoint: string, params: Record<string, any> = {}): Promise<T> {
+  // Generic Public API fetcher with multi-node resilient fallback, in-memory cache, and in-flight coalescing
+  public async fetchApi<T>(
+    endpoint: string,
+    params: Record<string, any> = {},
+    fetchOptions?: { priority?: 'low' | 'high' | 'auto'; skipCache?: boolean }
+  ): Promise<T> {
     const isBrowser = typeof window !== 'undefined';
     const isVideosEndpoint = endpoint === '/videos' || endpoint.startsWith('/videos/');
-    const instancesToTry: string[] = [];
-    const seen = new Set<string>();
 
-    const pushUnique = (candidate?: string | null) => {
-      if (!candidate) return;
-      const cleaned = candidate.trim().replace(/\/+$/, '');
-      if (!cleaned || isStaleInvidiousDomain(cleaned)) return;
-      if (!seen.has(cleaned)) {
-        seen.add(cleaned);
-        instancesToTry.push(cleaned);
+    const sortedParams = Object.keys(params)
+      .filter((k) => params[k] !== undefined && params[k] !== null && params[k] !== '')
+      .sort()
+      .map((k) => `${k}=${params[k]}`)
+      .join('&');
+    const apiCacheKey = `${this.instanceUrl}|${endpoint}?${sortedParams}`;
+
+    if (!isVideosEndpoint && !fetchOptions?.skipCache) {
+      const cached = this.apiResponseCache.get(apiCacheKey);
+      if (cached && Date.now() < cached.expiry) {
+        return cached.data as T;
       }
+      const inFlight = this.inFlightApiPromises.get(apiCacheKey);
+      if (inFlight) {
+        return inFlight as Promise<T>;
+      }
+    }
+
+    const executeFetch = async (): Promise<T> => {
+      const instancesToTry: string[] = [];
+      const seen = new Set<string>();
+
+      const pushUnique = (candidate?: string | null) => {
+        if (!candidate) return;
+        const cleaned = candidate.trim().replace(/\/+$/, '');
+        if (!cleaned || isStaleInvidiousDomain(cleaned)) return;
+        if (!seen.has(cleaned)) {
+          seen.add(cleaned);
+          instancesToTry.push(cleaned);
+        }
+      };
+
+      if (isBrowser) {
+        pushUnique('/api/invidious');
+      } else {
+        const configuredLocalEnv = process.env.INVIDIOUS_URL?.trim();
+        const hasConfiguredLocalInvidious = Boolean(
+          configuredLocalEnv && !isStaleInvidiousDomain(configuredLocalEnv)
+        );
+
+        pushUnique(configuredLocalEnv);
+        if (!isStaleOrLoopbackInstance(this.instanceUrl)) {
+          pushUnique(this.instanceUrl);
+        }
+        pushUnique('http://invidious:3000');
+        pushUnique('http://kvtube-invidious:3000');
+        if (
+          process.env.NEXT_PUBLIC_INVIDIOUS_URL &&
+          !isStaleOrLoopbackInstance(process.env.NEXT_PUBLIC_INVIDIOUS_URL)
+        ) {
+          pushUnique(process.env.NEXT_PUBLIC_INVIDIOUS_URL);
+        }
+        if (!hasConfiguredLocalInvidious) {
+          pushUnique('http://127.0.0.1:7601');
+        }
+
+        // Never fall back to dead public Invidious instances when local INVIDIOUS_URL is configured
+        // or on /videos/* (which would return 401/403 or streams signed for foreign IPs).
+        if (!hasConfiguredLocalInvidious && !isVideosEndpoint) {
+          for (const fb of InvidiousService.FALLBACK_INSTANCES) {
+            pushUnique(fb);
+          }
+        }
+      }
+
+      let lastError: any = null;
+
+      for (const base of instancesToTry) {
+        try {
+          const isRelative = base.startsWith('/');
+          const url = isRelative
+            ? new URL(
+                `${base}/api/v1${endpoint}`,
+                typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3000'
+              )
+            : new URL(`${base}/api/v1${endpoint}`);
+
+          Object.entries(params).forEach(([key, val]) => {
+            if (val !== undefined && val !== null && val !== '') {
+              url.searchParams.set(key, String(val));
+            }
+          });
+
+          const reqHeaders: Record<string, string> = {
+            Accept: 'application/json',
+            'Accept-Language': 'vi-VN,vi;q=0.9,en-US;q=0.8,en;q=0.7',
+          };
+          if (isBrowser && isRelative && this.instanceUrl && !isStaleOrLoopbackInstance(this.instanceUrl)) {
+            let isSameOrigin = false;
+            try {
+              const u = new URL(this.instanceUrl.startsWith('http') ? this.instanceUrl : `https://${this.instanceUrl}`);
+              const targetHostname = u.hostname.toLowerCase();
+              isSameOrigin =
+                u.host.toLowerCase() === window.location.host.toLowerCase() ||
+                targetHostname === window.location.hostname.toLowerCase() ||
+                targetHostname.startsWith('ut.') ||
+                targetHostname.startsWith('u.');
+            } catch {
+              isSameOrigin = true;
+            }
+            if (!isSameOrigin) {
+              reqHeaders['x-invidious-instance'] = this.instanceUrl;
+            }
+          }
+
+          const isPublicFallback = InvidiousService.FALLBACK_INSTANCES.includes(base);
+          const timeoutMs = isPublicFallback ? 3_000 : isVideosEndpoint ? 16_000 : 9_000;
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
+          const init: RequestInit & { priority?: 'low' | 'high' | 'auto' } = {
+            headers: reqHeaders,
+            signal: controller.signal,
+          };
+          if (fetchOptions?.priority) {
+            init.priority = fetchOptions.priority;
+          }
+
+          const res = await fetch(url.toString(), init);
+
+          clearTimeout(timeoutId);
+
+          if (res.ok) {
+            const contentType = (res.headers.get('content-type') || '').toLowerCase();
+            if (contentType.includes('text/html')) {
+              lastError = new Error(`Invidious instance ${base} returned HTML challenge instead of JSON for ${endpoint}`);
+              continue;
+            }
+            const json = await res.json();
+            if (!isVideosEndpoint) {
+              this.apiResponseCache.set(apiCacheKey, {
+                data: json,
+                expiry: Date.now() + 3 * 60 * 1000,
+              });
+              if (this.apiResponseCache.size > 150) {
+                const oldest = this.apiResponseCache.keys().next().value;
+                if (oldest) this.apiResponseCache.delete(oldest);
+              }
+            }
+            return json;
+          } else {
+            let errDetail = `HTTP ${res.status}`;
+            try {
+              const errJson = await res.json();
+              if (errJson?.error) errDetail += `: ${errJson.error}`;
+            } catch {}
+            lastError = new Error(`Invidious error (${errDetail}) for ${endpoint}`);
+          }
+        } catch (err: any) {
+          lastError = err;
+          continue;
+        }
+      }
+
+      throw lastError || new Error(`All Invidious instances failed for ${endpoint}`);
     };
 
-    if (isBrowser) {
-      pushUnique('/api/invidious');
-    } else {
-      const configuredLocalEnv = process.env.INVIDIOUS_URL?.trim();
-      const hasConfiguredLocalInvidious = Boolean(
-        configuredLocalEnv && !isStaleInvidiousDomain(configuredLocalEnv)
-      );
-
-      pushUnique(configuredLocalEnv);
-      if (!isStaleOrLoopbackInstance(this.instanceUrl)) {
-        pushUnique(this.instanceUrl);
-      }
-      pushUnique('http://invidious:3000');
-      pushUnique('http://kvtube-invidious:3000');
-      if (
-        process.env.NEXT_PUBLIC_INVIDIOUS_URL &&
-        !isStaleOrLoopbackInstance(process.env.NEXT_PUBLIC_INVIDIOUS_URL)
-      ) {
-        pushUnique(process.env.NEXT_PUBLIC_INVIDIOUS_URL);
-      }
-      if (!hasConfiguredLocalInvidious) {
-        pushUnique('http://127.0.0.1:7601');
-      }
-
-      // Never fall back to dead public Invidious instances when local INVIDIOUS_URL is configured
-      // or on /videos/* (which would return 401/403 or streams signed for foreign IPs).
-      if (!hasConfiguredLocalInvidious && !isVideosEndpoint) {
-        for (const fb of InvidiousService.FALLBACK_INSTANCES) {
-          pushUnique(fb);
-        }
-      }
+    if (isVideosEndpoint) {
+      return executeFetch();
     }
 
-    let lastError: any = null;
-
-    for (const base of instancesToTry) {
-      try {
-        const isRelative = base.startsWith('/');
-        const url = isRelative
-          ? new URL(
-              `${base}/api/v1${endpoint}`,
-              typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3000'
-            )
-          : new URL(`${base}/api/v1${endpoint}`);
-
-        Object.entries(params).forEach(([key, val]) => {
-          if (val !== undefined && val !== null && val !== '') {
-            url.searchParams.set(key, String(val));
-          }
-        });
-
-        const reqHeaders: Record<string, string> = {
-          Accept: 'application/json',
-          'Accept-Language': 'vi-VN,vi;q=0.9,en-US;q=0.8,en;q=0.7',
-        };
-        if (isBrowser && isRelative && this.instanceUrl && !isStaleOrLoopbackInstance(this.instanceUrl)) {
-          let isSameOrigin = false;
-          try {
-            const u = new URL(this.instanceUrl.startsWith('http') ? this.instanceUrl : `https://${this.instanceUrl}`);
-            const targetHostname = u.hostname.toLowerCase();
-            isSameOrigin =
-              u.host.toLowerCase() === window.location.host.toLowerCase() ||
-              targetHostname === window.location.hostname.toLowerCase() ||
-              targetHostname.startsWith('ut.') ||
-              targetHostname.startsWith('u.');
-          } catch {
-            isSameOrigin = true;
-          }
-          if (!isSameOrigin) {
-            reqHeaders['x-invidious-instance'] = this.instanceUrl;
-          }
-        }
-
-        const isPublicFallback = InvidiousService.FALLBACK_INSTANCES.includes(base);
-        const timeoutMs = isPublicFallback ? 3_000 : isVideosEndpoint ? 16_000 : 9_000;
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
-
-        const res = await fetch(url.toString(), {
-          headers: reqHeaders,
-          signal: controller.signal,
-        });
-
-        clearTimeout(timeoutId);
-
-        if (res.ok) {
-          const contentType = (res.headers.get('content-type') || '').toLowerCase();
-          if (contentType.includes('text/html')) {
-            lastError = new Error(`Invidious instance ${base} returned HTML challenge instead of JSON for ${endpoint}`);
-            continue;
-          }
-          return await res.json();
-        } else {
-          let errDetail = `HTTP ${res.status}`;
-          try {
-            const errJson = await res.json();
-            if (errJson?.error) errDetail += `: ${errJson.error}`;
-          } catch {}
-          lastError = new Error(`Invidious error (${errDetail}) for ${endpoint}`);
-        }
-      } catch (err: any) {
-        lastError = err;
-        continue;
-      }
-    }
-
-    throw lastError || new Error(`All Invidious instances failed for ${endpoint}`);
+    const p = executeFetch().finally(() => {
+      this.inFlightApiPromises.delete(apiCacheKey);
+    });
+    this.inFlightApiPromises.set(apiCacheKey, p);
+    return p;
   }
 
   // Generic Authenticated API fetcher
@@ -728,10 +783,27 @@ export class InvidiousService {
   // -------------------------------------------------------------
   // 2. VIDEOS & PLAYBACK
   // -------------------------------------------------------------
+  public prefetchVideo(videoId: string): void {
+    if (!videoId || typeof window === 'undefined') return;
+    if (videoId.startsWith('RD') || videoId.length < 6) return;
+    const now = Date.now();
+    const lastPrefetch = this.prefetchedVideoTimestamps.get(videoId) || 0;
+    if (now - lastPrefetch < 5 * 60 * 1000) return;
+    this.prefetchedVideoTimestamps.set(videoId, now);
+
+    // 1. Warm the DASH manifest directly in server & browser cache with low priority
+    const dashUrl = `/api/invidious/api/manifest/dash/id/${encodeURIComponent(videoId)}`;
+    fetch(dashUrl, { priority: 'low' } as RequestInit).catch(() => {});
+
+    // 2. Warm the video metadata / stream formats with low priority
+    this.getVideo(videoId, undefined, 0, { priority: 'low' }).catch(() => {});
+  }
+
   async getVideo(
     videoId: string,
     paramsOrRegion?: string | { region?: string; hl?: string; local?: string },
-    retries: number = 2
+    retries: number = 2,
+    fetchOptions?: { priority?: 'low' | 'high' | 'auto' }
   ): Promise<InvidiousVideo> {
     if (!videoId) throw new Error('videoId is required');
     const requestParams: { region?: string; hl?: string; local: string } =
@@ -752,7 +824,8 @@ export class InvidiousService {
       try {
         const data = await this.fetchApi<InvidiousVideo>(
           `/videos/${encodeURIComponent(videoId)}`,
-          requestParams
+          requestParams,
+          fetchOptions
         );
         if (data && (data.videoId || (data as any).id)) {
           this.videoCache.set(cacheKey, { data, expiry: Date.now() + 10 * 60 * 1000 });
@@ -838,17 +911,21 @@ export class InvidiousService {
 
   async search(query: string, options: SearchOptions = {}): Promise<any[]> {
     const hl = options.hl || (options.region === 'VN' ? 'vi' : (options.region ? 'en' : ''));
-    return this.fetchApi('/search', {
-      q: query,
-      page: options.page || 1,
-      sort_by: options.sort_by || 'relevance',
-      date: options.date || '',
-      duration: options.duration || '',
-      type: options.type || 'all',
-      features: options.features || '',
-      region: options.region || '',
-      ...(hl ? { hl } : {}),
-    });
+    return this.fetchApi(
+      '/search',
+      {
+        q: query,
+        page: options.page || 1,
+        sort_by: options.sort_by || 'relevance',
+        date: options.date || '',
+        duration: options.duration || '',
+        type: options.type || 'all',
+        features: options.features || '',
+        region: options.region || '',
+        ...(hl ? { hl } : {}),
+      },
+      options.priority ? { priority: options.priority } : undefined
+    );
   }
 
   // -------------------------------------------------------------

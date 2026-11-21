@@ -5,6 +5,19 @@ All notable changes to KV-Tube are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.12.0] - 2026-11-21
+
+### Added
+- **Android phone app (v1.8.0) & Android TV (v1.2.0-tv) — adaptive streaming (ABR)**:
+  - Playback now starts straight from the DASH manifest (no waiting for `/videos/{id}`); ExoPlayer runs bandwidth-based ABR, seeded with the last measured throughput. New **Auto** quality tier is the default; resolution follows bandwidth (H.264 up to 1080p, AV1 up to 4K only with a hardware decoder).
+  - Quality changes only update track-selection constraints (no source rebuild, no black frame). Live resolution / bandwidth readout in the quality menu (phone) and a quality button + real-resolution badge (TV).
+  - Falls back to the progressive stream at the same position if DASH fails.
+- **Astryx design tokens** (neutral theme: palette, radii, Figtree typography, motion) applied to the phone app theme/components and the TV theme.
+
+### Changed
+- **Server**: `/api/invidious/.../videoplayback` makes one direct POST per segment (cached redirect edge) and prefetches init/index/first segment when the DASH manifest is served; WARP proxy runs with `-l -S -d 8.8.8.8` (IPv4 + local DNS) — startup segments 10–16 s → ~3 s.
+- **Web player**: bandwidth-seeded ABR, proactive upscaling, smooth in-place quality switching (no MSE teardown).
+
 ## [1.1.4-tv] - 2026-09-19
 
 ### Fixed

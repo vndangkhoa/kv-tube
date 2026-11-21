@@ -32,7 +32,7 @@ fun LoadingSpinner(
         ) {
             CircularProgressIndicator(
                 modifier = Modifier.size(size),
-                color = YTBrandRed,
+                color = MaterialTheme.colorScheme.primary,
                 strokeWidth = strokeWidth
             )
             if (!text.isNullOrBlank()) {

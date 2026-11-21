@@ -7,12 +7,23 @@ import androidx.core.content.ContextCompat
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
+import androidx.media3.common.MimeTypes
+import androidx.media3.common.VideoSize
 import androidx.media3.datasource.DefaultHttpDataSource
+import androidx.media3.datasource.ResolvingDataSource
 import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.analytics.AnalyticsListener
+import androidx.media3.exoplayer.dash.DashMediaSource
+import androidx.media3.exoplayer.dash.DefaultDashChunkSource
+import androidx.media3.exoplayer.mediacodec.MediaCodecUtil
 import androidx.media3.exoplayer.source.MergingMediaSource
 import androidx.media3.exoplayer.source.ProgressiveMediaSource
+import androidx.media3.exoplayer.trackselection.AdaptiveTrackSelection
+import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
+import androidx.media3.exoplayer.upstream.DefaultBandwidthMeter
 import android.net.Uri
+import com.kvtube.android.data.model.QualityTier
 import dagger.hilt.android.qualifiers.ApplicationContext
 import com.kvtube.android.data.local.logToFile
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -48,7 +59,123 @@ class PlaybackManager @Inject constructor(
          *  (especially older) devices survive — this debounce keeps the codec
          *  churn bounded. */
         private const val QUALITY_SWITCH_DEBOUNCE_MS = 350L
+
+        private const val PREFS = "kv_playback"
+        private const val PREF_BANDWIDTH_BPS = "bw_bps"
+        private const val BANDWIDTH_PERSIST_INTERVAL_MS = 4_000L
+
+        /** Gateway path prefix the KV-Tube web app uses to proxy Invidious/Companion. */
+        private const val GATEWAY_PREFIX = "/api/invidious"
+
+        /**
+         * Rewrites URLs the DASH manifest resolves against the gateway host
+         * (`/companion/videoplayback?...`, `/videoplayback?...`) so they go
+         * through the same-origin `/api/invidious` proxy — same logic as the
+         * web player's Shaka request filter. Pure string function so it is
+         * unit-testable without Android classes; the query is untouched.
+         */
+        fun rewriteGatewayUrl(url: String, gatewayHost: String?): String {
+            if (gatewayHost.isNullOrBlank()) return url
+            val schemeEnd = url.indexOf("://")
+            if (schemeEnd < 0) return url
+            val authorityStart = schemeEnd + 3
+            val pathStart = url.indexOf('/', authorityStart)
+            if (pathStart < 0) return url
+            val authority = url.substring(authorityStart, pathStart)
+            val host = authority.substringAfterLast('@').substringBefore(':')
+            if (!host.equals(gatewayHost, ignoreCase = true)) return url
+            val path = url.substring(pathStart)
+            if (path.startsWith(GATEWAY_PREFIX)) return url
+            val proxied = path.startsWith("/companion/") ||
+                path.startsWith("/videoplayback") ||
+                path.startsWith("/latest_version") ||
+                path.startsWith("/api/")
+            if (!proxied) return url
+            return url.substring(0, pathStart) + GATEWAY_PREFIX + path
+        }
     }
+
+    // ---- adaptive streaming (ABR) --------------------------------------------
+
+    private val prefs by lazy { context.getSharedPreferences(PREFS, Context.MODE_PRIVATE) }
+    private var lastBandwidthPersistAt = 0L
+
+    /** Bandwidth meter seeded with the last measured throughput so the very
+     *  first segments already pick a fitting resolution instead of starting
+     *  at the bottom of the ladder and slowly climbing. */
+    private val bandwidthMeter: DefaultBandwidthMeter by lazy {
+        val builder = DefaultBandwidthMeter.Builder(context)
+        val saved = prefs.getLong(PREF_BANDWIDTH_BPS, 0L)
+        if (saved >= 500_000L) builder.setInitialBitrateEstimate(saved.coerceAtMost(80_000_000L))
+        builder.build()
+    }
+
+    private val trackSelector: DefaultTrackSelector by lazy {
+        DefaultTrackSelector(
+            context,
+            AdaptiveTrackSelection.Factory(
+                /* minDurationForQualityIncreaseMs = */ 3_000,
+                /* maxDurationForQualityDecreaseMs = */ 12_000,
+                /* minDurationToRetainAfterDiscardMs = */ 12_000,
+                /* bandwidthFraction = */ 0.85f
+            )
+        ).also { applyTier(it, QualityTier.AUTO) }
+    }
+
+    private val hardwareAv1: Boolean by lazy {
+        runCatching {
+            MediaCodecUtil.getDecoderInfos(MimeTypes.VIDEO_AV1, false, false)
+                .any { it.hardwareAccelerated }
+        }.getOrDefault(false)
+    }
+
+    private val _activeHeight = MutableStateFlow(0)
+    /** Height (px) of the video resolution currently being decoded (0 = unknown). */
+    val activeHeight: StateFlow<Int> = _activeHeight.asStateFlow()
+
+    private val _bandwidthMbps = MutableStateFlow(0f)
+    /** Latest measured throughput estimate in Mbps (0 = unknown). */
+    val bandwidthMbps: StateFlow<Float> = _bandwidthMbps.asStateFlow()
+
+    @Volatile var isDashActive: Boolean = false
+        private set
+    private var currentTier: QualityTier = QualityTier.AUTO
+
+    /**
+     * Applies [tier] by changing the track-selection constraints only — the
+     * media source, codec and surface stay alive, so switching resolution
+     * (manual or automatic) never tears down playback or blanks the video.
+     */
+    fun setQualityTier(tier: QualityTier) {
+        currentTier = tier
+        applyTier(trackSelector, tier)
+    }
+
+    private fun applyTier(selector: DefaultTrackSelector, tier: QualityTier) {
+        val b = selector.buildUponParameters()
+            .setAllowVideoMixedMimeTypeAdaptiveness(false)
+            .setExceedVideoConstraintsIfNecessary(true)
+            .clearVideoSizeConstraints()
+            .setForceHighestSupportedBitrate(false)
+        when (tier) {
+            QualityTier.AUTO -> b.setPreferredVideoMimeTypes(*preferredMimes(allowAv1 = true))
+            QualityTier.MAXIMUM -> b.setPreferredVideoMimeTypes(*preferredMimes(allowAv1 = true))
+                .setForceHighestSupportedBitrate(true)
+            QualityTier.HIGH -> b.setMaxVideoSize(Int.MAX_VALUE, 1080)
+                .setPreferredVideoMimeTypes(MimeTypes.VIDEO_H264)
+            QualityTier.MID -> b.setMaxVideoSize(Int.MAX_VALUE, 720)
+                .setPreferredVideoMimeTypes(MimeTypes.VIDEO_H264)
+            QualityTier.LOW -> b.setMaxVideoSize(Int.MAX_VALUE, 360)
+                .setPreferredVideoMimeTypes(MimeTypes.VIDEO_H264)
+        }
+        selector.setParameters(b)
+    }
+
+    /** AV1 gives 1440p/4K but only decodes smoothly with a hardware decoder;
+     *  everything else stays on universally supported H.264. */
+    private fun preferredMimes(allowAv1: Boolean): Array<String> =
+        if (allowAv1 && hardwareAv1) arrayOf(MimeTypes.VIDEO_AV1, MimeTypes.VIDEO_H264)
+        else arrayOf(MimeTypes.VIDEO_H264)
 
     private val httpFactory = DefaultHttpDataSource.Factory()
         .setConnectTimeoutMs(15_000)
@@ -60,14 +187,20 @@ class PlaybackManager @Inject constructor(
             .setMediaSourceFactory(
                 androidx.media3.exoplayer.source.DefaultMediaSourceFactory(httpFactory)
             )
+            .setBandwidthMeter(bandwidthMeter)
+            .setTrackSelector(trackSelector)
             .setLoadControl(
                 DefaultLoadControl.Builder()
                     .setBufferDurationsMs(
-                        /* minBufferMs = */ 15_000,
-                        /* maxBufferMs = */ 60_000,
-                        /* bufferForPlaybackMs = */ 2_500,
-                        /* bufferForPlaybackAfterRebufferMs = */ 5_000
+                        /* minBufferMs = */ 10_000,
+                        /* maxBufferMs = */ 50_000,
+                        // Start as soon as ~1.2s is buffered: with the
+                        // prefetched init/index/first segment that is
+                        // near-instant first frame.
+                        /* bufferForPlaybackMs = */ 1_200,
+                        /* bufferForPlaybackAfterRebufferMs = */ 3_000
                     )
+                    .setPrioritizeTimeOverSizeThresholds(true)
                     .build()
             )
             .setAudioAttributes(
@@ -95,6 +228,26 @@ class PlaybackManager @Inject constructor(
 
                     override fun onIsPlayingChanged(isPlaying: Boolean) {
                         if (isPlaying) ensureMediaServiceStarted()
+                    }
+
+                    override fun onVideoSizeChanged(videoSize: VideoSize) {
+                        if (videoSize.height > 0) _activeHeight.value = videoSize.height
+                    }
+                })
+                addAnalyticsListener(object : AnalyticsListener {
+                    override fun onBandwidthEstimate(
+                        eventTime: AnalyticsListener.EventTime,
+                        totalLoadTimeMs: Int,
+                        totalBytesLoaded: Long,
+                        bitrateEstimate: Long
+                    ) {
+                        if (bitrateEstimate <= 0) return
+                        _bandwidthMbps.value = bitrateEstimate / 1_000_000f
+                        val now = android.os.SystemClock.elapsedRealtime()
+                        if (now - lastBandwidthPersistAt >= BANDWIDTH_PERSIST_INTERVAL_MS) {
+                            lastBandwidthPersistAt = now
+                            prefs.edit().putLong(PREF_BANDWIDTH_BPS, bitrateEstimate).apply()
+                        }
                     }
                 })
             }
@@ -151,6 +304,60 @@ class PlaybackManager @Inject constructor(
             p.replaceMediaItem(0, newItem)
         } catch (_: Exception) {
             // best-effort — never disturb playback for cosmetics
+        }
+    }
+
+    /**
+     * Starts adaptive DASH playback from the server's manifest. One request
+     * path, zero URL pre-resolution: the player begins loading init/index
+     * segments the moment the manifest arrives, and ABR picks the resolution
+     * from measured bandwidth (seeded from the last session).
+     *
+     * @param gatewayHost host of the KV-Tube gateway when the manifest is
+     *        served through it (enables `/companion/...` → `/api/invidious/...`
+     *        rewriting); null for a raw Invidious server.
+     */
+    fun playDash(videoId: String, manifestUrl: String, gatewayHost: String?) {
+        if (manifestUrl.isBlank()) return
+        try {
+            val key = "$videoId|$manifestUrl"
+            if (key == loadedKey && player.mediaItemCount > 0) {
+                player.playWhenReady = true
+                return
+            }
+            val resolvingFactory = ResolvingDataSource.Factory(httpFactory) { dataSpec ->
+                val original = dataSpec.uri.toString()
+                val rewritten = rewriteGatewayUrl(original, gatewayHost)
+                if (rewritten == original) dataSpec else dataSpec.withUri(Uri.parse(rewritten))
+            }
+            val meta = _nowPlaying.value
+            val item = MediaItem.Builder()
+                .setUri(Uri.parse(manifestUrl))
+                .setMimeType(MimeTypes.APPLICATION_MPD)
+                .setMediaMetadata(
+                    MediaMetadata.Builder()
+                        .setTitle(meta?.title.orEmpty())
+                        .setArtist(meta?.channelTitle.orEmpty())
+                        .setArtworkUri(meta?.thumbnail?.takeIf { it.isNotBlank() }?.let { Uri.parse(it) })
+                        .build()
+                )
+                .build()
+            val source = DashMediaSource.Factory(
+                DefaultDashChunkSource.Factory(resolvingFactory),
+                resolvingFactory
+            ).createMediaSource(item)
+
+            loadedKey = key
+            isDashActive = true
+            _activeHeight.value = 0
+            lastSwitchAt = android.os.SystemClock.elapsedRealtime()
+            logToFile(TAG, "playDash($videoId) manifest host=${Uri.parse(manifestUrl).host} tier=$currentTier")
+            player.setMediaSource(source)
+            player.prepare()
+            player.playWhenReady = true
+        } catch (t: Throwable) {
+            Log.e(TAG, "playDash($videoId) failed", t)
+            isDashActive = false
         }
     }
 
@@ -216,6 +423,7 @@ class PlaybackManager @Inject constructor(
             }
 
             loadedKey = keyOfLoaded
+            isDashActive = false
             lastSwitchAt = now
             logToFile(TAG, "play($videoId) stream host=${Uri.parse(videoUrl).host} audio=${audioUrl?.let { Uri.parse(it).host }}")
             // Positional overload: the resume seek is applied atomically with
@@ -272,6 +480,8 @@ class PlaybackManager @Inject constructor(
             Log.w(TAG, "stopAndClear: ${t.message}")
         }
         loadedKey = null
+        isDashActive = false
+        _activeHeight.value = 0
         lastSwitchAt = 0L
         mediaServiceRequested = false
         _nowPlaying.value = null

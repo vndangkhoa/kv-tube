@@ -1424,24 +1424,51 @@ export default function ClientWatchPage() {
         window.history.pushState({ videoId }, '', newUrl);
 
         if (mixPlaylist.length > 0) {
-            const el = document.querySelector('.mix-playlist-container');
-            if (el) el.scrollIntoView({ behavior: 'smooth' });
+            setActiveRightTab('playlist');
             return;
         }
 
-        fetch(`/api/mix/${encodeURIComponent(videoId)}?list=${encodeURIComponent(mixListId)}`)
-            .then(res => res.ok ? res.json() : null)
-            .then(data => {
-                if (data && Array.isArray(data.videos) && data.videos.length > 0) {
-                    setMixPlaylist(data.videos);
-                    setMixTitle(data.title || `Mix - ${videoInfo?.title || 'YouTube'}`);
-                    const found = data.videos.findIndex((v: any) => v.id === videoId);
-                    setCurrentIndex(found >= 0 ? found : 0);
-                    setIsMixDismissed(false);
+        // Instant 0ms Mix seed from already-loaded relatedVideos while background mix query runs
+        if (relatedVideos.length > 0) {
+            const currentEntry: VideoData = {
+                id: videoId,
+                title: videoInfo?.title || 'Current Video',
+                uploader: videoInfo?.uploader || videoInfo?.channelTitle || '',
+                thumbnail: videoInfo?.thumbnail || getThumbnailCascade(videoId, 1),
+                duration: videoInfo?.duration || '',
+            };
+            setMixPlaylist([currentEntry, ...relatedVideos.slice(0, 24)]);
+            setMixTitle(`Mix - ${videoInfo?.title || 'YouTube'}`);
+            setCurrentIndex(0);
+            setActiveRightTab('playlist');
+        }
+
+        const kw = titleKeywords(videoInfo?.title || '');
+        const ch = videoInfo?.channelTitle || videoInfo?.uploader || '';
+        const fw = kw.split(' ').slice(0, 3).join(' ');
+        const mixQueries = [
+            kw ? `${kw} mix` : '',
+            ch ? `${ch} playlist` : '',
+            fw ? `${fw} playlist` : '',
+        ];
+        searchWithFallback(mixQueries, 10, 20, new Set<string>([videoId]))
+            .then((mixResults) => {
+                const uniqueMix = mixArrFilter(mixResults, videoId, relatedVideos);
+                if (uniqueMix.length > 0) {
+                    const currentEntry: VideoData = {
+                        id: videoId,
+                        title: videoInfo?.title || 'Current Video',
+                        uploader: videoInfo?.uploader || videoInfo?.channelTitle || '',
+                        thumbnail: videoInfo?.thumbnail || getThumbnailCascade(videoId, 1),
+                        duration: videoInfo?.duration || '',
+                    };
+                    setMixPlaylist([currentEntry, ...uniqueMix.slice(0, 29)]);
+                    setMixTitle(`Mix - ${videoInfo?.title || 'YouTube'}`);
+                    setCurrentIndex(0);
                 }
             })
-            .catch(err => console.warn('Failed to start mix:', err));
-    }, [videoId, playlistId, videoInfo?.title, mixPlaylist.length]);
+            .catch((err) => console.warn('Failed to enrich mix:', err));
+    }, [videoId, playlistId, videoInfo, mixPlaylist.length, relatedVideos]);
 
     // Sync activeVideoId when external route changes (e.g. from Search or Header)
     useEffect(() => {
@@ -1508,28 +1535,12 @@ export default function ClientWatchPage() {
                 }
 
                 setIsMixDismissed(false);
-                const mixListId = playlistId || `RD${videoId}`;
                 const isAlreadyInMix = mixPlaylist.length > 0 && mixPlaylist.some((v: any) => v.id === videoId);
 
-                const [video, upNextResult, mixData] = await Promise.all([
+                // Both getVideoDetailsClient and getRelatedVideosClient share the single coalesced invidious.getVideo(videoId) promise
+                const [video, upNextResult] = await Promise.all([
                     getOrFetchData(`video_${videoId}`, () => getVideoDetailsClient(videoId)),
                     getOrFetchData(`related_${videoId}`, () => getRelatedVideosClient(videoId, 20)),
-                    !isAlreadyInMix
-                        ? getOrFetchData(`mix_${videoId}_${mixListId}`, async () => {
-                            try {
-                                const res = await fetch(`/api/mix/${encodeURIComponent(videoId)}?list=${encodeURIComponent(mixListId)}`);
-                                if (res.ok) {
-                                    const json = await res.json();
-                                    if (json && Array.isArray(json.videos) && json.videos.length > 0) {
-                                        return json;
-                                    }
-                                }
-                            } catch (e) {
-                                console.warn('Mix fetch failed:', e);
-                            }
-                            return null;
-                        })
-                        : Promise.resolve(null),
                 ]);
                 setVideoInfo(video);
 
@@ -1555,29 +1566,24 @@ export default function ClientWatchPage() {
                     invidious.addAuthHistory(videoId).catch(() => {});
                 }
 
-                let uniqueRelated = (Array.isArray(upNextResult) ? upNextResult : [])
+                const uniqueRelated = (Array.isArray(upNextResult) ? upNextResult : [])
                     .filter((v, i, self) =>
                         i === self.findIndex(item => item.id === v.id) && v.id !== videoId
                     );
+                setRelatedVideos(uniqueRelated);
+
+                // Gently prefetch the #1 Up Next video in the background once playback settles
+                if (uniqueRelated[0]?.id) {
+                    setTimeout(() => invidious.prefetchVideo(uniqueRelated[0].id), 1200);
+                }
 
                 if (isAlreadyInMix) {
                     const foundIdx = mixPlaylist.findIndex((v: any) => v.id === videoId);
                     if (foundIdx >= 0) {
                         setCurrentIndex(foundIdx);
                     }
-                    setRelatedVideos(uniqueRelated);
-                } else if (mixData && Array.isArray(mixData.videos) && mixData.videos.length > 0) {
-                    setMixPlaylist(mixData.videos);
-                    setMixTitle(mixData.title || `Mix - ${video?.title || 'YouTube'}`);
-                    const foundIdx = mixData.videos.findIndex((v: any) => v.id === videoId);
-                    if (foundIdx >= 0) {
-                        setCurrentIndex(foundIdx);
-                    } else if (currentIndex < 0) {
-                        setCurrentIndex(startIdx);
-                    }
-                    setRelatedVideos(uniqueRelated);
-                } else {
-                    // Fallback to related-derived mix if API unavailable
+                } else if (playlistId) {
+                    // Only build a Mix playlist automatically when ?list= is explicitly present in URL
                     keywords = titleKeywords(video?.title || '');
                     const channel = video?.channelTitle || video?.uploader || '';
                     firstWords = keywords.split(' ').slice(0, 3).join(' ');
@@ -1589,19 +1595,21 @@ export default function ClientWatchPage() {
                     ];
                     try {
                         const mixResults = await getOrFetchData(`mix_${videoId}`, () => searchWithFallback(mixQueries, 10, 20, exclude));
-                        let uniqueMix = mixArrFilter(mixResults, videoId, uniqueRelated);
+                        const uniqueMix = mixArrFilter(mixResults, videoId, uniqueRelated);
                         if (uniqueMix.length > 0) {
                             setMixPlaylist(uniqueMix.slice(0, 30));
                             setMixTitle(`Mix - ${video?.title || 'Playlist'}`);
-                        } else {
-                            setMixPlaylist([]);
-                            setMixTitle('');
+                        } else if (uniqueRelated.length > 0) {
+                            setMixPlaylist(uniqueRelated.slice(0, 25));
+                            setMixTitle(`Mix - ${video?.title || 'Playlist'}`);
                         }
                     } catch {
                         setMixPlaylist([]);
                         setMixTitle('');
                     }
-                    setRelatedVideos(uniqueRelated);
+                } else {
+                    setMixPlaylist([]);
+                    setMixTitle('');
                 }
 
                 if (!video) {
@@ -1910,7 +1918,7 @@ export default function ClientWatchPage() {
                         </div>
 
                         {filteredRelated.slice(6, 40).map((video, index) => (
-                            <VideoCard key={`${video.id}-${index + 6}`} video={video} />
+                            <VideoCard key={`${video.id}-${index + 6}`} video={video} deferred={true} />
                         ))}
                     </div>
                 </div>

@@ -61,9 +61,13 @@ export default function SmartSuggestionsShelf({
       const seedIds = seeds.map((s) => s.videoId).join(',');
       const excludeIds = historyItems.slice(0, 25).map((h) => h.videoId).join(',');
 
-      const res = await fetch(`/api/suggestions?seeds=${encodeURIComponent(seedIds)}&exclude=${encodeURIComponent(excludeIds)}&limit=12`, {
-        signal: AbortSignal.timeout(6000),
-      });
+      const res = await fetch(
+        `/api/suggestions?seeds=${encodeURIComponent(seedIds)}&exclude=${encodeURIComponent(excludeIds)}&limit=12`,
+        {
+          signal: AbortSignal.timeout(6000),
+          priority: 'low',
+        } as RequestInit
+      );
 
       if (res.ok) {
         const data = await res.json();
@@ -117,7 +121,7 @@ export default function SmartSuggestionsShelf({
     return true;
   });
 
-  if (!loading && suggestions.length === 0) {
+  if (suggestions.length === 0) {
     return null;
   }
 

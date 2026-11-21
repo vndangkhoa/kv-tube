@@ -28,10 +28,11 @@ services:
         chmod 0600 /warp/config.json
         exec /warp/bin/usque -c /warp/config.json http-proxy \
           --always-reconnect \
+          -l -S \
           -b 0.0.0.0 \
           -p 29083 \
           -d 1.1.1.1 \
-          -d 2606:4700:4700::1111
+          -d 8.8.8.8
     volumes:
       - ./data/warp:/warp
     dns:

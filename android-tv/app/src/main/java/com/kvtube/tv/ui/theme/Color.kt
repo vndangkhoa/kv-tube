@@ -1,18 +1,23 @@
 package com.kvtube.tv.ui.theme
 
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.compositeOver
 
-// YouTube + Leanback dark — TV-first, matches frontend globals.css dark theme
-val YTBackground = Color(0xFF0F0F0F)
-val YTSurface = Color(0xFF1A1A1A)
-val YTSurfaceVariant = Color(0xFF212121)
-val YTChip = Color(0xFF272727)
-val YTChipActive = Color(0xFFF1F1F1)
-val YTBorder = Color(0xFF3F3F3F)
-val YTTextPrimary = Color(0xFFF1F1F1)
-val YTTextSecondary = Color(0xFFAAAAAA)
-val YTBrandRed = Color(0xFFFF0000)
-val YTBlue = Color(0xFF3EA6FF)
+/*
+ * TV is dark-only: colors resolve from the Astryx neutral theme (dark mode),
+ * see Astryx.kt. Legacy names are kept so every existing reference re-themes.
+ */
+val YTBackground = AstryxDark.backgroundBody
+val YTSurface = AstryxDark.backgroundSurface
+val YTSurfaceVariant = AstryxDark.neutralFill.compositeOver(AstryxDark.backgroundBody)
+val YTChip = AstryxDark.neutralFill.compositeOver(AstryxDark.backgroundBody)
+val YTChipActive = AstryxDark.accent
+val YTBorder = AstryxDark.borderEmphasized
+val YTTextPrimary = AstryxDark.textPrimary
+val YTTextSecondary = AstryxDark.textSecondary
+/** Brand/like red from the Astryx red family (red.light[55]). */
+val YTBrandRed = Color(0xFFDE4745)
+val YTBlue = AstryxDark.info
 val YTFocus = Color(0xFFFFFFFF)
 val YTFocusGlow = Color(0x33FFFFFF)
 

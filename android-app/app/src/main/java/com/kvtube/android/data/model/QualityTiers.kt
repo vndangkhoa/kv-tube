@@ -2,12 +2,16 @@ package com.kvtube.android.data.model
 
 /**
  * YouTube-style quality tiers shown on the watch page.
+ *  - Auto     → adaptive (bandwidth based) up to what the device can decode
  *  - Low      → ~360p
  *  - Mid      → ~720p
  *  - High     → ~1080p
  *  - Maximum  → highest resolution the source offers (4K etc.)
  */
 enum class QualityTier(val label: String) {
+    /** Adaptive: ExoPlayer ABR climbs/falls across the whole DASH ladder
+     *  following measured bandwidth — the default. */
+    AUTO("Auto"),
     LOW("Low"),
     MID("Mid"),
     HIGH("High"),
@@ -34,9 +38,14 @@ object QualityTiers {
      * (<Android 8) devices must decode in software — a known source of
      * freezes and native crashes. Users can still pick a higher tier.
      */
-    val DEFAULT = QualityTier.MID
+    val DEFAULT = QualityTier.AUTO
+
+    /** Cap used when an adaptive (DASH) stream is unavailable and Auto has to
+     *  fall back to a single progressive stream: the combined H264/AAC 720p. */
+    const val AUTO_PROGRESSIVE_CAP = 720
 
     fun maxHeightOf(tier: QualityTier): Int = when (tier) {
+        QualityTier.AUTO -> Int.MAX_VALUE
         QualityTier.LOW -> 360
         QualityTier.MID -> 720
         QualityTier.HIGH -> 1080
@@ -55,7 +64,7 @@ object QualityTiers {
         val all = info.videoFormats.filter { it.url.isNotBlank() && it.height > 0 }
         if (all.isEmpty()) return null
 
-        val cap = maxHeightOf(tier)
+        val cap = if (tier == QualityTier.AUTO) AUTO_PROGRESSIVE_CAP else maxHeightOf(tier)
         val sortedDesc = all.sortedByDescending { it.height }
 
         // Highest stream at/below the cap; if every stream exceeds it (e.g.

@@ -9,6 +9,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import com.kvtube.android.ui.theme.AstryxRadius
 
 @Composable
 fun SubscribeButton(
@@ -20,7 +21,7 @@ fun SubscribeButton(
         Button(
             onClick = onToggle,
             modifier = modifier,
-            shape = RoundedCornerShape(20.dp),
+            shape = RoundedCornerShape(AstryxRadius.element),
             contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
             colors = ButtonDefaults.buttonColors(
                 containerColor = MaterialTheme.colorScheme.surfaceVariant,
@@ -36,11 +37,11 @@ fun SubscribeButton(
         Button(
             onClick = onToggle,
             modifier = modifier,
-            shape = RoundedCornerShape(20.dp),
+            shape = RoundedCornerShape(AstryxRadius.element),
             contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
             colors = ButtonDefaults.buttonColors(
-                containerColor = MaterialTheme.colorScheme.onSurface,
-                contentColor = MaterialTheme.colorScheme.background
+                containerColor = MaterialTheme.colorScheme.primary,
+                contentColor = MaterialTheme.colorScheme.onPrimary
             )
         ) {
             Text(

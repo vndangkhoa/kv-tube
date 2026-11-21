@@ -28,8 +28,12 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
+import kotlin.math.roundToInt
 import javax.inject.Inject
 
 /** YouTube-style quality tiers shown on the watch page. */
@@ -79,6 +83,11 @@ class WatchViewModel @Inject constructor(
 
     private val videoId: String = savedStateHandle.get<String>("videoId") ?: ""
 
+    /** True while the adaptive DASH stream (ExoPlayer ABR) is the active source. */
+    private var dashActive = false
+    private var progressiveFallbackStarted = false
+    private var cachedPlaybackInfo: PlaybackInfo? = null
+
     private val _uiState = MutableStateFlow(WatchUiState())
     val uiState: StateFlow<WatchUiState> = _uiState.asStateFlow()
 
@@ -98,6 +107,24 @@ class WatchViewModel @Inject constructor(
     init {
         if (videoId.isNotBlank()) {
             loadVideo()
+        }
+        // Live resolution / bandwidth readout for the quality menu while ABR runs.
+        viewModelScope.launch {
+            combine(
+                playbackManager.activeHeight,
+                playbackManager.bandwidthMbps
+                    .map { (it * 2).roundToInt() / 2f } // 0.5 Mbps steps: no recompose churn
+                    .distinctUntilChanged()
+            ) { height, mbps -> height to mbps }
+                .collect { (height, mbps) ->
+                    if (!dashActive) return@collect
+                    val state = _uiState.value
+                    _uiState.value = state.copy(
+                        selectedQualityLabel = height.takeIf { it > 0 }?.let { "${it}p" }
+                            ?: state.selectedQualityLabel,
+                        tierDescriptions = dashTierDescriptions(state.selectedTier, height, mbps)
+                    )
+                }
         }
         viewModelScope.launch {
             settingsDataStore.serverUrl
@@ -126,6 +153,18 @@ class WatchViewModel @Inject constructor(
      * quality of the same video keeps the playback position.
      */
     fun selectQualityTier(tier: QualityTier) {
+        // Adaptive stream: only the track-selection constraints change — the
+        // media source, decoder and surface stay up, so the resolution moves
+        // smoothly with no rebuffer, seek or black frame.
+        if (dashActive && playbackManager.isDashActive) {
+            playbackManager.setQualityTier(tier)
+            val height = playbackManager.activeHeight.value
+            _uiState.value = _uiState.value.copy(
+                selectedTier = tier,
+                tierDescriptions = dashTierDescriptions(tier, height, playbackManager.bandwidthMbps.value)
+            )
+            return
+        }
         val resolved = QualityTiers.resolve(tier, _uiState.value.playbackInfo) ?: return
         val (format, audioUrl) = resolved
 
@@ -142,6 +181,14 @@ class WatchViewModel @Inject constructor(
     /** Called when ExoPlayer fails mid-playback. Strict Invidious-only: no
      *  iframe fallback — surface the failure and let the user retry. */
     fun fallbackToIframe() {
+        // DASH failed (bad manifest, unsupported codec, dead segment host…):
+        // continue on the single progressive stream at the same position
+        // before surfacing any error.
+        if (dashActive && !progressiveFallbackStarted) {
+            logToFile(TAG, "DASH playback failed for $videoId — falling back to progressive stream")
+            startProgressiveFallback()
+            return
+        }
         logToFile(TAG, "player failed mid-playback for $videoId — surfacing error (strict server mode)")
         _uiState.value = _uiState.value.copy(
             error = "Playback failed. The stream from your Invidious server could not be played."
@@ -210,153 +257,49 @@ class WatchViewModel @Inject constructor(
         }
     }
 
+    /** Quality menu text while adaptive streaming: shows what ABR currently decodes. */
+    private fun dashTierDescriptions(selected: QualityTier, height: Int, mbps: Float): Map<QualityTier, String> =
+        QualityTier.entries.associateWith { tier ->
+            when (tier) {
+                QualityTier.AUTO -> buildString {
+                    append("Auto")
+                    if (selected == QualityTier.AUTO) {
+                        if (height > 0) append(" • ${height}p")
+                        if (mbps > 0f) append(" • ${if (mbps >= 10f) mbps.roundToInt().toString() else "%.1f".format(mbps)} Mbps")
+                    } else {
+                        append(" • by bandwidth")
+                    }
+                }
+                QualityTier.LOW -> "Low • up to 360p"
+                QualityTier.MID -> "Mid • up to 720p"
+                QualityTier.HIGH -> "High • up to 1080p"
+                QualityTier.MAXIMUM ->
+                    if (selected == QualityTier.MAXIMUM && height > 0) "Maximum • ${height}p"
+                    else "Maximum • highest available"
+            }
+        }
+
     private fun loadVideo() {
         viewModelScope.launch {
             // Related videos / comments / history load INDEPENDENTLY of the
             // playback path: they must appear even when the stream comes from
-            // NewPipe, the server, or the iframe fallback (which returns
-            // early — previously related stayed empty in that case).
+            // the server or a fallback.
             loadEnrichment()
             try {
                 _uiState.value = _uiState.value.copy(isLoading = true)
 
-                // 1. PRIMARY AND ONLY: the user-configured Invidious server.
-                // Streams are proxied through it (local=true) — the app makes
-                // ZERO direct connections to YouTube/Google. No fallbacks: if
-                // the server cannot serve a stream we say so plainly.
-                var videoUrl: String? = null
-                var audioUrl: String? = null
-                var playback: PlaybackInfo? = null
-                var extractedHeight = 0
-
-                val serverStarted = android.os.SystemClock.elapsedRealtime()
-                playback = kotlinx.coroutines.withTimeoutOrNull(18_000L) {
-                    runCatching { videoRepository.getPlaybackInfo(videoId) }.getOrNull()
-                }
-                if (playback != null && playback.videoFormats.isNotEmpty()) {
-                    val resolved = QualityTiers.resolve(QualityTiers.DEFAULT, playback)
-                    if (resolved != null && resolved.first.url.isNotBlank()) {
-                        videoUrl = resolved.first.url
-                        audioUrl = resolved.second
-                        extractedHeight = resolved.first.height
-                        logToFile(
-                            TAG,
-                            "stream via server in ${android.os.SystemClock.elapsedRealtime() - serverStarted}ms for $videoId"
-                        )
-                    }
-                }
-
-                if (videoUrl.isNullOrBlank()) {
-                    // Fallback to on-device extractor if the server is down, rate-limited, or returned no streams
-                    logToFile(TAG, "server returned no playable stream for $videoId, trying extractorHelper")
-                    val fallbackStream = runCatching {
-                        extractorHelper.extractStreamUrl(videoId, Quality.RECOMMENDED)
-                    }.getOrNull()
-
-                    if (fallbackStream != null && fallbackStream.videoUrl.isNotBlank()) {
-                        videoUrl = fallbackStream.videoUrl
-                        audioUrl = fallbackStream.audioUrl
-                        extractedHeight = fallbackStream.height
-                        logToFile(TAG, "stream via extractorHelper for $videoId")
-                    }
-                }
-
-                if (videoUrl.isNullOrBlank()) {
-                    logToFile(TAG, "all stream sources failed for $videoId")
-                    _uiState.value = _uiState.value.copy(
-                        isLoading = false,
-                        error = "Unable to load video stream. Check your server connection or try another instance in Settings."
-                    )
+                // 1. FAST PATH: adaptive DASH straight from the manifest. No
+                // waiting for /videos/{id} (which previously gated playback by
+                // up to 18s): the player starts loading init/index segments
+                // immediately and ABR picks the resolution from bandwidth.
+                if (tryStartDash()) {
+                    launchMetadataEnrichment()
+                    fetchPlaybackInfoInBackground()
                     return@launch
                 }
 
-                val initialTitle = playback?.title?.ifEmpty { null } ?: "Loading..."
-
-                // Hand playback over to the app-wide manager so it survives
-                // back navigation as a mini player.
-                playbackManager.setMetadata(videoId, initialTitle, "", "")
-                playbackManager.play(videoId, videoUrl, audioUrl)
-
-                _uiState.value = WatchUiState(
-                    video = VideoData(id = videoId, title = initialTitle),
-                    playbackInfo = playback ?: PlaybackInfo(title = initialTitle),
-                    isLoading = false,
-                    selectedUrl = videoUrl,
-                    audioUrl = audioUrl,
-                    selectedTier = QualityTiers.DEFAULT,
-                    selectedQualityLabel = extractedHeight.takeIf { it > 0 }?.let { "${it}p" },
-                    tierDescriptions = refreshTierDescriptions(playback),
-                    serverBaseUrl = _uiState.value.serverBaseUrl,
-                    // Preserve anything the independent enrichment coroutines
-                    // already delivered while streams were resolving.
-                    relatedVideos = _uiState.value.relatedVideos,
-                    comments = _uiState.value.comments,
-                    commentsContinuation = _uiState.value.commentsContinuation,
-                    commentsCount = _uiState.value.commentsCount,
-                    isLoadingComments = _uiState.value.isLoadingComments,
-                    isLoadingMoreComments = _uiState.value.isLoadingMoreComments
-                )
-
-                // Background enrichment (info, related, comments, history, quality list)
-                launch {
-                    val video = runCatching { videoRepository.getVideoInfo(videoId) }.getOrNull()
-                    if (video != null && video.title.isNotBlank()) {
-                        _uiState.value = _uiState.value.copy(
-                            video = video,
-                            isSubscribed = subscriptionRepository.isSubscribed(video.displayChannelId)
-                        )
-                        playbackManager.setMetadata(
-                            videoId = videoId,
-                            title = video.title,
-                            channelTitle = video.displayChannelTitle,
-                            thumbnail = video.displayThumbnail
-                        )
-                        // refresh the history entry with real metadata
-                        historyRepository.record(
-                            videoId = videoId,
-                            title = video.title,
-                            thumbnail = video.thumbnail,
-                            uploader = video.displayChannelTitle,
-                            channelId = video.displayChannelId,
-                            duration = video.duration
-                        )
-                    }
-                }
-                // Populate the quality menu even when the fast NewPipe path
-                // produced the stream (server formats are richer). If the
-                // currently playing stream doesn't match the selected tier,
-                // seamlessly switch (position is preserved) so the displayed
-                // quality is the one actually playing.
-                launch {
-                    val info = kotlinx.coroutines.withTimeoutOrNull(4_000L) {
-                        runCatching { videoRepository.getPlaybackInfo(videoId) }.getOrNull()
-                    }
-                    if (info != null && info.videoFormats.isNotEmpty()) {
-                        val current = _uiState.value
-                        val updatedInfo = if (current.playbackInfo == null || current.playbackInfo.videoFormats.isEmpty()) {
-                            info
-                        } else current.playbackInfo
-                        _uiState.value = current.copy(
-                            playbackInfo = updatedInfo,
-                            tierDescriptions = refreshTierDescriptions(updatedInfo),
-                            selectedQualityLabel = current.selectedQualityLabel
-                                ?: QualityTiers.resolve(current.selectedTier, updatedInfo)?.first?.qualityLabel
-                        )
-
-                        if (!current.useIframeFallback) {
-                            QualityTiers.resolve(current.selectedTier, updatedInfo)?.let { (format, audioUrl) ->
-                                if (format.url.isNotBlank() && format.url != current.selectedUrl) {
-                                    playbackManager.play(videoId, format.url, audioUrl)
-                                    _uiState.value = _uiState.value.copy(
-                                        selectedUrl = format.url,
-                                        audioUrl = audioUrl,
-                                        selectedQualityLabel = format.qualityLabel
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
+                // 2. Fallback: single progressive stream resolved from /videos/{id}.
+                loadProgressive()
             } catch (e: kotlinx.coroutines.CancellationException) {
                 // Leaving the page / reloading cancels this job — normal flow,
                 // not an error.
@@ -368,6 +311,214 @@ class WatchViewModel @Inject constructor(
                     isLoading = false,
                     error = e.message ?: "Failed to load video"
                 )
+            }
+        }
+    }
+
+    private suspend fun tryStartDash(): Boolean {
+        val manifest = withTimeoutOrNull(3_000L) { videoRepository.dashManifestUrl(videoId) }
+            ?: return false
+
+        val tier = _uiState.value.selectedTier
+        playbackManager.setMetadata(videoId, "Loading...", "", "")
+        playbackManager.setQualityTier(tier)
+        playbackManager.playDash(videoId, manifest, videoRepository.gatewayHost())
+        if (!playbackManager.isDashActive) return false
+
+        dashActive = true
+        progressiveFallbackStarted = false
+        logToFile(TAG, "adaptive DASH started for $videoId")
+        _uiState.value = _uiState.value.copy(
+            video = _uiState.value.video ?: VideoData(id = videoId, title = "Loading..."),
+            playbackInfo = _uiState.value.playbackInfo ?: PlaybackInfo(title = "Loading..."),
+            isLoading = false,
+            error = null,
+            selectedUrl = manifest,
+            audioUrl = null,
+            selectedTier = tier,
+            tierDescriptions = dashTierDescriptions(tier, 0, 0f)
+        )
+        return true
+    }
+
+    /** Fetches the progressive formats in the background (download sheet,
+     *  and the fallback stream should DASH fail) without blocking playback. */
+    private fun fetchPlaybackInfoInBackground() {
+        viewModelScope.launch {
+            val info = withTimeoutOrNull(18_000L) {
+                runCatching { videoRepository.getPlaybackInfo(videoId) }.getOrNull()
+            }
+            if (info != null && info.videoFormats.isNotEmpty()) {
+                cachedPlaybackInfo = info
+                _uiState.value = _uiState.value.copy(playbackInfo = info)
+            }
+        }
+    }
+
+    /** Switches from a failed DASH stream to the progressive stream, keeping the position. */
+    private fun startProgressiveFallback() {
+        if (progressiveFallbackStarted) return
+        progressiveFallbackStarted = true
+        dashActive = false
+        viewModelScope.launch {
+            val info = cachedPlaybackInfo?.takeIf { it.videoFormats.isNotEmpty() }
+                ?: withTimeoutOrNull(18_000L) {
+                    runCatching { videoRepository.getPlaybackInfo(videoId) }.getOrNull()
+                }
+            val tier = _uiState.value.selectedTier
+            val resolved = QualityTiers.resolve(tier, info)
+            if (info == null || resolved == null || resolved.first.url.isBlank()) {
+                _uiState.value = _uiState.value.copy(
+                    error = "Playback failed. The stream from your Invidious server could not be played."
+                )
+                return@launch
+            }
+            val (format, audioUrl) = resolved
+            // Same video → PlaybackManager.play() resumes at the current position.
+            playbackManager.play(videoId, format.url, audioUrl)
+            _uiState.value = _uiState.value.copy(
+                playbackInfo = info,
+                error = null,
+                selectedUrl = format.url,
+                audioUrl = audioUrl,
+                selectedQualityLabel = format.qualityLabel,
+                tierDescriptions = refreshTierDescriptions(info)
+            )
+        }
+    }
+
+    private fun launchMetadataEnrichment() {
+        viewModelScope.launch {
+            val video = runCatching { videoRepository.getVideoInfo(videoId) }.getOrNull()
+            if (video != null && video.title.isNotBlank()) {
+                _uiState.value = _uiState.value.copy(
+                    video = video,
+                    isSubscribed = subscriptionRepository.isSubscribed(video.displayChannelId)
+                )
+                playbackManager.setMetadata(
+                    videoId = videoId,
+                    title = video.title,
+                    channelTitle = video.displayChannelTitle,
+                    thumbnail = video.displayThumbnail
+                )
+                // refresh the history entry with real metadata
+                historyRepository.record(
+                    videoId = videoId,
+                    title = video.title,
+                    thumbnail = video.thumbnail,
+                    uploader = video.displayChannelTitle,
+                    channelId = video.displayChannelId,
+                    duration = video.duration
+                )
+            }
+        }
+    }
+
+    /** Progressive (non-adaptive) loading — used only when DASH is unavailable. */
+    private suspend fun loadProgressive() {
+        dashActive = false
+        var videoUrl: String? = null
+        var audioUrl: String? = null
+        var playback: PlaybackInfo? = null
+        var extractedHeight = 0
+
+        val serverStarted = android.os.SystemClock.elapsedRealtime()
+        playback = withTimeoutOrNull(18_000L) {
+            runCatching { videoRepository.getPlaybackInfo(videoId) }.getOrNull()
+        }
+        if (playback != null && playback.videoFormats.isNotEmpty()) {
+            val resolved = QualityTiers.resolve(QualityTiers.DEFAULT, playback)
+            if (resolved != null && resolved.first.url.isNotBlank()) {
+                videoUrl = resolved.first.url
+                audioUrl = resolved.second
+                extractedHeight = resolved.first.height
+                logToFile(
+                    TAG,
+                    "stream via server in ${android.os.SystemClock.elapsedRealtime() - serverStarted}ms for $videoId"
+                )
+            }
+        }
+
+        if (videoUrl.isNullOrBlank()) {
+            // Fallback to on-device extractor if the server is down, rate-limited, or returned no streams
+            logToFile(TAG, "server returned no playable stream for $videoId, trying extractorHelper")
+            val fallbackStream = runCatching {
+                extractorHelper.extractStreamUrl(videoId, Quality.RECOMMENDED)
+            }.getOrNull()
+
+            if (fallbackStream != null && fallbackStream.videoUrl.isNotBlank()) {
+                videoUrl = fallbackStream.videoUrl
+                audioUrl = fallbackStream.audioUrl
+                extractedHeight = fallbackStream.height
+                logToFile(TAG, "stream via extractorHelper for $videoId")
+            }
+        }
+
+        if (videoUrl.isNullOrBlank()) {
+            logToFile(TAG, "all stream sources failed for $videoId")
+            _uiState.value = _uiState.value.copy(
+                isLoading = false,
+                error = "Unable to load video stream. Check your server connection or try another instance in Settings."
+            )
+            return
+        }
+
+        val initialTitle = playback?.title?.ifEmpty { null } ?: "Loading..."
+
+        // Hand playback over to the app-wide manager so it survives
+        // back navigation as a mini player.
+        playbackManager.setMetadata(videoId, initialTitle, "", "")
+        playbackManager.play(videoId, videoUrl, audioUrl)
+
+        _uiState.value = WatchUiState(
+            video = VideoData(id = videoId, title = initialTitle),
+            playbackInfo = playback ?: PlaybackInfo(title = initialTitle),
+            isLoading = false,
+            selectedUrl = videoUrl,
+            audioUrl = audioUrl,
+            selectedTier = QualityTiers.DEFAULT,
+            selectedQualityLabel = extractedHeight.takeIf { it > 0 }?.let { "${it}p" },
+            tierDescriptions = refreshTierDescriptions(playback),
+            serverBaseUrl = _uiState.value.serverBaseUrl,
+            // Preserve anything the independent enrichment coroutines
+            // already delivered while streams were resolving.
+            relatedVideos = _uiState.value.relatedVideos,
+            comments = _uiState.value.comments,
+            commentsContinuation = _uiState.value.commentsContinuation,
+            commentsCount = _uiState.value.commentsCount,
+            isLoadingComments = _uiState.value.isLoadingComments,
+            isLoadingMoreComments = _uiState.value.isLoadingMoreComments
+        )
+
+        launchMetadataEnrichment()
+        viewModelScope.launch {
+            val info = withTimeoutOrNull(4_000L) {
+                runCatching { videoRepository.getPlaybackInfo(videoId) }.getOrNull()
+            }
+            if (info != null && info.videoFormats.isNotEmpty()) {
+                val current = _uiState.value
+                val updatedInfo = if (current.playbackInfo == null || current.playbackInfo.videoFormats.isEmpty()) {
+                    info
+                } else current.playbackInfo
+                _uiState.value = current.copy(
+                    playbackInfo = updatedInfo,
+                    tierDescriptions = refreshTierDescriptions(updatedInfo),
+                    selectedQualityLabel = current.selectedQualityLabel
+                        ?: QualityTiers.resolve(current.selectedTier, updatedInfo)?.first?.qualityLabel
+                )
+
+                if (!current.useIframeFallback) {
+                    QualityTiers.resolve(current.selectedTier, updatedInfo)?.let { (format, audioUrl) ->
+                        if (format.url.isNotBlank() && format.url != current.selectedUrl) {
+                            playbackManager.play(videoId, format.url, audioUrl)
+                            _uiState.value = _uiState.value.copy(
+                                selectedUrl = format.url,
+                                audioUrl = audioUrl,
+                                selectedQualityLabel = format.qualityLabel
+                            )
+                        }
+                    }
+                }
             }
         }
     }

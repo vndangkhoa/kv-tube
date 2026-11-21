@@ -115,6 +115,25 @@ class KVApi(
 
     fun isGateway(): Boolean = gatewayMode == true
 
+    /** Host of the KV-Tube gateway (null for raw Invidious) — lets the player
+     *  rewrite `/companion/...` DASH segment URLs onto `/api/invidious`. */
+    fun gatewayHost(): String? {
+        if (gatewayMode != true || baseUrl.isBlank()) return null
+        return runCatching { java.net.URI(baseUrl).host }.getOrNull()
+    }
+
+    /** Adaptive DASH manifest URL (every resolution + audio in one manifest,
+     *  so the player can run bandwidth-based ABR), null if no server is set. */
+    suspend fun dashManifestUrl(videoId: String): String? {
+        if (baseUrl.isBlank() || videoId.isBlank()) return null
+        resolveGateway()
+        return if (gatewayMode == true) {
+            "$baseUrl/api/invidious/api/manifest/dash/id/$videoId"
+        } else {
+            "$baseUrl/api/manifest/dash/id/$videoId?local=true"
+        }
+    }
+
     fun setToken(token: String) {
         authToken = token.trim()
         Log.d(TAG, "Invidious token ${if (authToken.isBlank()) "cleared" else "set"}")

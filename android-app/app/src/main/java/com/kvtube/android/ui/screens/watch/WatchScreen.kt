@@ -682,14 +682,14 @@ private fun VideoInfoSection(
                             text = tierDescriptions[tier] ?: tier.label,
                             style = MaterialTheme.typography.bodyMedium,
                             fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                            color = if (isSelected) YTBrandRed else MaterialTheme.colorScheme.onSurface,
+                            color = MaterialTheme.colorScheme.onSurface,
                             modifier = Modifier.weight(1f)
                         )
                         if (isSelected) {
                             Icon(
                                 imageVector = Icons.Filled.Check,
                                 contentDescription = "Selected",
-                                tint = YTBrandRed,
+                                tint = MaterialTheme.colorScheme.primary,
                                 modifier = Modifier.size(18.dp)
                             )
                         }

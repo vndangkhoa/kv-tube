@@ -15,6 +15,9 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.clip
+import com.kvtube.android.ui.theme.AstryxRadius
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Home
@@ -158,8 +161,8 @@ fun BottomNavBar(
     ) {
         // Thin 0.8dp YouTube top border line
         HorizontalDivider(
-            thickness = 0.8.dp,
-            color = MaterialTheme.colorScheme.outline.copy(alpha = 0.25f)
+            thickness = 1.dp,
+            color = MaterialTheme.colorScheme.outlineVariant
         )
 
         // Compact 48dp YouTube bar
@@ -205,12 +208,24 @@ fun BottomNavBar(
                         .padding(vertical = 4.dp)
                 ) {
                     Box(contentAlignment = Alignment.TopEnd) {
-                        Icon(
-                            imageVector = iconVector,
-                            contentDescription = item.label,
-                            tint = itemColor,
-                            modifier = Modifier.size(22.dp)
-                        )
+                        // Astryx selected state: overlay-pressed pill on the icon
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(AstryxRadius.element))
+                                .background(
+                                    if (selected) MaterialTheme.colorScheme.surfaceVariant
+                                    else androidx.compose.ui.graphics.Color.Transparent
+                                )
+                                .padding(horizontal = 14.dp, vertical = 3.dp),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = iconVector,
+                                contentDescription = item.label,
+                                tint = itemColor,
+                                modifier = Modifier.size(22.dp)
+                            )
+                        }
 
                         // Download count badge
                         if (item.route == Screen.Downloads.route && activeDownloadsCount > 0) {

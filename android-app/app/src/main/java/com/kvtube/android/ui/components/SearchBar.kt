@@ -15,6 +15,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.kvtube.android.ui.theme.AstryxRadius
 
 /**
  * Pill-style filled search field (YouTube-like): soft surface background,
@@ -58,14 +59,14 @@ fun SearchBar(
             }
         },
         singleLine = true,
-        shape = RoundedCornerShape(24.dp),
+        shape = RoundedCornerShape(AstryxRadius.element),
         colors = OutlinedTextFieldDefaults.colors(
-            focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f),
-            unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
-            focusedBorderColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.45f),
-            unfocusedBorderColor = androidx.compose.ui.graphics.Color.Transparent,
+            focusedContainerColor = MaterialTheme.colorScheme.surface,
+            unfocusedContainerColor = MaterialTheme.colorScheme.surface,
+            focusedBorderColor = MaterialTheme.colorScheme.primary,
+            unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant,
             cursorColor = MaterialTheme.colorScheme.primary,
-            focusedLeadingIconColor = MaterialTheme.colorScheme.primary,
+            focusedLeadingIconColor = MaterialTheme.colorScheme.onSurface,
             unfocusedLeadingIconColor = MaterialTheme.colorScheme.onSurfaceVariant
         )
     )

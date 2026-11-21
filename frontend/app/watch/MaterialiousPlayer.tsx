@@ -141,6 +141,137 @@ function parseVideoHeight(f: any): number | null {
   return null;
 }
 
+let cachedShakaModule: any = null;
+let shakaImportPromise: Promise<any> | null = null;
+
+function getShakaModule(): Promise<any> {
+  if (cachedShakaModule) return Promise.resolve(cachedShakaModule);
+  if (typeof window === 'undefined') return Promise.resolve(null);
+  if (!shakaImportPromise) {
+    shakaImportPromise = import('shaka-player')
+      .then((mod) => {
+        const resolved = mod?.default || mod;
+        if (resolved?.polyfill) {
+          resolved.polyfill.installAll();
+        }
+        cachedShakaModule = resolved;
+        return resolved;
+      })
+      .catch((err) => {
+        console.warn('[MaterialiousPlayer] Shaka import fallback:', err);
+        shakaImportPromise = null;
+        return null;
+      });
+  }
+  return shakaImportPromise;
+}
+
+if (typeof window !== 'undefined') {
+  setTimeout(() => {
+    void getShakaModule();
+  }, 50);
+}
+
+let lastMeasuredBandwidthBps = 0;
+
+function getInitialBandwidthEstimateBps(): number {
+  if (lastMeasuredBandwidthBps >= 500_000) {
+    return Math.min(45_000_000, Math.max(2_500_000, lastMeasuredBandwidthBps));
+  }
+  if (typeof window !== 'undefined') {
+    try {
+      const saved = parseInt(localStorage.getItem('kv_abr_bw_bps') || '0', 10);
+      if (saved >= 500_000) {
+        lastMeasuredBandwidthBps = saved;
+        return Math.min(45_000_000, Math.max(2_500_000, saved));
+      }
+    } catch {}
+    const navConn = (navigator as any)?.connection;
+    if (navConn && typeof navConn.downlink === 'number' && navConn.downlink > 0) {
+      const connBps = Math.round(navConn.downlink * 1_000_000);
+      return Math.min(35_000_000, Math.max(2_500_000, connBps));
+    }
+  }
+  return 8_000_000;
+}
+
+function recordMeasuredBandwidthBps(bwBps?: number): void {
+  if (typeof bwBps !== 'number' || !isFinite(bwBps) || bwBps < 300_000) return;
+  const clamped = Math.round(Math.min(80_000_000, bwBps));
+  lastMeasuredBandwidthBps = clamped;
+  if (typeof window !== 'undefined') {
+    try {
+      localStorage.setItem('kv_abr_bw_bps', String(clamped));
+    } catch {}
+  }
+}
+
+function findBestShakaVariantTrack(
+  tracks: any[],
+  targetHeight: number,
+  targetFps?: number,
+  maxBandwidthBps?: number
+): any | null {
+  if (!Array.isArray(tracks) || tracks.length === 0) return null;
+  const valid = tracks.filter((t: any) => typeof t.height === 'number' && t.height > 0);
+  if (valid.length === 0) return tracks[0];
+
+  let pool = valid;
+  if (maxBandwidthBps && maxBandwidthBps > 0) {
+    const affordable = valid.filter(
+      (t: any) => (t.bandwidth || t.videoBandwidth || 0) <= maxBandwidthBps * 0.92
+    );
+    if (affordable.length > 0) pool = affordable;
+  }
+
+  let minDiff = Infinity;
+  for (const t of pool) {
+    const diff = Math.abs(t.height - targetHeight);
+    if (diff < minDiff) minDiff = diff;
+  }
+
+  const closest = pool.filter((t: any) => Math.abs(t.height - targetHeight) === minDiff);
+  closest.sort((a: any, b: any) => {
+    if (targetFps) {
+      const aFpsMatch = Math.round(a.frameRate || 30) === targetFps ? 1 : 0;
+      const bFpsMatch = Math.round(b.frameRate || 30) === targetFps ? 1 : 0;
+      if (aFpsMatch !== bFpsMatch) return bFpsMatch - aFpsMatch;
+    }
+    const fpsDiff = (b.frameRate || 30) - (a.frameRate || 30);
+    if (Math.abs(fpsDiff) > 5) return fpsDiff;
+    const vBwDiff =
+      (b.videoBandwidth || b.bandwidth || 0) - (a.videoBandwidth || a.bandwidth || 0);
+    if (vBwDiff !== 0) return vBwDiff;
+    return (b.audioBandwidth || 0) - (a.audioBandwidth || 0);
+  });
+
+  return closest[0] || valid[0];
+}
+
+function getBufferedAheadSeconds(vid: HTMLVideoElement): number {
+  const cur = vid.currentTime;
+  for (let i = 0; i < vid.buffered.length; i++) {
+    if (vid.buffered.start(i) <= cur + 0.1 && cur <= vid.buffered.end(i)) {
+      return Math.max(0, vid.buffered.end(i) - cur);
+    }
+  }
+  return 0;
+}
+
+function switchShakaTrackSmoothly(player: any, vid: HTMLVideoElement, targetTrack: any): void {
+  if (!player || !targetTrack) return;
+  const bufferedAhead = getBufferedAheadSeconds(vid);
+  // Keep at least 2.2s - 3.5s (approx two segments / GOPs) of already-buffered frames in the
+  // MSE SourceBuffer ahead of playhead so the decoder never underruns and never shows a black screen.
+  // If less than 2.4s is buffered ahead, switch without clearing the current buffer at all.
+  if (!vid.paused && bufferedAhead >= 2.4) {
+    const safeMargin = Math.min(3.8, Math.max(2.2, bufferedAhead * 0.65));
+    player.selectVariantTrack(targetTrack, true, safeMargin);
+  } else {
+    player.selectVariantTrack(targetTrack, false);
+  }
+}
+
 export default function MaterialiousPlayer({
   videoId,
   title,
@@ -169,10 +300,14 @@ export default function MaterialiousPlayer({
   const containerRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const audioRef = useRef<HTMLAudioElement>(null);
+  const frameFreezeCanvasRef = useRef<HTMLCanvasElement>(null);
   const shakaPlayerRef = useRef<any>(null);
   const usingProgressiveRef = useRef<boolean>(false);
   const triedLatestVersionFallbackRef = useRef<boolean>(false);
   const playbackStartedRef = useRef<boolean>(false);
+  const isSwitchingQualityRef = useRef<boolean>(false);
+  const lastAbrCheckTimeRef = useRef<number>(0);
+  const qualityTierRef = useRef<'auto' | 'highest' | 'low' | 'custom'>('auto');
   const videoDataRef = useRef<any>(null);
   const scrubberRef = useRef<HTMLDivElement>(null);
   const hideControlsTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -226,7 +361,48 @@ export default function MaterialiousPlayer({
   const [qualities, setQualities] = useState<QualityOption[]>([]);
   const [currentQuality, setCurrentQuality] = useState<string>('Auto');
   const [qualityTier, setQualityTier] = useState<'auto' | 'highest' | 'low' | 'custom'>('auto');
+  const [activeStreamHeight, setActiveStreamHeight] = useState<number>(0);
+  const [activeStreamFps, setActiveStreamFps] = useState<number>(0);
+  const [estimatedMbps, setEstimatedMbps] = useState<number>(0);
+  const [hasFrozenFrame, setHasFrozenFrame] = useState<boolean>(false);
   const [showAdvancedQualities, setShowAdvancedQualities] = useState(false);
+
+  useEffect(() => {
+    qualityTierRef.current = qualityTier;
+  }, [qualityTier]);
+
+  const captureCurrentVideoFrame = useCallback(() => {
+    const vid = videoRef.current;
+    const canvas = frameFreezeCanvasRef.current;
+    if (!vid || !canvas || vid.readyState < 2 || !vid.videoWidth || !vid.videoHeight) return;
+    try {
+      canvas.width = vid.videoWidth;
+      canvas.height = vid.videoHeight;
+      const ctx = canvas.getContext('2d');
+      if (ctx) {
+        ctx.drawImage(vid, 0, 0, canvas.width, canvas.height);
+        setHasFrozenFrame(true);
+      }
+    } catch {}
+  }, []);
+
+  const syncActiveShakaStats = useCallback((player: any) => {
+    if (!player) return;
+    try {
+      const tracks = player.getVariantTracks?.() || [];
+      const active = tracks.find((t: any) => t.active);
+      if (active?.height) {
+        setActiveStreamHeight(active.height);
+        setActiveStreamFps(active.frameRate ? Math.round(active.frameRate) : 0);
+      }
+      const stats = player.getStats?.();
+      const bw = stats?.estimatedBandwidth || player.getBandwidthEstimate?.() || 0;
+      if (bw > 0) {
+        recordMeasuredBandwidthBps(bw);
+        setEstimatedMbps(Math.round((bw / 1_000_000) * 10) / 10);
+      }
+    } catch {}
+  }, []);
   const [captions, setCaptions] = useState<CaptionOption[]>([]);
   const [currentCaption, setCurrentCaption] = useState<string>('off');
   const [activeCaptionUrl, setActiveCaptionUrl] = useState<string | null>(null);
@@ -239,12 +415,15 @@ export default function MaterialiousPlayer({
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [dataLoaded, setDataLoaded] = useState(false);
 
-  // 1. Fetch SponsorBlock segments
+  // 1. Fetch SponsorBlock segments (deferred slightly so initial stream manifest & segments take priority)
   useEffect(() => {
     if (!videoId) return;
-    fetchSponsorSegments(videoId)
-      .then((segs) => setSponsorSegments(segs || []))
-      .catch(() => setSponsorSegments([]));
+    const timer = setTimeout(() => {
+      fetchSponsorSegments(videoId)
+        .then((segs) => setSponsorSegments(segs || []))
+        .catch(() => setSponsorSegments([]));
+    }, 400);
+    return () => clearTimeout(timer);
   }, [videoId]);
 
   // 2. MediaSession hook for background / lockscreen controls
@@ -268,103 +447,132 @@ export default function MaterialiousPlayer({
     usingProgressiveRef.current = false;
     triedLatestVersionFallbackRef.current = false;
     playbackStartedRef.current = false;
+    isSwitchingQualityRef.current = false;
+    setHasFrozenFrame(false);
+    setActiveStreamHeight(0);
+    setActiveStreamFps(0);
     setDataLoaded(false);
     setErrorMsg(null);
     setIsBuffering(true);
-    setCurrentQuality('Auto');
+    if (qualityTierRef.current === 'auto') {
+      setCurrentQuality('Auto');
+    }
 
-    async function loadStream(attempt = 1) {
-      try {
-        // Fetch full video details from Invidious
-        const videoData: any = await invidious.getVideo(videoId);
-        if (isCancelled) return;
-        videoDataRef.current = videoData;
+    function hydrateMetadataAndQualities(videoData: any, activePlayer?: any) {
+      if (isCancelled || !videoData) return;
+      videoDataRef.current = videoData;
 
-        // Extract captions
-        if (Array.isArray(videoData?.captions)) {
-          const validCaps: CaptionOption[] = videoData.captions.map((c: any) => ({
-            label: c.label || c.name || c.language || 'English',
-            lang: c.languageCode || c.lang || 'en',
-            url: invidious.proxyUrl(c.url),
-          }));
-          setCaptions(validCaps);
-        }
+      if (Array.isArray(videoData?.captions)) {
+        const validCaps: CaptionOption[] = videoData.captions.map((c: any) => ({
+          label: c.label || c.name || c.language || 'English',
+          lang: c.languageCode || c.lang || 'en',
+          url: invidious.proxyUrl(c.url),
+        }));
+        setCaptions(validCaps);
+      }
 
-        // Available stream formats from Invidious
-        const formatStreams = Array.isArray(videoData?.formatStreams) ? videoData.formatStreams : [];
-        const adaptiveFormats = Array.isArray(videoData?.adaptiveFormats) ? videoData.adaptiveFormats : [];
-        const hlsManifest = videoData?.hlsUrl;
-        const dashManifest = videoData?.dashUrl;
+      const formatStreams = Array.isArray(videoData?.formatStreams) ? videoData.formatStreams : [];
+      const adaptiveFormats = Array.isArray(videoData?.adaptiveFormats) ? videoData.adaptiveFormats : [];
 
-        // Extract best audio format for synchronized high-res playback
-        const audioFormat =
-          adaptiveFormats.find((f: any) => f.type?.includes('audio/mp4') || f.mimeType?.includes('audio/mp4')) ||
-          adaptiveFormats.find((f: any) => f.type?.includes('audio') || f.mimeType?.includes('audio')) ||
-          adaptiveFormats[0];
+      const audioFormat =
+        adaptiveFormats.find((f: any) => f.type?.includes('audio/mp4') || f.mimeType?.includes('audio/mp4')) ||
+        adaptiveFormats.find((f: any) => f.type?.includes('audio') || f.mimeType?.includes('audio')) ||
+        adaptiveFormats[0];
 
-        const extractedAudioUrl = audioFormat?.url
-          ? invidious.proxyUrl(audioFormat.url)
-          : `/api/invidious/latest_version?id=${videoId}&itag=140`;
+      const extractedAudioUrl = audioFormat?.url
+        ? invidious.proxyUrl(audioFormat.url)
+        : `/api/invidious/latest_version?id=${videoId}&itag=140`;
 
-        setBestAudioUrl(extractedAudioUrl);
+      setBestAudioUrl(extractedAudioUrl);
 
-        // Build qualities list with itags and resolutions
-        const qualList: QualityOption[] = [{ id: 'auto', label: 'Auto (Best)' }];
-        const seenHeights = new Set<number>();
-        const seenIds = new Set<string>(['auto']);
+      const qualList: QualityOption[] = [{ id: 'auto', label: 'Auto (Best)' }];
+      const seenHeights = new Set<number>();
+      const seenIds = new Set<string>(['auto']);
 
-        // 1. Combined progressive formats (720p/360p) have built-in audio
-        for (const f of formatStreams) {
-          const isAudio = f.type?.includes('audio') || f.mimeType?.includes('audio');
-          if (isAudio) continue;
-          const h = parseVideoHeight(f);
-          if (h && h >= 144 && !seenHeights.has(h)) {
-            const entryId = String(f.itag || f.format_id || `prog_${h}`);
-            if (seenIds.has(entryId)) continue;
-            seenHeights.add(h);
-            seenIds.add(entryId);
-            const tag = h >= 1080 ? ' (Full HD)' : h >= 720 ? ' (HD)' : '';
-            qualList.push({
-              id: entryId,
-              label: `${h}p${tag}`,
-              height: h,
-              itag: f.itag,
-              fps: f.fps,
-              url: f.url,
-              hasAudio: true,
-            });
+      // 1. Prefer live Shaka variant tracks first when MSE is active so all listed resolutions exist in DASH
+      if (activePlayer) {
+        try {
+          const vTracks = activePlayer.getVariantTracks?.() || [];
+          for (const t of vTracks) {
+            if (t.height && t.height >= 144 && !seenHeights.has(t.height)) {
+              const entryId = `shaka_${t.id || t.height}`;
+              if (seenIds.has(entryId)) continue;
+              seenHeights.add(t.height);
+              seenIds.add(entryId);
+              const tag =
+                t.height >= 2160
+                  ? ' (4K)'
+                  : t.height >= 1440
+                  ? ' (2K)'
+                  : t.height >= 1080
+                  ? ' (Full HD)'
+                  : t.height >= 720
+                  ? ' (HD)'
+                  : '';
+              qualList.push({
+                id: entryId,
+                label: `${t.height}p${t.frameRate && t.frameRate > 30 ? Math.round(t.frameRate) : ''}${tag}`,
+                height: t.height,
+                fps: t.frameRate,
+                hasAudio: true,
+              });
+            }
           }
+          syncActiveShakaStats(activePlayer);
+        } catch {}
+      }
+
+      for (const f of formatStreams) {
+        const isAudio = f.type?.includes('audio') || f.mimeType?.includes('audio');
+        if (isAudio) continue;
+        const h = parseVideoHeight(f);
+        if (h && h >= 144 && !seenHeights.has(h)) {
+          const entryId = String(f.itag || f.format_id || `prog_${h}`);
+          if (seenIds.has(entryId)) continue;
+          seenHeights.add(h);
+          seenIds.add(entryId);
+          const tag = h >= 1080 ? ' (Full HD)' : h >= 720 ? ' (HD)' : '';
+          qualList.push({
+            id: entryId,
+            label: `${h}p${tag}`,
+            height: h,
+            itag: f.itag,
+            fps: f.fps,
+            url: f.url,
+            hasAudio: true,
+          });
         }
+      }
 
-        // 2. High-res adaptive formats (4K, 1440p, 1080p, 720p, 480p) - Strictly filter out audio formats
-        for (const f of adaptiveFormats) {
-          const isAudio =
-            f.type?.includes('audio') ||
-            f.mimeType?.includes('audio') ||
-            f.audioQuality ||
-            (!f.qualityLabel && !f.height && !f.fps && !f.resolution);
-          if (isAudio) continue;
+      for (const f of adaptiveFormats) {
+        const isAudio =
+          f.type?.includes('audio') ||
+          f.mimeType?.includes('audio') ||
+          f.audioQuality ||
+          (!f.qualityLabel && !f.height && !f.fps && !f.resolution);
+        if (isAudio) continue;
 
-          const h = parseVideoHeight(f);
-          if (h && h >= 144 && !seenHeights.has(h)) {
-            const entryId = String(f.itag || f.format_id || `adapt_${h}`);
-            if (seenIds.has(entryId)) continue;
-            seenHeights.add(h);
-            seenIds.add(entryId);
-            const tag = h >= 2160 ? ' (4K)' : h >= 1440 ? ' (2K)' : h >= 1080 ? ' (Full HD)' : h >= 720 ? ' (HD)' : '';
-            qualList.push({
-              id: entryId,
-              label: `${h}p${f.fps && f.fps > 30 ? f.fps : ''}${tag}`,
-              height: h,
-              itag: f.itag,
-              fps: f.fps,
-              url: f.url,
-              hasAudio: false,
-            });
-          }
+        const h = parseVideoHeight(f);
+        if (h && h >= 144 && !seenHeights.has(h)) {
+          const entryId = String(f.itag || f.format_id || `adapt_${h}`);
+          if (seenIds.has(entryId)) continue;
+          seenHeights.add(h);
+          seenIds.add(entryId);
+          const tag = h >= 2160 ? ' (4K)' : h >= 1440 ? ' (2K)' : h >= 1080 ? ' (Full HD)' : h >= 720 ? ' (HD)' : '';
+          qualList.push({
+            id: entryId,
+            label: `${h}p${f.fps && f.fps > 30 ? f.fps : ''}${tag}`,
+            height: h,
+            itag: f.itag,
+            fps: f.fps,
+            url: f.url,
+            hasAudio: false,
+          });
         }
+      }
 
-        // 3. Guarantee standard High-Res and Medium-Res options exist
+      // Only add fallback standard tiers if no real tracks were discovered
+      if (seenHeights.size === 0) {
         const standardTiers = [
           { height: 1080, itag: 137, label: '1080p (Full HD)' },
           { height: 720, itag: 22, label: '720p (HD)' },
@@ -387,25 +595,24 @@ export default function MaterialiousPlayer({
             });
           }
         }
+      }
 
-        qualList.sort((a, b) => (b.height || 0) - (a.height || 0));
-        setQualities(qualList);
+      qualList.sort((a, b) => (b.height || 0) - (a.height || 0));
+      setQualities(qualList);
+    }
 
+    async function loadStream(attempt = 1) {
+      try {
         const vid = videoRef.current;
         if (!vid) return;
 
-        // Dynamically load Shaka Player on the browser
-        let shakaModule: any = null;
-        try {
-          shakaModule = await import('shaka-player');
-          if (shakaModule.default) shakaModule = shakaModule.default;
-        } catch (shakaImportErr) {
-          console.warn('[MaterialiousPlayer] Shaka import fallback:', shakaImportErr);
-        }
+        // Kick off metadata fetch and Shaka module lookup in parallel at t=0ms
+        // so DASH manifest loading never waits for /api/v1/videos/:id!
+        const videoDataPromise = invidious.getVideo(videoId);
+        const shakaModule = await getShakaModule();
+        if (isCancelled) return;
 
-        // Check if Shaka Player is supported and can load DASH/HLS
         if (shakaModule && shakaModule.Player && shakaModule.Player.isBrowserSupported()) {
-          shakaModule.polyfill.installAll();
           if (shakaPlayerRef.current) {
             await shakaPlayerRef.current.destroy().catch(() => {});
             shakaPlayerRef.current = null;
@@ -419,82 +626,139 @@ export default function MaterialiousPlayer({
             }
           });
 
-          // Configure networking buffer for fast start
+          const onShakaAdaptation = () => {
+            if (!isCancelled) {
+              syncActiveShakaStats(player);
+            }
+          };
+          player.addEventListener('adaptation', onShakaAdaptation);
+          player.addEventListener('variantchanged', onShakaAdaptation);
+
+          // Configure Shaka for sub-second first-frame startup + fast, smooth bandwidth ABR
           player.configure({
+            manifest: {
+              dash: {
+                ignoreMinBufferTime: true,
+              },
+            },
             streaming: {
-              rebufferingGoal: 1.5,
-              bufferingGoal: 10,
+              rebufferingGoal: 0.5,
+              bufferingGoal: 14,
               bufferBehind: 20,
+              segmentPrefetchLimit: 2,
               retryParameters: {
                 maxAttempts: 3,
-                baseDelay: 500,
+                baseDelay: 400,
                 backoffFactor: 1.5,
+              },
+            },
+            abr: {
+              enabled: qualityTierRef.current === 'auto',
+              useNetworkInformation: true,
+              defaultBandwidthEstimate: getInitialBandwidthEstimateBps(),
+              switchInterval: 2,
+              minTimeToSwitch: 0.5,
+              bandwidthUpgradeTarget: 0.9,
+              bandwidthDowngradeTarget: 0.95,
+              clearBufferSwitch: true,
+              safeMarginSwitch: 3.0,
+              restrictToElementSize: false,
+              restrictToScreenSize: false,
+              ignoreDevicePixelRatio: false,
+              advanced: {
+                fastHalfLife: 1.2,
+                slowHalfLife: 2.5,
+                minBytes: 8_000,
+                minTotalBytes: 32_000,
               },
             },
           });
 
-          // Attempt loading DASH or HLS manifest (always via same-origin proxy
-          // when the manifest lives on the Invidious host — see proxyUrl).
-          if (dashManifest) {
-            try {
-              const dashUrl = invidious.proxyUrl(dashManifest);
-              await player.load(dashUrl);
-              usingProgressiveRef.current = false;
-              setNeedsSeparateAudio(false);
-              
-              // Sync variant tracks with quality menu
-              const vTracks = player.getVariantTracks();
-              if (Array.isArray(vTracks) && vTracks.length > 0) {
-                for (const t of vTracks) {
-                  if (t.height && t.height >= 144 && !seenHeights.has(t.height)) {
-                    const entryId = `shaka_${t.id || t.height}`;
-                    if (seenIds.has(entryId)) continue;
-                    seenHeights.add(t.height);
-                    seenIds.add(entryId);
-                    qualList.push({
-                      id: entryId,
-                      label: `${t.height}p${t.frameRate && t.frameRate > 30 ? Math.round(t.frameRate) : ''}`,
-                      height: t.height,
-                      fps: t.frameRate,
-                      hasAudio: true,
-                    });
-                  }
+          // 1. Immediately load predictable DASH manifest URL in parallel with getVideo()
+          const predictableDashUrl = `/api/invidious/api/manifest/dash/id/${encodeURIComponent(videoId)}`;
+          try {
+            await player.load(predictableDashUrl);
+            if (isCancelled) return;
+            usingProgressiveRef.current = false;
+            setNeedsSeparateAudio(false);
+
+            // Populate initial Shaka variant tracks immediately
+            const vTracks = player.getVariantTracks();
+            if (Array.isArray(vTracks) && vTracks.length > 0) {
+              const quickQuals: QualityOption[] = [{ id: 'auto', label: 'Auto (Best)' }];
+              const seenH = new Set<number>();
+              for (const t of vTracks) {
+                if (t.height && t.height >= 144 && !seenH.has(t.height)) {
+                  seenH.add(t.height);
+                  const tag = t.height >= 2160 ? ' (4K)' : t.height >= 1440 ? ' (2K)' : t.height >= 1080 ? ' (Full HD)' : t.height >= 720 ? ' (HD)' : '';
+                  quickQuals.push({
+                    id: `shaka_${t.id || t.height}`,
+                    label: `${t.height}p${t.frameRate && t.frameRate > 30 ? Math.round(t.frameRate) : ''}${tag}`,
+                    height: t.height,
+                    fps: t.frameRate,
+                    hasAudio: true,
+                  });
                 }
-                qualList.sort((a, b) => (b.height || 0) - (a.height || 0));
-                setQualities([...qualList]);
               }
+              quickQuals.sort((a, b) => (b.height || 0) - (a.height || 0));
+              setQualities(quickQuals);
 
-              if (autoplay) vid.play().catch(() => {});
-              setIsBuffering(false);
-              return;
-            } catch (dashErr) {
-              console.warn('[MaterialiousPlayer] Shaka DASH load failed, trying HLS/MP4:', dashErr);
+              // Apply user's selected quality tier or initial bandwidth-matched auto track
+              if (qualityTierRef.current === 'highest') {
+                player.configure({ abr: { enabled: false } });
+                const best = findBestShakaVariantTrack(vTracks, 4320);
+                if (best) player.selectVariantTrack(best, false);
+              } else if (qualityTierRef.current === 'low') {
+                player.configure({ abr: { enabled: false } });
+                const low = findBestShakaVariantTrack(vTracks, 360);
+                if (low) player.selectVariantTrack(low, false);
+              }
             }
-          }
 
-          if (hlsManifest) {
-            try {
-              const hlsUrl = invidious.proxyUrl(hlsManifest);
-              await player.load(hlsUrl);
-              usingProgressiveRef.current = false;
-              setNeedsSeparateAudio(false);
-              if (autoplay) vid.play().catch(() => {});
-              setIsBuffering(false);
-              return;
-            } catch (hlsErr) {
-              console.warn('[MaterialiousPlayer] Shaka HLS load failed, trying progressive stream:', hlsErr);
-            }
-          }
+            syncActiveShakaStats(player);
 
-          // Neither DASH nor HLS succeeded via Shaka — detach cleanly before native <video> fallback
-          await player.destroy().catch(() => {});
-          if (shakaPlayerRef.current === player) {
-            shakaPlayerRef.current = null;
+            if (autoplay) vid.play().catch(() => {});
+            setIsBuffering(false);
+
+            // Hydrate captions, audio URL, and full quality list once videoData resolves
+            videoDataPromise
+              .then((vData) => hydrateMetadataAndQualities(vData, player))
+              .catch(() => {});
+            return;
+          } catch (dashErr) {
+            console.warn('[MaterialiousPlayer] Fast-path Shaka DASH load failed, checking videoData fallbacks:', dashErr);
           }
         }
 
+        // Fallback path: wait for videoData if fast-path DASH did not succeed
+        const videoData: any = await videoDataPromise;
+        if (isCancelled) return;
+        hydrateMetadataAndQualities(videoData, shakaPlayerRef.current);
+
+        const formatStreams = Array.isArray(videoData?.formatStreams) ? videoData.formatStreams : [];
+        const hlsManifest = videoData?.hlsUrl;
+
+        if (shakaPlayerRef.current && hlsManifest) {
+          try {
+            const hlsUrl = invidious.proxyUrl(hlsManifest);
+            await shakaPlayerRef.current.load(hlsUrl);
+            if (isCancelled) return;
+            usingProgressiveRef.current = false;
+            setNeedsSeparateAudio(false);
+            if (autoplay) vid.play().catch(() => {});
+            setIsBuffering(false);
+            return;
+          } catch (hlsErr) {
+            console.warn('[MaterialiousPlayer] Shaka HLS load failed, trying progressive stream:', hlsErr);
+          }
+        }
+
+        if (shakaPlayerRef.current) {
+          await shakaPlayerRef.current.destroy().catch(() => {});
+          shakaPlayerRef.current = null;
+        }
+
         // Direct Progressive Format Streams (720p/360p MP4) Fallback
-        // (googlevideo URLs stay direct; Invidious-host URLs go via proxy)
         const progressive = formatStreams.find((f: any) => f.url && f.container === 'mp4') || formatStreams[0];
         if (progressive?.url) {
           const directUrl = invidious.proxyUrl(progressive.url);
@@ -508,7 +772,7 @@ export default function MaterialiousPlayer({
         }
 
         // Invidious Latest Version stream URL fallback
-        const itag = formatStreams[0]?.itag || 18; // 360p (18) progressive MP4
+        const itag = formatStreams[0]?.itag || 18;
         usingProgressiveRef.current = true;
         if (Number(itag) === 18) {
           triedLatestVersionFallbackRef.current = true;
@@ -633,6 +897,54 @@ export default function MaterialiousPlayer({
         }
       }
 
+      // Proactive Bandwidth-Based Resolution Upscaling (ABR) & Active Resolution Telemetry
+      const now = Date.now();
+      if (shakaPlayerRef.current && now - lastAbrCheckTimeRef.current > 2200) {
+        lastAbrCheckTimeRef.current = now;
+        const player = shakaPlayerRef.current;
+        syncActiveShakaStats(player);
+
+        if (qualityTierRef.current === 'auto' && !video.paused) {
+          try {
+            const stats = player.getStats?.();
+            const estimatedBw =
+              stats?.estimatedBandwidth ||
+              player.getBandwidthEstimate?.() ||
+              getInitialBandwidthEstimateBps();
+            const bufferedAhead = getBufferedAheadSeconds(video);
+            const tracks = player.getVariantTracks?.() || [];
+            const activeTrack = tracks.find((t: any) => t.active);
+
+            if (estimatedBw > 0 && bufferedAhead >= 2.2 && tracks.length > 1) {
+              const bestAffordable = findBestShakaVariantTrack(
+                tracks,
+                4320,
+                undefined,
+                estimatedBw * 0.94
+              );
+              const activeHeight = activeTrack?.height || 0;
+              const activeBw = activeTrack?.bandwidth || activeTrack?.videoBandwidth || 0;
+              const targetHeight = bestAffordable?.height || 0;
+              const targetBw = bestAffordable?.bandwidth || bestAffordable?.videoBandwidth || 0;
+
+              if (
+                bestAffordable &&
+                (targetHeight > activeHeight ||
+                  (targetHeight === activeHeight && targetBw > activeBw * 1.15))
+              ) {
+                isSwitchingQualityRef.current = true;
+                switchShakaTrackSmoothly(player, video, bestAffordable);
+                player.configure({ abr: { enabled: true } });
+                syncActiveShakaStats(player);
+                setTimeout(() => {
+                  isSwitchingQualityRef.current = false;
+                }, 1800);
+              }
+            }
+          } catch {}
+        }
+      }
+
       const dur = video.duration || duration || 0;
       if (dur > 0) {
         updateMediaSessionPosition(dur, video.playbackRate || playbackRate || 1, cur);
@@ -670,14 +982,23 @@ export default function MaterialiousPlayer({
       }
     };
     const onWaiting = () => {
+      // Never flash the full-screen buffering overlay during a seamless quality transition
+      if (isSwitchingQualityRef.current || getBufferedAheadSeconds(video) > 0.35) {
+        return;
+      }
       setIsBuffering(true);
       if (needsSeparateAudio && audio) audio.pause();
     };
     const onStalled = () => {
+      if (isSwitchingQualityRef.current || getBufferedAheadSeconds(video) > 0.35) {
+        return;
+      }
       setIsBuffering(true);
     };
     const onPlaying = () => {
       playbackStartedRef.current = true;
+      isSwitchingQualityRef.current = false;
+      setHasFrozenFrame(false);
       setIsBuffering(false);
       setMediaSessionPlaybackState('playing');
       const dur = video.duration || duration || 0;
@@ -687,6 +1008,8 @@ export default function MaterialiousPlayer({
       if (needsSeparateAudio && audio && audio.paused && isPlaying) audio.play().catch(() => {});
     };
     const onCanPlay = () => {
+      isSwitchingQualityRef.current = false;
+      setHasFrozenFrame(false);
       setIsBuffering(false);
       const targetTime = initialTimeParam > 0 ? initialTimeParam : 0;
       if (targetTime > 0 && Math.abs(video.currentTime - targetTime) > 2) {
@@ -907,8 +1230,8 @@ export default function MaterialiousPlayer({
 
   // 6. User Actions: Quality, Speed, Seeking, Subtitles
   const handleQualityChange = useCallback(
-    (q: QualityOption) => {
-      setCurrentQuality(q.label);
+    (q: QualityOption, customLabel?: string) => {
+      setCurrentQuality(customLabel || (q.id === 'auto' ? 'Auto' : q.label));
       setShowSettings(false);
 
       const vid = videoRef.current;
@@ -918,44 +1241,83 @@ export default function MaterialiousPlayer({
       const curTime = vid.currentTime;
       const wasPlaying = !vid.paused;
 
-      // 1. If Shaka Player instance is active: switch variant track or ABR
+      // 1. If Shaka Player MSE instance is active: switch variant track smoothly in-place
+      // without ever destroying MediaSource or calling vid.load() (zero black screen)
       if (shakaPlayerRef.current) {
         const player = shakaPlayerRef.current;
         try {
+          isSwitchingQualityRef.current = true;
+          setTimeout(() => {
+            isSwitchingQualityRef.current = false;
+          }, 2200);
+
+          const tracks = player.getVariantTracks?.() || [];
           if (q.id === 'auto') {
-            player.configure({ abr: { enabled: true } });
+            player.configure({
+              abr: {
+                enabled: true,
+                restrictions: { minHeight: 144, maxHeight: Infinity },
+              },
+            });
+            if (Array.isArray(tracks) && tracks.length > 0) {
+              const stats = player.getStats?.();
+              const estimatedBw =
+                stats?.estimatedBandwidth ||
+                player.getBandwidthEstimate?.() ||
+                getInitialBandwidthEstimateBps();
+              const bestAutoTrack = findBestShakaVariantTrack(
+                tracks,
+                4320,
+                undefined,
+                estimatedBw * 0.94
+              );
+              if (bestAutoTrack) {
+                switchShakaTrackSmoothly(player, vid, bestAutoTrack);
+                player.configure({ abr: { enabled: true } });
+              }
+            }
+            syncActiveShakaStats(player);
             setNeedsSeparateAudio(false);
             if (aud) aud.pause();
             return;
           }
 
           player.configure({ abr: { enabled: false } });
-          const tracks = player.getVariantTracks();
           if (Array.isArray(tracks) && tracks.length > 0) {
-            const match =
-              tracks.find((t: any) => t.height === q.height) ||
-              tracks.find((t: any) => Math.abs((t.height || 0) - (q.height || 0)) <= 120);
-
+            const match = findBestShakaVariantTrack(tracks, q.height || 1080, q.fps);
             if (match) {
-              player.selectVariantTrack(match, true);
+              switchShakaTrackSmoothly(player, vid, match);
+              syncActiveShakaStats(player);
               setNeedsSeparateAudio(false);
               if (aud) aud.pause();
               return;
             }
           }
+          // Even if variant tracks are still loading, keep Shaka active and set height restriction
+          if (q.height) {
+            player.configure({
+              abr: {
+                enabled: true,
+                restrictions: { minHeight: q.height, maxHeight: q.height },
+              },
+            });
+          }
+          return;
         } catch (err) {
-          console.warn('[MaterialiousPlayer] Shaka track switch fallback:', err);
+          console.warn('[MaterialiousPlayer] Shaka track switch warning:', err);
+          return;
         }
       }
 
-      // 2. Direct Invidious Stream switching
+      // 2. Direct Invidious Stream switching (only used if Shaka MSE was completely unavailable)
       if (q.id !== 'auto') {
         const vData = videoDataRef.current;
         const formatStreams = vData?.formatStreams || [];
         const adaptiveFormats = vData?.adaptiveFormats || [];
 
-        // Check if format has built-in audio (progressive) or is video-only (high-res adaptive)
-        const isProgressive = formatStreams.some((f: any) => f.itag === q.itag || (f.height && f.height === q.height));
+        const isProgressive = formatStreams.some(
+          (f: any) => f.itag === q.itag || (f.height && f.height === q.height)
+        );
 
         const matchFormat =
           formatStreams.find((f: any) => f.itag === q.itag || f.height === q.height) ||
@@ -973,15 +1335,13 @@ export default function MaterialiousPlayer({
         }
 
         if (newSrc) {
-          setIsBuffering(true);
-          if (shakaPlayerRef.current) {
-            shakaPlayerRef.current.destroy().catch(() => {});
-            shakaPlayerRef.current = null;
-          }
+          // Freeze current frame onto overlay canvas before changing src so <video> never flashes black
+          captureCurrentVideoFrame();
+          isSwitchingQualityRef.current = true;
           usingProgressiveRef.current = true;
+          if (q.height) setActiveStreamHeight(q.height);
 
           if (!isProgressive && bestAudioUrl) {
-            // Video-only high-res (1080p, 1440p, 4K): Enable separate audio track
             setNeedsSeparateAudio(true);
             vid.muted = true;
             if (aud) {
@@ -994,7 +1354,6 @@ export default function MaterialiousPlayer({
               if (wasPlaying) aud.play().catch(() => {});
             }
           } else {
-            // Progressive 720p/360p format with combined audio
             setNeedsSeparateAudio(false);
             vid.muted = isMuted;
             vid.volume = volume;
@@ -1007,34 +1366,32 @@ export default function MaterialiousPlayer({
           if (wasPlaying) {
             vid.play().catch(() => {});
           }
-          setIsBuffering(false);
         }
       }
     },
-    [videoId, bestAudioUrl, isMuted, volume, playbackRate]
+    [videoId, bestAudioUrl, isMuted, volume, playbackRate, captureCurrentVideoFrame, syncActiveShakaStats]
   );
 
   const handleQualityTierSelect = useCallback(
     (tier: 'auto' | 'highest' | 'low') => {
+      qualityTierRef.current = tier;
       setQualityTier(tier);
       setShowSettings(false);
 
       if (tier === 'auto') {
-        setCurrentQuality('Auto');
-        handleQualityChange({ id: 'auto', label: 'Auto (Best)' });
+        handleQualityChange({ id: 'auto', label: 'Auto' }, 'Auto');
         return;
       }
 
       if (tier === 'highest') {
-        // Pick highest available video resolution
+        // Pick highest available video resolution (4K / 1440p / 1080p / 720p)
         const highest =
-          qualities.find((q) => q.height && q.height >= 1080) ||
-          qualities.find((q) => q.height && q.height >= 720) ||
+          qualities.find((q) => q.id !== 'auto' && q.height && q.height >= 1080) ||
+          qualities.find((q) => q.id !== 'auto' && q.height && q.height >= 720) ||
           qualities.find((q) => q.id !== 'auto') ||
-          { id: '1080', height: 1080, label: '1080p' };
+          { id: '2160', height: 2160, label: 'Highest' };
 
-        setCurrentQuality('Highest');
-        handleQualityChange(highest);
+        handleQualityChange(highest, 'Highest');
         return;
       }
 
@@ -1046,8 +1403,7 @@ export default function MaterialiousPlayer({
           qualities.filter((q) => q.height && q.height <= 480).pop() ||
           { id: '360', height: 360, label: '360p' };
 
-        setCurrentQuality('Low');
-        handleQualityChange(lowest);
+        handleQualityChange(lowest, 'Low');
         return;
       }
     },
@@ -1366,9 +1722,15 @@ export default function MaterialiousPlayer({
         className={compact ? 'mp-compact-video' : undefined}
         playsInline
         muted={needsSeparateAudio ? true : isMuted}
-        onLoadStart={() => setDataLoaded(false)}
+        onLoadStart={() => {
+          if (!isSwitchingQualityRef.current && !hasFrozenFrame) {
+            setDataLoaded(false);
+          }
+        }}
         onLoadedData={() => {
           playbackStartedRef.current = true;
+          isSwitchingQualityRef.current = false;
+          setHasFrozenFrame(false);
           setDataLoaded(true);
         }}
         onError={handleVideoElementError}
@@ -1408,6 +1770,24 @@ export default function MaterialiousPlayer({
         )}
       </video>
 
+      {/* Frame-freeze overlay canvas for zero-black-screen fallback quality transitions */}
+      {!compact && (
+        <canvas
+          ref={frameFreezeCanvasRef}
+          style={{
+            position: 'absolute',
+            inset: 0,
+            width: '100%',
+            height: '100%',
+            objectFit: 'contain',
+            pointerEvents: 'none',
+            zIndex: 2,
+            opacity: hasFrozenFrame ? 1 : 0,
+            transition: 'opacity 0.18s ease',
+          }}
+        />
+      )}
+
       {/* Synchronized High-Res Separate Audio Element */}
       <audio
         ref={audioRef}
@@ -1435,6 +1815,10 @@ export default function MaterialiousPlayer({
           <img
             src={thumbnail}
             alt={title || ''}
+            width={1280}
+            height={720}
+            {...({ fetchpriority: 'high' } as any)}
+            decoding="async"
             style={{
               width: '100%',
               height: '100%',
@@ -2059,6 +2443,7 @@ export default function MaterialiousPlayer({
                 setShowSettings(!showSettings);
               }}
               style={{
+                position: 'relative',
                 background: showSettings ? 'rgba(255,255,255,0.2)' : 'none',
                 border: 'none',
                 color: '#ffffff',
@@ -2070,6 +2455,26 @@ export default function MaterialiousPlayer({
               title="Settings (Quality, Speed, Subtitles)"
             >
               <IoSettingsOutline size={20} />
+              {activeStreamHeight >= 720 && (
+                <span
+                  style={{
+                    position: 'absolute',
+                    top: '1px',
+                    right: '-2px',
+                    backgroundColor: 'var(--md-sys-color-primary, var(--yt-brand-red, #ff0000))',
+                    color: '#ffffff',
+                    fontSize: '8px',
+                    fontWeight: 800,
+                    lineHeight: 1,
+                    padding: '1.5px 3px',
+                    borderRadius: '3px',
+                    pointerEvents: 'none',
+                    letterSpacing: '-0.2px',
+                  }}
+                >
+                  {activeStreamHeight >= 2160 ? '4K' : activeStreamHeight >= 1440 ? '2K' : 'HD'}
+                </span>
+              )}
             </button>
 
             {/* Picture-in-Picture Button */}
@@ -2140,8 +2545,12 @@ export default function MaterialiousPlayer({
                 }}
               >
                 <span>Quality</span>
-                <span style={{ opacity: 0.7, color: 'var(--md-sys-color-primary, var(--yt-blue))', fontWeight: 600 }}>
-                  {currentQuality}
+                <span style={{ opacity: 0.85, color: 'var(--md-sys-color-primary, var(--yt-blue))', fontWeight: 600 }}>
+                  {qualityTier === 'auto' && activeStreamHeight > 0
+                    ? `Auto (${activeStreamHeight}p${activeStreamFps > 30 ? activeStreamFps : ''})`
+                    : qualityTier === 'highest' && activeStreamHeight > 0
+                    ? `Highest (${activeStreamHeight}p${activeStreamFps > 30 ? activeStreamFps : ''})`
+                    : currentQuality}
                 </span>
               </button>
               <button
@@ -2205,6 +2614,12 @@ export default function MaterialiousPlayer({
                 }}
               >
                 <IoArrowBack size={16} /> Quality
+                {activeStreamHeight > 0 && (
+                  <span style={{ marginLeft: 'auto', fontSize: '11px', fontWeight: 500, color: 'rgba(255,255,255,0.6)' }}>
+                    {activeStreamHeight}p{activeStreamFps > 30 ? activeStreamFps : ''}
+                    {estimatedMbps > 0 ? ` · ~${estimatedMbps} Mbps` : ''}
+                  </span>
+                )}
               </button>
 
               {/* Step 1: Auto (Recommended) */}
@@ -2226,14 +2641,14 @@ export default function MaterialiousPlayer({
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                     <span style={{ fontSize: '13px', fontWeight: 600, color: qualityTier === 'auto' ? 'var(--md-sys-color-primary, var(--yt-blue))' : '#ffffff' }}>
-                      Auto
+                      Auto{qualityTier === 'auto' && activeStreamHeight > 0 ? ` (${activeStreamHeight}p)` : ''}
                     </span>
                     <span style={{ fontSize: '9px', fontWeight: 800, background: 'rgba(255,255,255,0.15)', color: '#ffffff', padding: '1px 5px', borderRadius: '4px' }}>
                       Recommended
                     </span>
                   </div>
                   <span style={{ fontSize: '11px', color: 'rgba(255,255,255,0.6)' }}>
-                    Adjusts dynamically for the smoothest playback
+                    Automatically increases resolution based on your internet bandwidth
                   </span>
                 </div>
                 {qualityTier === 'auto' && <IoCheckmark size={18} color="var(--md-sys-color-primary, var(--yt-blue))" />}
@@ -2297,7 +2712,7 @@ export default function MaterialiousPlayer({
                     </span>
                   </div>
                   <span style={{ fontSize: '11px', color: 'rgba(255,255,255,0.6)' }}>
-                    Crisp maximum resolution (720p - 1080p Full HD)
+                    Crisp maximum resolution (1080p - 4K)
                   </span>
                 </div>
                 {qualityTier === 'highest' && <IoCheckmark size={18} color="var(--md-sys-color-primary, var(--yt-blue))" />}
@@ -2330,7 +2745,9 @@ export default function MaterialiousPlayer({
                       <button
                         key={`qual-${q.id || 'res'}-${idx}`}
                         onClick={() => {
-                          setQualityTier('custom');
+                          const nextTier = q.id === 'auto' ? 'auto' : 'custom';
+                          qualityTierRef.current = nextTier;
+                          setQualityTier(nextTier);
                           handleQualityChange(q);
                         }}
                         style={{
