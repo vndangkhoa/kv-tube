@@ -13,7 +13,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.MoreVert
@@ -63,10 +62,9 @@ fun VideoCard(
     val isWide = LocalWidthClass.current.isWide
     Column(
         modifier = modifier
-            .then(if (isWide) Modifier.widthIn(max = MaxVideoCardWidthDp.dp) else Modifier)
             .fillMaxWidth()
             .clickable { onVideoClick(video.id) }
-            .padding(bottom = 16.dp)
+            .padding(bottom = if (isWide) 8.dp else 16.dp)
     ) {
         // 16:9 Thumbnail with duration badge overlay
         Box(
@@ -95,14 +93,14 @@ fun VideoCard(
             }
         }
 
-        Spacer(modifier = Modifier.height(10.dp))
+        Spacer(modifier = Modifier.height(if (isWide) 8.dp else 10.dp))
 
         // Information row: Avatar + Title/Channel/Stats + 3-dot More button
         Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 4.dp),
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            horizontalArrangement = Arrangement.spacedBy(if (isWide) 8.dp else 10.dp),
             verticalAlignment = Alignment.Top
         ) {
             // Channel Avatar
@@ -110,7 +108,7 @@ fun VideoCard(
                 ChannelAvatar(
                     avatarUrl = video.channelThumbnail.ifBlank { null },
                     channelName = video.displayChannelTitle,
-                    size = 36.dp,
+                    size = if (isWide) 32.dp else 36.dp,
                     onClick = if (onChannelClick != null) {
                         { onChannelClick(video.displayChannelId) }
                     } else null
@@ -123,7 +121,7 @@ fun VideoCard(
                     text = video.title,
                     style = MaterialTheme.typography.bodyLarge.copy(
                         fontSize = 14.sp,
-                        fontWeight = FontWeight.SemiBold,
+                        fontWeight = if (isWide) FontWeight.Medium else FontWeight.SemiBold,
                         lineHeight = 18.sp
                     ),
                     color = MaterialTheme.colorScheme.onSurface,
@@ -131,7 +129,7 @@ fun VideoCard(
                     overflow = TextOverflow.Ellipsis
                 )
 
-                Spacer(modifier = Modifier.height(4.dp))
+                Spacer(modifier = Modifier.height(if (isWide) 2.dp else 4.dp))
 
                 val subtitle = buildString {
                     if (showChannelName && video.displayChannelTitle.isNotBlank()) {

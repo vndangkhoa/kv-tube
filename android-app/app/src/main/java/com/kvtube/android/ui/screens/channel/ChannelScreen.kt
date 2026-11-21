@@ -1,5 +1,7 @@
 package com.kvtube.android.ui.screens.channel
 
+import com.kvtube.android.ui.components.gridVerticalSpacing
+import com.kvtube.android.ui.components.gridHorizontalSpacing
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -172,8 +174,8 @@ fun ChannelScreen(
             LazyVerticalGrid(
                 columns = rememberVideoGridCells(),
                 contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalArrangement = Arrangement.spacedBy(16.dp)
+                horizontalArrangement = Arrangement.spacedBy(gridHorizontalSpacing()),
+                verticalArrangement = Arrangement.spacedBy(gridVerticalSpacing())
             ) {
                 items(uiState.videos, key = { it.id }) { video ->
                     VideoCard(

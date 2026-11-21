@@ -21,8 +21,8 @@ fun VideoGrid(
         columns = rememberVideoGridCells(),
         modifier = modifier,
         contentPadding = contentPadding,
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
+        horizontalArrangement = Arrangement.spacedBy(gridHorizontalSpacing()),
+        verticalArrangement = Arrangement.spacedBy(gridVerticalSpacing())
     ) {
         items(
             items = videos,

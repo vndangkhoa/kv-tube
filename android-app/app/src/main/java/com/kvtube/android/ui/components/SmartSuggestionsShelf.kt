@@ -46,18 +46,19 @@ fun SmartSuggestionsShelf(
     if (suggestions.isEmpty()) return
 
     // Fixed card width; wide windows simply fit more cards per row.
-    val cardWidth = if (LocalWidthClass.current.isWide) 320.dp else 260.dp
+    val isWide = LocalWidthClass.current.isWide
+    val cardWidth = if (isWide) 240.dp else 260.dp
 
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .padding(vertical = 8.dp)
+            .padding(vertical = if (isWide) 4.dp else 8.dp)
     ) {
         // Header
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 12.dp, vertical = 4.dp),
+                .padding(horizontal = 12.dp, vertical = if (isWide) 0.dp else 4.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
@@ -67,7 +68,7 @@ fun SmartSuggestionsShelf(
             ) {
                 Box(
                     modifier = Modifier
-                        .size(28.dp)
+                        .size(if (isWide) 24.dp else 28.dp)
                         .clip(CircleShape)
                         .background(YTBrandRed.copy(alpha = 0.15f)),
                     contentAlignment = Alignment.Center
@@ -76,14 +77,14 @@ fun SmartSuggestionsShelf(
                         imageVector = Icons.Default.AutoAwesome,
                         contentDescription = null,
                         tint = YTBrandRed,
-                        modifier = Modifier.size(16.dp)
+                        modifier = Modifier.size(if (isWide) 14.dp else 16.dp)
                     )
                 }
 
                 Column {
                     Text(
                         text = "Recommended for You",
-                        fontSize = 16.sp,
+                        fontSize = if (isWide) 14.sp else 16.sp,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.onSurface
                     )
@@ -110,7 +111,7 @@ fun SmartSuggestionsShelf(
             }
         }
 
-        Spacer(modifier = Modifier.height(8.dp))
+        Spacer(modifier = Modifier.height(if (isWide) 4.dp else 8.dp))
 
         // Horizontal Carousel of Recommendation Cards
         LazyRow(
@@ -131,6 +132,6 @@ fun SmartSuggestionsShelf(
             }
         }
 
-        Spacer(modifier = Modifier.height(8.dp))
+        Spacer(modifier = Modifier.height(if (isWide) 2.dp else 8.dp))
     }
 }

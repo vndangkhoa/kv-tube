@@ -12,27 +12,44 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import kotlin.math.roundToInt
 import com.kvtube.android.ui.adaptive.LocalWidthClass
-import com.kvtube.android.ui.adaptive.MaxContentWidthDp
 import com.kvtube.android.ui.adaptive.WidthClass
 
 /** Narrower cap for text-heavy screens (settings, comments, lists of rows). */
 const val MaxReadableWidthDp = 720
 
-/** Width a single video card is never allowed to exceed on wide windows. */
-const val MaxVideoCardWidthDp = 420
+/** Navigation rail width shown next to the content on wide windows. */
+const val NavRailWidthDp = 88
+
+/** Target (ideal) video card width on wide windows; column count is derived from it. */
+const val TargetVideoCardWidthDp = 260
+
+/** Target width of a horizontal row card (thumbnail + text) on wide windows. */
+const val TargetRowCardWidthDp = 360
+
+/** Horizontal content padding + grid gutter used by dense wide grids. */
+const val WideGridPaddingDp = 12
+const val WideGridSpacingDp = 10
+
+/** Grid content may grow wider than the default centred cap so cards fill their columns. */
+const val MaxGridContentWidthDp = 2400
+
+/** Width available to content next to the rail, minus the horizontal grid padding. */
+private fun availableGridWidthDp(windowWidthDp: Int): Int =
+    windowWidthDp - NavRailWidthDp - 2 * WideGridPaddingDp
 
 /**
- * Predictable column count for video-card grids:
- * Compact 1 · Medium 2 · Expanded 3 (4 on very wide windows > 1200dp).
+ * Column count for video-card grids, derived from the available width:
+ * Compact (phones) 1; wide windows round(available / ~260dp) clamped to 2..6
+ * (700dp -> 2, 800dp -> 3, 1066dp -> 4, 1400dp -> 5, 1600dp+ -> 6).
  */
-fun videoGridColumnCount(widthClass: WidthClass, windowWidthDp: Int): Int = when (widthClass) {
-    WidthClass.Compact -> 1
-    WidthClass.Medium -> 2
-    WidthClass.Expanded -> if (windowWidthDp > 1200) 4 else 3
-}
+fun videoGridColumnCount(widthClass: WidthClass, windowWidthDp: Int): Int =
+    if (widthClass.isCompact) 1
+    else (availableGridWidthDp(windowWidthDp).toFloat() / TargetVideoCardWidthDp)
+        .roundToInt().coerceIn(2, 6)
 
-/** [GridCells] for video grids, tuned to the current window width class. */
+/** [GridCells] for video grids, tuned to the current window width. */
 @Composable
 fun rememberVideoGridCells(): GridCells {
     val widthClass = LocalWidthClass.current
@@ -44,12 +61,12 @@ fun rememberVideoGridCells(): GridCells {
 
 /**
  * Column count for grids of compact horizontal rows (thumbnail + text), e.g. history:
- * Compact 1 · Medium/Expanded 2 · very wide (> 1200dp) 3.
+ * Compact 1; wide round(available / ~360dp) clamped to 2..4.
  */
-fun rowGridColumnCount(widthClass: WidthClass, windowWidthDp: Int): Int = when (widthClass) {
-    WidthClass.Compact -> 1
-    else -> if (windowWidthDp > 1200) 3 else 2
-}
+fun rowGridColumnCount(widthClass: WidthClass, windowWidthDp: Int): Int =
+    if (widthClass.isCompact) 1
+    else (availableGridWidthDp(windowWidthDp).toFloat() / TargetRowCardWidthDp)
+        .roundToInt().coerceIn(2, 4)
 
 @Composable
 fun rememberRowGridCells(): GridCells {
@@ -60,6 +77,19 @@ fun rememberRowGridCells(): GridCells {
     }
 }
 
+/** Horizontal gap between video-grid cells: 10dp on wide windows, [compact] on phones. */
+@Composable
+fun gridHorizontalSpacing(compact: Dp = 8.dp): Dp =
+    if (LocalWidthClass.current.isWide) WideGridSpacingDp.dp else compact
+
+/** Vertical gap between video-grid rows (cards carry their own bottom padding). */
+@Composable
+fun gridVerticalSpacing(compact: Dp = 16.dp): Dp =
+    if (LocalWidthClass.current.isWide) 4.dp else compact
+
+/** Horizontal content padding of video grids: 12dp on every size class. */
+const val GridContentPaddingDp = 12
+
 /**
  * Fills the available space but caps the content at [maxWidth] and centres it
  * horizontally (TopCenter) so grids/lists don't stretch endlessly on huge windows.
@@ -67,7 +97,7 @@ fun rememberRowGridCells(): GridCells {
 @Composable
 fun CenteredContent(
     modifier: Modifier = Modifier,
-    maxWidth: Dp = MaxContentWidthDp.dp,
+    maxWidth: Dp = MaxGridContentWidthDp.dp,
     content: @Composable BoxScope.() -> Unit
 ) {
     Box(

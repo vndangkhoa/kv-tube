@@ -5,6 +5,17 @@ All notable changes to KV-Tube are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.14.0] - 2026-11-21
+
+### Added
+- **Android phone app (v1.10.0) — theater mode + denser layouts for foldables/tablets**:
+  - **Theater mode** (Medium/Expanded windows): a button in the player controls makes the player span the full content width (height-capped, pinned), with details and related videos below; playback continues uninterrupted when toggling, and the choice survives fold/unfold/rotation.
+  - **Compact related list**: YouTube-style horizontal rows (thumbnail + 2-line title + channel/views) in a fixed 350–400 dp side column — roughly 2.5× more related videos visible.
+  - **More content per screen**: video grids derive their column count from the window width (≈3 columns at ~800 dp, 4 at ~1066 dp, up to 6), tighter card chrome, a compact Recommended shelf, shorter category pills and top bar on wide windows. Phones are unchanged.
+
+### Fixed
+- The "Playback error" overlay now clears as soon as playback resumes after a DASH → progressive fallback.
+
 ## [4.13.0] - 2026-11-21
 
 ### Added

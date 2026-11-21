@@ -1,5 +1,7 @@
 package com.kvtube.android.ui.screens.subscriptions
 
+import com.kvtube.android.ui.components.gridVerticalSpacing
+import com.kvtube.android.ui.components.gridHorizontalSpacing
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -159,8 +161,8 @@ fun SubscriptionsScreen(
                     columns = rememberVideoGridCells(),
                     state = gridState,
                     contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                    horizontalArrangement = Arrangement.spacedBy(gridHorizontalSpacing(12.dp)),
+                    verticalArrangement = Arrangement.spacedBy(gridVerticalSpacing(8.dp))
                 ) {
                     items(uiState.feedVideos, key = { it.id }) { video ->
                         VideoCard(

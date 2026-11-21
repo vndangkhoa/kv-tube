@@ -32,6 +32,7 @@ import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.VolumeOff
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.AspectRatio
+import androidx.compose.material.icons.filled.Crop169
 import androidx.compose.material.icons.filled.FastForward
 import androidx.compose.material.icons.filled.FastRewind
 import androidx.compose.material.icons.filled.Fullscreen
@@ -105,6 +106,9 @@ fun ExoPlayerView(
     onFormatSelected: ((PlaybackFormat) -> Unit)? = null,
     onFullscreenToggle: () -> Unit = {},
     onEnterPip: (() -> Unit)? = null,
+    /** Theater-mode toggle; null hides the button (compact windows). */
+    onTheaterToggle: (() -> Unit)? = null,
+    isTheater: Boolean = false,
     onBackClick: (() -> Unit)? = null,
     /** Invoked when playback fails (lets the caller switch to the iframe fallback). */
     onError: (() -> Unit)? = null,
@@ -167,11 +171,11 @@ fun ExoPlayerView(
         }
     }
 
-    var isPlaying by remember { mutableStateOf(true) }
+    var isPlaying by remember { mutableStateOf(exoPlayer.isPlaying) }
     var isBuffering by remember { mutableStateOf(exoPlayer.playbackState == Player.STATE_BUFFERING) }
-    var isEnded by remember { mutableStateOf(false) }
-    var currentPosition by remember { mutableLongStateOf(0L) }
-    var duration by remember { mutableLongStateOf(1L) }
+    var isEnded by remember { mutableStateOf(exoPlayer.playbackState == Player.STATE_ENDED) }
+    var currentPosition by remember { mutableLongStateOf(exoPlayer.currentPosition.coerceAtLeast(0L)) }
+    var duration by remember { mutableLongStateOf(exoPlayer.duration.coerceAtLeast(1L)) }
     var showControls by remember { mutableStateOf(true) }
     var isMuted by remember { mutableStateOf(false) }
     var hasError by remember { mutableStateOf(false) }
@@ -220,6 +224,19 @@ fun ExoPlayerView(
         val listener = object : Player.Listener {
             override fun onIsPlayingChanged(p: Boolean) {
                 isPlaying = p
+                // Playing again (e.g. after the DASH → progressive fallback) means any
+                // earlier error overlay is stale.
+                if (p && hasError) {
+                    hasError = false
+                    errorMessage = ""
+                }
+            }
+
+            override fun onRenderedFirstFrame() {
+                if (hasError) {
+                    hasError = false
+                    errorMessage = ""
+                }
             }
 
             override fun onPlaybackStateChanged(state: Int) {
@@ -270,7 +287,7 @@ fun ExoPlayerView(
         modifier = modifier
             .fillMaxWidth()
             .then(if (isFullscreen) Modifier.fillMaxSize() else Modifier.aspectRatio(16f / 9f))
-            .clip(RoundedCornerShape(if (isFullscreen) 0.dp else 12.dp))
+            .clip(RoundedCornerShape(if (isFullscreen || isTheater) 0.dp else 12.dp))
             .background(Color.Black)
             .pointerInput(Unit) {
                 detectTapGestures(
@@ -638,6 +655,19 @@ fun ExoPlayerView(
                             fontWeight = FontWeight.Medium,
                             modifier = Modifier.padding(horizontal = 8.dp)
                         )
+                        onTheaterToggle?.let { toggleTheater ->
+                            IconButton(
+                                onClick = toggleTheater,
+                                modifier = Modifier.size(32.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Filled.Crop169,
+                                    contentDescription = if (isTheater) "Exit theater mode" else "Theater mode",
+                                    tint = if (isTheater) Color(0xFF3EA6FF) else Color.White,
+                                    modifier = Modifier.size(22.dp)
+                                )
+                            }
+                        }
                         IconButton(
                             onClick = onFullscreenToggle,
                             modifier = Modifier.size(32.dp)

@@ -1,5 +1,7 @@
 package com.kvtube.android.ui.screens.search
 
+import com.kvtube.android.ui.components.gridVerticalSpacing
+import com.kvtube.android.ui.components.gridHorizontalSpacing
 import android.content.Intent
 import android.net.Uri
 import androidx.compose.foundation.layout.Arrangement
@@ -123,8 +125,8 @@ fun SearchScreen(
                 LazyVerticalGrid(
                     columns = rememberVideoGridCells(),
                     contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
-                    horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp),
-                    verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(16.dp)
+                    horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(gridHorizontalSpacing()),
+                    verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(gridVerticalSpacing())
                 ) {
                     items(
                         items = uiState.results,

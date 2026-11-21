@@ -20,6 +20,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.kvtube.android.ui.adaptive.LocalWidthClass
 import com.kvtube.android.ui.theme.AstryxRadius
 
 val categories = listOf(
@@ -34,11 +35,12 @@ fun CategoryPills(
     onCategorySelected: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val isWide = LocalWidthClass.current.isWide
     Row(
         modifier = modifier
             .horizontalScroll(rememberScrollState())
-            .padding(horizontal = 12.dp, vertical = 4.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
+            .padding(horizontal = 12.dp, vertical = if (isWide) 2.dp else 4.dp),
+        horizontalArrangement = Arrangement.spacedBy(if (isWide) 6.dp else 8.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         categories.forEach { category ->
@@ -51,7 +53,7 @@ fun CategoryPills(
                     1.dp,
                     if (selected) Color.Transparent else MaterialTheme.colorScheme.outlineVariant
                 ),
-                modifier = Modifier.height(34.dp),
+                modifier = Modifier.height(if (isWide) 36.dp else 34.dp),
                 label = {
                     Text(
                         text = category,

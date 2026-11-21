@@ -1,5 +1,8 @@
 package com.kvtube.android.ui.screens.home
 
+import com.kvtube.android.ui.adaptive.LocalWidthClass
+import com.kvtube.android.ui.components.gridVerticalSpacing
+import com.kvtube.android.ui.components.gridHorizontalSpacing
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -69,10 +72,10 @@ fun HomeScreen(
         CategoryPills(
             selectedCategory = uiState.selectedCategory,
             onCategorySelected = { viewModel.selectCategory(it) },
-            modifier = Modifier.padding(vertical = 4.dp)
+            modifier = Modifier.padding(vertical = if (LocalWidthClass.current.isWide) 2.dp else 4.dp)
         )
 
-        Spacer(modifier = Modifier.height(4.dp))
+        Spacer(modifier = Modifier.height(if (LocalWidthClass.current.isWide) 2.dp else 4.dp))
 
         // Feed Content
         if (uiState.isLoading && uiState.videos.isEmpty()) {
@@ -118,8 +121,8 @@ fun HomeScreen(
                 columns = rememberVideoGridCells(),
                 state = gridState,
                 contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
+                horizontalArrangement = Arrangement.spacedBy(gridHorizontalSpacing(12.dp)),
+                verticalArrangement = Arrangement.spacedBy(gridVerticalSpacing(8.dp))
             ) {
                 // Smart Suggestions Shelf at the top of the feed for "All" category
                 if (uiState.selectedCategory == "All" && uiState.smartSuggestions.isNotEmpty()) {

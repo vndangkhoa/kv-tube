@@ -55,6 +55,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -64,6 +65,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.min
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.activity.compose.BackHandler
@@ -77,6 +79,7 @@ import com.kvtube.android.data.model.QualityTier
 import com.kvtube.android.data.model.VideoData
 import com.kvtube.android.ui.adaptive.LocalWidthClass
 import com.kvtube.android.ui.components.ChannelAvatar
+import com.kvtube.android.ui.components.CompactVideoRow
 import com.kvtube.android.ui.components.DownloadBottomSheet
 import com.kvtube.android.ui.components.LoadingSpinner
 import com.kvtube.android.ui.components.SubscribeButton
@@ -98,6 +101,8 @@ fun WatchScreen(
 
     var showDownloadSheet by remember { mutableStateOf(false) }
     var isFullscreen by remember { mutableStateOf(false) }
+    var isTheater by rememberSaveable { mutableStateOf(false) }
+    val theaterMode = isTheater && !widthClass.isCompact
 
     // Hide/show system bars on fullscreen toggle + rotate to landscape
     LaunchedEffect(isFullscreen) {
@@ -228,6 +233,10 @@ fun WatchScreen(
                         onFullscreenToggle = { isFullscreen = true },
                         onError = { viewModel.fallbackToIframe() },
                         onEnterPip = pipAction,
+                        onTheaterToggle = if (widthClass.isCompact) null else {
+                            { isTheater = !isTheater }
+                        },
+                        isTheater = theaterMode,
                         onBackClick = { navController.popBackStack() },
                         modifier = playerModifier
                     )
@@ -388,16 +397,26 @@ fun WatchScreen(
 
         // Related videos
         items(uiState.relatedVideos) { related ->
-            VideoCard(
-                video = related,
-                onVideoClick = { id ->
-                    navController.navigate(Screen.Watch.createRoute(id))
-                },
-                onChannelClick = { channelId ->
-                    navController.navigate(Screen.Channel.createRoute(channelId))
-                },
-                modifier = Modifier.padding(horizontal = 12.dp, vertical = 2.dp)
-            )
+            if (widthClass.isCompact) {
+                VideoCard(
+                    video = related,
+                    onVideoClick = { id ->
+                        navController.navigate(Screen.Watch.createRoute(id))
+                    },
+                    onChannelClick = { channelId ->
+                        navController.navigate(Screen.Channel.createRoute(channelId))
+                    },
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 2.dp)
+                )
+            } else {
+                CompactVideoRow(
+                    video = related,
+                    onClick = { id ->
+                        navController.navigate(Screen.Watch.createRoute(id))
+                    },
+                    modifier = Modifier.padding(horizontal = 12.dp)
+                )
+            }
         }
         }
 
@@ -410,10 +429,45 @@ fun WatchScreen(
                     relatedItems()
                 }
             }
+        } else if (theaterMode) {
+            // Theater: full-width player pinned on top, info + related scroll below
+            BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+                val playerHeight = min(maxWidth * 9f / 16f, maxHeight * 0.72f)
+                val playerWidth = playerHeight * 16f / 9f
+                Column(modifier = Modifier.fillMaxSize()) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(playerHeight)
+                            .background(Color.Black),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        playerContent(Modifier.width(playerWidth))
+                    }
+                    Row(modifier = Modifier.weight(1f).fillMaxWidth()) {
+                        LazyColumn(
+                            modifier = Modifier
+                                .weight(1f)
+                                .fillMaxHeight()
+                        ) {
+                            infoItems()
+                        }
+                        // Fixed-width related column (weights would ignore widthIn(min) and
+                        // squeeze the compact rows on foldable-sized windows).
+                        LazyColumn(
+                            modifier = Modifier
+                                .width(if (widthClass == com.kvtube.android.ui.adaptive.WidthClass.Expanded) 400.dp else 350.dp)
+                                .fillMaxHeight()
+                        ) {
+                            relatedItems()
+                        }
+                    }
+                }
+            }
         } else {
             // Medium / Expanded: two panes that scroll independently
             Row(modifier = Modifier.fillMaxSize()) {
-                BoxWithConstraints(modifier = Modifier.weight(0.68f).fillMaxHeight()) {
+                BoxWithConstraints(modifier = Modifier.weight(1f).fillMaxHeight()) {
                     val maxPlayerHeight = maxHeight * 0.62f
                     Column(modifier = Modifier.fillMaxSize()) {
                         Box(
@@ -434,8 +488,7 @@ fun WatchScreen(
                 }
                 LazyColumn(
                     modifier = Modifier
-                        .weight(0.32f)
-                        .widthIn(min = 320.dp)
+                        .width(if (widthClass == com.kvtube.android.ui.adaptive.WidthClass.Expanded) 400.dp else 350.dp)
                         .fillMaxHeight()
                 ) {
                     relatedItems()

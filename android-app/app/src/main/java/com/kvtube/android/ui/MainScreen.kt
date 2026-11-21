@@ -208,6 +208,7 @@ fun MainScreen() {
                     if (isSearchActive) {
                         // Compact expanding search field — just enough space to type
                         TopAppBar(
+                            expandedHeight = if (showRail) 56.dp else TopAppBarDefaults.TopAppBarExpandedHeight,
                             title = {
                                 TextField(
                                     value = searchUiState.query,
@@ -276,6 +277,7 @@ fun MainScreen() {
                         )
                     } else if (currentRoute != Screen.Shorts.route) {
                         TopAppBar(
+                            expandedHeight = if (showRail) 56.dp else TopAppBarDefaults.TopAppBarExpandedHeight,
                             title = {
                                 Row(
                                     verticalAlignment = Alignment.CenterVertically,
