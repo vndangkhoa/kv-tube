@@ -35,7 +35,6 @@ import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
 import com.kvtube.android.data.model.VideoData
 import com.kvtube.android.ui.theme.AstryxRadius
-import com.kvtube.android.ui.theme.YTBrandRed
 
 @Composable
 fun CompactVideoRow(
@@ -147,23 +146,5 @@ private fun CompactVideoRowContent(
                 )
             }
         }
-    }
-}
-
-@Composable
-private fun LiveBadge(modifier: Modifier = Modifier) {
-    Box(
-        modifier = modifier
-            .background(YTBrandRed, RoundedCornerShape(AstryxRadius.inner))
-            .padding(horizontal = 4.dp, vertical = 2.dp),
-        contentAlignment = Alignment.Center
-    ) {
-        Text(
-            text = "LIVE",
-            color = Color.White,
-            fontSize = 11.sp,
-            fontWeight = FontWeight.Bold,
-            lineHeight = 14.sp
-        )
     }
 }

@@ -5,6 +5,16 @@ All notable changes to KV-Tube are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [4.15.0] - 2026-11-21
+
+### Added
+- **Android phone app (v1.11.0) — authentic YouTube foldable & tablet layouts**:
+  - **Flex / Tabletop mode**: Uses Jetpack WindowManager `FoldingFeature` (`isSeparating`, `HALF_OPENED`). When partially folded horizontally, the top half hosts the video on a pure-black background, and the bottom half presents a rounded "Video controls" sheet with drag handle, title, channel, previous, 10s rewind, play/pause, 10s forward, next, time indicator, scrub bar, mute, and fullscreen toggle.
+  - **Unfolded Foldable Portrait Watch Screen**: Clean status bar with white icons, pinned 16:9 player, full-span metadata/channel/actions/comments, followed by a 2-column grid of related video cards matching YouTube on Pixel Fold / Galaxy Z Fold.
+  - **Unfolded Foldable Landscape Watch Screen**: 2-pane layout (video + actions on left, elevated rounded surface with related videos on right) plus YouTube-style Theater Mode toggle.
+  - **Unfolded Foldable Home**: 2-column video feed, centered bottom navigation bar (capped at 560 dp, no rail crowding the feed), and corner-docked 16:9 live floating mini-player with play/pause and dismiss buttons.
+  - **Large Landscape Tablets**: Shows `AppNavigationRail` on browse screens when width ≥ 960 dp and landscape, with 3–5 grid columns.
+
 ## [4.14.0] - 2026-11-21
 
 ### Added

@@ -22,6 +22,7 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.draw.clip
@@ -276,30 +277,37 @@ fun BottomNavBar(
             color = MaterialTheme.colorScheme.outlineVariant
         )
 
-        // 60dp bar: icon pill (28dp) + label must fit without clipping
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .heightIn(min = 60.dp),
-            horizontalArrangement = Arrangement.SpaceAround,
-            verticalAlignment = Alignment.CenterVertically
+        // 60dp bar: icon pill (28dp) + label must fit without clipping.
+        // Centered max width (560dp) matches YouTube's foldable portrait bottom bar.
+        Box(
+            modifier = Modifier.fillMaxWidth(),
+            contentAlignment = Alignment.Center
         ) {
-            bottomNavItems.forEach { item ->
-                val selected = currentRoute?.startsWith(item.route) == true
-                NavItemVisual(
-                    item = item,
-                    selected = selected,
-                    activeDownloadsCount = activeDownloadsCount,
-                    modifier = Modifier
-                        .weight(1f)
-                        .clickable(
-                            interactionSource = remember { MutableInteractionSource() },
-                            indication = null
-                        ) {
-                            handleNavTabClick(navController, item.route, currentRoute, onTabClick)
-                        }
-                        .padding(top = 6.dp, bottom = 6.dp)
-                )
+            Row(
+                modifier = Modifier
+                    .widthIn(max = 560.dp)
+                    .fillMaxWidth()
+                    .heightIn(min = 60.dp),
+                horizontalArrangement = Arrangement.SpaceAround,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                bottomNavItems.forEach { item ->
+                    val selected = currentRoute?.startsWith(item.route) == true
+                    NavItemVisual(
+                        item = item,
+                        selected = selected,
+                        activeDownloadsCount = activeDownloadsCount,
+                        modifier = Modifier
+                            .weight(1f)
+                            .clickable(
+                                interactionSource = remember { MutableInteractionSource() },
+                                indication = null
+                            ) {
+                                handleNavTabClick(navController, item.route, currentRoute, onTabClick)
+                            }
+                            .padding(top = 6.dp, bottom = 6.dp)
+                    )
+                }
             }
         }
     }

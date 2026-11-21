@@ -24,7 +24,7 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.systemBars
 import androidx.compose.material3.ScaffoldDefaults
-import com.kvtube.android.ui.adaptive.LocalWidthClass
+import com.kvtube.android.ui.adaptive.LocalWindowState
 import com.kvtube.android.ui.navigation.AppNavigationRail
 import androidx.compose.ui.res.painterResource
 import com.kvtube.android.R
@@ -75,9 +75,11 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import com.kvtube.android.ui.components.FloatingMiniPlayer
 import com.kvtube.android.ui.components.LoadingSpinner
 import com.kvtube.android.ui.components.MiniPlayer
 import com.kvtube.android.ui.components.VideoCard
+import com.kvtube.android.ui.components.rememberVideoGridCells
 import com.kvtube.android.ui.navigation.BottomNavBar
 import com.kvtube.android.ui.navigation.NavGraph
 import com.kvtube.android.ui.navigation.Screen
@@ -159,10 +161,12 @@ fun MainScreen() {
         isNotificationsOpen = false
     }
 
-    // Compact: bottom bar. Medium/Expanded: start-edge NavigationRail next to the
-    // content (hidden together with the bottom bar when the player is fullscreen).
-    val widthClass = LocalWidthClass.current
-    val showRail = widthClass.isWide && !isPlayerFullscreen
+    val windowState = LocalWindowState.current
+    val isWatchRoute = currentRoute?.startsWith("watch/") == true ||
+        currentRoute?.startsWith("localWatch") == true
+    val hideScaffoldChrome = isPlayerFullscreen || isWatchRoute
+    val showRail = windowState.useNavigationRail && !hideScaffoldChrome
+    val showBottomNav = !hideScaffoldChrome && !showRail
     val onNavTabClick: (String) -> Unit = {
         isSearchActive = false
         searchViewModel.onQueryChanged("")
@@ -194,16 +198,17 @@ fun MainScreen() {
                         Modifier
                     }
                 ),
-            // The rail already pads for the start inset, so Scaffold only handles the rest
-            contentWindowInsets = if (showRail) {
-                WindowInsets.systemBars.only(
+            // WatchScreen & LocalWatchScreen manage their own edge-to-edge black
+            // status strip and nav insets; browse screens delegate to Scaffold.
+            contentWindowInsets = when {
+                hideScaffoldChrome -> WindowInsets(0, 0, 0, 0)
+                showRail -> WindowInsets.systemBars.only(
                     WindowInsetsSides.Top + WindowInsetsSides.End + WindowInsetsSides.Bottom
                 )
-            } else {
-                ScaffoldDefaults.contentWindowInsets
+                else -> ScaffoldDefaults.contentWindowInsets
             },
             topBar = {
-                if (!isPlayerFullscreen) {
+                if (!hideScaffoldChrome) {
                     Box(modifier = Modifier.animateContentSize()) {
                     if (isSearchActive) {
                         // Compact expanding search field — just enough space to type
@@ -341,37 +346,41 @@ fun MainScreen() {
                 }
             },
             bottomBar = {
-                if (!isPlayerFullscreen) {
-                    // Wide: the rail owns the nav bar, so this column only hosts the
-                    // mini player and pads for the system navigation bar itself.
-                    Column(modifier = if (showRail) Modifier.navigationBarsPadding() else Modifier) {
-                        // Mini player: keeps playing after leaving the watch page
-                        AnimatedVisibility(
-                            visible = showMiniPlayer,
-                            enter = slideInVertically(initialOffsetY = { it }) + fadeIn(),
-                            exit = slideOutVertically(targetOffsetY = { it }) + fadeOut()
-                        ) {
-                            nowPlaying?.let { np ->
-                                MiniPlayer(
-                                    nowPlaying = np,
-                                    player = playbackManager.player,
-                                    onOpen = {
-                                        navController.navigate(Screen.Watch.createRoute(np.videoId)) {
-                                            launchSingleTop = true
-                                        }
-                                    },
-                                    onClose = { playbackManager.stopAndClear() }
-                                )
+                if (!hideScaffoldChrome) {
+                    if (!windowState.isWide) {
+                        // Compact phones: horizontal mini-player strip docked above the bottom bar
+                        Column {
+                            AnimatedVisibility(
+                                visible = showMiniPlayer,
+                                enter = slideInVertically(initialOffsetY = { it }) + fadeIn(),
+                                exit = slideOutVertically(targetOffsetY = { it }) + fadeOut()
+                            ) {
+                                nowPlaying?.let { np ->
+                                    MiniPlayer(
+                                        nowPlaying = np,
+                                        player = playbackManager.player,
+                                        onOpen = {
+                                            navController.navigate(Screen.Watch.createRoute(np.videoId)) {
+                                                launchSingleTop = true
+                                            }
+                                        },
+                                        onClose = { playbackManager.stopAndClear() }
+                                    )
+                                }
                             }
-                        }
 
-                        if (!showRail) {
                             BottomNavBar(
                                 navController = navController,
                                 activeDownloadsCount = activeDownloadsCount,
                                 onTabClick = onNavTabClick
                             )
                         }
+                    } else if (showBottomNav) {
+                        BottomNavBar(
+                            navController = navController,
+                            activeDownloadsCount = activeDownloadsCount,
+                            onTabClick = onNavTabClick
+                        )
                     }
                 }
             },
@@ -380,7 +389,7 @@ fun MainScreen() {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .then(if (isPlayerFullscreen) Modifier else Modifier.padding(innerPadding))
+                    .then(if (hideScaffoldChrome) Modifier else Modifier.padding(innerPadding))
             ) {
                 when {
                     showFullResults -> {
@@ -420,6 +429,29 @@ fun MainScreen() {
                                 isSearchActive = true
                                 searchViewModel.onQueryChanged("")
                             }
+                        )
+                    }
+                }
+
+                // Wide windows (foldables & tablets): floating corner video mini-player
+                androidx.compose.animation.AnimatedVisibility(
+                    visible = showMiniPlayer && windowState.isWide && !hideScaffoldChrome,
+                    enter = fadeIn() + slideInVertically(initialOffsetY = { it / 2 }),
+                    exit = fadeOut() + slideOutVertically(targetOffsetY = { it / 2 }),
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .padding(end = 12.dp, bottom = 12.dp)
+                ) {
+                    nowPlaying?.let { np ->
+                        FloatingMiniPlayer(
+                            nowPlaying = np,
+                            player = playbackManager.player,
+                            onOpen = {
+                                navController.navigate(Screen.Watch.createRoute(np.videoId)) {
+                                    launchSingleTop = true
+                                }
+                            },
+                            onClose = { playbackManager.stopAndClear() }
                         )
                     }
                 }
@@ -474,7 +506,7 @@ private fun SearchResultsContent(
 
         uiState.results.isNotEmpty() -> {
             LazyVerticalGrid(
-                columns = GridCells.Adaptive(minSize = 300.dp),
+                columns = rememberVideoGridCells(),
                 contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp)

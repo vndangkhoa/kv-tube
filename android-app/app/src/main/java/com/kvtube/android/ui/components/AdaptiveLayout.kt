@@ -14,70 +14,88 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import kotlin.math.roundToInt
 import com.kvtube.android.ui.adaptive.LocalWidthClass
+import com.kvtube.android.ui.adaptive.LocalWindowState
 import com.kvtube.android.ui.adaptive.WidthClass
+import com.kvtube.android.ui.adaptive.WindowState
 
 /** Narrower cap for text-heavy screens (settings, comments, lists of rows). */
 const val MaxReadableWidthDp = 720
 
-/** Navigation rail width shown next to the content on wide windows. */
+/** Navigation rail width shown next to the content on large landscape tablets. */
 const val NavRailWidthDp = 88
-
-/** Target (ideal) video card width on wide windows; column count is derived from it. */
-const val TargetVideoCardWidthDp = 260
-
-/** Target width of a horizontal row card (thumbnail + text) on wide windows. */
-const val TargetRowCardWidthDp = 360
 
 /** Horizontal content padding + grid gutter used by dense wide grids. */
 const val WideGridPaddingDp = 12
-const val WideGridSpacingDp = 10
+const val WideGridSpacingDp = 12
 
 /** Grid content may grow wider than the default centred cap so cards fill their columns. */
 const val MaxGridContentWidthDp = 2400
 
-/** Width available to content next to the rail, minus the horizontal grid padding. */
-private fun availableGridWidthDp(windowWidthDp: Int): Int =
-    windowWidthDp - NavRailWidthDp - 2 * WideGridPaddingDp
+/** Width available to content (minus rail when shown) and horizontal padding. */
+private fun availableGridWidthDp(windowWidthDp: Int, hasRail: Boolean): Int =
+    (windowWidthDp - (if (hasRail) NavRailWidthDp else 0) - 2 * WideGridPaddingDp).coerceAtLeast(320)
 
 /**
- * Column count for video-card grids, derived from the available width:
- * Compact (phones) 1; wide windows round(available / ~260dp) clamped to 2..6
- * (700dp -> 2, 800dp -> 3, 1066dp -> 4, 1400dp -> 5, 1600dp+ -> 6).
+ * Column count for video-card grids following YouTube's foldable & tablet layout:
+ * - Compact phone (< 600dp): 1 column
+ * - Medium (600–839dp, e.g. unfolded foldable portrait): 2 columns (large cards)
+ * - Expanded (>= 840dp): 3–5 columns sized by ~310dp target width
  */
-fun videoGridColumnCount(widthClass: WidthClass, windowWidthDp: Int): Int =
-    if (widthClass.isCompact) 1
-    else (availableGridWidthDp(windowWidthDp).toFloat() / TargetVideoCardWidthDp)
-        .roundToInt().coerceIn(2, 6)
+fun videoGridColumnCount(windowState: WindowState): Int = when (windowState.widthClass) {
+    WidthClass.Compact -> 1
+    WidthClass.Medium -> 2
+    WidthClass.Expanded -> {
+        val avail = availableGridWidthDp(windowState.widthDp, windowState.useNavigationRail)
+        (avail / 310f).toInt().coerceIn(3, 5)
+    }
+}
 
-/** [GridCells] for video grids, tuned to the current window width. */
+/** Backwards-compatible overload keyed on widthClass + windowWidthDp. */
+fun videoGridColumnCount(widthClass: WidthClass, windowWidthDp: Int): Int = when (widthClass) {
+    WidthClass.Compact -> 1
+    WidthClass.Medium -> 2
+    WidthClass.Expanded -> {
+        val avail = availableGridWidthDp(windowWidthDp, hasRail = windowWidthDp >= 960)
+        (avail / 310f).toInt().coerceIn(3, 5)
+    }
+}
+
+/** [GridCells] for video grids, tuned to the current window state. */
 @Composable
 fun rememberVideoGridCells(): GridCells {
-    val widthClass = LocalWidthClass.current
-    val widthDp = LocalConfiguration.current.screenWidthDp
-    return remember(widthClass, widthDp) {
-        GridCells.Fixed(videoGridColumnCount(widthClass, widthDp))
+    val windowState = LocalWindowState.current
+    return remember(windowState.widthClass, windowState.widthDp, windowState.useNavigationRail) {
+        GridCells.Fixed(videoGridColumnCount(windowState))
     }
 }
 
 /**
  * Column count for grids of compact horizontal rows (thumbnail + text), e.g. history:
- * Compact 1; wide round(available / ~360dp) clamped to 2..4.
+ * Compact 1; Medium 2; Expanded 2..4.
  */
+fun rowGridColumnCount(windowState: WindowState): Int = when (windowState.widthClass) {
+    WidthClass.Compact -> 1
+    WidthClass.Medium -> 2
+    WidthClass.Expanded -> {
+        val avail = availableGridWidthDp(windowState.widthDp, windowState.useNavigationRail)
+        (avail / 360f).toInt().coerceIn(2, 4)
+    }
+}
+
 fun rowGridColumnCount(widthClass: WidthClass, windowWidthDp: Int): Int =
     if (widthClass.isCompact) 1
-    else (availableGridWidthDp(windowWidthDp).toFloat() / TargetRowCardWidthDp)
+    else (availableGridWidthDp(windowWidthDp, hasRail = windowWidthDp >= 960).toFloat() / 360f)
         .roundToInt().coerceIn(2, 4)
 
 @Composable
 fun rememberRowGridCells(): GridCells {
-    val widthClass = LocalWidthClass.current
-    val widthDp = LocalConfiguration.current.screenWidthDp
-    return remember(widthClass, widthDp) {
-        GridCells.Fixed(rowGridColumnCount(widthClass, widthDp))
+    val windowState = LocalWindowState.current
+    return remember(windowState.widthClass, windowState.widthDp, windowState.useNavigationRail) {
+        GridCells.Fixed(rowGridColumnCount(windowState))
     }
 }
 
-/** Horizontal gap between video-grid cells: 10dp on wide windows, [compact] on phones. */
+/** Horizontal gap between video-grid cells: 12dp on wide windows, [compact] on phones. */
 @Composable
 fun gridHorizontalSpacing(compact: Dp = 8.dp): Dp =
     if (LocalWidthClass.current.isWide) WideGridSpacingDp.dp else compact
@@ -85,7 +103,7 @@ fun gridHorizontalSpacing(compact: Dp = 8.dp): Dp =
 /** Vertical gap between video-grid rows (cards carry their own bottom padding). */
 @Composable
 fun gridVerticalSpacing(compact: Dp = 16.dp): Dp =
-    if (LocalWidthClass.current.isWide) 4.dp else compact
+    if (LocalWidthClass.current.isWide) 8.dp else compact
 
 /** Horizontal content padding of video grids: 12dp on every size class. */
 const val GridContentPaddingDp = 12

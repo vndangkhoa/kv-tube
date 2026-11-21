@@ -31,7 +31,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
 import com.kvtube.android.data.model.VideoData
-import com.kvtube.android.ui.adaptive.LocalWidthClass
+import com.kvtube.android.ui.adaptive.LocalWindowState
+import com.kvtube.android.ui.adaptive.WidthClass
 import com.kvtube.android.ui.theme.AstryxRadius
 
 /** Thumbnail — the URL is already Invidious-proxied upstream (see
@@ -59,14 +60,20 @@ fun VideoCard(
     showChannelName: Boolean = true,
     modifier: Modifier = Modifier
 ) {
-    val isWide = LocalWidthClass.current.isWide
+    val widthClass = LocalWindowState.current.widthClass
+    val isWide = widthClass.isWide
+    val isExpanded = widthClass == WidthClass.Expanded
     Column(
         modifier = modifier
             .fillMaxWidth()
             .clickable { onVideoClick(video.id) }
-            .padding(bottom = if (isWide) 8.dp else 16.dp)
+            .padding(bottom = when {
+                isExpanded -> 8.dp
+                isWide -> 12.dp
+                else -> 16.dp
+            })
     ) {
-        // 16:9 Thumbnail with duration badge overlay
+        // 16:9 Thumbnail with LIVE / duration badge overlay
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -83,8 +90,13 @@ fun VideoCard(
                 modifier = Modifier.fillMaxWidth()
             )
 
-            if (video.duration.isNotBlank()) {
-                DurationBadge(
+            when {
+                video.isLive -> LiveBadge(
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .padding(6.dp)
+                )
+                video.duration.isNotBlank() -> DurationBadge(
                     duration = video.duration,
                     modifier = Modifier
                         .align(Alignment.BottomEnd)
@@ -93,14 +105,14 @@ fun VideoCard(
             }
         }
 
-        Spacer(modifier = Modifier.height(if (isWide) 8.dp else 10.dp))
+        Spacer(modifier = Modifier.height(if (isExpanded) 8.dp else 10.dp))
 
         // Information row: Avatar + Title/Channel/Stats + 3-dot More button
         Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 4.dp),
-            horizontalArrangement = Arrangement.spacedBy(if (isWide) 8.dp else 10.dp),
+            horizontalArrangement = Arrangement.spacedBy(if (isExpanded) 8.dp else 10.dp),
             verticalAlignment = Alignment.Top
         ) {
             // Channel Avatar
@@ -108,7 +120,7 @@ fun VideoCard(
                 ChannelAvatar(
                     avatarUrl = video.channelThumbnail.ifBlank { null },
                     channelName = video.displayChannelTitle,
-                    size = if (isWide) 32.dp else 36.dp,
+                    size = if (isExpanded) 32.dp else 36.dp,
                     onClick = if (onChannelClick != null) {
                         { onChannelClick(video.displayChannelId) }
                     } else null
@@ -121,7 +133,7 @@ fun VideoCard(
                     text = video.title,
                     style = MaterialTheme.typography.bodyLarge.copy(
                         fontSize = 14.sp,
-                        fontWeight = if (isWide) FontWeight.Medium else FontWeight.SemiBold,
+                        fontWeight = if (isExpanded) FontWeight.Medium else FontWeight.SemiBold,
                         lineHeight = 18.sp
                     ),
                     color = MaterialTheme.colorScheme.onSurface,
@@ -129,7 +141,7 @@ fun VideoCard(
                     overflow = TextOverflow.Ellipsis
                 )
 
-                Spacer(modifier = Modifier.height(if (isWide) 2.dp else 4.dp))
+                Spacer(modifier = Modifier.height(if (isExpanded) 2.dp else 4.dp))
 
                 val subtitle = buildString {
                     if (showChannelName && video.displayChannelTitle.isNotBlank()) {
@@ -149,7 +161,7 @@ fun VideoCard(
                     text = subtitle,
                     style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp),
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
+                    maxLines = 2,
                     overflow = TextOverflow.Ellipsis
                 )
             }

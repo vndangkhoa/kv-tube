@@ -12,8 +12,10 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -86,7 +88,19 @@ fun LocalWatchScreen(
             ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
     }
 
-    Column(modifier = Modifier.fillMaxSize()) {
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .then(if (isFullscreen) Modifier else Modifier.navigationBarsPadding())
+    ) {
+        if (!isFullscreen) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(Color.Black)
+                    .statusBarsPadding()
+            )
+        }
         val videoUri = video.contentUri?.let { Uri.parse(it) }
             ?: Uri.fromFile(File(video.filePath))
 
@@ -190,7 +204,6 @@ private fun LocalExoPlayerView(
         modifier = modifier
             .fillMaxWidth()
             .then(if (isFullscreen) Modifier.fillMaxSize() else Modifier.aspectRatio(16f / 9f))
-            .clip(RoundedCornerShape(if (isFullscreen) 0.dp else 12.dp))
             .background(Color.Black)
     ) {
         AndroidView(
@@ -204,6 +217,7 @@ private fun LocalExoPlayerView(
                 }
             },
             update = { view -> view.player = exoPlayer },
+            onRelease = { view -> view.player = null },
             modifier = Modifier.fillMaxSize()
         )
 

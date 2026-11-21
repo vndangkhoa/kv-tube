@@ -70,6 +70,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -109,6 +110,9 @@ fun ExoPlayerView(
     /** Theater-mode toggle; null hides the button (compact windows). */
     onTheaterToggle: (() -> Unit)? = null,
     isTheater: Boolean = false,
+    cornerRadius: Dp = 0.dp,
+    fillAvailableSpace: Boolean = false,
+    hideOverlayControls: Boolean = false,
     onBackClick: (() -> Unit)? = null,
     /** Invoked when playback fails (lets the caller switch to the iframe fallback). */
     onError: (() -> Unit)? = null,
@@ -285,14 +289,18 @@ fun ExoPlayerView(
 
     Box(
         modifier = modifier
-            .fillMaxWidth()
-            .then(if (isFullscreen) Modifier.fillMaxSize() else Modifier.aspectRatio(16f / 9f))
-            .clip(RoundedCornerShape(if (isFullscreen || isTheater) 0.dp else 12.dp))
+            .then(
+                if (isFullscreen || fillAvailableSpace) Modifier.fillMaxSize()
+                else Modifier.fillMaxWidth().aspectRatio(16f / 9f)
+            )
+            .clip(RoundedCornerShape(if (isFullscreen || isTheater) 0.dp else cornerRadius))
             .background(Color.Black)
-            .pointerInput(Unit) {
+            .pointerInput(hideOverlayControls) {
                 detectTapGestures(
                     onTap = {
-                        showControls = !showControls
+                        if (!hideOverlayControls) {
+                            showControls = !showControls
+                        }
                     },
                     onDoubleTap = { offset ->
                         val isRightSide = offset.x > size.width / 2
@@ -318,9 +326,12 @@ fun ExoPlayerView(
                 }
             },
             update = { view ->
-                view.player = exoPlayer
+                if (view.player !== exoPlayer) {
+                    view.player = exoPlayer
+                }
                 view.resizeMode = resizeMode
             },
+            onRelease = { view -> view.player = null },
             modifier = Modifier.fillMaxSize()
         )
 
@@ -446,7 +457,7 @@ fun ExoPlayerView(
 
         // Controls Overlay
         AnimatedVisibility(
-            visible = showControls && !hasError,
+            visible = showControls && !hasError && !hideOverlayControls,
             enter = fadeIn(animationSpec = tween(200)),
             exit = fadeOut(animationSpec = tween(200))
         ) {

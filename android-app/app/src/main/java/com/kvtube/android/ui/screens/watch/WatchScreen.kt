@@ -7,6 +7,7 @@ import android.util.Rational
 import android.view.ViewGroup
 import android.webkit.WebChromeClient
 import android.webkit.WebView
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -14,21 +15,30 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.windowInsetsTopHeight
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
+import androidx.compose.foundation.lazy.grid.LazyGridScope
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.itemsIndexed as gridItemsIndexed
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -38,14 +48,15 @@ import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.ThumbDown
 import androidx.compose.material.icons.filled.ThumbUp
+import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.outlined.ThumbDown
 import androidx.compose.material.icons.outlined.ThumbUp
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -68,7 +79,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.min
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
-import androidx.activity.compose.BackHandler
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
@@ -77,15 +87,14 @@ import androidx.navigation.NavController
 import com.kvtube.android.data.model.Comment
 import com.kvtube.android.data.model.QualityTier
 import com.kvtube.android.data.model.VideoData
-import com.kvtube.android.ui.adaptive.LocalWidthClass
+import com.kvtube.android.ui.adaptive.LocalWindowState
+import com.kvtube.android.ui.adaptive.findActivity
 import com.kvtube.android.ui.components.ChannelAvatar
-import com.kvtube.android.ui.components.CompactVideoRow
 import com.kvtube.android.ui.components.DownloadBottomSheet
 import com.kvtube.android.ui.components.LoadingSpinner
 import com.kvtube.android.ui.components.SubscribeButton
 import com.kvtube.android.ui.components.VideoCard
 import com.kvtube.android.ui.navigation.Screen
-import com.kvtube.android.ui.theme.YTBrandRed
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -96,13 +105,36 @@ fun WatchScreen(
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val context = LocalContext.current
-    val activity = context as? Activity
-    val widthClass = LocalWidthClass.current
+    val activity = context.findActivity()
+    val windowState = LocalWindowState.current
 
     var showDownloadSheet by remember { mutableStateOf(false) }
     var isFullscreen by remember { mutableStateOf(false) }
     var isTheater by rememberSaveable { mutableStateOf(false) }
-    val theaterMode = isTheater && !widthClass.isCompact
+    var dismissedTabletop by rememberSaveable { mutableStateOf(false) }
+
+    LaunchedEffect(windowState.isTabletop) {
+        if (windowState.isTabletop) dismissedTabletop = false
+    }
+
+    val canToggleTheater = windowState.isLandscapeTwoPaneWatch && !windowState.isTabletop
+    val theaterMode = isTheater && canToggleTheater
+
+    // Watch screen top strip behind the player is pure black: keep status icons white
+    // (including in light theme) and restore the theme appearance on exit.
+    DisposableEffect(activity) {
+        val window = activity?.window
+        if (window != null) {
+            val controller = WindowCompat.getInsetsController(window, window.decorView)
+            val prevLight = controller.isAppearanceLightStatusBars
+            controller.isAppearanceLightStatusBars = false
+            onDispose {
+                controller.isAppearanceLightStatusBars = prevLight
+            }
+        } else {
+            onDispose {}
+        }
+    }
 
     // Hide/show system bars on fullscreen toggle + rotate to landscape
     LaunchedEffect(isFullscreen) {
@@ -162,13 +194,25 @@ fun WatchScreen(
         } else null
 
     if (uiState.isLoading) {
-        LoadingSpinner(fullScreen = true, text = "Loading video...")
+        LoadingSpinner(
+            fullScreen = true,
+            text = "Loading video...",
+            modifier = Modifier
+                .fillMaxSize()
+                .background(MaterialTheme.colorScheme.background)
+                .statusBarsPadding()
+                .navigationBarsPadding()
+        )
         return
     }
 
     if (uiState.error != null && uiState.selectedUrl.isNullOrBlank() && !uiState.useIframeFallback) {
         Box(
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier
+                .fillMaxSize()
+                .background(MaterialTheme.colorScheme.background)
+                .statusBarsPadding()
+                .navigationBarsPadding(),
             contentAlignment = Alignment.Center
         ) {
             Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -215,39 +259,40 @@ fun WatchScreen(
             }
         }
     } else {
-        // ---- Shared building blocks (used by both compact and wide layouts) ----
-        val playerContent: @Composable (Modifier) -> Unit = { playerModifier ->
-            if (uiState.useIframeFallback) {
-                YouTubeIframePlayer(
-                    videoId = videoId,
-                    modifier = playerModifier.aspectRatio(16f / 9f),
-                    onBackClick = { navController.popBackStack() }
-                )
-            } else {
-                uiState.selectedUrl?.let { url ->
-                    ExoPlayerView(
-                        videoUrl = url,
-                        audioUrl = uiState.audioUrl,
-                        sharedPlayer = viewModel.playbackManagerRef.player,
-                        isFullscreen = false,
-                        onFullscreenToggle = { isFullscreen = true },
-                        onError = { viewModel.fallbackToIframe() },
-                        onEnterPip = pipAction,
-                        onTheaterToggle = if (widthClass.isCompact) null else {
-                            { isTheater = !isTheater }
-                        },
-                        isTheater = theaterMode,
-                        onBackClick = { navController.popBackStack() },
-                        modifier = playerModifier
+        // ---- Shared building blocks ----
+        val playerContent: @Composable (Modifier, Boolean, Boolean) -> Unit =
+            { playerModifier, fillAvailable, hideOverlay ->
+                if (uiState.useIframeFallback) {
+                    YouTubeIframePlayer(
+                        videoId = videoId,
+                        modifier = if (fillAvailable) playerModifier else playerModifier.aspectRatio(16f / 9f),
+                        onBackClick = { navController.popBackStack() }
                     )
+                } else {
+                    uiState.selectedUrl?.let { url ->
+                        ExoPlayerView(
+                            videoUrl = url,
+                            audioUrl = uiState.audioUrl,
+                            sharedPlayer = viewModel.playbackManagerRef.player,
+                            isFullscreen = false,
+                            onFullscreenToggle = { isFullscreen = true },
+                            onError = { viewModel.fallbackToIframe() },
+                            onEnterPip = pipAction,
+                            onTheaterToggle = if (canToggleTheater) {
+                                { isTheater = !isTheater }
+                            } else null,
+                            isTheater = theaterMode,
+                            cornerRadius = 0.dp,
+                            fillAvailableSpace = fillAvailable,
+                            hideOverlayControls = hideOverlay,
+                            onBackClick = { navController.popBackStack() },
+                            modifier = playerModifier
+                        )
+                    }
                 }
             }
-        }
 
-        // Title / channel / actions / comments
-        val infoItems: LazyListScope.() -> Unit = {
-        // Video Info Section
-        item {
+        val infoSectionBlock: @Composable () -> Unit = {
             uiState.video?.let { video ->
                 VideoInfoSection(
                     video = video,
@@ -273,131 +318,80 @@ fun WatchScreen(
             }
         }
 
-        // Comments preview box
-        item {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 14.dp, vertical = 6.dp)
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(MaterialTheme.colorScheme.surfaceVariant)
-                    .clickable { viewModel.toggleComments() }
-                    .padding(12.dp)
-            ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    val countLabel = uiState.commentsCount?.let { " ($it)" } ?: if (uiState.comments.isNotEmpty()) " (${uiState.comments.size})" else ""
-                    Text(
-                        text = "Comments$countLabel",
-                        style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.Bold,
-                        modifier = Modifier.weight(1f)
-                    )
-                    Text(
-                        text = if (uiState.showComments) "Hide" else "Show",
-                        color = Color(0xFF3EA6FF),
-                        style = MaterialTheme.typography.bodySmall,
-                        fontWeight = FontWeight.Medium
-                    )
-                }
-                if (!uiState.showComments && uiState.comments.isNotEmpty()) {
-                    Spacer(modifier = Modifier.height(8.dp))
-                    val topComment = uiState.comments.first()
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        ChannelAvatar(
-                            avatarUrl = topComment.authorThumbnail.ifBlank { null },
-                            channelName = topComment.author,
-                            size = 22.dp
-                        )
-                        Text(
-                            text = topComment.text,
-                            style = MaterialTheme.typography.bodySmall,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                }
-            }
-        }
-
-        // Comments list
-        if (uiState.showComments) {
-            if (uiState.isLoadingComments && uiState.comments.isEmpty()) {
-                item {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 16.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        CircularProgressIndicator(modifier = Modifier.size(24.dp), strokeWidth = 2.dp)
-                    }
-                }
-            } else if (uiState.comments.isEmpty()) {
-                item {
-                    Text(
-                        text = "No comments available",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp)
-                    )
-                }
-            } else {
-                items(uiState.comments, key = { it.id.ifEmpty { it.hashCode().toString() } }) { comment ->
-                    CommentItem(comment = comment)
-                }
-
-                if (!uiState.commentsContinuation.isNullOrBlank()) {
-                    item {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 14.dp, vertical = 8.dp),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            if (uiState.isLoadingMoreComments) {
-                                CircularProgressIndicator(modifier = Modifier.size(22.dp), strokeWidth = 2.dp)
-                            } else {
-                                TextButton(
-                                    onClick = { viewModel.loadMoreComments() }
-                                ) {
-                                    Text(
-                                        text = "Load more comments",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = Color(0xFF3EA6FF)
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        }
-
-        // Related videos (header + list)
-        val relatedItems: LazyListScope.() -> Unit = {
-        // Related videos header
-        item {
-            Text(
-                text = "Related videos",
-                style = MaterialTheme.typography.titleSmall.copy(
-                    fontSize = 15.sp,
-                    fontWeight = FontWeight.Bold
-                ),
-                modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp)
+        val commentsHeaderBlock: @Composable () -> Unit = {
+            CommentsPreviewCard(
+                uiState = uiState,
+                onToggle = { viewModel.toggleComments() }
             )
         }
 
-        // Related videos
-        items(uiState.relatedVideos) { related ->
-            if (widthClass.isCompact) {
+        val commentsFooterBlock: @Composable () -> Unit = {
+            CommentsLoadMoreFooter(
+                isLoadingMore = uiState.isLoadingMoreComments,
+                onLoadMore = { viewModel.loadMoreComments() }
+            )
+        }
+
+        // Title / channel / actions / comments (LazyColumn panes)
+        val infoItems: LazyListScope.() -> Unit = {
+            item { infoSectionBlock() }
+            item { commentsHeaderBlock() }
+            if (uiState.showComments) {
+                if (uiState.isLoadingComments && uiState.comments.isEmpty()) {
+                    item { CommentsLoadingIndicator() }
+                } else if (uiState.comments.isEmpty()) {
+                    item { CommentsEmptyText() }
+                } else {
+                    itemsIndexed(
+                        uiState.comments,
+                        key = { idx, comment -> "c_${idx}_${comment.id}" }
+                    ) { _, comment ->
+                        CommentItem(comment = comment)
+                    }
+                    if (!uiState.commentsContinuation.isNullOrBlank()) {
+                        item { commentsFooterBlock() }
+                    }
+                }
+            }
+        }
+
+        // Title / channel / actions / comments (full-span items for 2-col foldable grid)
+        val gridInfoItems: LazyGridScope.() -> Unit = {
+            item(span = { GridItemSpan(maxLineSpan) }) { infoSectionBlock() }
+            item(span = { GridItemSpan(maxLineSpan) }) { commentsHeaderBlock() }
+            if (uiState.showComments) {
+                if (uiState.isLoadingComments && uiState.comments.isEmpty()) {
+                    item(span = { GridItemSpan(maxLineSpan) }) { CommentsLoadingIndicator() }
+                } else if (uiState.comments.isEmpty()) {
+                    item(span = { GridItemSpan(maxLineSpan) }) { CommentsEmptyText() }
+                } else {
+                    gridItemsIndexed(
+                        uiState.comments,
+                        key = { idx, comment -> "gc_${idx}_${comment.id}" },
+                        span = { _, _ -> GridItemSpan(maxLineSpan) }
+                    ) { _, comment ->
+                        CommentItem(comment = comment)
+                    }
+                    if (!uiState.commentsContinuation.isNullOrBlank()) {
+                        item(span = { GridItemSpan(maxLineSpan) }) { commentsFooterBlock() }
+                    }
+                }
+            }
+        }
+
+        val relatedCardPadding = Modifier.padding(horizontal = 12.dp, vertical = 2.dp)
+
+        // Related videos (LazyColumn panes: full VideoCards)
+        val relatedItems: LazyListScope.() -> Unit = {
+            item {
+                RelatedSectionHeader(
+                    horizontalPadding = if (windowState.isCompact) 14.dp else 4.dp
+                )
+            }
+            itemsIndexed(
+                uiState.relatedVideos,
+                key = { idx, item -> "${item.id}_$idx" }
+            ) { _, related ->
                 VideoCard(
                     video = related,
                     onVideoClick = { id ->
@@ -406,92 +400,361 @@ fun WatchScreen(
                     onChannelClick = { channelId ->
                         navController.navigate(Screen.Channel.createRoute(channelId))
                     },
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 2.dp)
-                )
-            } else {
-                CompactVideoRow(
-                    video = related,
-                    onClick = { id ->
-                        navController.navigate(Screen.Watch.createRoute(id))
-                    },
-                    modifier = Modifier.padding(horizontal = 12.dp)
+                    modifier = if (windowState.isCompact) relatedCardPadding else Modifier
                 )
             }
-        }
         }
 
-        if (widthClass.isCompact) {
-            // Compact: 16:9 player on top, everything else scrolls below
-            Column(modifier = Modifier.fillMaxSize()) {
-                playerContent(Modifier.fillMaxWidth())
-                LazyColumn(modifier = Modifier.fillMaxSize()) {
-                    infoItems()
-                    relatedItems()
+        when {
+            windowState.isTabletop -> {
+                // Flex / Tabletop Mode (half-opened horizontal hinge): clean video above hinge,
+                // rounded "Video controls" panel below hinge.
+                BoxWithConstraints(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Color.Black)
+                ) {
+                    val topPaneHeight = if (windowState.hingeTopDp > 120f) {
+                        windowState.hingeTopDp.dp
+                    } else {
+                        maxHeight * 0.5f
+                    }
+                    Column(modifier = Modifier.fillMaxSize()) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(topPaneHeight)
+                                .background(Color.Black)
+                                .statusBarsPadding()
+                        ) {
+                            playerContent(Modifier.fillMaxSize(), true, !dismissedTabletop)
+                        }
+                        if (windowState.hingeHeightDp > 0f) {
+                            Spacer(modifier = Modifier.height(windowState.hingeHeightDp.dp))
+                        }
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .fillMaxWidth()
+                        ) {
+                            if (!dismissedTabletop) {
+                                TabletopVideoControls(
+                                    player = viewModel.playbackManagerRef.player,
+                                    title = uiState.video?.title.orEmpty(),
+                                    channelName = uiState.video?.displayChannelTitle.orEmpty(),
+                                    hasNext = uiState.relatedVideos.isNotEmpty(),
+                                    onPrevious = { navController.popBackStack() },
+                                    onNext = {
+                                        uiState.relatedVideos.firstOrNull()?.let { next ->
+                                            navController.navigate(Screen.Watch.createRoute(next.id))
+                                        }
+                                    },
+                                    onFullscreen = { isFullscreen = true },
+                                    onClose = { dismissedTabletop = true },
+                                    modifier = Modifier.fillMaxSize()
+                                )
+                            } else {
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .background(MaterialTheme.colorScheme.background)
+                                        .navigationBarsPadding()
+                                ) {
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(horizontal = 14.dp, vertical = 8.dp),
+                                        horizontalArrangement = Arrangement.End
+                                    ) {
+                                        Row(
+                                            modifier = Modifier
+                                                .clip(RoundedCornerShape(18.dp))
+                                                .background(MaterialTheme.colorScheme.surfaceVariant)
+                                                .clickable { dismissedTabletop = false }
+                                                .padding(horizontal = 12.dp, vertical = 6.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Filled.Tune,
+                                                contentDescription = null,
+                                                tint = MaterialTheme.colorScheme.onSurface,
+                                                modifier = Modifier.size(16.dp)
+                                            )
+                                            Text(
+                                                text = "Show video controls",
+                                                style = MaterialTheme.typography.bodySmall,
+                                                fontWeight = FontWeight.Medium,
+                                                color = MaterialTheme.colorScheme.onSurface
+                                            )
+                                        }
+                                    }
+                                    LazyVerticalGrid(
+                                        columns = GridCells.Fixed(2),
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .fillMaxWidth(),
+                                        contentPadding = PaddingValues(bottom = 16.dp)
+                                    ) {
+                                        gridInfoItems()
+                                        item(span = { GridItemSpan(maxLineSpan) }) {
+                                            RelatedSectionHeader()
+                                        }
+                                        gridItemsIndexed(
+                                            uiState.relatedVideos,
+                                            key = { idx, item -> "t_${item.id}_$idx" }
+                                        ) { idx, related ->
+                                            VideoCard(
+                                                video = related,
+                                                onVideoClick = { id ->
+                                                    navController.navigate(Screen.Watch.createRoute(id))
+                                                },
+                                                onChannelClick = { channelId ->
+                                                    navController.navigate(Screen.Channel.createRoute(channelId))
+                                                },
+                                                modifier = Modifier.padding(
+                                                    start = if (idx % 2 == 0) 12.dp else 6.dp,
+                                                    end = if (idx % 2 == 0) 6.dp else 12.dp
+                                                )
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
             }
-        } else if (theaterMode) {
-            // Theater: full-width player pinned on top, info + related scroll below
-            BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
-                val playerHeight = min(maxWidth * 9f / 16f, maxHeight * 0.72f)
-                val playerWidth = playerHeight * 16f / 9f
-                Column(modifier = Modifier.fillMaxSize()) {
+
+            windowState.isFoldablePortraitWatch -> {
+                // Unfolded foldable portrait (600–839dp): black status strip, edge-to-edge pinned
+                // player at top, video info + comments + 2-column related VideoCard grid below.
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(MaterialTheme.colorScheme.background)
+                ) {
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(playerHeight)
-                            .background(Color.Black),
-                        contentAlignment = Alignment.Center
+                            .background(Color.Black)
+                            .windowInsetsTopHeight(WindowInsets.statusBars)
+                    )
+                    BoxWithConstraints(
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxWidth()
                     ) {
-                        playerContent(Modifier.width(playerWidth))
-                    }
-                    Row(modifier = Modifier.weight(1f).fillMaxWidth()) {
-                        LazyColumn(
-                            modifier = Modifier
-                                .weight(1f)
-                                .fillMaxHeight()
-                        ) {
-                            infoItems()
-                        }
-                        // Fixed-width related column (weights would ignore widthIn(min) and
-                        // squeeze the compact rows on foldable-sized windows).
-                        LazyColumn(
-                            modifier = Modifier
-                                .width(if (widthClass == com.kvtube.android.ui.adaptive.WidthClass.Expanded) 400.dp else 350.dp)
-                                .fillMaxHeight()
-                        ) {
-                            relatedItems()
+                        val playerHeight = min(maxWidth * 9f / 16f, maxHeight * 0.56f)
+                        Column(modifier = Modifier.fillMaxSize()) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(playerHeight)
+                                    .background(Color.Black),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                playerContent(Modifier.fillMaxSize(), true, false)
+                            }
+                            LazyVerticalGrid(
+                                columns = GridCells.Fixed(2),
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .fillMaxWidth()
+                                    .navigationBarsPadding(),
+                                contentPadding = PaddingValues(bottom = 16.dp)
+                            ) {
+                                gridInfoItems()
+                                item(span = { GridItemSpan(maxLineSpan) }) {
+                                    RelatedSectionHeader()
+                                }
+                                gridItemsIndexed(
+                                    uiState.relatedVideos,
+                                    key = { idx, item -> "fp_${item.id}_$idx" }
+                                ) { idx, related ->
+                                    VideoCard(
+                                        video = related,
+                                        onVideoClick = { id ->
+                                            navController.navigate(Screen.Watch.createRoute(id))
+                                        },
+                                        onChannelClick = { channelId ->
+                                            navController.navigate(Screen.Channel.createRoute(channelId))
+                                        },
+                                        modifier = Modifier.padding(
+                                            start = if (idx % 2 == 0) 12.dp else 6.dp,
+                                            end = if (idx % 2 == 0) 6.dp else 12.dp
+                                        )
+                                    )
+                                }
+                            }
                         }
                     }
                 }
             }
-        } else {
-            // Medium / Expanded: two panes that scroll independently
-            Row(modifier = Modifier.fillMaxSize()) {
-                BoxWithConstraints(modifier = Modifier.weight(1f).fillMaxHeight()) {
-                    val maxPlayerHeight = maxHeight * 0.62f
-                    Column(modifier = Modifier.fillMaxSize()) {
-                        Box(
-                            modifier = Modifier.fillMaxWidth(),
-                            contentAlignment = Alignment.TopCenter
+
+            windowState.isLandscapeTwoPaneWatch -> {
+                // Unfolded foldable landscape / Book posture / Tablet watch screen
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(MaterialTheme.colorScheme.background)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(Color.Black)
+                            .windowInsetsTopHeight(WindowInsets.statusBars)
+                    )
+                    if (theaterMode) {
+                        // Theater: full-width pinned player on top, info + related panel below
+                        BoxWithConstraints(
+                            modifier = Modifier
+                                .weight(1f)
+                                .fillMaxWidth()
                         ) {
-                            playerContent(
-                                Modifier
-                                    .widthIn(max = 1100.dp)
-                                    .heightIn(max = maxPlayerHeight)
-                                    .fillMaxWidth()
-                            )
+                            val playerHeight = min(maxWidth * 9f / 16f, maxHeight * 0.72f)
+                            val playerWidth = playerHeight * 16f / 9f
+                            Column(modifier = Modifier.fillMaxSize()) {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(playerHeight)
+                                        .background(Color.Black),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    playerContent(
+                                        Modifier
+                                            .width(playerWidth)
+                                            .fillMaxHeight(),
+                                        true,
+                                        false
+                                    )
+                                }
+                                Row(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .fillMaxWidth()
+                                        .navigationBarsPadding()
+                                ) {
+                                    LazyColumn(
+                                        modifier = Modifier
+                                            .weight(0.64f)
+                                            .fillMaxHeight()
+                                    ) {
+                                        infoItems()
+                                    }
+                                    Surface(
+                                        modifier = Modifier
+                                            .weight(0.36f)
+                                            .fillMaxHeight()
+                                            .padding(start = 8.dp, end = 10.dp, top = 8.dp),
+                                        shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp),
+                                        color = MaterialTheme.colorScheme.surfaceContainerLow
+                                    ) {
+                                        LazyColumn(
+                                            modifier = Modifier.fillMaxSize(),
+                                            contentPadding = PaddingValues(12.dp),
+                                            verticalArrangement = Arrangement.spacedBy(12.dp)
+                                        ) {
+                                            relatedItems()
+                                        }
+                                    }
+                                }
+                            }
                         }
-                        LazyColumn(modifier = Modifier.fillMaxSize()) {
-                            infoItems()
+                    } else {
+                        // Default 2-pane landscape: edge-to-edge player + info left, rounded card panel right
+                        val useHingeSplit = windowState.isBook && windowState.hingeStartDp > 200f
+                        Row(
+                            modifier = Modifier
+                                .weight(1f)
+                                .fillMaxWidth()
+                                .navigationBarsPadding()
+                        ) {
+                            val leftModifier = if (useHingeSplit) {
+                                Modifier.width(windowState.hingeStartDp.dp)
+                            } else {
+                                Modifier.weight(0.64f)
+                            }
+                            BoxWithConstraints(modifier = leftModifier.fillMaxHeight()) {
+                                val playerHeight = min(maxWidth * 9f / 16f, maxHeight * 0.62f)
+                                val playerWidth = playerHeight * 16f / 9f
+                                Column(modifier = Modifier.fillMaxSize()) {
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .height(playerHeight)
+                                            .background(Color.Black),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        playerContent(
+                                            Modifier
+                                                .width(playerWidth)
+                                                .fillMaxHeight(),
+                                            true,
+                                            false
+                                        )
+                                    }
+                                    LazyColumn(
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .fillMaxWidth()
+                                    ) {
+                                        infoItems()
+                                    }
+                                }
+                            }
+                            if (useHingeSplit && windowState.hingeWidthDp > 0f) {
+                                Spacer(modifier = Modifier.width(windowState.hingeWidthDp.dp))
+                            }
+                            val rightModifier = if (useHingeSplit) {
+                                Modifier.weight(1f)
+                            } else {
+                                Modifier.weight(0.36f)
+                            }
+                            Surface(
+                                modifier = rightModifier
+                                    .fillMaxHeight()
+                                    .padding(start = 8.dp, end = 10.dp, top = 8.dp),
+                                shape = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp),
+                                color = MaterialTheme.colorScheme.surfaceContainerLow
+                            ) {
+                                LazyColumn(
+                                    modifier = Modifier.fillMaxSize(),
+                                    contentPadding = PaddingValues(12.dp),
+                                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                                ) {
+                                    relatedItems()
+                                }
+                            }
                         }
                     }
                 }
-                LazyColumn(
+            }
+
+            else -> {
+                // Compact phones (< 600dp): edge-to-edge player + details & related column below
+                Column(
                     modifier = Modifier
-                        .width(if (widthClass == com.kvtube.android.ui.adaptive.WidthClass.Expanded) 400.dp else 350.dp)
-                        .fillMaxHeight()
+                        .fillMaxSize()
+                        .background(MaterialTheme.colorScheme.background)
                 ) {
-                    relatedItems()
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(Color.Black)
+                            .windowInsetsTopHeight(WindowInsets.statusBars)
+                    )
+                    playerContent(Modifier.fillMaxWidth(), false, false)
+                    LazyColumn(
+                        modifier = Modifier
+                            .weight(1f)
+                            .fillMaxWidth()
+                            .navigationBarsPadding()
+                    ) {
+                        infoItems()
+                        relatedItems()
+                    }
                 }
             }
         }
@@ -797,6 +1060,122 @@ private fun VideoInfoSection(
                         }
                     }
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun RelatedSectionHeader(horizontalPadding: androidx.compose.ui.unit.Dp = 14.dp) {
+    Text(
+        text = "Related videos",
+        style = MaterialTheme.typography.titleSmall.copy(
+            fontSize = 15.sp,
+            fontWeight = FontWeight.Bold
+        ),
+        modifier = Modifier.padding(horizontal = horizontalPadding, vertical = 10.dp)
+    )
+}
+
+@Composable
+private fun CommentsPreviewCard(
+    uiState: WatchUiState,
+    onToggle: () -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 14.dp, vertical = 6.dp)
+            .clip(RoundedCornerShape(12.dp))
+            .background(MaterialTheme.colorScheme.surfaceVariant)
+            .clickable { onToggle() }
+            .padding(12.dp)
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            val countLabel = uiState.commentsCount?.let { " ($it)" }
+                ?: if (uiState.comments.isNotEmpty()) " (${uiState.comments.size})" else ""
+            Text(
+                text = "Comments$countLabel",
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.weight(1f)
+            )
+            Text(
+                text = if (uiState.showComments) "Hide" else "Show",
+                color = Color(0xFF3EA6FF),
+                style = MaterialTheme.typography.bodySmall,
+                fontWeight = FontWeight.Medium
+            )
+        }
+        if (!uiState.showComments && uiState.comments.isNotEmpty()) {
+            Spacer(modifier = Modifier.height(8.dp))
+            val topComment = uiState.comments.first()
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                ChannelAvatar(
+                    avatarUrl = topComment.authorThumbnail.ifBlank { null },
+                    channelName = topComment.author,
+                    size = 22.dp
+                )
+                Text(
+                    text = topComment.text,
+                    style = MaterialTheme.typography.bodySmall,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun CommentsLoadingIndicator() {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 16.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        CircularProgressIndicator(modifier = Modifier.size(24.dp), strokeWidth = 2.dp)
+    }
+}
+
+@Composable
+private fun CommentsEmptyText() {
+    Text(
+        text = "No comments available",
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp)
+    )
+}
+
+@Composable
+private fun CommentsLoadMoreFooter(
+    isLoadingMore: Boolean,
+    onLoadMore: () -> Unit
+) {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 14.dp, vertical = 8.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        if (isLoadingMore) {
+            CircularProgressIndicator(modifier = Modifier.size(22.dp), strokeWidth = 2.dp)
+        } else {
+            TextButton(onClick = onLoadMore) {
+                Text(
+                    text = "Load more comments",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = Color(0xFF3EA6FF)
+                )
             }
         }
     }

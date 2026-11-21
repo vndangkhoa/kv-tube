@@ -9,9 +9,29 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.kvtube.android.ui.theme.AstryxRadius
+import com.kvtube.android.ui.theme.YTBrandRed
+
+@Composable
+fun LiveBadge(modifier: Modifier = Modifier) {
+    Box(
+        modifier = modifier
+            .background(YTBrandRed, RoundedCornerShape(AstryxRadius.inner))
+            .padding(horizontal = 5.dp, vertical = 2.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            text = "LIVE",
+            color = Color.White,
+            fontSize = 10.sp,
+            fontWeight = FontWeight.Bold,
+            lineHeight = 14.sp
+        )
+    }
+}
 
 @Composable
 fun DurationBadge(
@@ -32,7 +52,7 @@ fun DurationBadge(
             text = duration,
             color = Color.White,
             fontSize = 11.sp,
-            fontWeight = androidx.compose.ui.text.font.FontWeight.Medium,
+            fontWeight = FontWeight.Medium,
             lineHeight = 14.sp
         )
     }
