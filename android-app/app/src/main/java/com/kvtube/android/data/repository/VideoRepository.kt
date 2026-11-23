@@ -44,6 +44,18 @@ class VideoRepository @Inject constructor(
             api.search(query, limit, region)
         } ?: emptyList()
 
+    /** One page of search results, newest uploads first (real `published` timestamps). */
+    suspend fun searchPage(
+        query: String,
+        page: Int,
+        region: String = "",
+        date: String = "",
+        features: String = ""
+    ): List<VideoData> =
+        bounded(SERVER_TIMEOUT_MS) {
+            api.search(query, 30, region, page = page, newestFirst = true, date = date, features = features)
+        } ?: emptyList()
+
     suspend fun getHomeFeed(limit: Int = 30, offset: Int = 0, region: String = ""): List<VideoData> {
         return bounded(SERVER_TIMEOUT_MS) {
             api.getHomeFeed(limit, offset, region)

@@ -494,12 +494,23 @@ class KVApi(
 
     // --- content feeds -------------------------------------------------------
 
-    suspend fun search(query: String, limit: Int = 20, region: String = ""): List<VideoData> {
+    suspend fun search(
+        query: String,
+        limit: Int = 20,
+        region: String = "",
+        page: Int = 1,
+        newestFirst: Boolean = false,
+        date: String = "",
+        features: String = ""
+    ): List<VideoData> {
         val params = buildMap {
             put("q", query)
             put("type", "video")
-            put("page", "1")
+            put("page", page.coerceAtLeast(1).toString())
             if (region.isNotBlank() && region != "GLOBAL") put("region", region)
+            if (newestFirst) put("sort_by", "upload_date")
+            if (date.isNotBlank()) put("date", date)
+            if (features.isNotBlank()) put("features", features)
         }
         return getJsonArray("search", params)
             .filter { it.str("type").ifBlank { "video" } == "video" }
@@ -770,7 +781,7 @@ class KVApi(
         }
         return parseSubscriptionFeed(element)
             .distinctBy { it.str("videoId") }
-            .sortedBy { it.str("publishedText").relativeRecencyMinutes() }
+            .sortedByDescending { it.num("published") }
             .map { it.toVideo() }
             .drop(offset)
     }

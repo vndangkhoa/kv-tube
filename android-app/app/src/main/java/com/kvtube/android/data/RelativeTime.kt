@@ -33,14 +33,15 @@ fun relativeTimeFromEpoch(epochSeconds: Long, nowSeconds: Long = System.currentT
     if (epochSeconds <= 0) return ""
     val diffSec = nowSeconds - epochSeconds
     if (diffSec < 45L) return "just now"
-    val minutes = diffSec / 60L
-    if (minutes < 60L) return "${minutes} minutes ago"
+    fun unit(n: Long, name: String) = "$n $name${if (n == 1L) "" else "s"} ago"
+    val minutes = (diffSec / 60L).coerceAtLeast(1L)
+    if (minutes < 60L) return unit(minutes, "minute")
     val hours = minutes / 60L
-    if (hours < 24L) return "${hours} hours ago"
+    if (hours < 24L) return unit(hours, "hour")
     val days = hours / 24L
-    if (days < 30L) return "${days} days ago"
+    if (days < 7L) return unit(days, "day")
+    if (days < 30L) return unit(days / 7L, "week")
     val months = days / 30L
-    if (months < 12L) return "${months} months ago"
-    val years = months / 12L
-    return "${years} years ago"
+    if (months < 12L) return unit(months, "month")
+    return unit(months / 12L, "year")
 }

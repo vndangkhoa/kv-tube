@@ -91,7 +91,7 @@ class SubscriptionRepository @Inject constructor(
             val merged = perChannel.flatten()
                 .filter { it.id.isNotBlank() }
                 .distinctBy { it.id }
-                .sortedBy { it.published.orEmpty().relativeRecencyMinutes() }
+                .sortedByDescending { it.publishedUnix }
             localFeedCache = merged
         }
         return localFeedCache.orEmpty().drop(offset).take(pageSize)
