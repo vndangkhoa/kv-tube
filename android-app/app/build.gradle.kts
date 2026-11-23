@@ -15,8 +15,8 @@ android {
         applicationId = "com.kvtube.android"
         minSdk = 21
         targetSdk = 34
-        versionCode = 41
-        versionName = "1.11.2"
+        versionCode = 42
+        versionName = "1.11.3"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
