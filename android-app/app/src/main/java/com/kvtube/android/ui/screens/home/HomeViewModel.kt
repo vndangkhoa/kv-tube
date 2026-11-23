@@ -109,8 +109,10 @@ class HomeViewModel @Inject constructor(
                 } else if (category == "Trending") {
                     videoRepository.getTrending(limit = 30, region = currentRegion)
                 } else {
-                    val query = getCategoryQuery(currentRegion, category)
-                    videoRepository.search(query, limit = 30, region = currentRegion)
+                    // page = currentPage + 1: currentPage is already bumped in loadMore(),
+                    // so this pulls the next patch instead of re-fetching page 1.
+                    // searchPage sorts by real `published` (newestFirst) = latest uploads first.
+                    videoRepository.searchPage(query, currentPage + 1, currentRegion)
                 }
 
                 val currentVideos = if (currentPage == 0) emptyList() else _uiState.value.videos
