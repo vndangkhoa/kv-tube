@@ -469,6 +469,7 @@ class KVApi(
             durationSeconds = num("lengthSeconds"),
             viewCount = num("viewCount"),
             published = str("publishedText"),
+            publishedUnix = num("published"),
             uploadedAt = str("publishedText"),
             thumbnail = com.kvtube.android.data.local.ThumbnailRouter.video(id),
             uploader = str("author"),
@@ -506,8 +507,16 @@ class KVApi(
             .take(limit)
     }
 
-    suspend fun getHomeFeed(limit: Int = 30, offset: Int = 0, region: String = ""): List<VideoData> =
-        getTrending(limit + offset, region).drop(offset)
+    // Fetch exactly one page of [limit] videos. The [offset] maps to the
+    // Invidious page index so each "load more" pulls a fresh batch instead of
+    // re-fetching the whole growing list (which Invidious ignores past its cap).
+    suspend fun getHomeFeed(limit: Int = 30, offset: Int = 0, region: String = ""): List<VideoData> {
+        val params = if (region.isNotBlank() && region != "GLOBAL") mapOf("region" to region) else emptyMap()
+        val page = offset / maxOf(1, limit) + 1
+        return getJsonArray("trending", params + ("page" to page.toString()))
+            .map { it.toVideo() }
+            .take(limit)
+    }
 
     suspend fun getTrending(limit: Int = 20, region: String = ""): List<VideoData> {
         val params = if (region.isNotBlank() && region != "GLOBAL") mapOf("region" to region) else emptyMap()

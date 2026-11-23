@@ -1,5 +1,6 @@
 package com.kvtube.android.data.model
 
+import com.kvtube.android.data.relativeTimeFromEpoch
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
@@ -14,7 +15,11 @@ data class VideoData(
     val views: String = "",
     @SerialName("view_count")
     val viewCount: Long = 0,
+    @SerialName("publishedText")
     val published: String = "",
+    /** Invidious `published` Unix timestamp (seconds) — the source of truth for upload recency. */
+    @SerialName("published")
+    val publishedUnix: Long = 0,
     @SerialName("upload_date")
     val uploadDate: String = "",
     @SerialName("uploaded_at")
@@ -67,6 +72,10 @@ data class VideoData(
 
     val displayPublished: String
         get() = when {
+            // Client-side recency from the real Unix timestamp: always accurate
+            // and keeps aging ("2 hours ago" tomorrow) instead of trusting the
+            // server's stale publishedText snapshot, which some instances omit.
+            publishedUnix > 0 -> relativeTimeFromEpoch(publishedUnix)
             published.isNotBlank() -> published
             uploadedAt.isNotBlank() -> uploadedAt
             uploadDate.isNotBlank() -> formatUploadDate(uploadDate)

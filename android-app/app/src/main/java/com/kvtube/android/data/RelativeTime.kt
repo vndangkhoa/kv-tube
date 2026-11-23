@@ -19,3 +19,28 @@ internal fun String.relativeRecencyMinutes(): Long {
         else -> 0L
     }
 }
+
+/**
+ * Human "X ago" label for a real upload instant [epochSeconds] (Unix seconds),
+ * evaluated against [nowSeconds] (default: now). This is what the feed uses so
+ * the shown recency is accurate and keeps aging, unlike the server label.
+ *
+ * shortcut: buckets are calendar-approximate (month=30d, year=365d); a full
+ * Gregorian diff would be more precise for very old videos — upgrade here if
+ * the month/year boundaries ever bother a user.
+ */
+fun relativeTimeFromEpoch(epochSeconds: Long, nowSeconds: Long = System.currentTimeMillis() / 1000L): String {
+    if (epochSeconds <= 0) return ""
+    val diffSec = nowSeconds - epochSeconds
+    if (diffSec < 45L) return "just now"
+    val minutes = diffSec / 60L
+    if (minutes < 60L) return "${minutes} minutes ago"
+    val hours = minutes / 60L
+    if (hours < 24L) return "${hours} hours ago"
+    val days = hours / 24L
+    if (days < 30L) return "${days} days ago"
+    val months = days / 30L
+    if (months < 12L) return "${months} months ago"
+    val years = months / 12L
+    return "${years} years ago"
+}
