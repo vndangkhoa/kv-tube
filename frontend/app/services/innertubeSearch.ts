@@ -375,9 +375,10 @@ function mapLegacyPlaylist(p: any): any | null {
 function extractSections(
   sections: any[],
   desiredType?: string
-): { items: any[]; continuation: string | null } {
+): { items: any[]; continuation: string | null; hasPromo: boolean } {
   const items: any[] = [];
   let continuation: string | null = null;
+  let hasPromo = false;
   const seen = new Set<string>();
 
   const pushUnique = (mapped: any | null) => {
@@ -397,13 +398,14 @@ function extractSections(
     }
     const contents = sec?.itemSectionRenderer?.contents || [];
     for (const entry of contents) {
-      if (entry?.videoRenderer) pushUnique(mapVideoRenderer(entry.videoRenderer));
+      if (entry?.backgroundPromoRenderer) hasPromo = true;
+      else if (entry?.videoRenderer) pushUnique(mapVideoRenderer(entry.videoRenderer));
       else if (entry?.channelRenderer) pushUnique(mapChannelRenderer(entry.channelRenderer));
       else if (entry?.lockupViewModel) pushUnique(mapLockupPlaylist(entry.lockupViewModel));
       else if (entry?.playlistRenderer) pushUnique(mapLegacyPlaylist(entry.playlistRenderer));
     }
   }
-  return { items, continuation };
+  return { items, continuation, hasPromo };
 }
 
 function resolveLocale(region?: string, explicitHl?: string): { gl: string; hl: string } {
@@ -416,7 +418,7 @@ function resolveLocale(region?: string, explicitHl?: string): { gl: string; hl: 
 async function postInnertubeSearch(
   body: Record<string, any>,
   desiredType?: string
-): Promise<{ items: any[]; continuation: string | null }> {
+): Promise<{ items: any[]; continuation: string | null; hasPromo: boolean }> {
   const res = await fetch(
     `https://www.youtube.com/youtubei/v1/search?prettyPrint=false&key=${INNERTUBE_KEY}`,
     {
@@ -443,7 +445,7 @@ async function postInnertubeSearch(
   if (Array.isArray(contSections)) {
     return extractSections(contSections, desiredType);
   }
-  return { items: [], continuation: null };
+  return { items: [], continuation: null, hasPromo: false };
 }
 
 export async function searchInnertube(options: InnertubeSearchOptions): Promise<any[]> {
@@ -477,10 +479,20 @@ export async function searchInnertube(options: InnertubeSearchOptions): Promise<
     },
   };
 
+  // YouTube hides some logged-out queries (e.g. "faptv") behind an age-gate promo unless disambiguated
+  const fetchFirstPage = async () => {
+    const candidates = [query, `${query} youtube`, `${query} channel`];
+    for (const qCandidate of candidates) {
+      const reqBody: Record<string, any> = { ...clientCtx, query: qCandidate };
+      if (encodedParams) reqBody.params = encodedParams;
+      const res = await postInnertubeSearch(reqBody, desiredType);
+      if (res.items.length > 0) return res;
+    }
+    return { items: [], continuation: null, hasPromo: false };
+  };
+
   if (targetPage === 1) {
-    const reqBody: Record<string, any> = { ...clientCtx, query };
-    if (encodedParams) reqBody.params = encodedParams;
-    const { items, continuation } = await postInnertubeSearch(reqBody, desiredType);
+    const { items, continuation } = await fetchFirstPage();
     if (continuation) setCachedCont(`${baseKey}|p1`, continuation);
     return items;
   }
@@ -499,9 +511,7 @@ export async function searchInnertube(options: InnertubeSearchOptions): Promise<
 
   let items: any[] = [];
   if (!token) {
-    const reqBody: Record<string, any> = { ...clientCtx, query };
-    if (encodedParams) reqBody.params = encodedParams;
-    const first = await postInnertubeSearch(reqBody, desiredType);
+    const first = await fetchFirstPage();
     currentPage = 1;
     token = first.continuation;
     if (token) setCachedCont(`${baseKey}|p1`, token);

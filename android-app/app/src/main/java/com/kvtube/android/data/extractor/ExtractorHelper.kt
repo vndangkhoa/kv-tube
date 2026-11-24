@@ -336,12 +336,22 @@ class ExtractorHelper @Inject constructor(
     }
 
     suspend fun searchVideos(query: String): List<VideoData> = withContext(Dispatchers.IO) {
+        val trimmed = query.trim()
+        if (trimmed.isBlank()) return@withContext emptyList()
         initNewPipe()
-        try {
+        for (candidate in listOf(trimmed, "$trimmed youtube", "$trimmed channel")) {
+            val found = fetchNewPipeSearchItems(candidate)
+            if (found.isNotEmpty()) return@withContext found
+        }
+        emptyList()
+    }
+
+    private fun fetchNewPipeSearchItems(query: String): List<VideoData> {
+        return try {
             val searchExtractor = ServiceList.YouTube.getSearchExtractor(query)
             searchExtractor.fetchPage()
             val page = searchExtractor.initialPage
-            return@withContext page.items.mapNotNull { item ->
+            page.items.mapNotNull { item ->
                 if (item is StreamInfoItem) {
                     val vid = extractVideoId(item.url)
                     val title = item.name?.trim().orEmpty()

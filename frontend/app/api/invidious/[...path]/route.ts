@@ -1155,11 +1155,22 @@ async function handleProxy(req: NextRequest, pathParts: string[]) {
       // complete body with a correct content-length (and 0-byte 200 OK bodies on
       // /api/v1/* are rejected as 502 instead of crashing res.json() in browser).
       const buf = await res.arrayBuffer();
+      const decodedTrimmed = isExpectedJsonApi ? new TextDecoder().decode(buf).trim() : '';
       if (isExpectedJsonApi && res.status === 200) {
-        if (buf.byteLength === 0 || new TextDecoder().decode(buf).trim().length === 0) {
+        if (buf.byteLength === 0 || decodedTrimmed.length === 0) {
           lastError = new Error(`Instance ${instance} returned empty 200 OK JSON body for ${subPath}`);
           if (!firstHttpError) firstHttpError = lastError;
           continue;
+        }
+      }
+
+      const isEmptySearchArray =
+        req.method === 'GET' && isSearchApi && res.status === 200 && decodedTrimmed === '[]';
+      if (isEmptySearchArray) {
+        const searchPage = parseInt(req.nextUrl.searchParams.get('page') || '1', 10) || 1;
+        if (searchPage <= 1 && !req.signal.aborted) {
+          const fallbackRes = await trySearchFallback('upstream-empty');
+          if (fallbackRes) return fallbackRes;
         }
       }
 
@@ -1167,7 +1178,7 @@ async function handleProxy(req: NextRequest, pathParts: string[]) {
         prewarmDashInitialStreams(new TextDecoder().decode(buf));
       }
 
-      if (cacheKey && cacheTtls && res.status === 200 && buf.byteLength > 0) {
+      if (cacheKey && cacheTtls && res.status === 200 && buf.byteLength > 0 && !isEmptySearchArray) {
         const now = Date.now();
         const entry: CachedApiResponse = {
           body: buf,
