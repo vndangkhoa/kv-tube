@@ -1,11 +1,11 @@
 'use client';
 
-import { useEffect, useState, useCallback, useMemo } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { invidious } from '../services/invidious';
 import { VideoData } from '../constants';
-import { formatRelativeTime } from '../utils';
+import { formatRelativeTime, getThumbnailCascade } from '../utils';
 import VideoCard from '../components/VideoCard';
 import LoadingSpinner from '../components/LoadingSpinner';
 import InfiniteScrollTrigger from '../components/InfiniteScrollTrigger';
@@ -40,6 +40,37 @@ function formatViews(views?: number | string): string {
   return num.toLocaleString() + ' views';
 }
 
+function formatDuration(seconds?: number): string {
+  if (!seconds || seconds <= 0) return '';
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  const s = Math.floor(seconds % 60);
+  if (h > 0) return `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+  return `${m}:${String(s).padStart(2, '0')}`;
+}
+
+function resolveVideoThumbnail(item: any): string {
+  const vidId = item.videoId || item.id;
+  if (!vidId) return item.thumbnail || '';
+  const thumbs = item.videoThumbnails;
+  if (Array.isArray(thumbs) && thumbs.length > 0) {
+    const preferred = thumbs.find((t: any) =>
+      typeof t?.url === 'string' &&
+      t.url.includes('i.ytimg.com') &&
+      (t.url.includes('hq720') || t.url.includes('hqdefault') || t.quality === 'high')
+    );
+    if (preferred?.url) return preferred.url;
+  }
+  if (item.thumbnail && item.thumbnail.includes('i.ytimg.com') && !item.thumbnail.includes('mqdefault.jpg')) {
+    return item.thumbnail;
+  }
+  return getThumbnailCascade(vidId, 0);
+}
+
+function formatPlaylistBadge(count?: number): string {
+  return count && count > 0 ? `${count} videos` : 'Playlist';
+}
+
 export default function ClientSearchPage() {
   const searchParams = useSearchParams();
   const router = useRouter();
@@ -47,6 +78,7 @@ export default function ClientSearchPage() {
 
   const [results, setResults] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -60,17 +92,29 @@ export default function ClientSearchPage() {
   const [durationFilter, setDurationFilter] = useState<'' | 'short' | 'medium' | 'long'>('');
 
   const [subscribedMap, setSubscribedMap] = useState<{ [channelId: string]: boolean }>({});
+  const searchReqIdRef = useRef(0);
+  const resultsRef = useRef<any[]>([]);
 
   const executeSearch = useCallback(
     async (q: string, pageNum: number, append: boolean = false) => {
+      const reqId = ++searchReqIdRef.current;
+
       if (!q.trim()) {
+        resultsRef.current = [];
         setResults([]);
+        setError(null);
+        setHasMore(false);
         setLoading(false);
+        setLoadingMore(false);
         return;
       }
 
-      if (append) setLoadingMore(true);
-      else setLoading(true);
+      if (append) {
+        setLoadingMore(true);
+      } else {
+        setLoading(true);
+        setError(null);
+      }
 
       try {
         const region = (typeof window !== 'undefined' ? localStorage.getItem('kv_region') : null) || 'VN';
@@ -86,27 +130,39 @@ export default function ClientSearchPage() {
         if (durationFilter) searchOptions.duration = durationFilter;
 
         const data = await invidious.search(q, searchOptions);
+        if (reqId !== searchReqIdRef.current) return;
+
         const list = Array.isArray(data) ? data : [];
 
         if (append) {
-          setResults((prev) => {
-            const seen = new Set(prev.map((item) => item.videoId || item.authorId || item.playlistId));
-            const newUnique = list.filter(
-              (item) => !seen.has(item.videoId || item.authorId || item.playlistId)
-            );
-            return [...prev, ...newUnique];
-          });
+          const prev = resultsRef.current;
+          const seen = new Set(prev.map((item) => item.videoId || item.authorId || item.playlistId));
+          const newUnique = list.filter(
+            (item) => !seen.has(item.videoId || item.authorId || item.playlistId)
+          );
+          const merged = [...prev, ...newUnique];
+          resultsRef.current = merged;
+          setResults(merged);
+          setHasMore(newUnique.length > 0 && list.length >= 8);
         } else {
+          resultsRef.current = list;
           setResults(list);
+          setHasMore(list.length >= 8);
         }
-
-        setHasMore(list.length >= 15);
-      } catch (e) {
-        console.error('[Search] Invidious search failed:', e);
-        if (!append) setResults([]);
+      } catch (e: any) {
+        if (reqId !== searchReqIdRef.current) return;
+        console.error('[Search] Search failed:', e);
+        if (!append) {
+          resultsRef.current = [];
+          setResults([]);
+          setHasMore(false);
+          setError(e?.message || 'Unable to load search results right now.');
+        }
       } finally {
-        setLoading(false);
-        setLoadingMore(false);
+        if (reqId === searchReqIdRef.current) {
+          setLoading(false);
+          setLoadingMore(false);
+        }
       }
     },
     [filterType, sortBy, dateFilter, durationFilter]
@@ -416,6 +472,66 @@ export default function ClientSearchPage() {
         <div style={{ padding: '60px 0', display: 'flex', justifyContent: 'center' }}>
           <LoadingSpinner text={query ? `Searching for "${query}"...` : 'Searching videos & channels...'} />
         </div>
+      ) : error ? (
+        <div style={{ textAlign: 'center', padding: '80px 20px', color: 'var(--yt-text-secondary)' }}>
+          <div
+            style={{
+              width: '64px',
+              height: '64px',
+              borderRadius: '50%',
+              backgroundColor: 'var(--yt-hover)',
+              color: '#ff4e45',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              margin: '0 auto 16px',
+            }}
+          >
+            <IoSearchOutline size={32} />
+          </div>
+          <h3 style={{ fontSize: '18px', color: 'var(--yt-text-primary)', marginBottom: '8px' }}>
+            Search temporarily unavailable
+          </h3>
+          <p style={{ fontSize: '14px', maxWidth: '440px', margin: '0 auto 24px' }}>
+            {error}
+          </p>
+          <div style={{ display: 'flex', gap: '12px', justifyContent: 'center', flexWrap: 'wrap' }}>
+            <button
+              type="button"
+              onClick={() => executeSearch(query, 1, false)}
+              style={{
+                padding: '10px 24px',
+                borderRadius: '24px',
+                backgroundColor: 'var(--md-sys-color-primary, var(--yt-blue))',
+                color: '#ffffff',
+                border: 'none',
+                fontWeight: 600,
+                fontSize: '14px',
+                cursor: 'pointer',
+              }}
+            >
+              Retry
+            </button>
+            {hasActiveFilters && (
+              <button
+                type="button"
+                onClick={resetFilters}
+                style={{
+                  padding: '10px 24px',
+                  borderRadius: '24px',
+                  backgroundColor: 'var(--yt-hover)',
+                  color: 'var(--yt-text-primary)',
+                  border: '1px solid var(--yt-border)',
+                  fontWeight: 600,
+                  fontSize: '14px',
+                  cursor: 'pointer',
+                }}
+              >
+                Reset Filters
+              </button>
+            )}
+          </div>
+        </div>
       ) : results.length === 0 ? (
         <div style={{ textAlign: 'center', padding: '80px 20px', color: 'var(--yt-text-secondary)' }}>
           <div
@@ -468,7 +584,13 @@ export default function ClientSearchPage() {
             }}
           >
             {results.map((item, index) => {
-              const itemType = item.type || (item.authorId && !item.videoId ? 'channel' : 'video');
+              const itemType =
+                item.type ||
+                (item.playlistId && !item.videoId
+                  ? 'playlist'
+                  : item.authorId && !item.videoId
+                    ? 'channel'
+                    : 'video');
 
               // 1. Channel Card in Grid
               if (itemType === 'channel') {
@@ -606,7 +728,7 @@ export default function ClientSearchPage() {
                         <img src={item.playlistThumbnail} alt={item.title} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                       )}
                       <div style={{ position: 'absolute', inset: 0, backgroundColor: 'rgba(0,0,0,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: '13px', fontWeight: 600, gap: '6px' }}>
-                        <IoListOutline size={18} /> {item.videoCount || 0} videos
+                        <IoListOutline size={18} /> {formatPlaylistBadge(item.videoCount)}
                       </div>
                     </div>
                     <div style={{ padding: '0 4px 4px' }}>
@@ -614,7 +736,7 @@ export default function ClientSearchPage() {
                         {item.title}
                       </h3>
                       <span style={{ fontSize: '12px', color: 'var(--yt-text-secondary)' }}>
-                        {item.author} · Playlist
+                        {item.author ? `${item.author} · Playlist` : 'Playlist'}
                       </span>
                     </div>
                   </Link>
@@ -623,17 +745,8 @@ export default function ClientSearchPage() {
 
               // 3. Video Card in Grid
               const vidId = item.videoId || item.id;
-              const thumbs = item.videoThumbnails;
-              let thumbUrl = vidId ? `https://i.ytimg.com/vi_webp/${vidId}/hq720.webp` : '';
-              if (Array.isArray(thumbs) && thumbs.length > 0) {
-                const best = thumbs.find((t: any) =>
-                  t.quality === 'high' || t.quality === 'maxres' || t.url?.includes('hq720') || t.url?.includes('hqdefault')
-                );
-                thumbUrl = best?.url || thumbs[0]?.url || thumbUrl;
-              } else if (item.thumbnail && !item.thumbnail.includes('mqdefault.jpg')) {
-                thumbUrl = item.thumbnail;
-              }
-              const dur = item.lengthSeconds ? `${Math.floor(item.lengthSeconds / 60)}:${(item.lengthSeconds % 60).toString().padStart(2, '0')}` : '';
+              const thumbUrl = resolveVideoThumbnail(item);
+              const dur = item.liveNow ? 'LIVE' : formatDuration(item.lengthSeconds);
 
               const relTime = formatRelativeTime(item.publishedText, item.published);
 
@@ -670,7 +783,72 @@ export default function ClientSearchPage() {
         /* Classic List View */
         <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
           {results.map((item, index) => {
-            const itemType = item.type || (item.authorId && !item.videoId ? 'channel' : 'video');
+            const itemType =
+              item.type ||
+              (item.playlistId && !item.videoId
+                ? 'playlist'
+                : item.authorId && !item.videoId
+                  ? 'channel'
+                  : 'video');
+
+            if (itemType === 'playlist') {
+              return (
+                <Link
+                  key={item.playlistId || index}
+                  href={`/playlist?list=${item.playlistId}`}
+                  style={{
+                    display: 'flex',
+                    gap: '16px',
+                    alignItems: 'flex-start',
+                    padding: '10px 14px',
+                    borderRadius: '16px',
+                    backgroundColor: 'var(--yt-surface)',
+                    border: '1px solid var(--yt-border)',
+                    textDecoration: 'none',
+                  }}
+                >
+                  <div
+                    style={{
+                      position: 'relative',
+                      width: '240px',
+                      aspectRatio: '16/9',
+                      borderRadius: '12px',
+                      overflow: 'hidden',
+                      backgroundColor: 'var(--yt-hover)',
+                      flexShrink: 0,
+                    }}
+                  >
+                    {item.playlistThumbnail && (
+                      <img src={item.playlistThumbnail} alt={item.title} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                    )}
+                    <div
+                      style={{
+                        position: 'absolute',
+                        inset: 0,
+                        backgroundColor: 'rgba(0,0,0,0.45)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        color: '#fff',
+                        fontSize: '13px',
+                        fontWeight: 600,
+                        gap: '6px',
+                      }}
+                    >
+                      <IoListOutline size={18} /> {formatPlaylistBadge(item.videoCount)}
+                    </div>
+                  </div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <h3 style={{ fontSize: '15px', fontWeight: 600, margin: '0 0 6px', color: 'var(--yt-text-primary)' }}>
+                      {item.title}
+                    </h3>
+                    <div style={{ fontSize: '12px', color: 'var(--yt-text-secondary)' }}>
+                      {item.author ? `${item.author} · Playlist` : 'Playlist'}
+                    </div>
+                  </div>
+                </Link>
+              );
+            }
 
             if (itemType === 'channel') {
               let avatar =
@@ -762,17 +940,8 @@ export default function ClientSearchPage() {
             }
 
             const vidId = item.videoId || item.id;
-            const thumbs = item.videoThumbnails;
-            let thumbUrl = vidId ? `https://i.ytimg.com/vi_webp/${vidId}/hq720.webp` : '';
-            if (Array.isArray(thumbs) && thumbs.length > 0) {
-              const best = thumbs.find((t: any) =>
-                t.quality === 'high' || t.quality === 'maxres' || t.url?.includes('hq720') || t.url?.includes('hqdefault')
-              );
-              thumbUrl = best?.url || thumbs[0]?.url || thumbUrl;
-            } else if (item.thumbnail && !item.thumbnail.includes('mqdefault.jpg')) {
-              thumbUrl = item.thumbnail;
-            }
-            const dur = item.lengthSeconds ? `${Math.floor(item.lengthSeconds / 60)}:${(item.lengthSeconds % 60).toString().padStart(2, '0')}` : '';
+            const thumbUrl = resolveVideoThumbnail(item);
+            const dur = item.liveNow ? 'LIVE' : formatDuration(item.lengthSeconds);
 
             return (
               <div
@@ -801,7 +970,24 @@ export default function ClientSearchPage() {
                     display: 'block',
                   }}
                 >
-                  <img src={thumbUrl} alt={item.title} loading="lazy" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                  <img
+                    src={thumbUrl}
+                    alt={item.title}
+                    loading="lazy"
+                    onError={(e) => {
+                      const img = e.currentTarget;
+                      const nextStage = parseInt(img.dataset.stage || '0', 10) + 1;
+                      img.dataset.stage = String(nextStage);
+                      if (vidId) {
+                        const fallback = getThumbnailCascade(vidId, nextStage);
+                        if (fallback) {
+                          img.src = fallback;
+                          return;
+                        }
+                      }
+                    }}
+                    style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                  />
                   {dur && (
                     <span
                       style={{

@@ -55,6 +55,7 @@ import androidx.compose.material.icons.outlined.NotificationsNone
 import androidx.compose.material.icons.outlined.SearchOff
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
+import androidx.compose.material3.Button
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -79,6 +80,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
@@ -128,6 +130,7 @@ fun MainScreen() {
     val searchUiState by searchViewModel.uiState.collectAsState()
     val activeDownloadsCount by searchViewModel.activeDownloadsCount.collectAsState()
     val focusManager = LocalFocusManager.current
+    val keyboardController = LocalSoftwareKeyboardController.current
     val focusRequester = remember { FocusRequester() }
 
     val navBackStackEntry by navController.currentBackStackEntryAsState()
@@ -169,12 +172,10 @@ fun MainScreen() {
         (searchUiState.hasSearched || searchUiState.results.isNotEmpty())
 
     BackHandler(enabled = isSearchActive) {
-        if (searchUiState.query.isNotEmpty()) {
-            searchViewModel.onQueryChanged("")
-            focusRequester.requestFocus()
-        } else {
-            isSearchActive = false
-        }
+        isSearchActive = false
+        searchViewModel.onQueryChanged("")
+        focusManager.clearFocus()
+        keyboardController?.hide()
     }
 
     BackHandler(enabled = isNotificationsOpen) {
@@ -265,6 +266,7 @@ fun MainScreen() {
                             SearchResultsContent(
                                 uiState = searchUiState,
                                 chromeInsets = chromeInsets,
+                                onRetry = { searchViewModel.retry() },
                                 onVideoClick = { videoId ->
                                     isSearchActive = false
                                     searchViewModel.onQueryChanged("")
@@ -353,13 +355,10 @@ fun MainScreen() {
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
                                     IconButton(onClick = {
-                                        if (searchUiState.query.isNotEmpty()) {
-                                            searchViewModel.onQueryChanged("")
-                                            focusRequester.requestFocus()
-                                        } else {
-                                            isSearchActive = false
-                                            focusManager.clearFocus()
-                                        }
+                                        isSearchActive = false
+                                        searchViewModel.onQueryChanged("")
+                                        focusManager.clearFocus()
+                                        keyboardController?.hide()
                                     }) {
                                         Icon(
                                             imageVector = Icons.AutoMirrored.Filled.ArrowBack,
@@ -396,6 +395,7 @@ fun MainScreen() {
                                                 onSearch = {
                                                     searchViewModel.searchImmediate(searchUiState.query)
                                                     focusManager.clearFocus()
+                                                    keyboardController?.hide()
                                                 }
                                             )
                                         )
@@ -618,6 +618,7 @@ fun MainScreen() {
 private fun SearchResultsContent(
     uiState: com.kvtube.android.ui.screens.search.SearchUiState,
     chromeInsets: PaddingValues,
+    onRetry: () -> Unit,
     onVideoClick: (String) -> Unit,
     onChannelClick: (String) -> Unit
 ) {
@@ -639,10 +640,21 @@ private fun SearchResultsContent(
                     .padding(chromeInsets),
                 contentAlignment = Alignment.Center
             ) {
-                Text(
-                    text = uiState.error ?: "",
-                    color = MaterialTheme.colorScheme.error
-                )
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center,
+                    modifier = Modifier.padding(24.dp)
+                ) {
+                    Text(
+                        text = uiState.error ?: "",
+                        color = MaterialTheme.colorScheme.error,
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                    )
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Button(onClick = onRetry) {
+                        Text("Retry")
+                    }
+                }
             }
         }
 

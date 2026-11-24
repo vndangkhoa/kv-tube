@@ -34,6 +34,7 @@ class VideoRepository @Inject constructor(
         private const val PLAYBACK_TIMEOUT_MS = 15_000L
         private const val EXTRACTOR_TIMEOUT_MS = 10_000L
         private const val FAST_FALLBACK_TIMEOUT_MS = 4_500L
+        private const val SEARCH_DEGRADED_COOLDOWN_MS = 90_000L
 
         private val RELATED_NOISE_WORDS = setOf(
             "official", "video", "music", "audio", "lyrics",
@@ -91,6 +92,9 @@ class VideoRepository @Inject constructor(
 
     private val videoCache = java.util.concurrent.ConcurrentHashMap<String, VideoData>()
 
+    @Volatile
+    private var serverSearchDegradedUntilMs = 0L
+
     fun peekCachedVideo(videoId: String): VideoData? =
         videoId.takeIf { it.isNotBlank() }?.let { videoCache[it] }
 
@@ -130,10 +134,35 @@ class VideoRepository @Inject constructor(
         date: String? = null,
         features: String? = null,
         duration: String? = null
-    ): List<VideoData> =
-        (bounded(SERVER_TIMEOUT_MS) {
-            api.search(query, limit, region, page, sortBy, date, features, duration)
-        } ?: emptyList()).also { seedCache(it) }
+    ): List<VideoData> {
+        val trimmed = query.trim()
+        if (trimmed.isBlank()) return emptyList()
+
+        val canUseExtractor = page <= 1
+        val now = System.currentTimeMillis()
+        if (!canUseExtractor || now >= serverSearchDegradedUntilMs) {
+            val serverResults = bounded(if (canUseExtractor) FAST_FALLBACK_TIMEOUT_MS else SERVER_TIMEOUT_MS) {
+                api.search(trimmed, limit, region, page, sortBy, date, features, duration)
+            }?.distinctBy { it.id }?.take(limit).orEmpty()
+
+            if (serverResults.isNotEmpty()) {
+                serverSearchDegradedUntilMs = 0L
+                seedCache(serverResults)
+                return serverResults
+            }
+            if (canUseExtractor) {
+                serverSearchDegradedUntilMs = System.currentTimeMillis() + SEARCH_DEGRADED_COOLDOWN_MS
+            }
+        }
+
+        if (!canUseExtractor) return emptyList()
+
+        val fallback = (bounded(EXTRACTOR_TIMEOUT_MS) {
+            extractorHelper.searchVideos(trimmed)
+        } ?: emptyList()).distinctBy { it.id }.take(limit)
+        seedCache(fallback)
+        return fallback
+    }
 
     suspend fun getPopular(limit: Int = 40): List<VideoData> =
         (bounded(SERVER_TIMEOUT_MS) {

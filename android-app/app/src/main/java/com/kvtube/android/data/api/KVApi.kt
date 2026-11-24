@@ -593,7 +593,8 @@ class KVApi(
         return getJsonArray("search", params)
             .filter { it.str("type").ifBlank { "video" } == "video" }
             .map { it.toVideo() }
-            .filter { it.id.isNotBlank() && it.title.isNotBlank() && (it.isLive || it.viewCount > 0L || it.durationSeconds > 0L) }
+            .filter { it.id.isNotBlank() && it.title.isNotBlank() }
+            .distinctBy { it.id }
             .take(limit)
     }
 

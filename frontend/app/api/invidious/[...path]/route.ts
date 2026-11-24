@@ -5,6 +5,10 @@ import {
   getCompanionRoot,
   shouldInjectLocalParam,
 } from '../../../services/companionUrl';
+import {
+  fetchInnertubeSuggestions,
+  searchInnertube,
+} from '../../../services/innertubeSearch';
 
 export const dynamic = 'force-dynamic';
 
@@ -75,6 +79,8 @@ const SERVER_API_CACHE = new Map<string, CachedApiResponse>();
 const SERVER_INFLIGHT = new Map<string, Promise<CachedApiResponse | null>>();
 const SERVER_BG_REFRESHING = new Set<string>();
 const MAX_SERVER_CACHE_ENTRIES = 400;
+const SEARCH_DEGRADED_COOLDOWN_MS = 2 * 60 * 1000;
+let invidiousSearchDegradedUntil = 0;
 
 // Direct videoplayback 302 redirect cache + initial stream prefix cache (Init + sidx + Segment #1)
 const VIDEOPLAYBACK_REDIRECT_CACHE = new Map<string, { url: string; expiry: number }>();
@@ -610,6 +616,8 @@ async function handleProxy(req: NextRequest, pathParts: string[]) {
   const isApiV1 = subPath.startsWith('/api/v1/');
   const isAuthApi = subPath.startsWith('/api/v1/auth');
   const isVideosApi = subPath === '/api/v1/videos' || subPath.startsWith('/api/v1/videos/');
+  const isSearchApi = subPath === '/api/v1/search';
+  const isSuggestionsApi = subPath === '/api/v1/search/suggestions';
 
   if (!req.headers.get('x-kv-prewarm') && !req.headers.get('x-kv-bg-revalidate')) {
     triggerServerCachePrewarm(req.nextUrl.origin);
@@ -739,6 +747,88 @@ async function handleProxy(req: NextRequest, pathParts: string[]) {
     }
   };
 
+  const respondWithFallbackJson = (
+    payload: unknown,
+    shouldCache: boolean,
+    reason?: string
+  ): NextResponse => {
+    const encoded = new TextEncoder().encode(JSON.stringify(payload));
+    const buf = encoded.buffer.slice(encoded.byteOffset, encoded.byteOffset + encoded.byteLength);
+    if (shouldCache && cacheKey && cacheTtls && buf.byteLength > 0) {
+      const now = Date.now();
+      const entry: CachedApiResponse = {
+        body: buf,
+        status: 200,
+        contentType: 'application/json',
+        freshUntil: now + cacheTtls.freshMs,
+        staleUntil: now + cacheTtls.staleMs,
+      };
+      setServerCache(cacheKey, entry);
+      finishInflight(entry);
+    } else {
+      finishInflight(null);
+    }
+    return new NextResponse(buf, {
+      status: 200,
+      headers: {
+        'content-type': 'application/json',
+        'Access-Control-Allow-Origin': '*',
+        'Cache-Control': 'public, max-age=30, stale-while-revalidate=300',
+        'x-kv-source': 'innertube-fallback',
+        ...(reason ? { 'x-kv-fallback-reason': reason } : {}),
+      },
+    });
+  };
+
+  const trySearchFallback = async (reason: string): Promise<NextResponse | null> => {
+    try {
+      const sp = req.nextUrl.searchParams;
+      const q = (sp.get('q') || '').trim();
+      if (!q) return null;
+      const page = parseInt(sp.get('page') || '1', 10) || 1;
+      const items = await searchInnertube({
+        q,
+        page,
+        sort_by: sp.get('sort_by') || undefined,
+        date: sp.get('date') || undefined,
+        duration: sp.get('duration') || undefined,
+        type: sp.get('type') || undefined,
+        features: sp.get('features') || undefined,
+        region: sp.get('region') || undefined,
+        hl: sp.get('hl') || undefined,
+      });
+      if (!Array.isArray(items) || (items.length === 0 && page === 1)) return null;
+      return respondWithFallbackJson(items, items.length > 0, reason);
+    } catch {
+      return null;
+    }
+  };
+
+  const trySuggestionsFallback = async (): Promise<NextResponse | null> => {
+    try {
+      const sp = req.nextUrl.searchParams;
+      const q = (sp.get('q') || '').trim();
+      if (!q) return null;
+      const region = (sp.get('region') || 'VN').trim().toUpperCase();
+      const gl = region === 'GLOBAL' || region.length !== 2 ? 'US' : region;
+      const hl = sp.get('hl') || (gl === 'VN' ? 'vi' : 'en');
+      const data = await fetchInnertubeSuggestions(q, hl, gl);
+      return respondWithFallbackJson(data, data.suggestions.length > 0);
+    } catch {
+      return null;
+    }
+  };
+
+  if (
+    req.method === 'GET' &&
+    isSearchApi &&
+    !validCustomInstance &&
+    Date.now() < invidiousSearchDegradedUntil
+  ) {
+    const fastFallback = await trySearchFallback('degraded-cooldown');
+    if (fastFallback) return fastFallback;
+  }
+
   const companionRoot = getCompanionRoot(process.env.COMPANION_URL);
 
   const configuredInvidiousEnv =
@@ -863,13 +953,15 @@ async function handleProxy(req: NextRequest, pathParts: string[]) {
     } catch {}
   }
 
-  // Response-header-only timeout: 20_000ms for streams/manifests, 15_000ms for /api/v1/videos/, 8_000ms for other API calls
+  // Response-header-only timeout: 20_000ms for streams/manifests, 15_000ms for /api/v1/videos/, 3_500ms for search, 8_000ms for other API calls
   const headerTimeoutMs =
     isMediaOrManifestRoute || !!range
       ? 20_000
       : isVideosApi
         ? 15_000
-        : 8_000;
+        : isSearchApi || isSuggestionsApi
+          ? 3_500
+          : 8_000;
 
   let lastError: any = null;
   let firstHttpError: Error | null = null;
@@ -945,27 +1037,49 @@ async function handleProxy(req: NextRequest, pathParts: string[]) {
           continue;
         }
       } else {
-        const isUpstreamFailure =
+        let isUpstreamFailure =
           res.status >= 500 ||
           res.status === 401 ||
           res.status === 403 ||
           res.status === 404 ||
           res.status === 429 ||
+          (res.status === 400 && (isSearchApi || isSuggestionsApi)) ||
           ((isApiV1 || isMediaOrManifestRoute) && isHtmlResponse) ||
           isEmptyMediaOrManifest ||
           isEmptyApiJsonHeader;
 
+        let inspected400Buf: ArrayBuffer | null = null;
+        let inspected400Error: string | null = null;
+        if (
+          !isUpstreamFailure &&
+          res.status === 400 &&
+          isApiV1 &&
+          upstreamContentType.includes('application/json')
+        ) {
+          try {
+            inspected400Buf = await res.arrayBuffer();
+            const parsed = JSON.parse(new TextDecoder().decode(inspected400Buf));
+            const errText = `${parsed?.error || ''} ${parsed?.errorBacktrace || ''}`;
+            if (/DB::PoolTimeout|Could not check out a connection/i.test(errText)) {
+              isUpstreamFailure = true;
+              inspected400Error = parsed?.error || 'DB::PoolTimeout';
+            }
+          } catch {}
+        }
+
         if (isUpstreamFailure) {
           let detail = isEmptyApiJsonHeader
             ? `Instance ${instance} returned empty 200 OK response (content-length: 0) for ${subPath}`
-            : `Instance ${instance} returned status ${res.status}`;
-          if (!isEmptyApiJsonHeader && upstreamContentType.includes('application/json')) {
+            : inspected400Error
+              ? `Instance ${instance} returned status ${res.status}: ${inspected400Error}`
+              : `Instance ${instance} returned status ${res.status}`;
+          if (!isEmptyApiJsonHeader && !inspected400Buf && upstreamContentType.includes('application/json')) {
             try {
               const errJson = await res.json();
               if (errJson?.error) detail = `${detail}: ${errJson.error}`;
               if (!primaryErrorStatus && res.status === 404) primaryErrorStatus = 404;
             } catch {}
-          } else {
+          } else if (!inspected400Buf) {
             res.body?.cancel().catch(() => {});
           }
           lastError = new Error(detail);
@@ -976,6 +1090,18 @@ async function handleProxy(req: NextRequest, pathParts: string[]) {
             break;
           }
           continue;
+        }
+
+        if (inspected400Buf) {
+          finishInflight(null);
+          return new NextResponse(inspected400Buf, {
+            status: res.status,
+            headers: {
+              'content-type': res.headers.get('content-type') || 'application/json',
+              'Access-Control-Allow-Origin': '*',
+              'Cache-Control': 'private, no-cache',
+            },
+          });
         }
       }
 
@@ -1071,6 +1197,19 @@ async function handleProxy(req: NextRequest, pathParts: string[]) {
       lastError = e;
       continue;
     }
+  }
+
+  if (req.method === 'GET' && isSearchApi && !req.signal.aborted) {
+    if (!validCustomInstance) {
+      invidiousSearchDegradedUntil = Date.now() + SEARCH_DEGRADED_COOLDOWN_MS;
+    }
+    const fallbackRes = await trySearchFallback('upstream-failed');
+    if (fallbackRes) return fallbackRes;
+  }
+
+  if (req.method === 'GET' && isSuggestionsApi && !req.signal.aborted) {
+    const fallbackRes = await trySuggestionsFallback();
+    if (fallbackRes) return fallbackRes;
   }
 
   finishInflight(null);

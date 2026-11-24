@@ -625,6 +625,7 @@ a {
   width: 100%;
   gap: 8px;
   padding: 0 8px;
+  position: relative;
   animation: mobileSearchSlideIn 0.25s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
 
@@ -2561,6 +2562,12 @@ a {
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.18);
   z-index: 1000;
   padding: 8px 0;
+}
+
+.yt-search-suggestions.mobile {
+  top: 50px;
+  left: 8px;
+  right: 8px;
 }
 
 .yt-suggestion-item {

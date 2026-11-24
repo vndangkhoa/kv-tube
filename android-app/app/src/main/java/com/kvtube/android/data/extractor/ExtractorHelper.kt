@@ -21,6 +21,7 @@ import org.schabi.newpipe.extractor.downloader.Request
 import org.schabi.newpipe.extractor.downloader.Response
 import org.schabi.newpipe.extractor.services.youtube.extractors.YoutubeStreamExtractor
 import org.schabi.newpipe.extractor.stream.StreamInfoItem
+import org.schabi.newpipe.extractor.stream.StreamType
 import java.io.IOException
 import java.util.concurrent.TimeUnit
 import javax.inject.Inject
@@ -343,23 +344,37 @@ class ExtractorHelper @Inject constructor(
             return@withContext page.items.mapNotNull { item ->
                 if (item is StreamInfoItem) {
                     val vid = extractVideoId(item.url)
-                    if (vid.isNotBlank()) {
+                    val title = item.name?.trim().orEmpty()
+                    if (vid.isNotBlank() && title.isNotBlank()) {
+                        val channelId = item.uploaderUrl?.substringAfterLast("/") ?: ""
+                        val viewCount = item.viewCount.coerceAtLeast(0L)
+                        val durationSec = item.duration.coerceAtLeast(0L)
+                        val uploadText = item.textualUploadDate ?: ""
                         VideoData(
                             id = vid,
-                            title = item.name ?: "",
+                            title = title,
                             uploader = item.uploaderName ?: "",
+                            uploaderId = channelId,
                             channelTitle = item.uploaderName ?: "",
-                            channelId = item.uploaderUrl?.substringAfterLast("/") ?: "",
+                            channelId = channelId,
+                            channelThumbnail = item.uploaderAvatars.maxByOrNull { it.height }?.url ?: "",
                             thumbnail = item.thumbnails.maxByOrNull { it.height }?.url
                                 ?: com.kvtube.android.data.local.ThumbnailRouter.video(vid),
-                            duration = formatSeconds(item.duration),
-                            viewCount = item.viewCount,
-                            views = if (item.viewCount >= 0) formatViewCount(item.viewCount) else "",
-                            published = item.textualUploadDate ?: ""
+                            duration = formatSeconds(durationSec),
+                            durationSeconds = durationSec,
+                            viewCount = viewCount,
+                            views = if (viewCount > 0L) formatViewCount(viewCount) else "",
+                            published = uploadText,
+                            uploadedAt = uploadText,
+                            isLive = item.streamType == StreamType.LIVE_STREAM ||
+                                item.streamType == StreamType.AUDIO_LIVE_STREAM,
+                            isShort = item.isShortFormContent
                         )
                     } else null
                 } else null
-            }
+            }.distinctBy { it.id }
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
         } catch (e: Exception) {
             Log.w(TAG, "NewPipe search extraction error for $query: ${e.message}")
             emptyList()

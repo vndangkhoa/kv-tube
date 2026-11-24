@@ -53,26 +53,52 @@ class SearchViewModel @Inject constructor(
         )
 
     private var searchJob: Job? = null
+    private var lastCompletedQuery: String = ""
 
     fun onQueryChanged(query: String) {
         _uiState.value = _uiState.value.copy(query = query)
         searchJob?.cancel()
-        if (query.isBlank()) {
-            _uiState.value = _uiState.value.copy(results = emptyList(), hasSearched = false)
+        val trimmed = query.trim()
+        if (trimmed.isEmpty()) {
+            lastCompletedQuery = ""
+            _uiState.value = _uiState.value.copy(
+                results = emptyList(),
+                isLoading = false,
+                hasSearched = false,
+                error = null
+            )
+            return
+        }
+        if (trimmed == lastCompletedQuery && _uiState.value.results.isNotEmpty() && _uiState.value.error == null) {
             return
         }
         searchJob = viewModelScope.launch {
-            delay(300)
-            searchInternal(query)
+            delay(400)
+            searchInternal(trimmed)
         }
     }
 
     fun searchImmediate(query: String) {
         searchJob?.cancel()
-        if (query.isBlank()) return
-        searchJob = viewModelScope.launch {
-            searchInternal(query)
+        _uiState.value = _uiState.value.copy(query = query)
+        val trimmed = query.trim()
+        if (trimmed.isEmpty()) {
+            lastCompletedQuery = ""
+            _uiState.value = _uiState.value.copy(
+                results = emptyList(),
+                isLoading = false,
+                hasSearched = false,
+                error = null
+            )
+            return
         }
+        searchJob = viewModelScope.launch {
+            searchInternal(trimmed)
+        }
+    }
+
+    fun retry() {
+        searchImmediate(_uiState.value.query)
     }
 
     private suspend fun searchInternal(query: String) {
@@ -81,6 +107,7 @@ class SearchViewModel @Inject constructor(
             _uiState.value = _uiState.value.copy(isLoading = true, hasSearched = true, error = null)
             val region = settingsDataStore.region.first()
             val results = videoRepository.search(query, 30, region)
+            lastCompletedQuery = query
             _uiState.value = _uiState.value.copy(
                 results = results,
                 isLoading = false,

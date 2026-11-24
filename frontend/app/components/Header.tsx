@@ -119,33 +119,59 @@ export default function Header() {
 
   const currentRegion = REGIONS.find((r) => r.code === selectedRegion) || REGIONS[0];
 
+  // Sync search input with URL ?q= when on /search (without useSearchParams since Header is outside Suspense)
+  useEffect(() => {
+    const syncFromUrl = () => {
+      if (window.location.pathname === '/search') {
+        const q = new URLSearchParams(window.location.search).get('q') || '';
+        setSearchQuery(q);
+      }
+    };
+    syncFromUrl();
+    window.addEventListener('popstate', syncFromUrl);
+    return () => window.removeEventListener('popstate', syncFromUrl);
+  }, [pathname]);
+
   // Fetch search autocomplete suggestions
   useEffect(() => {
-    if (!searchQuery.trim() || !isFocused) {
+    if (!searchQuery.trim() || (!isFocused && !isMobileSearchActive)) {
       setSuggestions([]);
+      setShowSuggestions(false);
       return;
     }
+    let cancelled = false;
     const timer = setTimeout(async () => {
       try {
         const res = await invidious.getSuggestions(searchQuery);
-        setSuggestions(res.slice(0, 8));
-        setShowSuggestions(res.length > 0);
+        if (!cancelled) {
+          setSuggestions(res.slice(0, 8));
+          setShowSuggestions(res.length > 0);
+        }
       } catch {
-        setSuggestions([]);
+        if (!cancelled) {
+          setSuggestions([]);
+          setShowSuggestions(false);
+        }
       }
     }, 200);
 
-    return () => clearTimeout(timer);
-  }, [searchQuery, isFocused]);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [searchQuery, isFocused, isMobileSearchActive]);
 
   const handleSearch = (e?: React.FormEvent, customQuery?: string) => {
     if (e) e.preventDefault();
     const q = (customQuery !== undefined ? customQuery : searchQuery).trim();
     if (q) {
-      router.push(`/search?q=${encodeURIComponent(q)}`);
+      setSearchQuery(q);
       setIsMobileSearchActive(false);
       setIsFocused(false);
       setShowSuggestions(false);
+      inputRef.current?.blur();
+      mobileInputRef.current?.blur();
+      router.push(`/search?q=${encodeURIComponent(q)}`);
     }
   };
 
@@ -222,6 +248,7 @@ export default function Header() {
                   <input
                     ref={inputRef}
                     type="text"
+                    enterKeyHint="search"
                     placeholder="Search"
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
@@ -233,7 +260,14 @@ export default function Header() {
                       setTimeout(() => {
                         setIsFocused(false);
                         setShowSuggestions(false);
-                      }, 250);
+                      }, 120);
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Escape') {
+                        setShowSuggestions(false);
+                        setIsFocused(false);
+                        inputRef.current?.blur();
+                      }
                     }}
                   />
                   {searchQuery && (
@@ -274,7 +308,10 @@ export default function Header() {
                     <div
                       key={idx}
                       className="yt-suggestion-item"
-                      onClick={() => handleSearch(undefined, item)}
+                      onMouseDown={(e) => {
+                        e.preventDefault();
+                        handleSearch(undefined, item);
+                      }}
                     >
                       <SearchIcon size={16} className="yt-suggestion-icon" />
                       <span>{item}</span>
@@ -653,7 +690,15 @@ export default function Header() {
         ) : (
           /* Mobile Search Overlay */
           <div className="mobile-search-bar">
-            <button className="mobile-search-back" onClick={() => setIsMobileSearchActive(false)}>
+            <button
+              type="button"
+              className="mobile-search-back"
+              onClick={() => {
+                setIsMobileSearchActive(false);
+                setShowSuggestions(false);
+                setIsFocused(false);
+              }}
+            >
               <IoArrowBack size={22} />
             </button>
             <form className="search-container" onSubmit={(e) => handleSearch(e)} style={{ flex: 1 }}>
@@ -662,9 +707,27 @@ export default function Header() {
                 <input
                   ref={mobileInputRef}
                   type="text"
+                  enterKeyHint="search"
                   placeholder="Search KV-Tube"
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
+                  onFocus={() => {
+                    setIsFocused(true);
+                    if (suggestions.length > 0) setShowSuggestions(true);
+                  }}
+                  onBlur={() => {
+                    setTimeout(() => {
+                      setIsFocused(false);
+                      setShowSuggestions(false);
+                    }, 120);
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Escape') {
+                      setShowSuggestions(false);
+                      setIsFocused(false);
+                      setIsMobileSearchActive(false);
+                    }
+                  }}
                 />
                 {searchQuery && (
                   <button
@@ -679,8 +742,28 @@ export default function Header() {
                     <IoCloseOutline size={16} />
                   </button>
                 )}
+                <button type="submit" className="search-btn" title="Search" aria-label="Search">
+                  <SearchIcon size={18} />
+                </button>
               </div>
             </form>
+            {showSuggestions && suggestions.length > 0 && (
+              <div className="yt-search-suggestions mobile">
+                {suggestions.map((item, idx) => (
+                  <div
+                    key={idx}
+                    className="yt-suggestion-item"
+                    onMouseDown={(e) => {
+                      e.preventDefault();
+                      handleSearch(undefined, item);
+                    }}
+                  >
+                    <SearchIcon size={16} className="yt-suggestion-icon" />
+                    <span>{item}</span>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         )}
       </header>
