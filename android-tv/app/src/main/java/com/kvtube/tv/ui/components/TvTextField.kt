@@ -29,17 +29,21 @@ import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
+import com.kvtube.tv.ui.theme.YTBorder
+import com.kvtube.tv.ui.theme.YTFocus
+import com.kvtube.tv.ui.theme.YTSurfaceElevated
+import com.kvtube.tv.ui.theme.YTTextPrimary
+import com.kvtube.tv.ui.theme.YTTextSecondary
+import com.kvtube.tv.ui.theme.YTTextTertiary
 
 /**
- * TV-safe text field.
- *
- * A plain TextField traps the D-pad: LEFT/RIGHT move the caret and there is no
- * obvious way out on a remote. This wrapper guarantees escape routes:
- *  - UP / DOWN      → moves focus out of the field when remote navigates away
- *  - LEFT at pos 0  → moves focus to the previous focusable
- *  - RIGHT at end   → moves focus to the next focusable
- *  - IME Done/Search → runs [onImeAction], hides keyboard, then clears focus
- *  - Back / Escape  → dismisses the keyboard and clears focus
+ * TV-safe text field restyled on Kabuki's `#212121` rounded pill surface with `#F1F1F1` focus rim.
+ * Guarantees D-pad escape routes:
+ *  - UP / DOWN      -> moves focus out of the field
+ *  - LEFT at pos 0  -> moves focus left
+ *  - RIGHT at end   -> moves focus right
+ *  - IME Done/Search -> runs [onImeAction], hides keyboard, clears focus
+ *  - Back / Escape  -> dismisses keyboard and clears focus
  */
 @Composable
 fun TvTextField(
@@ -61,7 +65,6 @@ fun TvTextField(
         mutableStateOf(TextFieldValue(value, TextRange(value.length)))
     }
 
-    // Always keep external value changes in sync (e.g. clear button, keyword clicks)
     LaunchedEffect(value) {
         if (fieldValue.text != value) {
             fieldValue = TextFieldValue(value, TextRange(value.length))
@@ -125,17 +128,17 @@ fun TvTextField(
                 .onFocusChanged { hasFocus = it.isFocused || it.hasFocus },
             shape = RoundedCornerShape(14.dp),
             colors = OutlinedTextFieldDefaults.colors(
-                focusedTextColor = Color.White,
-                unfocusedTextColor = Color.White,
-                cursorColor = Color.White,
-                focusedBorderColor = Color.White.copy(alpha = 0.6f),
-                unfocusedBorderColor = Color.White.copy(alpha = 0.22f),
-                focusedContainerColor = Color(0xFF212121),
-                unfocusedContainerColor = Color(0xFF212121),
-                focusedLabelColor = Color(0xFFAAAAAA),
-                unfocusedLabelColor = Color(0xFFAAAAAA),
-                focusedPlaceholderColor = Color(0xFF6E6E6E),
-                unfocusedPlaceholderColor = Color(0xFF6E6E6E),
+                focusedTextColor = YTTextPrimary,
+                unfocusedTextColor = YTTextPrimary,
+                cursorColor = YTFocus,
+                focusedBorderColor = YTFocus,
+                unfocusedBorderColor = YTBorder,
+                focusedContainerColor = YTSurfaceElevated,
+                unfocusedContainerColor = YTSurfaceElevated,
+                focusedLabelColor = YTTextSecondary,
+                unfocusedLabelColor = YTTextSecondary,
+                focusedPlaceholderColor = YTTextTertiary,
+                unfocusedPlaceholderColor = YTTextTertiary,
             ),
         )
     }

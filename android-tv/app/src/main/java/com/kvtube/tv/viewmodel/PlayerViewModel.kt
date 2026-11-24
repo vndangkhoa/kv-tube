@@ -15,7 +15,9 @@ import kotlinx.coroutines.withContext
 
 data class PlayerUiState(
     val video: InvidiousVideo? = null,
+    val preview: TvVideo? = null,
     val recommended: List<TvVideo> = emptyList(),
+    val recommendedLoading: Boolean = true,
     val isLoading: Boolean = true,
     val error: String? = null,
 )
@@ -24,6 +26,8 @@ class PlayerViewModel : ViewModel() {
     companion object {
         // In-memory stream cache so replaying/re-entering is instant 0ms network latency
         private val videoCache = LruCache<String, InvidiousVideo>(40)
+        private val previewCache = LruCache<String, TvVideo>(80)
+        private val channelPreviewCache = LruCache<String, TvVideo>(80)
         private val repo = InvidiousRepository()
         private val prefetchScope = kotlinx.coroutines.CoroutineScope(Dispatchers.IO + kotlinx.coroutines.SupervisorJob())
 
@@ -32,6 +36,17 @@ class PlayerViewModel : ViewModel() {
         fun putCachedVideo(videoId: String, video: InvidiousVideo) {
             videoCache.put(videoId.trim(), video)
         }
+
+        fun putPreview(video: TvVideo) {
+            val id = video.id.trim()
+            if (id.isNotBlank()) previewCache.put(id, video)
+            val cid = video.channelId.trim()
+            if (cid.isNotBlank()) channelPreviewCache.put(cid, video)
+        }
+
+        fun getPreview(videoId: String): TvVideo? = previewCache.get(videoId.trim())
+
+        fun getChannelPreview(channelId: String): TvVideo? = channelPreviewCache.get(channelId.trim())
 
         /**
          * Pre-fetches stream metadata in the background when a card is focused on TV.
@@ -52,62 +67,120 @@ class PlayerViewModel : ViewModel() {
     private val historyRepo = com.kvtube.tv.data.repository.TvHistoryRepository.getInstance()
     private val _state = MutableStateFlow(PlayerUiState())
     val state: StateFlow<PlayerUiState> = _state
+    private var activeVideoId: String = ""
+
+    private suspend fun searchRelatedFallback(id: String, author: String?, title: String?): List<TvVideo> {
+        val query = author?.takeIf { it.isNotBlank() }
+            ?: title?.take(48)?.takeIf { it.isNotBlank() }
+            ?: "nhạc việt official"
+        return runCatching { repo.search(query, region = "VN") }
+            .getOrDefault(emptyList())
+            .filter { it.id.isNotBlank() && it.id != id }
+            .take(16)
+    }
 
     fun load(videoId: String) {
         val id = videoId.trim()
         if (id.isBlank()) {
-            _state.value = PlayerUiState(isLoading = false, error = "Video unavailable")
+            activeVideoId = ""
+            _state.value = PlayerUiState(isLoading = false, recommendedLoading = false, error = "Video unavailable")
             return
         }
+        activeVideoId = id
+        val preview = previewCache.get(id)
 
         // Cache hit: Start playback immediately without network roundtrip
         val cached = videoCache.get(id)
         if (cached != null) {
-            _state.value = PlayerUiState(video = cached, isLoading = false)
+            _state.value = PlayerUiState(
+                video = cached,
+                preview = preview ?: cached.toTvVideo(),
+                isLoading = false,
+                recommendedLoading = true,
+            )
             // Fetch related and record watch in background
             viewModelScope.launch {
                 historyRepo.recordWatch(cached)
-                val related = if (cached.recommendedVideos.isNotEmpty()) {
-                    cached.recommendedVideos.map { it.toTvVideo() }
-                } else {
-                    runCatching { repo.related(cached) }.getOrDefault(emptyList())
+                val related = when {
+                    cached.recommendedVideos.isNotEmpty() -> cached.recommendedVideos.map { it.toTvVideo() }
+                    else -> runCatching { repo.related(cached) }.getOrDefault(emptyList())
+                        .ifEmpty { searchRelatedFallback(id, cached.author, cached.title) }
                 }
-                _state.value = _state.value.copy(recommended = related)
+                if (activeVideoId == id) {
+                    _state.value = _state.value.copy(recommended = related, recommendedLoading = false)
+                }
             }
             return
         }
 
+        _state.value = PlayerUiState(video = null, preview = preview, isLoading = true, recommendedLoading = true)
+        if (preview != null) {
+            viewModelScope.launch {
+                historyRepo.recordWatch(preview)
+            }
+        }
+
+        // Fast parallel recommendations fallback (~20ms search) so "More videos" never stays empty
         viewModelScope.launch {
-            _state.value = PlayerUiState(isLoading = true)
+            val fallbackRecs = searchRelatedFallback(id, preview?.channelTitle, preview?.title)
+            if (activeVideoId == id && _state.value.recommended.isEmpty()) {
+                _state.value = _state.value.copy(
+                    recommended = fallbackRecs,
+                    recommendedLoading = false,
+                )
+            }
+        }
+
+        viewModelScope.launch {
             try {
                 // 1. Fetch stream metadata
                 val v = repo.video(id)
                 videoCache.put(id, v)
+                if (activeVideoId != id) return@launch
 
                 // 2. Immediately emit video so ExoPlayer starts playing without waiting for recommendations
-                _state.value = PlayerUiState(video = v, isLoading = false)
+                val cur = _state.value
+                _state.value = cur.copy(
+                    video = v,
+                    preview = cur.preview ?: v.toTvVideo(),
+                    isLoading = false,
+                    error = null,
+                )
                 historyRepo.recordWatch(v)
 
                 // 3. Fetch related videos asynchronously in background
-                val related = if (v.recommendedVideos.isNotEmpty()) {
-                    v.recommendedVideos.map { it.toTvVideo() }
-                } else {
-                    runCatching { repo.related(v) }.getOrDefault(emptyList())
+                val related = when {
+                    v.recommendedVideos.isNotEmpty() -> v.recommendedVideos.map { it.toTvVideo() }
+                    _state.value.recommended.isNotEmpty() -> _state.value.recommended
+                    else -> searchRelatedFallback(id, v.author, v.title)
                 }
-                _state.value = _state.value.copy(recommended = related)
+                if (activeVideoId == id) {
+                    _state.value = _state.value.copy(recommended = related, recommendedLoading = false)
+                }
             } catch (e: retrofit2.HttpException) {
+                if (activeVideoId != id) return@launch
                 val body = try { e.response()?.errorBody()?.string()?.take(500) } catch (_: Exception) { null }
                 val msg = body?.let { extractJsonError(it) } ?: body
-                _state.value = PlayerUiState(isLoading = false, error = msg ?: "Video unavailable (HTTP ${e.code()}: ${e.message()})")
+                _state.value = _state.value.copy(
+                    isLoading = false,
+                    error = msg ?: "Video unavailable (HTTP ${e.code()}: ${e.message()})",
+                )
             } catch (e: Exception) {
-                _state.value = PlayerUiState(isLoading = false, error = e.message?.take(500) ?: "Failed to load")
+                if (activeVideoId != id) return@launch
+                _state.value = _state.value.copy(
+                    isLoading = false,
+                    error = e.message?.take(500) ?: "Failed to load",
+                )
             }
         }
     }
 
     fun updateProgress(positionMs: Long, durationMs: Long) {
-        val id = _state.value.video?.videoId ?: return
-        if (id.isNotBlank() && positionMs >= 0) {
+        val id = _state.value.video?.videoId?.takeIf { it.isNotBlank() }
+            ?: _state.value.preview?.id?.takeIf { it.isNotBlank() }
+            ?: activeVideoId.takeIf { it.isNotBlank() }
+            ?: return
+        if (positionMs >= 0) {
             viewModelScope.launch {
                 historyRepo.updateProgress(id, positionMs, durationMs)
             }

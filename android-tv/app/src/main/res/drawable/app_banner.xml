@@ -4,10 +4,20 @@
     android:height="180dp"
     android:viewportWidth="320"
     android:viewportHeight="180">
+    <!-- Cinema obsidian YouTube TV backdrop -->
+    <path
+        android:fillColor="#0F0F0F"
+        android:pathData="M0,0h320v180h-320z" />
+    <!-- Subtle inner stage -->
+    <path
+        android:fillColor="#181818"
+        android:pathData="M16,12L304,12A12,12 0 0,1 316,24L316,156A12,12 0 0,1 304,168L16,168A12,12 0 0,1 4,156L4,24A12,12 0 0,1 16,12z" />
+    <!-- Red rounded Play badge -->
     <path
         android:fillColor="#FF0000"
-        android:pathData="M0,0h320v180h-320z" />
+        android:pathData="M114,50L206,50A18,18 0 0,1 224,68L224,112A18,18 0 0,1 206,130L114,130A18,18 0 0,1 96,112L96,68A18,18 0 0,1 114,50z" />
+    <!-- Centered white Play triangle -->
     <path
         android:fillColor="#FFFFFF"
-        android:pathData="M130,60L190,90L130,120Z" />
+        android:pathData="M148,70L184,90L148,110Z" />
 </vector>

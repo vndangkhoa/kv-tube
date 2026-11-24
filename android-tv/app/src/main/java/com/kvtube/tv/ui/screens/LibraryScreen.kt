@@ -2,6 +2,7 @@ package com.kvtube.tv.ui.screens
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -10,11 +11,11 @@ import androidx.compose.material.icons.automirrored.filled.PlaylistPlay
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Person
-import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -28,10 +29,18 @@ import com.kvtube.tv.data.api.ApiClient
 import com.kvtube.tv.data.model.InvidiousPlaylist
 import com.kvtube.tv.data.repository.InvidiousRepository
 import com.kvtube.tv.data.repository.TvHistoryRepository
+import com.kvtube.tv.ui.components.KvBrandLockup
 import com.kvtube.tv.ui.components.YtTvVideoCard
 import com.kvtube.tv.ui.theme.YTBackground
+import com.kvtube.tv.ui.theme.YTBorder
+import com.kvtube.tv.ui.theme.YTBorderSubtle
 import com.kvtube.tv.ui.theme.YTBrandRed
 import com.kvtube.tv.ui.theme.YTChip
+import com.kvtube.tv.ui.theme.YTFocus
+import com.kvtube.tv.ui.theme.YTFocusInk
+import com.kvtube.tv.ui.theme.YTSurface
+import com.kvtube.tv.ui.theme.YTSurfaceElevated
+import com.kvtube.tv.ui.theme.YTTextPrimary
 import com.kvtube.tv.ui.theme.YTTextSecondary
 import kotlinx.coroutines.launch
 
@@ -63,99 +72,115 @@ fun LibraryScreen(onVideoClick: (String) -> Unit) {
         TvLazyColumn(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(horizontal = 32.dp, vertical = 20.dp),
+                .padding(top = 18.dp),
             contentPadding = PaddingValues(bottom = 32.dp),
-            verticalArrangement = Arrangement.spacedBy(24.dp)
+            verticalArrangement = Arrangement.spacedBy(22.dp),
         ) {
-            // Profile & Account Header
-            item {
+            // Compact YouTube TV "You" Header
+            item(key = "you_header") {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clip(RoundedCornerShape(16.dp))
-                        .background(Color(0xFF1A1A1A))
-                        .padding(20.dp),
-                    verticalAlignment = Alignment.CenterVertically
+                        .padding(horizontal = 36.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(16.dp),
                 ) {
                     Box(
                         modifier = Modifier
-                            .size(56.dp)
+                            .size(50.dp)
                             .clip(CircleShape)
-                            .background(YTBrandRed),
-                        contentAlignment = Alignment.Center
+                            .background(YTSurfaceElevated)
+                            .border(1.dp, YTBorder, CircleShape),
+                        contentAlignment = Alignment.Center,
                     ) {
                         Icon(
                             imageVector = Icons.Default.Person,
-                            contentDescription = "User Account",
-                            tint = Color.White,
-                            modifier = Modifier.size(32.dp)
+                            contentDescription = "Account",
+                            tint = YTTextPrimary,
+                            modifier = Modifier.size(26.dp),
                         )
                     }
 
-                    Spacer(Modifier.width(18.dp))
-
                     Column(Modifier.weight(1f)) {
                         Text(
-                            text = "Account & History",
-                            style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Bold),
-                            color = Color.White
+                            text = "You",
+                            style = MaterialTheme.typography.headlineLarge.copy(
+                                fontSize = 26.sp,
+                                fontWeight = FontWeight.Bold,
+                            ),
+                            color = YTTextPrimary,
                         )
-                        Spacer(Modifier.height(4.dp))
+                        Spacer(Modifier.height(2.dp))
                         Text(
-                            text = if (!ApiClient.token.isNullOrBlank()) "Connected to Invidious account" else "Local watch history active (${ApiClient.baseUrl.removeSuffix("/")})",
+                            text = if (!ApiClient.token.isNullOrBlank()) {
+                                "Connected to Invidious account"
+                            } else {
+                                "Local watch history active • ${ApiClient.baseUrl.removeSuffix("/")}"
+                            },
                             style = MaterialTheme.typography.bodySmall,
-                            color = YTTextSecondary
+                            color = YTTextSecondary,
                         )
                     }
 
                     if (historyItems.isNotEmpty()) {
-                        Button(
+                        Surface(
                             onClick = { showClearDialog = true },
-                            colors = ButtonDefaults.colors(
-                                containerColor = Color(0xFF2A2A2A),
-                                focusedContainerColor = Color.White,
-                                contentColor = Color.White,
-                                focusedContentColor = Color.Black
+                            shape = ClickableSurfaceDefaults.shape(CircleShape),
+                            scale = ClickableSurfaceDefaults.scale(focusedScale = 1.04f),
+                            colors = ClickableSurfaceDefaults.colors(
+                                containerColor = YTChip,
+                                focusedContainerColor = YTFocus,
+                                contentColor = YTTextPrimary,
+                                focusedContentColor = YTFocusInk,
                             ),
-                            border = ButtonDefaults.border(
-                                border = Border(BorderStroke(1.dp, Color.White.copy(alpha = 0.2f))),
-                                focusedBorder = Border(BorderStroke(2.dp, Color.White))
-                            )
+                            border = ClickableSurfaceDefaults.border(
+                                border = Border(BorderStroke(0.75.dp, YTBorderSubtle)),
+                                focusedBorder = Border(BorderStroke(1.5.dp, YTFocus)),
+                            ),
                         ) {
                             Row(
+                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 9.dp),
                                 verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
                             ) {
-                                Icon(Icons.Default.Delete, contentDescription = null, modifier = Modifier.size(18.dp))
-                                Text("Clear history", style = MaterialTheme.typography.labelMedium)
+                                Icon(Icons.Default.Delete, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Text(
+                                    "Clear history",
+                                    style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.SemiBold),
+                                )
                             }
                         }
                     }
                 }
             }
 
-            // Watch History Section
-            item {
-                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            // Watch History Shelf
+            item(key = "you_history") {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Row(
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 36.dp),
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
+                        horizontalArrangement = Arrangement.SpaceBetween,
                     ) {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
                         ) {
                             Icon(
                                 imageVector = Icons.Default.History,
                                 contentDescription = null,
-                                tint = YTBrandRed,
-                                modifier = Modifier.size(24.dp)
+                                tint = YTTextPrimary,
+                                modifier = Modifier.size(20.dp),
                             )
                             Text(
                                 text = "Watch History",
-                                style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
-                                color = Color.White
+                                style = MaterialTheme.typography.titleLarge.copy(
+                                    fontSize = 18.sp,
+                                    fontWeight = FontWeight.Bold,
+                                ),
+                                color = YTTextPrimary,
                             )
                         }
 
@@ -163,7 +188,7 @@ fun LibraryScreen(onVideoClick: (String) -> Unit) {
                             Text(
                                 text = "${historyItems.size} ${if (historyItems.size == 1) "video" else "videos"}",
                                 style = MaterialTheme.typography.bodySmall,
-                                color = YTTextSecondary
+                                color = YTTextSecondary,
                             )
                         }
                     }
@@ -172,43 +197,45 @@ fun LibraryScreen(onVideoClick: (String) -> Unit) {
                         Box(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .clip(RoundedCornerShape(12.dp))
-                                .background(Color(0xFF141414))
-                                .padding(vertical = 36.dp, horizontal = 24.dp),
-                            contentAlignment = Alignment.Center
+                                .padding(horizontal = 36.dp)
+                                .clip(RoundedCornerShape(14.dp))
+                                .background(YTSurface)
+                                .border(1.dp, YTBorderSubtle, RoundedCornerShape(14.dp))
+                                .padding(vertical = 32.dp, horizontal = 24.dp),
+                            contentAlignment = Alignment.Center,
                         ) {
                             Column(
                                 horizontalAlignment = Alignment.CenterHorizontally,
-                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                                verticalArrangement = Arrangement.spacedBy(8.dp),
                             ) {
                                 Icon(
                                     imageVector = Icons.Default.History,
                                     contentDescription = null,
-                                    tint = YTTextSecondary.copy(alpha = 0.6f),
-                                    modifier = Modifier.size(44.dp)
+                                    tint = YTTextSecondary,
+                                    modifier = Modifier.size(36.dp),
                                 )
                                 Text(
                                     text = "No watched videos yet",
                                     style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
-                                    color = Color.White
+                                    color = YTTextPrimary,
                                 )
                                 Text(
-                                    text = "Videos you watch on KV-Tube TV will appear here so you can easily resume watching.",
+                                    text = "Videos you play on KV-Tube TV will appear here so you can resume right where you left off.",
                                     style = MaterialTheme.typography.bodySmall,
-                                    color = YTTextSecondary
+                                    color = YTTextSecondary,
                                 )
                             }
                         }
                     } else {
                         TvLazyRow(
-                            horizontalArrangement = Arrangement.spacedBy(16.dp),
-                            contentPadding = PaddingValues(vertical = 6.dp)
+                            horizontalArrangement = Arrangement.spacedBy(14.dp),
+                            contentPadding = PaddingValues(horizontal = 36.dp, vertical = 10.dp),
                         ) {
                             items(historyItems, key = { it.videoId }) { item ->
                                 YtTvVideoCard(
                                     video = item.toTvVideo(),
                                     progressFraction = item.progressFraction,
-                                    onClick = { onVideoClick(item.videoId) }
+                                    onClick = { onVideoClick(item.videoId) },
                                 )
                             }
                         }
@@ -217,60 +244,88 @@ fun LibraryScreen(onVideoClick: (String) -> Unit) {
             }
 
             // Playlists Section
-            item {
-                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            item(key = "you_playlists") {
+                Column(
+                    modifier = Modifier.padding(horizontal = 36.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.PlaylistPlay,
                             contentDescription = null,
-                            tint = Color.White,
-                            modifier = Modifier.size(24.dp)
+                            tint = YTTextPrimary,
+                            modifier = Modifier.size(22.dp),
                         )
                         Text(
                             text = "Playlists",
-                            style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
-                            color = Color.White
+                            style = MaterialTheme.typography.titleLarge.copy(
+                                fontSize = 18.sp,
+                                fontWeight = FontWeight.Bold,
+                            ),
+                            color = YTTextPrimary,
                         )
                     }
 
                     if (playlists.isEmpty()) {
-                        Text(
-                            text = if (ApiClient.token.isNullOrBlank()) "Playlists require an Invidious account token (configure in Settings)." else "No playlists found on your account.",
-                            color = YTTextSecondary,
-                            style = MaterialTheme.typography.bodySmall
-                        )
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(YTSurface)
+                                .border(1.dp, YTBorderSubtle, RoundedCornerShape(12.dp))
+                                .padding(horizontal = 18.dp, vertical = 14.dp),
+                        ) {
+                            Text(
+                                text = if (ApiClient.token.isNullOrBlank()) {
+                                    "Connect an Invidious token in Settings to sync playlists across devices."
+                                } else {
+                                    "No playlists found on your account."
+                                },
+                                color = YTTextSecondary,
+                                style = MaterialTheme.typography.bodySmall,
+                            )
+                        }
                     } else {
                         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             playlists.forEach { pl ->
+                                var focused by remember { mutableStateOf(false) }
                                 Surface(
                                     onClick = {},
-                                    modifier = Modifier.fillMaxWidth(0.6f),
-                                    shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(8.dp)),
+                                    modifier = Modifier
+                                        .fillMaxWidth(0.65f)
+                                        .onFocusChanged { focused = it.isFocused },
+                                    shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(12.dp)),
                                     colors = ClickableSurfaceDefaults.colors(
-                                        containerColor = YTChip,
-                                        focusedContainerColor = Color.White,
-                                        contentColor = Color.White,
-                                        focusedContentColor = Color.Black
-                                    )
+                                        containerColor = YTSurface,
+                                        focusedContainerColor = YTFocus,
+                                        contentColor = YTTextPrimary,
+                                        focusedContentColor = YTFocusInk,
+                                    ),
+                                    border = ClickableSurfaceDefaults.border(
+                                        border = Border(BorderStroke(0.75.dp, YTBorderSubtle)),
+                                        focusedBorder = Border(BorderStroke(1.5.dp, YTFocus)),
+                                    ),
                                 ) {
                                     Row(
-                                        modifier = Modifier.padding(14.dp),
+                                        modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
                                         verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.SpaceBetween
+                                        horizontalArrangement = Arrangement.SpaceBetween,
                                     ) {
                                         Text(
                                             text = pl.title,
-                                            style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Medium),
+                                            style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.SemiBold),
                                             maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis
+                                            overflow = TextOverflow.Ellipsis,
+                                            modifier = Modifier.weight(1f),
                                         )
+                                        Spacer(Modifier.width(12.dp))
                                         Text(
                                             text = "${pl.videoCount ?: pl.videos.size} videos",
-                                            style = MaterialTheme.typography.labelSmall,
-                                            color = YTTextSecondary
+                                            style = MaterialTheme.typography.labelMedium,
+                                            color = if (focused) Color(0xFF444444) else YTTextSecondary,
                                         )
                                     }
                                 }
@@ -286,62 +341,62 @@ fun LibraryScreen(onVideoClick: (String) -> Unit) {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .background(Color.Black.copy(alpha = 0.75f)),
-                contentAlignment = Alignment.Center
+                    .background(Color.Black.copy(alpha = 0.78f)),
+                contentAlignment = Alignment.Center,
             ) {
-                Surface(
-                    onClick = {},
-                    shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(16.dp)),
-                    colors = ClickableSurfaceDefaults.colors(
-                        containerColor = Color(0xFF1E1E1E),
-                        focusedContainerColor = Color(0xFF1E1E1E)
-                    ),
+                Column(
                     modifier = Modifier
                         .width(420.dp)
-                        .padding(24.dp)
+                        .clip(RoundedCornerShape(20.dp))
+                        .background(YTSurfaceElevated)
+                        .border(1.dp, YTBorder, RoundedCornerShape(20.dp))
+                        .padding(24.dp),
+                    verticalArrangement = Arrangement.spacedBy(16.dp),
                 ) {
-                    Column(
-                        modifier = Modifier.padding(24.dp),
-                        verticalArrangement = Arrangement.spacedBy(16.dp)
+                    Text(
+                        text = "Clear watch history?",
+                        style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Bold),
+                        color = YTTextPrimary,
+                    )
+                    Text(
+                        text = "This removes all watched videos from your history on this TV.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = YTTextSecondary,
+                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.End,
+                        verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Text(
-                            text = "Clear watch history?",
-                            style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Bold),
-                            color = Color.White
-                        )
-                        Text(
-                            text = "This will remove all watched videos from your history on this device.",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = YTTextSecondary
-                        )
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.End,
-                            verticalAlignment = Alignment.CenterVertically
+                        Button(
+                            onClick = { showClearDialog = false },
+                            shape = ButtonDefaults.shape(CircleShape),
+                            colors = ButtonDefaults.colors(
+                                containerColor = YTChip,
+                                contentColor = YTTextPrimary,
+                                focusedContainerColor = YTFocus,
+                                focusedContentColor = YTFocusInk,
+                            ),
                         ) {
-                            OutlinedButton(
-                                onClick = { showClearDialog = false },
-                                colors = ButtonDefaults.colors(containerColor = Color.Transparent, contentColor = Color.White)
-                            ) {
-                                Text("Cancel")
-                            }
-                            Spacer(Modifier.width(12.dp))
-                            Button(
-                                onClick = {
-                                    scope.launch {
-                                        historyRepo.clearHistory()
-                                        showClearDialog = false
-                                    }
-                                },
-                                colors = ButtonDefaults.colors(
-                                    containerColor = YTBrandRed,
-                                    contentColor = Color.White,
-                                    focusedContainerColor = Color.White,
-                                    focusedContentColor = Color.Black
-                                )
-                            ) {
-                                Text("Clear")
-                            }
+                            Text("Cancel", fontWeight = FontWeight.SemiBold)
+                        }
+                        Spacer(Modifier.width(12.dp))
+                        Button(
+                            onClick = {
+                                scope.launch {
+                                    historyRepo.clearHistory()
+                                    showClearDialog = false
+                                }
+                            },
+                            shape = ButtonDefaults.shape(CircleShape),
+                            colors = ButtonDefaults.colors(
+                                containerColor = YTBrandRed,
+                                contentColor = Color.White,
+                                focusedContainerColor = YTFocus,
+                                focusedContentColor = YTFocusInk,
+                            ),
+                        ) {
+                            Text("Clear", fontWeight = FontWeight.Bold)
                         }
                     }
                 }
@@ -349,4 +404,3 @@ fun LibraryScreen(onVideoClick: (String) -> Unit) {
         }
     }
 }
-

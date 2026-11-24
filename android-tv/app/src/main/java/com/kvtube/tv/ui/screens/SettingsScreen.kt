@@ -2,15 +2,25 @@ package com.kvtube.tv.ui.screens
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Link
+import androidx.compose.material.icons.filled.SystemUpdate
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
@@ -18,37 +28,35 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Link
-import androidx.compose.material.icons.filled.SystemUpdate
-import androidx.tv.material3.Border
-import androidx.tv.material3.ClickableSurfaceDefaults
-import androidx.tv.material3.ExperimentalTvMaterial3Api
-import androidx.tv.material3.Icon
-import androidx.tv.material3.MaterialTheme
-import androidx.tv.material3.Surface
-import androidx.tv.material3.Text
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.LinearProgressIndicator
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.SnackbarHost
-import androidx.compose.material3.SnackbarHostState
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
+import androidx.tv.material3.*
 import com.kvtube.tv.BuildConfig
+import com.kvtube.tv.data.api.ApiClient
 import com.kvtube.tv.data.api.TvPairApi
 import com.kvtube.tv.data.local.tvDataStore
 import com.kvtube.tv.data.model.TvUpdateInfo
 import com.kvtube.tv.data.repository.TvUpdateManager
+import com.kvtube.tv.ui.components.KvBrandLockup
 import com.kvtube.tv.ui.components.TvTextField
 import com.kvtube.tv.ui.theme.YTBackground
+import com.kvtube.tv.ui.theme.YTBorder
+import com.kvtube.tv.ui.theme.YTBorderSubtle
 import com.kvtube.tv.ui.theme.YTBrandRed
-import com.kvtube.tv.ui.theme.YTSurfaceVariant
+import com.kvtube.tv.ui.theme.YTChip
+import com.kvtube.tv.ui.theme.YTFocus
+import com.kvtube.tv.ui.theme.YTFocusGlow
+import com.kvtube.tv.ui.theme.YTFocusInk
+import com.kvtube.tv.ui.theme.YTSurface
+import com.kvtube.tv.ui.theme.YTSurfaceElevated
+import com.kvtube.tv.ui.theme.YTTextPrimary
+import com.kvtube.tv.ui.theme.YTTextSecondary
+import com.kvtube.tv.ui.theme.YTTextTertiary
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
@@ -66,11 +74,13 @@ fun SettingsScreen() {
     val snackbar = remember { SnackbarHostState() }
 
     var section by remember { mutableStateOf(SettingsSection.Connection) }
+    val connectionMenuFocus = remember { FocusRequester() }
+    val updatesMenuFocus = remember { FocusRequester() }
+    val activeMenuFocus = if (section == SettingsSection.Connection) connectionMenuFocus else updatesMenuFocus
     var instanceUrl by remember { mutableStateOf("") }
     var token by remember { mutableStateOf("") }
     var loaded by remember { mutableStateOf(false) }
 
-    // Update states
     var checkingUpdate by remember { mutableStateOf(false) }
     var updateInfo by remember { mutableStateOf<TvUpdateInfo?>(null) }
     var updateMessage by remember { mutableStateOf<String?>(null) }
@@ -78,7 +88,6 @@ fun SettingsScreen() {
     var downloadProgress by remember { mutableStateOf(0f) }
     var downloadedFile by remember { mutableStateOf<java.io.File?>(null) }
 
-    // Dialogs
     var showEditInstance by remember { mutableStateOf(false) }
     var showEditToken by remember { mutableStateOf(false) }
     var showPairing by remember { mutableStateOf(false) }
@@ -88,14 +97,14 @@ fun SettingsScreen() {
 
     fun persistConnection(url: String, tok: String, doneMessage: String) {
         scope.launch {
-            val cleanUrl = com.kvtube.tv.data.api.ApiClient.normalizeInstanceUrl(url)
+            val cleanUrl = ApiClient.normalizeInstanceUrl(url)
             val cleanTok = tok.trim().ifBlank { null }
             ctx.tvDataStore.edit {
                 it[stringPreferencesKey("kv_invidious_instance")] = cleanUrl
                 if (cleanTok == null) it.remove(stringPreferencesKey("kv_invidious_token"))
                 else it[stringPreferencesKey("kv_invidious_token")] = cleanTok
             }
-            com.kvtube.tv.data.api.ApiClient.setInstance(cleanUrl, cleanTok)
+            ApiClient.setInstance(cleanUrl, cleanTok)
             instanceUrl = cleanUrl
             token = cleanTok.orEmpty()
             snackbar.showSnackbar(doneMessage)
@@ -104,11 +113,11 @@ fun SettingsScreen() {
 
     LaunchedEffect(Unit) {
         val prefs = ctx.tvDataStore.data.first()
-        val rawInst = prefs[stringPreferencesKey("kv_invidious_instance")] ?: com.kvtube.tv.data.api.ApiClient.DEFAULT_INSTANCE
-        instanceUrl = com.kvtube.tv.data.api.ApiClient.normalizeInstanceUrl(rawInst)
+        val rawInst = prefs[stringPreferencesKey("kv_invidious_instance")] ?: ApiClient.DEFAULT_INSTANCE
+        instanceUrl = ApiClient.normalizeInstanceUrl(rawInst)
         token = prefs[stringPreferencesKey("kv_invidious_token")] ?: ""
         loaded = true
-        com.kvtube.tv.data.api.ApiClient.setInstance(instanceUrl, token.ifBlank { null })
+        ApiClient.setInstance(instanceUrl, token.ifBlank { null })
     }
 
     fun checkForUpdate() {
@@ -162,24 +171,50 @@ fun SettingsScreen() {
         Row(
             Modifier
                 .fillMaxSize()
-                .padding(horizontal = 48.dp, vertical = 32.dp),
-            horizontalArrangement = Arrangement.spacedBy(40.dp),
+                .padding(horizontal = 36.dp, vertical = 26.dp),
+            horizontalArrangement = Arrangement.spacedBy(32.dp),
         ) {
             // ── Left: section menu ────────────────────────────────────────────
-            Column(Modifier.width(320.dp)) {
+            Column(
+                modifier = Modifier
+                    .width(268.dp)
+                    .fillMaxHeight(),
+            ) {
                 Text(
-                    "Settings",
-                    color = Color.White,
-                    style = MaterialTheme.typography.headlineMedium.copy(fontWeight = FontWeight.Bold),
+                    text = "Settings",
+                    color = YTTextPrimary,
+                    style = MaterialTheme.typography.headlineLarge.copy(
+                        fontSize = 26.sp,
+                        fontWeight = FontWeight.Bold,
+                    ),
                 )
-                Spacer(Modifier.height(28.dp))
+                Spacer(Modifier.height(22.dp))
                 SettingsSection.entries.forEach { s ->
                     SectionMenuItem(
                         item = s,
                         selected = section == s,
                         onSelect = { section = s },
+                        focusRequester = if (s == SettingsSection.Connection) connectionMenuFocus else updatesMenuFocus,
                     )
-                    Spacer(Modifier.height(12.dp))
+                    Spacer(Modifier.height(10.dp))
+                }
+                Spacer(Modifier.weight(1f))
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                ) {
+                    KvBrandLockup(
+                        showWordmark = true,
+                        badgeWidth = 22.dp,
+                        badgeHeight = 16.dp,
+                        wordmarkSizeSp = 13.5f,
+                    )
+                    Text(
+                        text = "v$currentVersionName",
+                        color = YTTextTertiary,
+                        style = MaterialTheme.typography.labelSmall,
+                    )
                 }
             }
 
@@ -188,35 +223,39 @@ fun SettingsScreen() {
                 Modifier
                     .weight(1f)
                     .fillMaxHeight()
-                    .clip(RoundedCornerShape(24.dp))
-                    .background(Color(0xFF1A1A1A))
+                    .clip(RoundedCornerShape(20.dp))
+                    .background(YTSurface)
+                    .border(0.75.dp, YTBorderSubtle, RoundedCornerShape(20.dp))
                     .verticalScroll(rememberScrollState())
-                    .padding(32.dp),
-                verticalArrangement = Arrangement.spacedBy(14.dp),
+                    .padding(28.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 when (section) {
                     SettingsSection.Connection -> {
                         PanelTitle("Invidious backend")
                         Text(
-                            "Same server as the web frontend (Settings → Invidious Setup).",
-                            color = Color(0xFF888888),
+                            text = "Same server as the KV-Tube web frontend (Settings -> Invidious Setup).",
+                            color = YTTextSecondary,
                             style = MaterialTheme.typography.bodySmall,
                         )
+                        Spacer(Modifier.height(4.dp))
                         if (!loaded) {
-                            Text("Loading…", color = Color.White)
+                            Text("Loading…", color = YTTextPrimary)
                         } else {
                             SettingsRow(
                                 title = "Instance URL",
                                 value = instanceUrl.ifBlank { "Default" },
+                                leftFocusRequester = activeMenuFocus,
                                 onClick = { showEditInstance = true },
                             )
                             SettingsRow(
                                 title = "Sign-in token",
                                 value = when {
                                     token.isBlank() -> "Not signed in"
-                                    token.startsWith("{") -> "Bearer token …${token.takeLast(4)}"
+                                    token.startsWith("{") -> "Bearer …${token.takeLast(4)}"
                                     else -> "Session …${token.takeLast(4)}"
                                 },
+                                leftFocusRequester = activeMenuFocus,
                                 onClick = { showEditToken = true },
                             )
                             SettingsRow(
@@ -224,40 +263,45 @@ fun SettingsScreen() {
                                 subtitle = "No typing — send your token from your phone or PC",
                                 value = "",
                                 highlightValue = true,
+                                leftFocusRequester = activeMenuFocus,
                                 onClick = { showPairing = true },
                             )
-                            TestConnectionRow(snackbar = snackbar)
+                            TestConnectionRow(leftFocusRequester = activeMenuFocus)
                         }
                     }
 
                     SettingsSection.Updates -> {
                         PanelTitle("KV-Tube TV")
                         Text(
-                            "Version $currentVersion",
-                            color = Color(0xFFAAAAAA),
-                            style = MaterialTheme.typography.bodySmall,
+                            text = "Version $currentVersion",
+                            color = YTTextPrimary,
+                            style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Medium),
                         )
                         Text(
-                            "Check GitHub / Forgejo releases and install the latest APK directly on your TV (requires “Install unknown apps” permission).",
-                            color = Color(0xFF888888),
-                            style = MaterialTheme.typography.labelSmall,
+                            text = "Check releases and install the latest APK directly on your TV (requires “Install unknown apps” permission).",
+                            color = YTTextSecondary,
+                            style = MaterialTheme.typography.bodySmall,
                         )
+                        Spacer(Modifier.height(4.dp))
 
                         SettingsRow(
                             title = if (checkingUpdate) "Checking…" else "Check for update",
                             value = "",
                             enabled = !checkingUpdate && !downloading,
+                            leftFocusRequester = activeMenuFocus,
                             onClick = { checkForUpdate() },
                         )
 
                         if (downloading) {
                             LinearProgressIndicator(
                                 progress = { downloadProgress.coerceIn(0f, 1f) },
-                                modifier = Modifier.fillMaxWidth(),
+                                color = YTBrandRed,
+                                trackColor = Color.White.copy(alpha = 0.2f),
+                                modifier = Modifier.fillMaxWidth().height(5.dp).clip(CircleShape),
                             )
                             Text(
-                                "Downloading ${(downloadProgress * 100).toInt()}% …",
-                                color = Color(0xFFAAAAAA),
+                                text = "Downloading ${(downloadProgress * 100).toInt()}% …",
+                                color = YTTextSecondary,
                                 style = MaterialTheme.typography.labelSmall,
                             )
                         }
@@ -266,6 +310,8 @@ fun SettingsScreen() {
                             SettingsRow(
                                 title = "Download v${updateInfo?.latestVersion}",
                                 value = "",
+                                highlightValue = true,
+                                leftFocusRequester = activeMenuFocus,
                                 onClick = { downloadUpdate() },
                             )
                         }
@@ -275,6 +321,7 @@ fun SettingsScreen() {
                                 subtitle = "Downloaded (${downloadedFile!!.length() / 1024} KB)",
                                 value = "",
                                 highlightValue = true,
+                                leftFocusRequester = activeMenuFocus,
                                 onClick = {
                                     val ok = TvUpdateManager.installApk(ctx, downloadedFile!!)
                                     if (!ok) {
@@ -288,7 +335,7 @@ fun SettingsScreen() {
 
                         updateInfo?.let { info ->
                             Text(
-                                "v${info.latestVersion} — ${info.releaseNotes.take(280)}",
+                                text = "v${info.latestVersion} — ${info.releaseNotes.take(280)}",
                                 color = Color(0xFFE0E0E0),
                                 style = MaterialTheme.typography.bodySmall,
                                 maxLines = 5,
@@ -296,14 +343,14 @@ fun SettingsScreen() {
                         }
                         updateMessage?.let { msg ->
                             Text(
-                                msg,
-                                color = if (msg.startsWith("✓")) Color(0xFF4CAF50) else Color(0xFFAAAAAA),
+                                text = msg,
+                                color = if (msg.startsWith("✓")) Color(0xFF4CAF50) else YTTextSecondary,
                                 style = MaterialTheme.typography.bodySmall,
                             )
                         }
                     }
                 }
-                Spacer(Modifier.height(8.dp))
+                Spacer(Modifier.height(6.dp))
             }
         }
 
@@ -313,12 +360,11 @@ fun SettingsScreen() {
         )
     }
 
-    // ── Dialogs ───────────────────────────────────────────────────────────────
     if (showEditInstance) {
         TvEditValueDialog(
             title = "Instance URL",
             initialValue = instanceUrl,
-            placeholder = "https://yt.khoavo.vndns.net",
+            placeholder = "https://u.khoavo.vndns.net",
             onDismiss = { showEditInstance = false },
             onSave = { url ->
                 showEditInstance = false
@@ -360,52 +406,58 @@ fun SettingsScreen() {
     }
 }
 
-// ── Menu item ────────────────────────────────────────────────────────────────
-
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
 private fun SectionMenuItem(
     item: SettingsSection,
     selected: Boolean,
     onSelect: () -> Unit,
+    focusRequester: FocusRequester? = null,
 ) {
     var focused by remember { mutableStateOf(false) }
     LaunchedEffect(focused) { if (focused) onSelect() }
     Surface(
         onClick = onSelect,
-        modifier = Modifier.fillMaxWidth().onFocusChanged { focused = it.isFocused },
-        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(18.dp)),
-        scale = ClickableSurfaceDefaults.scale(focusedScale = 1f),
+        modifier = Modifier
+            .fillMaxWidth()
+            .onFocusChanged { focused = it.isFocused }
+            .let { if (focusRequester != null) it.focusRequester(focusRequester) else it },
+        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(14.dp)),
+        scale = ClickableSurfaceDefaults.scale(focusedScale = 1.02f),
+        glow = ClickableSurfaceDefaults.glow(
+            focusedGlow = Glow(elevationColor = YTFocusGlow, elevation = 10.dp),
+        ),
         colors = ClickableSurfaceDefaults.colors(
-            containerColor = if (selected) Color(0xFF2A2A2A) else Color.Transparent,
-            focusedContainerColor = Color.White,
-            contentColor = Color.White.copy(alpha = 0.85f),
-            focusedContentColor = Color.Black,
+            containerColor = if (selected) Color.White.copy(alpha = 0.14f) else Color.Transparent,
+            focusedContainerColor = YTFocus,
+            contentColor = YTTextPrimary,
+            focusedContentColor = YTFocusInk,
         ),
         border = ClickableSurfaceDefaults.border(
-            border = Border(BorderStroke(1.dp, Color.Transparent)),
-            focusedBorder = Border(BorderStroke(1.dp, Color.White)),
+            border = Border.None,
+            focusedBorder = Border(BorderStroke(1.5.dp, YTFocus)),
         ),
     ) {
         Row(
-            Modifier.padding(horizontal = 18.dp, vertical = 14.dp),
+            Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Icon(item.icon, contentDescription = null, modifier = Modifier.size(22.dp))
+            Icon(item.icon, contentDescription = null, modifier = Modifier.size(20.dp))
             Spacer(Modifier.width(14.dp))
             Column {
-                Text(item.title, style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold))
                 Text(
-                    item.subtitle,
+                    text = item.title,
+                    style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                )
+                Text(
+                    text = item.subtitle,
                     style = MaterialTheme.typography.labelSmall,
-                    color = if (focused) Color.Black.copy(alpha = 0.6f) else Color(0xFF888888),
+                    color = if (focused) Color(0xFF444444) else YTTextSecondary,
                 )
             }
         }
     }
 }
-
-// ── Generic settings row ─────────────────────────────────────────────────────
 
 @OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
@@ -416,54 +468,69 @@ private fun SettingsRow(
     subtitle: String? = null,
     enabled: Boolean = true,
     highlightValue: Boolean = false,
+    leftFocusRequester: FocusRequester? = null,
 ) {
+    var focused by remember { mutableStateOf(false) }
+
     Surface(
         onClick = onClick,
         enabled = enabled,
-        modifier = Modifier.fillMaxWidth(),
-        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(16.dp)),
-        scale = ClickableSurfaceDefaults.scale(focusedScale = 1f),
+        modifier = Modifier
+            .fillMaxWidth()
+            .onFocusChanged { focused = it.isFocused }
+            .let {
+                if (leftFocusRequester != null) it.focusProperties { left = leftFocusRequester } else it
+            },
+        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(14.dp)),
+        scale = ClickableSurfaceDefaults.scale(focusedScale = 1.015f),
+        glow = ClickableSurfaceDefaults.glow(
+            focusedGlow = Glow(elevationColor = YTFocusGlow, elevation = 10.dp),
+        ),
         colors = ClickableSurfaceDefaults.colors(
-            containerColor = YTSurfaceVariant,
-            focusedContainerColor = Color.White,
-            contentColor = Color.White,
-            focusedContentColor = Color.Black,
-            disabledContainerColor = YTSurfaceVariant.copy(alpha = 0.5f),
-            disabledContentColor = Color(0xFF666666),
+            containerColor = YTSurfaceElevated,
+            focusedContainerColor = YTFocus,
+            contentColor = YTTextPrimary,
+            focusedContentColor = YTFocusInk,
+            disabledContainerColor = YTSurfaceElevated.copy(alpha = 0.45f),
+            disabledContentColor = YTTextTertiary,
         ),
         border = ClickableSurfaceDefaults.border(
-            border = Border(BorderStroke(1.dp, Color.Transparent)),
-            focusedBorder = Border(BorderStroke(1.dp, Color.Black)),
+            border = Border(BorderStroke(0.75.dp, YTBorderSubtle)),
+            focusedBorder = Border(BorderStroke(1.5.dp, YTFocus)),
         ),
     ) {
         Row(
-            Modifier.padding(horizontal = 20.dp, vertical = 16.dp),
+            Modifier.padding(horizontal = 20.dp, vertical = 15.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Column(Modifier.weight(1f)) {
-                Text(title, style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold))
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold),
+                )
                 if (subtitle != null) {
+                    Spacer(Modifier.height(2.dp))
                     Text(
-                        subtitle,
+                        text = subtitle,
                         style = MaterialTheme.typography.labelSmall,
-                        color = Color(0xFF999999),
+                        color = if (focused) Color(0xFF444444) else YTTextSecondary,
                     )
                 }
             }
             if (value.isNotBlank()) {
                 Text(
-                    value,
+                    text = value,
                     style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Medium),
-                    color = Color(0xFFAAAAAA),
+                    color = if (focused) Color(0xFF222222) else YTTextSecondary,
                     maxLines = 1,
-                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
-                    modifier = Modifier.widthIn(max = 340.dp),
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.widthIn(max = 320.dp),
                 )
             } else if (highlightValue) {
                 Text(
-                    "Open ›",
+                    text = "Open ›",
                     style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold),
-                    color = YTBrandRed,
+                    color = if (focused) YTFocusInk else YTBrandRed,
                 )
             }
         }
@@ -471,25 +538,26 @@ private fun SettingsRow(
 }
 
 @Composable
-private fun TestConnectionRow(snackbar: SnackbarHostState) {
+private fun TestConnectionRow(leftFocusRequester: FocusRequester? = null) {
     val scope = rememberCoroutineScope()
     var testing by remember { mutableStateOf(false) }
     var result by remember { mutableStateOf<String?>(null) }
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         SettingsRow(
-            title = "Test connection",
+            title = if (testing) "Testing connection…" else "Test connection",
             value = "",
             enabled = !testing,
+            leftFocusRequester = leftFocusRequester,
             onClick = {
                 scope.launch {
                     testing = true
                     result = null
                     try {
-                        val r = com.kvtube.tv.data.api.ApiClient.api.getTrending("VN")
-                        val modeStr = if (com.kvtube.tv.data.api.ApiClient.isGatewayMode) " (gateway mode)" else ""
+                        val r = ApiClient.api.getTrending("VN")
+                        val modeStr = if (ApiClient.isGatewayMode) " (gateway mode)" else ""
                         result = "✓ Connected$modeStr — trending: ${r.size} videos"
                     } catch (e: Exception) {
-                        result = "✗ Failed: ${e.message ?: e.javaClass.simpleName} (${com.kvtube.tv.data.api.ApiClient.baseUrl})"
+                        result = "✗ Failed: ${e.message ?: e.javaClass.simpleName} (${ApiClient.baseUrl})"
                     } finally {
                         testing = false
                     }
@@ -498,7 +566,7 @@ private fun TestConnectionRow(snackbar: SnackbarHostState) {
         )
         result?.let {
             Text(
-                it,
+                text = it,
                 color = if (it.startsWith("✓")) Color(0xFF4CAF50) else Color(0xFFFF6B6B),
                 style = MaterialTheme.typography.bodySmall,
             )
@@ -506,17 +574,20 @@ private fun TestConnectionRow(snackbar: SnackbarHostState) {
     }
 }
 
+@OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
 private fun PanelTitle(text: String) {
     Text(
-        text,
-        color = Color.White,
-        style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
+        text = text,
+        color = YTTextPrimary,
+        style = MaterialTheme.typography.titleLarge.copy(
+            fontSize = 20.sp,
+            fontWeight = FontWeight.Bold,
+        ),
     )
 }
 
-// ── Edit-value dialog (D-pad safe) ───────────────────────────────────────────
-
+@OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
 private fun TvEditValueDialog(
     title: String,
@@ -533,38 +604,70 @@ private fun TvEditValueDialog(
     Dialog(onDismissRequest = onDismiss) {
         Column(
             Modifier
-                .width(680.dp)
-                .clip(RoundedCornerShape(24.dp))
-                .background(Color(0xFF1E1E1E))
+                .width(640.dp)
+                .clip(RoundedCornerShape(20.dp))
+                .background(YTSurfaceElevated)
+                .border(1.dp, YTBorder, RoundedCornerShape(20.dp))
                 .padding(28.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-            Text(title, color = Color.White, style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold))
+            Text(
+                text = title,
+                color = YTTextPrimary,
+                style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
+            )
             TvTextField(
                 value = text,
                 onValueChange = { text = it },
-                label = { Text(title, color = Color(0xFFAAAAAA)) },
-                placeholder = { Text(placeholder, color = Color(0xFF6E6E6E)) },
-                imeAction = androidx.compose.ui.text.input.ImeAction.Done,
+                label = { Text(title, color = YTTextSecondary) },
+                placeholder = { Text(placeholder, color = YTTextTertiary) },
+                imeAction = ImeAction.Done,
             )
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                OutlinedButton(onClick = onDismiss) { Text("Cancel", color = Color.White) }
+                Button(
+                    onClick = onDismiss,
+                    shape = ButtonDefaults.shape(CircleShape),
+                    colors = ButtonDefaults.colors(
+                        containerColor = YTChip,
+                        contentColor = YTTextPrimary,
+                        focusedContainerColor = YTFocus,
+                        focusedContentColor = YTFocusInk,
+                    ),
+                ) {
+                    Text("Cancel", fontWeight = FontWeight.Medium)
+                }
                 Button(
                     onClick = { onSave(text.trim()) },
-                    colors = ButtonDefaults.buttonColors(containerColor = YTBrandRed),
+                    shape = ButtonDefaults.shape(CircleShape),
+                    colors = ButtonDefaults.colors(
+                        containerColor = YTBrandRed,
+                        contentColor = Color.White,
+                        focusedContainerColor = YTFocus,
+                        focusedContentColor = YTFocusInk,
+                    ),
                     modifier = Modifier.focusRequester(saveRequester),
-                ) { Text("Save") }
+                ) {
+                    Text("Save", fontWeight = FontWeight.Bold)
+                }
                 if (allowRemove && onRemove != null) {
                     Spacer(Modifier.weight(1f))
                     Button(
                         onClick = onRemove,
-                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF444444)),
-                    ) { Text("Remove", color = Color.White) }
+                        shape = ButtonDefaults.shape(CircleShape),
+                        colors = ButtonDefaults.colors(
+                            containerColor = Color(0xFF333333),
+                            contentColor = YTTextPrimary,
+                            focusedContainerColor = YTFocus,
+                            focusedContentColor = YTFocusInk,
+                        ),
+                    ) {
+                        Text("Remove", fontWeight = FontWeight.Medium)
+                    }
                 }
             }
             Text(
-                "Tip: D-pad up/down always jumps out of the text box.",
-                color = Color(0xFF777777),
+                text = "Tip: D-pad up/down moves cleanly between input and buttons.",
+                color = YTTextTertiary,
                 style = MaterialTheme.typography.labelSmall,
             )
         }
@@ -573,8 +676,7 @@ private fun TvEditValueDialog(
     LaunchedEffect(Unit) { saveRequester.requestFocus() }
 }
 
-// ── Pairing dialog ───────────────────────────────────────────────────────────
-
+@OptIn(ExperimentalTvMaterial3Api::class)
 @Composable
 private fun TvPairingDialog(
     baseUrl: String,
@@ -582,7 +684,7 @@ private fun TvPairingDialog(
     onPaired: (String?, String?) -> Unit,
 ) {
     var code by remember { mutableStateOf<String?>(null) }
-    var phase by remember { mutableStateOf("loading") } // loading | waiting | paired | failed
+    var phase by remember { mutableStateOf("loading") }
     val doneRequester = remember { FocusRequester() }
 
     LaunchedEffect(Unit) {
@@ -605,9 +707,7 @@ private fun TvPairingDialog(
                         TvPairApi.Status.Waiting -> Unit
                     }
                 }
-            } catch (_: Exception) {
-                // transient network errors — keep polling until deadline
-            }
+            } catch (_: Exception) {}
             delay(3000)
         }
         if (phase != "paired") phase = "failed"
@@ -616,49 +716,59 @@ private fun TvPairingDialog(
     Dialog(onDismissRequest = onDismiss) {
         Column(
             Modifier
-                .width(680.dp)
-                .clip(RoundedCornerShape(24.dp))
-                .background(Color(0xFF1E1E1E))
+                .width(640.dp)
+                .clip(RoundedCornerShape(20.dp))
+                .background(YTSurfaceElevated)
+                .border(1.dp, YTBorder, RoundedCornerShape(20.dp))
                 .padding(28.dp),
             verticalArrangement = Arrangement.spacedBy(18.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            Text("Pair device", color = Color.White, style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold))
+            Text(
+                text = "Pair device",
+                color = YTTextPrimary,
+                style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
+            )
 
             when (phase) {
                 "loading" -> {
                     CircularProgressIndicator(color = YTBrandRed)
-                    Text("Generating code…", color = Color(0xFFAAAAAA), style = MaterialTheme.typography.bodySmall)
+                    Text("Generating code…", color = YTTextSecondary, style = MaterialTheme.typography.bodySmall)
                 }
                 "waiting" -> {
                     Text(
-                        code ?: "",
-                        color = Color.White,
+                        text = code ?: "",
+                        color = YTTextPrimary,
                         style = MaterialTheme.typography.displaySmall.copy(
                             fontFamily = FontFamily.Monospace,
                             letterSpacing = 10.sp,
                             fontWeight = FontWeight.Bold,
                         ),
                         modifier = Modifier
-                            .background(Color(0xFF111111), RoundedCornerShape(16.dp))
+                            .background(YTBackground, RoundedCornerShape(14.dp))
+                            .border(1.dp, YTBorderSubtle, RoundedCornerShape(14.dp))
                             .padding(horizontal = 32.dp, vertical = 14.dp),
                     )
                     Text(
-                        "On your phone or computer open KV-Tube Web → Settings →\n“Pair Android TV”, then enter this code.",
-                        color = Color(0xFFAAAAAA),
+                        text = "On your phone or computer open KV-Tube Web -> Settings ->\n“Pair Android TV”, then enter this code.",
+                        color = YTTextSecondary,
                         style = MaterialTheme.typography.bodySmall,
                     )
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                         CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp, color = YTBrandRed)
-                        Text("Waiting for link…", color = Color(0xFF888888), style = MaterialTheme.typography.labelSmall)
+                        Text("Waiting for link…", color = YTTextTertiary, style = MaterialTheme.typography.labelSmall)
                     }
                 }
                 "paired" -> {
-                    Text("✓ Paired!", color = Color(0xFF4CAF50), style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold))
+                    Text(
+                        text = "✓ Paired!",
+                        color = Color(0xFF4CAF50),
+                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                    )
                 }
                 else -> {
                     Text(
-                        "Could not reach the pairing service.\nMake sure this TV points at your KV-Tube server (check Instance URL).",
+                        text = "Could not reach the pairing service.\nMake sure this TV points at your KV-Tube server (check Instance URL).",
                         color = Color(0xFFFF6B6B),
                         style = MaterialTheme.typography.bodySmall,
                     )
@@ -667,9 +777,17 @@ private fun TvPairingDialog(
 
             Button(
                 onClick = onDismiss,
-                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF333333)),
+                shape = ButtonDefaults.shape(CircleShape),
+                colors = ButtonDefaults.colors(
+                    containerColor = YTChip,
+                    contentColor = YTTextPrimary,
+                    focusedContainerColor = YTFocus,
+                    focusedContentColor = YTFocusInk,
+                ),
                 modifier = Modifier.focusRequester(doneRequester),
-            ) { Text(if (phase == "paired") "Done" else "Close", color = Color.White) }
+            ) {
+                Text(if (phase == "paired") "Done" else "Close", fontWeight = FontWeight.SemiBold)
+            }
         }
     }
 

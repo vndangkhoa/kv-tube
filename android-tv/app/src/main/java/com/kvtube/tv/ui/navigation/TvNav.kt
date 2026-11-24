@@ -1,6 +1,7 @@
 package com.kvtube.tv.ui.navigation
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
@@ -13,10 +14,13 @@ import com.kvtube.tv.ui.screens.*
 @Composable
 fun TvNavHost(currentTheme: String = "youtube") {
     val nav = rememberNavController()
-    androidx.compose.runtime.CompositionLocalProvider(LocalTvNav provides nav) {
+    CompositionLocalProvider(LocalTvNav provides nav) {
         NavHost(navController = nav, startDestination = "home") {
             composable("home") {
-                HomeScreen(onVideoClick = { id -> nav.navigate("player/$id") }, onChannelClick = { cid -> nav.navigate("channel/$cid") })
+                HomeScreen(
+                    onVideoClick = { id -> nav.navigate("player/$id") },
+                    onChannelClick = { cid -> if (cid.isNotBlank()) nav.navigate("channel/$cid") },
+                )
             }
             composable("latest") {
                 LatestScreen(onVideoClick = { id -> nav.navigate("player/$id") })
@@ -24,15 +28,25 @@ fun TvNavHost(currentTheme: String = "youtube") {
             composable("search") {
                 SearchScreen(onVideoClick = { id -> nav.navigate("player/$id") })
             }
-            composable("library") { LibraryScreen(onVideoClick = { id -> nav.navigate("player/$id") }) }
+            composable("library") {
+                LibraryScreen(onVideoClick = { id -> nav.navigate("player/$id") })
+            }
             composable("settings") { SettingsScreen() }
             composable("watch/{videoId}", arguments = listOf(navArgument("videoId") { type = NavType.StringType })) { backStack ->
                 val id = backStack.arguments?.getString("videoId") ?: return@composable
-                PlayerScreen(videoId = id, onBack = { nav.popBackStack() })
+                PlayerScreen(
+                    videoId = id,
+                    onBack = { nav.popBackStack() },
+                    onChannelClick = { cid -> if (cid.isNotBlank()) nav.navigate("channel/$cid") },
+                )
             }
             composable("player/{videoId}", arguments = listOf(navArgument("videoId") { type = NavType.StringType })) { backStack ->
                 val id = backStack.arguments?.getString("videoId") ?: return@composable
-                PlayerScreen(videoId = id, onBack = { nav.popBackStack() })
+                PlayerScreen(
+                    videoId = id,
+                    onBack = { nav.popBackStack() },
+                    onChannelClick = { cid -> if (cid.isNotBlank()) nav.navigate("channel/$cid") },
+                )
             }
             composable("channel/{channelId}", arguments = listOf(navArgument("channelId") { type = NavType.StringType })) { backStack ->
                 val cid = backStack.arguments?.getString("channelId") ?: return@composable
