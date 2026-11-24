@@ -33,6 +33,60 @@ class VideoRepository @Inject constructor(
         private const val SERVER_TIMEOUT_MS = 10_000L
         private const val PLAYBACK_TIMEOUT_MS = 15_000L
         private const val EXTRACTOR_TIMEOUT_MS = 10_000L
+        private const val FAST_FALLBACK_TIMEOUT_MS = 4_500L
+
+        private val RELATED_NOISE_WORDS = setOf(
+            "official", "video", "music", "audio", "lyrics",
+            "hd", "4k", "mv", "full", "shorts"
+        )
+
+        fun buildRelatedSearchQuery(title: String, channelTitle: String = ""): String {
+            val cleaned = title
+                .replace(Regex("\\[[^\\]]*]"), " ")
+                .replace(Regex("\\([^)]*\\)"), " ")
+                .replace(Regex("[^\\p{L}\\p{N}\\s]+"), " ")
+                .trim()
+            val tokens = cleaned
+                .split(Regex("\\s+"))
+                .filter { it.length > 1 && it.lowercase() !in RELATED_NOISE_WORDS }
+                .take(4)
+            return if (tokens.isNotEmpty()) tokens.joinToString(" ") else channelTitle.trim()
+        }
+
+        fun rankCachedRelated(
+            candidates: Collection<VideoData>,
+            excludeId: String,
+            titleHint: String = "",
+            channelHint: String = "",
+            limit: Int = 15
+        ): List<VideoData> {
+            val cleanedChannel = channelHint.trim().lowercase()
+            val topicTokens = buildRelatedSearchQuery(titleHint)
+                .lowercase()
+                .split(Regex("\\s+"))
+                .filter { it.length > 1 }
+            val unique = candidates
+                .filter { it.id.isNotBlank() && it.id != excludeId && it.title.isNotBlank() }
+                .distinctBy { it.id }
+            return unique
+                .mapIndexed { idx, video ->
+                    var score = 0
+                    val ch = video.displayChannelTitle.lowercase()
+                    val combinedText = "${video.title} ${video.displayChannelTitle}".lowercase()
+                    if (cleanedChannel.isNotBlank() && ch == cleanedChannel) {
+                        score += 10
+                    }
+                    for (token in topicTokens) {
+                        if (combinedText.contains(token)) {
+                            score += 3
+                        }
+                    }
+                    Triple(score, idx, video)
+                }
+                .sortedWith(compareByDescending<Triple<Int, Int, VideoData>> { it.first }.thenBy { it.second })
+                .map { it.third }
+                .take(limit)
+        }
     }
 
     private val videoCache = java.util.concurrent.ConcurrentHashMap<String, VideoData>()
@@ -187,19 +241,119 @@ class VideoRepository @Inject constructor(
         }
     }
 
-    suspend fun getRelatedVideos(videoId: String, limit: Int = 15): List<VideoData> {
-        // Server recommendations first; trending as an in-instance alternative
-        // so the section is never empty while staying 100% on Invidious.
-        val serverRelated = bounded(SERVER_TIMEOUT_MS) {
-            api.getRelatedVideos(videoId, limit)
-        } ?: emptyList()
+    suspend fun getRelatedVideos(
+        videoId: String,
+        limit: Int = 15,
+        titleHint: String = "",
+        channelHint: String = "",
+        skipPrimaryApi: Boolean = false
+    ): List<VideoData> {
+        fun clean(list: List<VideoData>?): List<VideoData> =
+            list.orEmpty()
+                .filter { it.id.isNotBlank() && it.id != videoId && it.title.isNotBlank() }
+                .distinctBy { it.id }
+                .take(limit)
 
-        if (serverRelated.isNotEmpty()) {
-            seedCache(serverRelated)
-            return serverRelated
+        // Tier 1: Invidious /videos/{id} recommendedVideos
+        if (!skipPrimaryApi) {
+            val serverRelated = clean(bounded(SERVER_TIMEOUT_MS) {
+                api.getRelatedVideos(videoId, limit)
+            })
+            if (serverRelated.isNotEmpty()) {
+                seedCache(serverRelated)
+                return serverRelated
+            }
         }
 
-        return getTrending(limit)
+        // Tier 2: On-device YouTube related stream extraction
+        val extractorRelated = clean(bounded(FAST_FALLBACK_TIMEOUT_MS) {
+            runCatching { extractorHelper.getRelatedVideos(videoId) }.getOrNull()
+        })
+        if (extractorRelated.isNotEmpty()) {
+            seedCache(extractorRelated)
+            return extractorRelated
+        }
+
+        // Tier 3: Topical keyword / channel search
+        val topicQuery = buildRelatedSearchQuery(titleHint, channelHint)
+        if (topicQuery.isNotBlank()) {
+            val topicResults = clean(bounded(FAST_FALLBACK_TIMEOUT_MS) {
+                api.search(topicQuery, limit = limit)
+            })
+            if (topicResults.isNotEmpty()) {
+                seedCache(topicResults)
+                return topicResults
+            }
+        }
+        val trimmedChannel = channelHint.trim()
+        if (trimmedChannel.isNotBlank() && !trimmedChannel.equals(topicQuery, ignoreCase = true)) {
+            val channelResults = clean(bounded(FAST_FALLBACK_TIMEOUT_MS) {
+                api.search(trimmedChannel, limit = limit)
+            })
+            if (channelResults.isNotEmpty()) {
+                seedCache(channelResults)
+                return channelResults
+            }
+        }
+
+        // Tier 4: Trending & Popular feeds
+        val trending = clean(bounded(FAST_FALLBACK_TIMEOUT_MS) {
+            api.getTrending(limit)
+        })
+        if (trending.isNotEmpty()) {
+            seedCache(trending)
+            return trending
+        }
+
+        val popular = clean(bounded(FAST_FALLBACK_TIMEOUT_MS) {
+            api.getPopular(limit)
+        })
+        if (popular.isNotEmpty()) {
+            seedCache(popular)
+            return popular
+        }
+
+        // Tier 5: Local in-memory cache + watch history guarantee
+        return getCachedFallbackVideos(
+            excludeId = videoId,
+            limit = limit,
+            titleHint = titleHint,
+            channelHint = channelHint
+        )
+    }
+
+    suspend fun getCachedFallbackVideos(
+        excludeId: String,
+        limit: Int = 15,
+        titleHint: String = "",
+        channelHint: String = ""
+    ): List<VideoData> {
+        val candidates = ArrayList<VideoData>(videoCache.values)
+        val history = runCatching { watchHistoryDao.getRecentWatched(limit + 10) }.getOrDefault(emptyList())
+        for (h in history) {
+            if (h.videoId.isNotBlank() && h.videoId != excludeId && h.title.isNotBlank()) {
+                candidates.add(
+                    VideoData(
+                        id = h.videoId,
+                        title = h.title,
+                        thumbnail = h.thumbnail.ifBlank {
+                            com.kvtube.android.data.local.ThumbnailRouter.video(h.videoId)
+                        },
+                        channelTitle = h.channelTitle,
+                        uploader = h.channelTitle,
+                        channelId = h.channelId,
+                        duration = h.duration
+                    )
+                )
+            }
+        }
+        return rankCachedRelated(
+            candidates = candidates,
+            excludeId = excludeId,
+            titleHint = titleHint,
+            channelHint = channelHint,
+            limit = limit
+        )
     }
 
     suspend fun getCommentsPage(videoId: String, continuation: String? = null, sortBy: String = "top"): CommentsPage {

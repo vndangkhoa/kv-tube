@@ -98,12 +98,12 @@ import com.kvtube.android.data.model.VideoData
 import com.kvtube.android.ui.adaptive.LocalWindowState
 import com.kvtube.android.ui.adaptive.findActivity
 import com.kvtube.android.ui.components.ChannelAvatar
+import com.kvtube.android.ui.components.CompactVideoRow
+import com.kvtube.android.ui.components.CompactVideoRowSkeleton
 import com.kvtube.android.ui.components.DownloadBottomSheet
 import com.kvtube.android.ui.components.LoadingSpinner
 import com.kvtube.android.ui.components.ShimmerEffect
 import com.kvtube.android.ui.components.SubscribeButton
-import com.kvtube.android.ui.components.VideoCard
-import com.kvtube.android.ui.components.VideoCardSkeleton
 import com.kvtube.android.ui.navigation.Screen
 import com.kvtube.android.ui.theme.AstryxRadius
 import com.kvtube.android.ui.theme.YTBrandRed
@@ -447,7 +447,7 @@ fun WatchScreen(
 
         val relatedCardPadding = Modifier.padding(horizontal = 12.dp, vertical = 2.dp)
 
-        // Related videos (LazyColumn panes: full VideoCards)
+        // Related videos (LazyColumn panes: compact Web-style horizontal rows)
         val relatedItems: LazyListScope.() -> Unit = {
             item {
                 RelatedSectionHeader(
@@ -455,8 +455,8 @@ fun WatchScreen(
                 )
             }
             if (uiState.isLoadingRelated && uiState.relatedVideos.isEmpty()) {
-                items(2, key = { "rel_skel_$it" }) {
-                    VideoCardSkeleton(
+                items(5, key = { "rel_skel_$it" }) {
+                    CompactVideoRowSkeleton(
                         modifier = if (windowState.isCompact) relatedCardPadding else Modifier
                     )
                 }
@@ -465,13 +465,10 @@ fun WatchScreen(
                     uiState.relatedVideos,
                     key = { idx, item -> "${item.id}_$idx" }
                 ) { _, related ->
-                    VideoCard(
+                    CompactVideoRow(
                         video = related,
-                        onVideoClick = { id ->
+                        onClick = { id ->
                             navController.navigate(Screen.Watch.createRoute(id))
-                        },
-                        onChannelClick = { channelId ->
-                            navController.navigate(Screen.Channel.createRoute(channelId))
                         },
                         modifier = if (windowState.isCompact) relatedCardPadding else Modifier
                     )
@@ -578,13 +575,10 @@ fun WatchScreen(
                                             uiState.relatedVideos,
                                             key = { idx, item -> "t_${item.id}_$idx" }
                                         ) { idx, related ->
-                                            VideoCard(
+                                            CompactVideoRow(
                                                 video = related,
-                                                onVideoClick = { id ->
+                                                onClick = { id ->
                                                     navController.navigate(Screen.Watch.createRoute(id))
-                                                },
-                                                onChannelClick = { channelId ->
-                                                    navController.navigate(Screen.Channel.createRoute(channelId))
                                                 },
                                                 modifier = Modifier.padding(
                                                     start = if (idx % 2 == 0) 12.dp else 6.dp,
@@ -593,8 +587,8 @@ fun WatchScreen(
                                             )
                                         }
                                         if (uiState.isLoadingRelated && uiState.relatedVideos.isEmpty()) {
-                                            items(2) { idx ->
-                                                VideoCardSkeleton(
+                                            items(4) { idx ->
+                                                CompactVideoRowSkeleton(
                                                     modifier = Modifier.padding(
                                                         start = if (idx % 2 == 0) 12.dp else 6.dp,
                                                         end = if (idx % 2 == 0) 6.dp else 12.dp
@@ -656,13 +650,10 @@ fun WatchScreen(
                                     uiState.relatedVideos,
                                     key = { idx, item -> "fp_${item.id}_$idx" }
                                 ) { idx, related ->
-                                    VideoCard(
+                                    CompactVideoRow(
                                         video = related,
-                                        onVideoClick = { id ->
+                                        onClick = { id ->
                                             navController.navigate(Screen.Watch.createRoute(id))
-                                        },
-                                        onChannelClick = { channelId ->
-                                            navController.navigate(Screen.Channel.createRoute(channelId))
                                         },
                                         modifier = Modifier.padding(
                                             start = if (idx % 2 == 0) 12.dp else 6.dp,
@@ -671,8 +662,8 @@ fun WatchScreen(
                                     )
                                 }
                                 if (uiState.isLoadingRelated && uiState.relatedVideos.isEmpty()) {
-                                    items(2) { idx ->
-                                        VideoCardSkeleton(
+                                    items(4) { idx ->
+                                        CompactVideoRowSkeleton(
                                             modifier = Modifier.padding(
                                                 start = if (idx % 2 == 0) 12.dp else 6.dp,
                                                 end = if (idx % 2 == 0) 6.dp else 12.dp
@@ -747,8 +738,8 @@ fun WatchScreen(
                                     ) {
                                         LazyColumn(
                                             modifier = Modifier.fillMaxSize(),
-                                            contentPadding = PaddingValues(12.dp),
-                                            verticalArrangement = Arrangement.spacedBy(12.dp)
+                                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp),
+                                            verticalArrangement = Arrangement.spacedBy(6.dp)
                                         ) {
                                             relatedItems()
                                         }
@@ -815,8 +806,8 @@ fun WatchScreen(
                             ) {
                                 LazyColumn(
                                     modifier = Modifier.fillMaxSize(),
-                                    contentPadding = PaddingValues(12.dp),
-                                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                                    contentPadding = PaddingValues(horizontal = 10.dp, vertical = 8.dp),
+                                    verticalArrangement = Arrangement.spacedBy(6.dp)
                                 ) {
                                     relatedItems()
                                 }

@@ -109,6 +109,45 @@ fun VideoCardSkeleton(modifier: Modifier = Modifier) {
 }
 
 @Composable
+fun CompactVideoRowSkeleton(modifier: Modifier = Modifier) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(vertical = 3.dp),
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+        verticalAlignment = Alignment.Top
+    ) {
+        Box(
+            modifier = Modifier
+                .width(136.dp)
+                .aspectRatio(16f / 9f)
+                .clip(RoundedCornerShape(8.dp))
+        ) {
+            ShimmerEffect(modifier = Modifier.fillMaxSize())
+        }
+        Column(modifier = Modifier.weight(1f)) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth(0.92f)
+                    .height(13.dp)
+                    .clip(RoundedCornerShape(4.dp))
+            ) {
+                ShimmerEffect(modifier = Modifier.fillMaxSize())
+            }
+            Spacer(modifier = Modifier.height(6.dp))
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth(0.58f)
+                    .height(11.dp)
+                    .clip(RoundedCornerShape(4.dp))
+            ) {
+                ShimmerEffect(modifier = Modifier.fillMaxSize())
+            }
+        }
+    }
+}
+
+@Composable
 fun VideoGridSkeleton() {
     val chromeInsets = com.kvtube.android.ui.theme.LocalGlassChromeInsets.current
     CenteredContent {

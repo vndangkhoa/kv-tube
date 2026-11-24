@@ -3,10 +3,10 @@
 import { useEffect, useState, useCallback, useMemo, lazy, Suspense, useRef } from 'react';
 import { useSearchParams } from 'next/navigation';
 import DownloadSheet from './DownloadSheet';
-import { getVideoDetailsClient, getRelatedVideosClient, getCommentsClient, getCommentsPageClient, searchVideosClient } from '../clientActions';
+import { getVideoDetailsClient, getRelatedVideosClient, getTrendingVideosClient, getCommentsClient, getCommentsPageClient, searchVideosClient } from '../clientActions';
 import { VideoData } from '../constants';
 import { proxiedThumb, proxiedImageUrl, formatRelativeTime, getThumbnailCascade } from '../utils';
-import { isVideoSaved, toggleSaveVideo, addToHistory, isSubscribed, toggleSubscription, isVideoLiked, toggleLikeVideo } from '../storage';
+import { isVideoSaved, toggleSaveVideo, addToHistory, getHistory, isSubscribed, toggleSubscription, isVideoLiked, toggleLikeVideo } from '../storage';
 import { invidious } from '../services/invidious';
 import LoadingSpinner from '../components/LoadingSpinner';
 import Link from 'next/link';
@@ -1566,10 +1566,39 @@ export default function ClientWatchPage() {
                     invidious.addAuthHistory(videoId).catch(() => {});
                 }
 
-                const uniqueRelated = (Array.isArray(upNextResult) ? upNextResult : [])
+                let uniqueRelated = (Array.isArray(upNextResult) ? upNextResult : [])
                     .filter((v, i, self) =>
                         i === self.findIndex(item => item.id === v.id) && v.id !== videoId
                     );
+                if (uniqueRelated.length === 0) {
+                    const topic = titleKeywords(video?.title || '', 4);
+                    const uploaderHint = video?.channelTitle || video?.uploader || '';
+                    const searchFallback = await searchWithFallback(
+                        [topic, uploaderHint, 'music popular'],
+                        12,
+                        20,
+                        new Set<string>([videoId])
+                    ).catch(() => []);
+                    uniqueRelated = searchFallback.length > 0
+                        ? searchFallback
+                        : (await getTrendingVideosClient(
+                            (typeof window !== 'undefined' ? localStorage.getItem('kv_region') : null) || 'VN',
+                            15
+                        ).catch(() => [])).filter((v) => v.id && v.id !== videoId);
+                    if (uniqueRelated.length === 0) {
+                        uniqueRelated = getHistory(20)
+                            .filter((h) => h.videoId && h.videoId !== videoId && h.title)
+                            .map((h) => ({
+                                id: h.videoId,
+                                title: h.title,
+                                thumbnail: h.thumbnail || proxiedThumb(h.videoId, 'mqdefault'),
+                                channelTitle: h.channelTitle || 'Creator',
+                                channelId: h.channelId || '',
+                                uploader: h.channelTitle || 'Creator',
+                                duration: h.duration || '',
+                            }));
+                    }
+                }
                 setRelatedVideos(uniqueRelated);
 
                 // Gently prefetch the #1 Up Next video in the background once playback settles

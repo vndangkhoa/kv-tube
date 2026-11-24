@@ -90,6 +90,7 @@ class WatchViewModel @Inject constructor(
     /** True while the adaptive DASH stream (ExoPlayer ABR) is the active source. */
     private var dashActive = false
     private var progressiveFallbackStarted = false
+    private var hasAuthoritativeRelated = false
     private var cachedPlaybackInfo: PlaybackInfo? = null
 
     private val _uiState = MutableStateFlow(WatchUiState())
@@ -302,6 +303,7 @@ class WatchViewModel @Inject constructor(
         }
 
     private fun loadVideo() {
+        hasAuthoritativeRelated = false
         viewModelScope.launch {
             loadComments()
             launch {
@@ -324,6 +326,7 @@ class WatchViewModel @Inject constructor(
 
             // Single coalesced /videos/{id} request for metadata + related + formats
             val bundleDeferred = async { loadVideoBundle() }
+            launch { loadRelatedVideos(bundleDeferred) }
 
             try {
                 _uiState.value = _uiState.value.copy(isLoading = false, error = null)
@@ -468,20 +471,84 @@ class WatchViewModel @Inject constructor(
         }
 
         val bundleRelated = bundle?.relatedVideos
-            ?.filter { it.id != videoId && it.id.isNotBlank() }
+            ?.filter { it.id != videoId && it.id.isNotBlank() && it.title.isNotBlank() }
+            ?.distinctBy { it.id }
             .orEmpty()
-        val finalRelated = if (bundleRelated.isNotEmpty()) {
-            bundleRelated
-        } else {
-            runCatching { videoRepository.getTrending(15) }
-                .getOrNull().orEmpty()
-                .filter { it.id != videoId && it.id.isNotBlank() }
+        if (bundleRelated.isNotEmpty()) {
+            hasAuthoritativeRelated = true
+            _uiState.value = _uiState.value.copy(
+                relatedVideos = bundleRelated,
+                isLoadingRelated = false
+            )
         }
-        _uiState.value = _uiState.value.copy(
-            relatedVideos = finalRelated.ifEmpty { _uiState.value.relatedVideos },
-            isLoadingRelated = false
-        )
         return bundle
+    }
+
+    /** Guarantees Related Videos populates quickly with instant ranked cache + remote upgrades. */
+    private suspend fun loadRelatedVideos(bundleDeferred: Deferred<KVApi.VideoBundle?>) {
+        val bundle = withTimeoutOrNull(1_800L) {
+            runCatching { bundleDeferred.await() }.getOrNull()
+        }
+        val bundleRelated = bundle?.relatedVideos
+            ?.filter { it.id != videoId && it.id.isNotBlank() && it.title.isNotBlank() }
+            ?.distinctBy { it.id }
+            .orEmpty()
+        if (bundleRelated.isNotEmpty()) {
+            hasAuthoritativeRelated = true
+            _uiState.value = _uiState.value.copy(
+                relatedVideos = bundleRelated,
+                isLoadingRelated = false
+            )
+            return
+        }
+
+        // Fast floor at 1.8s so users never stare at skeletons during slow/congested server calls
+        val currentVideo = _uiState.value.video
+        val titleHint = currentVideo?.title.orEmpty()
+        val channelHint = currentVideo?.displayChannelTitle.orEmpty()
+        val cachedFallback = runCatching {
+            videoRepository.getCachedFallbackVideos(
+                excludeId = videoId,
+                limit = 15,
+                titleHint = titleHint,
+                channelHint = channelHint
+            )
+        }.getOrDefault(emptyList())
+        if (cachedFallback.isNotEmpty() && !hasAuthoritativeRelated) {
+            _uiState.value = _uiState.value.copy(
+                relatedVideos = cachedFallback,
+                isLoadingRelated = false
+            )
+        }
+
+        // Remote fallback (skipPrimaryApi=true so /videos/{id} is never duplicated while bundleDeferred runs)
+        val latestVideo = _uiState.value.video ?: currentVideo
+        val resolved = runCatching {
+            videoRepository.getRelatedVideos(
+                videoId = videoId,
+                limit = 15,
+                titleHint = latestVideo?.title.orEmpty(),
+                channelHint = latestVideo?.displayChannelTitle.orEmpty(),
+                skipPrimaryApi = true
+            )
+        }.getOrDefault(emptyList())
+
+        if (!hasAuthoritativeRelated) {
+            if (resolved.isNotEmpty()) {
+                hasAuthoritativeRelated = true
+                _uiState.value = _uiState.value.copy(
+                    relatedVideos = resolved,
+                    isLoadingRelated = false
+                )
+            } else {
+                _uiState.value = _uiState.value.copy(
+                    relatedVideos = _uiState.value.relatedVideos.ifEmpty { cachedFallback },
+                    isLoadingRelated = false
+                )
+            }
+        } else if (_uiState.value.isLoadingRelated) {
+            _uiState.value = _uiState.value.copy(isLoadingRelated = false)
+        }
     }
 
     /** Progressive (non-adaptive) loading — used only when DASH is unavailable. */

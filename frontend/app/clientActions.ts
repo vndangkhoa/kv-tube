@@ -194,28 +194,71 @@ export async function getVideoDetailsClient(videoId: string): Promise<VideoData 
   };
 }
 
-// Get related videos using Invidious
-export async function getRelatedVideosClient(videoId: string, limit: number = 15): Promise<VideoData[]> {
+// Get related videos using Invidious with multi-tier fallback
+export async function getRelatedVideosClient(
+  videoId: string,
+  limit: number = 15,
+  titleHint?: string,
+  channelHint?: string
+): Promise<VideoData[]> {
   if (!videoId) return [];
   const cacheKey = `rel_${videoId}_${limit}`;
   const cached = getClientCache<VideoData[]>(cacheKey);
   if (cached && cached.length > 0) return cached;
 
+  const dedupe = (items: VideoData[]): VideoData[] => {
+    const seen = new Set<string>([videoId]);
+    const out: VideoData[] = [];
+    for (const v of items) {
+      if (v?.id && v.title && !seen.has(v.id)) {
+        seen.add(v.id);
+        out.push(v);
+        if (out.length >= limit) break;
+      }
+    }
+    return out;
+  };
+
   try {
     const video = await invidious.getVideo(videoId);
     if (video && Array.isArray(video.recommendedVideos) && video.recommendedVideos.length > 0) {
-      const transformed = video.recommendedVideos
-        .map(transformVideo)
-        .filter((v) => v.id && v.title)
-        .slice(0, limit);
-      setClientCache(cacheKey, transformed);
-      return transformed;
+      const transformed = dedupe(video.recommendedVideos.map(transformVideo));
+      if (transformed.length > 0) {
+        setClientCache(cacheKey, transformed);
+        return transformed;
+      }
     }
   } catch {}
 
-  // Fallback search
+  const cleanTopic = (titleHint || '')
+    .replace(/\[[^\]]*\]/g, ' ')
+    .replace(/\([^)]*\)/g, ' ')
+    .replace(/[^a-zA-Z0-9\p{L}\s]/gu, ' ')
+    .replace(/\b(official|video|music|audio|lyrics|hd|4k|mv|full|shorts)\b/gi, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .split(' ')
+    .filter((w) => w.length > 1)
+    .slice(0, 4)
+    .join(' ');
+
+  for (const q of [cleanTopic, (channelHint || '').trim()]) {
+    if (!q) continue;
+    try {
+      const res = dedupe(await searchVideosClient(q, limit));
+      if (res.length > 0) return res;
+    } catch {}
+  }
+
   try {
-    const fallbackResults = await searchVideosClient('trending recommended videos', limit);
+    const region =
+      (typeof window !== 'undefined' ? localStorage.getItem('kv_region') : null) || 'VN';
+    const trending = dedupe(await getTrendingVideosClient(region, limit));
+    if (trending.length > 0) return trending;
+  } catch {}
+
+  try {
+    const fallbackResults = dedupe(await searchVideosClient('popular music videos', limit));
     if (fallbackResults.length > 0) return fallbackResults;
   } catch {}
 

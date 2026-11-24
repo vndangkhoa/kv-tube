@@ -34,7 +34,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImage
 import com.kvtube.android.data.model.VideoData
-import com.kvtube.android.ui.theme.AstryxRadius
 
 @Composable
 fun CompactVideoRow(
@@ -45,9 +44,8 @@ fun CompactVideoRow(
     onMoreClick: (() -> Unit)? = null
 ) {
     androidx.compose.foundation.layout.BoxWithConstraints(modifier = modifier.fillMaxWidth()) {
-        // Narrow side panes (foldables) would leave the text a sliver with a fixed
-        // 168dp thumbnail, so size it relative to the available row width.
-        val thumbWidth = thumbnailWidth ?: (maxWidth * 0.42f).coerceIn(112.dp, 168.dp)
+        // Keep thumbnails compact like YouTube Web (~140–156dp) while scaling down on narrow panes
+        val thumbWidth = thumbnailWidth ?: (maxWidth * 0.38f).coerceIn(112.dp, 156.dp)
         CompactVideoRowContent(video, onClick, thumbWidth, onMoreClick)
     }
 }
@@ -59,12 +57,12 @@ private fun CompactVideoRowContent(
     thumbnailWidth: Dp,
     onMoreClick: (() -> Unit)?
 ) {
-    val shape = RoundedCornerShape(AstryxRadius.container)
+    val shape = RoundedCornerShape(8.dp)
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .clickable { onClick(video.id) }
-            .padding(vertical = 4.dp),
+            .padding(vertical = 3.dp),
         horizontalArrangement = Arrangement.spacedBy(10.dp),
         verticalAlignment = Alignment.Top
     ) {
@@ -100,19 +98,19 @@ private fun CompactVideoRowContent(
             Text(
                 text = video.title,
                 style = MaterialTheme.typography.bodyMedium.copy(
-                    fontSize = 14.sp,
+                    fontSize = 13.sp,
                     fontWeight = FontWeight.Medium,
-                    lineHeight = 18.sp
+                    lineHeight = 17.sp
                 ),
                 color = MaterialTheme.colorScheme.onSurface,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis
             )
-            Spacer(modifier = Modifier.height(4.dp))
+            Spacer(modifier = Modifier.height(3.dp))
             if (video.displayChannelTitle.isNotBlank()) {
                 Text(
                     text = video.displayChannelTitle,
-                    style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp),
+                    style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.5.sp),
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
@@ -128,7 +126,7 @@ private fun CompactVideoRowContent(
             if (meta.isNotBlank()) {
                 Text(
                     text = meta,
-                    style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp),
+                    style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.5.sp),
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
