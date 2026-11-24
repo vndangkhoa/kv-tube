@@ -23,6 +23,7 @@ import javax.inject.Inject
 
 data class SettingsUiState(
     val serverUrl: String = "",
+    val savedServerUrls: List<String> = emptyList(),
     val invidiousToken: String = "",
     val themeMode: String = "dark",
     val region: String = "GLOBAL",
@@ -63,12 +64,14 @@ class SettingsViewModel @Inject constructor(
     init {
         viewModelScope.launch {
             val sUrl = settingsDataStore.serverUrl.first()
+            val savedUrls = settingsDataStore.savedServerUrls.first()
             val sToken = settingsDataStore.invidiousToken.first()
             val sTheme = settingsDataStore.themeMode.first()
             val sRegion = settingsDataStore.region.first()
 
             _uiState.value = SettingsUiState(
                 serverUrl = sUrl,
+                savedServerUrls = savedUrls,
                 invidiousToken = sToken,
                 themeMode = sTheme,
                 region = sRegion
@@ -76,6 +79,11 @@ class SettingsViewModel @Inject constructor(
             refreshCacheSize()
             if (sUrl.isNotBlank()) {
                 testConnection(sUrl)
+            }
+        }
+        viewModelScope.launch {
+            settingsDataStore.savedServerUrls.collect { saved ->
+                _uiState.value = _uiState.value.copy(savedServerUrls = saved)
             }
         }
     }
@@ -137,6 +145,7 @@ class SettingsViewModel @Inject constructor(
         }
 
         viewModelScope.launch {
+            settingsDataStore.rememberServerUrl(cleanUrl)
             _uiState.value = _uiState.value.copy(
                 isTestingConnection = true,
                 testSuccess = null,
@@ -146,9 +155,9 @@ class SettingsViewModel @Inject constructor(
             )
             val result = api.testServerConnection(cleanUrl)
             if (result.ok) {
-                settingsDataStore.setServerUrl(cleanUrl)
+                settingsDataStore.setServerUrl(cleanUrl, isGateway = result.isGateway)
                 settingsDataStore.setInvidiousToken(cleanToken)
-                api.setServerUrl(cleanUrl)
+                api.setServerUrl(cleanUrl, cachedGatewayMode = result.isGateway)
                 api.setToken(cleanToken)
                 com.kvtube.android.data.local.ThumbnailRouter.setServer(cleanUrl, result.isGateway)
                 subscriptionRepository.clearCache()
@@ -174,6 +183,27 @@ class SettingsViewModel @Inject constructor(
                 )
                 onComplete(false)
             }
+        }
+    }
+
+    fun saveAnyway(serverUrl: String, token: String, onComplete: () -> Unit = {}) {
+        val cleanUrl = KVApi.normalizeUrl(serverUrl)
+        val cleanToken = token.trim()
+        if (cleanUrl.isBlank()) return
+        viewModelScope.launch {
+            settingsDataStore.setServerUrl(cleanUrl, isGateway = null)
+            settingsDataStore.setInvidiousToken(cleanToken)
+            api.setServerUrl(cleanUrl, cachedGatewayMode = null)
+            api.setToken(cleanToken)
+            com.kvtube.android.data.local.ThumbnailRouter.setServer(cleanUrl, api.isGateway())
+            subscriptionRepository.clearCache()
+            playbackManager.stopAndClear()
+            _uiState.value = _uiState.value.copy(
+                serverUrl = cleanUrl,
+                invidiousToken = cleanToken,
+                saveMessage = "Server URL saved"
+            )
+            onComplete()
         }
     }
 

@@ -1,42 +1,49 @@
 package com.kvtube.android.ui.navigation
 
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.displayCutout
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.systemBars
+import androidx.compose.foundation.layout.union
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.draw.clip
-import com.kvtube.android.ui.theme.AstryxRadius
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.IntOffset
+import com.kvtube.android.ui.theme.LocalIsDarkGlassTheme
+import com.kvtube.android.ui.theme.liquidGlassFloating
+import kotlin.math.roundToInt
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Person
-import androidx.compose.material.icons.filled.Subscriptions
-import androidx.compose.material.icons.outlined.Download
 import androidx.compose.material.icons.outlined.Home
 import androidx.compose.material.icons.outlined.Person
-import androidx.compose.material.icons.outlined.Subscriptions
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationRail
@@ -45,7 +52,10 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.VerticalDivider
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -189,11 +199,19 @@ private fun NavItemVisual(
     item: BottomNavItem,
     selected: Boolean,
     activeDownloadsCount: Int,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    showIconPill: Boolean = true
 ) {
     val itemColor = if (selected) MaterialTheme.colorScheme.onSurface
     else MaterialTheme.colorScheme.onSurfaceVariant
     val iconVector = if (selected) item.selectedIcon else item.unselectedIcon
+
+    val isDarkGlass = LocalIsDarkGlassTheme.current
+    val activePillColor = if (isDarkGlass) {
+        Color.White.copy(alpha = 0.14f)
+    } else {
+        Color.Black.copy(alpha = 0.08f)
+    }
 
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -201,22 +219,27 @@ private fun NavItemVisual(
         modifier = modifier
     ) {
         Box(contentAlignment = Alignment.TopEnd) {
-            // Astryx selected state: overlay-pressed pill on the icon
-            Box(
-                modifier = Modifier
-                    .clip(RoundedCornerShape(AstryxRadius.element))
-                    .background(
-                        if (selected) MaterialTheme.colorScheme.surfaceVariant
-                        else Color.Transparent
+            if (showIconPill) {
+                Box(
+                    modifier = Modifier
+                        .clip(CircleShape)
+                        .background(if (selected) activePillColor else Color.Transparent)
+                        .padding(horizontal = 16.dp, vertical = 3.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = iconVector,
+                        contentDescription = item.label,
+                        tint = itemColor,
+                        modifier = Modifier.size(22.dp)
                     )
-                    .padding(horizontal = 14.dp, vertical = 3.dp),
-                contentAlignment = Alignment.Center
-            ) {
+                }
+            } else {
                 Icon(
                     imageVector = iconVector,
                     contentDescription = item.label,
                     tint = itemColor,
-                    modifier = Modifier.size(22.dp)
+                    modifier = Modifier.size(21.dp)
                 )
             }
 
@@ -264,49 +287,142 @@ fun BottomNavBar(
 ) {
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = navBackStackEntry?.destination?.route
+    val isDarkGlass = LocalIsDarkGlassTheme.current
 
-    Column(
-        modifier = modifier
-            .fillMaxWidth()
-            .background(MaterialTheme.colorScheme.background)
-            .navigationBarsPadding()
+    val activeIndex = when {
+        currentRoute?.startsWith(Screen.Shorts.route) == true -> 0
+        currentRoute?.startsWith(Screen.Library.route) == true ||
+            currentRoute == Screen.History.route ||
+            currentRoute == Screen.Subscriptions.route ||
+            currentRoute == Screen.Downloads.route ||
+            currentRoute == Screen.Settings.route -> 2
+        else -> 1
+    }
+
+    // Compact iPhone Liquid Glass floating capsule dock hugging the 3 tabs with spring-sliding lens pill.
+    Box(
+        modifier = modifier.fillMaxWidth(),
+        contentAlignment = Alignment.Center
     ) {
-        // Thin 0.8dp YouTube top border line
-        HorizontalDivider(
-            thickness = 1.dp,
-            color = MaterialTheme.colorScheme.outlineVariant
-        )
-
-        // 60dp bar: icon pill (28dp) + label must fit without clipping.
-        // Centered max width (560dp) matches YouTube's foldable portrait bottom bar.
         Box(
-            modifier = Modifier.fillMaxWidth(),
-            contentAlignment = Alignment.Center
+            modifier = Modifier
+                .width(244.dp)
+                .height(58.dp)
+                .liquidGlassFloating(shape = CircleShape)
+                .padding(4.dp)
         ) {
-            Row(
-                modifier = Modifier
-                    .widthIn(max = 560.dp)
-                    .fillMaxWidth()
-                    .heightIn(min = 60.dp),
-                horizontalArrangement = Arrangement.SpaceAround,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                bottomNavItems.forEach { item ->
-                    val selected = currentRoute?.startsWith(item.route) == true
-                    NavItemVisual(
-                        item = item,
-                        selected = selected,
-                        activeDownloadsCount = activeDownloadsCount,
-                        modifier = Modifier
-                            .weight(1f)
-                            .clickable(
-                                interactionSource = remember { MutableInteractionSource() },
-                                indication = null
-                            ) {
-                                handleNavTabClick(navController, item.route, currentRoute, onTabClick)
-                            }
-                            .padding(top = 6.dp, bottom = 6.dp)
+            BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+                val tabCount = bottomNavItems.size
+                val tabWidth = maxWidth / tabCount
+                val density = LocalDensity.current
+                val tabWidthPx = with(density) { tabWidth.toPx() }.coerceAtLeast(1f)
+
+                var isDragging by remember { mutableStateOf(false) }
+                var dragPos by remember { mutableFloatStateOf(activeIndex.toFloat()) }
+
+                val animatedPos by animateFloatAsState(
+                    targetValue = if (isDragging) dragPos else activeIndex.toFloat(),
+                    animationSpec = if (isDragging) {
+                        spring(dampingRatio = 0.85f, stiffness = 1400f)
+                    } else {
+                        spring(dampingRatio = 0.72f, stiffness = 380f)
+                    },
+                    label = "navGlassSlide"
+                )
+                val pillScale by animateFloatAsState(
+                    targetValue = if (isDragging) 1.06f else 1.0f,
+                    animationSpec = spring(dampingRatio = 0.65f, stiffness = 500f),
+                    label = "navGlassScale"
+                )
+
+                val lensBrush = if (isDarkGlass) {
+                    Brush.verticalGradient(
+                        0f to Color.White.copy(alpha = 0.24f),
+                        0.45f to Color.White.copy(alpha = 0.12f),
+                        1f to Color.White.copy(alpha = 0.08f)
                     )
+                } else {
+                    Brush.verticalGradient(
+                        0f to Color.White.copy(alpha = 0.88f),
+                        0.5f to Color.White.copy(alpha = 0.62f),
+                        1f to Color.White.copy(alpha = 0.52f)
+                    )
+                }
+                val lensBorderBrush = Brush.verticalGradient(
+                    listOf(
+                        Color.White.copy(alpha = if (isDarkGlass) 0.42f else 0.95f),
+                        Color.White.copy(alpha = if (isDarkGlass) 0.08f else 0.25f)
+                    )
+                )
+
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .pointerInput(currentRoute, tabWidthPx) {
+                            detectHorizontalDragGestures(
+                                onDragStart = { offset ->
+                                    isDragging = true
+                                    dragPos = ((offset.x / tabWidthPx) - 0.5f)
+                                        .coerceIn(0f, (tabCount - 1).toFloat())
+                                },
+                                onHorizontalDrag = { change, _ ->
+                                    change.consume()
+                                    dragPos = ((change.position.x / tabWidthPx) - 0.5f)
+                                        .coerceIn(0f, (tabCount - 1).toFloat())
+                                },
+                                onDragEnd = {
+                                    isDragging = false
+                                    val target = dragPos.roundToInt().coerceIn(0, tabCount - 1)
+                                    handleNavTabClick(
+                                        navController,
+                                        bottomNavItems[target].route,
+                                        currentRoute,
+                                        onTabClick
+                                    )
+                                },
+                                onDragCancel = { isDragging = false }
+                            )
+                        }
+                ) {
+                    // Layer 1: Sliding iPhone glass pill
+                    Box(
+                        modifier = Modifier
+                            .width(tabWidth)
+                            .fillMaxHeight()
+                            .offset { IntOffset((animatedPos * tabWidthPx).roundToInt(), 0) }
+                            .graphicsLayer {
+                                scaleX = pillScale
+                                scaleY = pillScale
+                            }
+                            .clip(CircleShape)
+                            .background(lensBrush)
+                            .border(0.8.dp, lensBorderBrush, CircleShape)
+                    )
+
+                    // Layer 2: 3 navigation tabs
+                    Row(
+                        modifier = Modifier.fillMaxSize(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        val highlightedIdx = if (isDragging) dragPos.roundToInt() else activeIndex
+                        bottomNavItems.forEachIndexed { idx, item ->
+                            NavItemVisual(
+                                item = item,
+                                selected = idx == highlightedIdx,
+                                activeDownloadsCount = activeDownloadsCount,
+                                showIconPill = false,
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .fillMaxHeight()
+                                    .clickable(
+                                        interactionSource = remember { MutableInteractionSource() },
+                                        indication = null
+                                    ) {
+                                        handleNavTabClick(navController, item.route, currentRoute, onTabClick)
+                                    }
+                            )
+                        }
+                    }
                 }
             }
         }
@@ -314,10 +430,9 @@ fun BottomNavBar(
 }
 
 /**
- * Start-edge navigation rail for Medium/Expanded windows (tablets, unfolded
- * foldables). Same destinations and behaviour as [BottomNavBar]. Pads for the
- * start/top/bottom system bars itself; items are tall enough that the icon
- * pill and the 11sp label are never clipped.
+ * Start-edge Liquid Glass navigation rail for Medium/Expanded windows
+ * (unfolded foldables and tablets). Respects system bars and landscape display
+ * cutouts while matching KV-Tube's vertical rail order (`Home`, `Shorts`, `Account`).
  */
 @Composable
 fun AppNavigationRail(
@@ -328,20 +443,32 @@ fun AppNavigationRail(
 ) {
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = navBackStackEntry?.destination?.route
+    val isDarkGlass = LocalIsDarkGlassTheme.current
+    val railItems = remember {
+        listOf(bottomNavItems[1], bottomNavItems[0], bottomNavItems[2])
+    }
+    val railBg = if (isDarkGlass) Color(0xD6101012) else Color(0xD9F4F4F6)
+    val railDividerColor = if (isDarkGlass) {
+        Color.White.copy(alpha = 0.10f)
+    } else {
+        Color.Black.copy(alpha = 0.08f)
+    }
 
     Row(modifier = modifier.fillMaxHeight()) {
-        NavigationRail(
-            // Fixed width: items use fillMaxWidth(), which would otherwise stretch the
-            // rail across the whole window inside the parent Row.
-            modifier = Modifier.width(88.dp),
-            containerColor = MaterialTheme.colorScheme.background,
-            contentColor = MaterialTheme.colorScheme.onSurface,
-            windowInsets = WindowInsets.systemBars.only(
-                WindowInsetsSides.Start + WindowInsetsSides.Top + WindowInsetsSides.Bottom
-            )
+        Column(
+            modifier = Modifier
+                .width(76.dp)
+                .fillMaxHeight()
+                .background(railBg)
+                .windowInsetsPadding(
+                    WindowInsets.systemBars
+                        .only(WindowInsetsSides.Start + WindowInsetsSides.Top + WindowInsetsSides.Bottom)
+                        .union(WindowInsets.displayCutout.only(WindowInsetsSides.Start))
+                )
+                .padding(top = 12.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Spacer(modifier = Modifier.height(12.dp))
-            bottomNavItems.forEach { item ->
+            railItems.forEach { item ->
                 val selected = currentRoute?.startsWith(item.route) == true
                 NavItemVisual(
                     item = item,
@@ -360,7 +487,7 @@ fun AppNavigationRail(
                 )
             }
         }
-        VerticalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+        VerticalDivider(color = railDividerColor)
     }
 }
 

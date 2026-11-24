@@ -135,7 +135,7 @@ const ExplorePodcastsIcon = () => (
 
 export default function Sidebar() {
   const pathname = usePathname();
-  const { isSidebarOpen, closeSidebar } = useSidebar();
+  const { isSidebarOpen, isWatchDrawerOpen, closeWatchDrawer } = useSidebar();
   const [subscriptions, setSubscriptions] = useState<Subscription[]>([]);
   const [showAllSubs, setShowAllSubs] = useState(false);
   const [showAllExplore, setShowAllExplore] = useState(false);
@@ -147,6 +147,10 @@ export default function Sidebar() {
   );
 
   useEffect(() => {
+    closeWatchDrawer();
+  }, [pathname, closeWatchDrawer]);
+
+  useEffect(() => {
     try {
       setSubscriptions(getSubscriptions());
     } catch {}
@@ -156,7 +160,7 @@ export default function Sidebar() {
   const miniNavItems = [
     { icon: <HomeIcon size={24} />, label: 'Home', path: '/' },
     { icon: <ShortsIcon size={24} />, label: 'Shorts', path: '/shorts' },
-    { icon: <SubscriptionsIcon size={24} />, label: 'Subs', path: '/feed/subscriptions' },
+    { icon: <SubscriptionsIcon size={24} />, label: 'Subscriptions', path: '/feed/subscriptions' },
     { icon: <UserChannelIcon />, label: 'You', path: '/feed/library' },
   ];
 
@@ -386,30 +390,32 @@ export default function Sidebar() {
     </div>
   );
 
-  // On /watch: Completely hide sidebar in normal view; render as a slide-out overlay drawer if opened
+  // On /watch: Completely hide sidebar by default; only show overlay drawer when user toggles Guide on /watch
   if (isWatchPage) {
-    if (!isSidebarOpen) return null;
+    if (!isWatchDrawerOpen) return null;
     return (
       <div style={{ position: 'fixed', inset: 0, zIndex: 9999, display: 'flex' }}>
         {/* Backdrop */}
         <div
-          onClick={closeSidebar}
+          onClick={closeWatchDrawer}
           style={{
             position: 'fixed',
             inset: 0,
             backgroundColor: 'rgba(0, 0, 0, 0.5)',
+            WebkitBackdropFilter: 'blur(8px)',
+            backdropFilter: 'blur(8px)',
             zIndex: 9999,
           }}
         />
         {/* Drawer Sidebar */}
         <aside
+          className="lg-floating"
           style={{
             position: 'relative',
             zIndex: 10000,
             width: '240px',
             height: '100%',
-            backgroundColor: 'var(--yt-background)',
-            boxShadow: '4px 0 24px rgba(0, 0, 0, 0.3)',
+            backgroundColor: 'var(--lg-bg-panel, var(--yt-background))',
             display: 'flex',
             flexDirection: 'column',
           }}
@@ -424,7 +430,7 @@ export default function Sidebar() {
             flexShrink: 0,
           }}>
             <button
-              onClick={closeSidebar}
+              onClick={closeWatchDrawer}
               style={{
                 background: 'none',
                 border: 'none',
@@ -442,7 +448,7 @@ export default function Sidebar() {
           </div>
 
           <div style={{ flex: 1, overflowY: 'auto' }}>
-            {renderFullContent(closeSidebar)}
+            {renderFullContent(closeWatchDrawer)}
           </div>
         </aside>
       </div>
@@ -452,7 +458,27 @@ export default function Sidebar() {
   // Normal pages (Home, Subscriptions, History, etc.)
   return (
     <aside className={`yt-sidebar-container ${isSidebarOpen ? 'expanded' : 'collapsed'}`}>
-      {renderFullContent()}
+      {isSidebarOpen ? (
+        renderFullContent()
+      ) : (
+        <div className="yt-sidebar-mini">
+          {miniNavItems.map((item) => {
+            const isActive =
+              item.path === '/' ? pathname === '/' : pathname.startsWith(item.path);
+            return (
+              <Link
+                key={item.label}
+                href={item.path}
+                className={`yt-sidebar-mini-item ${isActive ? 'active' : ''}`}
+                title={item.label}
+              >
+                <div className="yt-sidebar-mini-icon">{item.icon}</div>
+                <span className="yt-sidebar-mini-label">{item.label}</span>
+              </Link>
+            );
+          })}
+        </div>
+      )}
     </aside>
   );
 }

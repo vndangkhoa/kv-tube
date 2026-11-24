@@ -318,6 +318,10 @@ export class InvidiousService {
     ) {
       return trimmed;
     }
+    if (/^https?:\/(?!\/)/i.test(trimmed)) {
+      const normalized = trimmed.replace(/^https?:/i, '');
+      return normalized.startsWith('/api/invidious') ? normalized : `/api/invidious${normalized}`;
+    }
     if (trimmed.startsWith('/')) return `/api/invidious${trimmed}`;
     if (!/^https?:\/\//i.test(trimmed)) return `/api/invidious/${trimmed}`;
 

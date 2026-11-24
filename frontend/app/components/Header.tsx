@@ -56,7 +56,7 @@ export default function Header() {
   const notifMenuRef = useRef<HTMLDivElement>(null);
   const router = useRouter();
   const pathname = usePathname();
-  const { toggleMobileMenu, toggleSidebar } = useSidebar();
+  const { toggleMobileMenu, toggleSidebar, toggleWatchDrawer } = useSidebar();
 
   const {
     notifications,
@@ -70,6 +70,8 @@ export default function Header() {
   const handleHamburgerClick = () => {
     if (typeof window !== 'undefined' && window.innerWidth <= 768) {
       toggleMobileMenu();
+    } else if (pathname === '/watch') {
+      toggleWatchDrawer();
     } else {
       toggleSidebar();
     }

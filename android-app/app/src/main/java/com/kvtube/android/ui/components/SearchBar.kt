@@ -59,12 +59,12 @@ fun SearchBar(
             }
         },
         singleLine = true,
-        shape = RoundedCornerShape(AstryxRadius.element),
+        shape = RoundedCornerShape(AstryxRadius.container),
         colors = OutlinedTextFieldDefaults.colors(
-            focusedContainerColor = MaterialTheme.colorScheme.surface,
-            unfocusedContainerColor = MaterialTheme.colorScheme.surface,
+            focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.65f),
+            unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
             focusedBorderColor = MaterialTheme.colorScheme.primary,
-            unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant,
+            unfocusedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.2f),
             cursorColor = MaterialTheme.colorScheme.primary,
             focusedLeadingIconColor = MaterialTheme.colorScheme.onSurface,
             unfocusedLeadingIconColor = MaterialTheme.colorScheme.onSurfaceVariant

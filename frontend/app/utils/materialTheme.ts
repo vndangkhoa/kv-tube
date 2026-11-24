@@ -289,6 +289,7 @@ export function applyMaterial3Theme(colors: ThemeColors, mode: ThemeMode) {
   root.style.setProperty('--yt-thumb-placeholder', isLight ? '#f2f2f2' : '#1a1a1a');
 
   root.setAttribute('data-theme', mode);
+  root.style.colorScheme = isLight ? 'light' : 'dark';
 }
 
 // Extract dominant color from image URL using offscreen canvas

@@ -196,13 +196,11 @@ class PlaybackManager @Inject constructor(
             .setLoadControl(
                 DefaultLoadControl.Builder()
                     .setBufferDurationsMs(
-                        /* minBufferMs = */ 10_000,
+                        /* minBufferMs = */ 8_000,
                         /* maxBufferMs = */ 50_000,
-                        // Start as soon as ~1.2s is buffered: with the
-                        // prefetched init/index/first segment that is
-                        // near-instant first frame.
-                        /* bufferForPlaybackMs = */ 1_200,
-                        /* bufferForPlaybackAfterRebufferMs = */ 3_000
+                        // Start as soon as ~500ms is buffered for near-instant first frame.
+                        /* bufferForPlaybackMs = */ 500,
+                        /* bufferForPlaybackAfterRebufferMs = */ 1_500
                     )
                     .setPrioritizeTimeOverSizeThresholds(true)
                     .build()

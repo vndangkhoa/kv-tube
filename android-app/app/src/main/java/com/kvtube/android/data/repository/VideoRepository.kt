@@ -35,51 +35,97 @@ class VideoRepository @Inject constructor(
         private const val EXTRACTOR_TIMEOUT_MS = 10_000L
     }
 
+    private val videoCache = java.util.concurrent.ConcurrentHashMap<String, VideoData>()
+
+    fun peekCachedVideo(videoId: String): VideoData? =
+        videoId.takeIf { it.isNotBlank() }?.let { videoCache[it] }
+
+    fun seedCache(videos: List<VideoData>) {
+        if (videos.isEmpty()) return
+        if (videoCache.size > 400) {
+            videoCache.clear()
+        }
+        videos.forEach { video ->
+            if (video.id.isNotBlank() && video.title.isNotBlank()) {
+                val prev = videoCache[video.id]
+                val merged = if (prev != null && video.channelThumbnail.isBlank() && prev.channelThumbnail.isNotBlank()) {
+                    video.copy(channelThumbnail = prev.channelThumbnail)
+                } else {
+                    video
+                }
+                videoCache[video.id] = merged
+            }
+        }
+    }
+
     /** Runs [block] but gives up after [timeoutMs], returning null on timeout. */
     private suspend fun <T> bounded(timeoutMs: Long, block: suspend () -> T): T? =
         withTimeoutOrNull(timeoutMs) { block() }
 
-    suspend fun search(query: String, limit: Int = 30, region: String = ""): List<VideoData> =
+    suspend fun getShortsFeed(region: String = "GLOBAL", continuation: String? = null): KVApi.ShortsPage? =
         bounded(SERVER_TIMEOUT_MS) {
-            api.search(query, limit, region)
-        } ?: emptyList()
+            api.getShortsFeed(region, continuation)
+        }?.also { seedCache(it.videos) }
 
-    /** One page of search results, newest uploads first (real `published` timestamps). */
-    suspend fun searchPage(
+    suspend fun search(
         query: String,
-        page: Int,
+        limit: Int = 30,
         region: String = "",
-        date: String = "",
-        features: String = ""
+        page: Int = 1,
+        sortBy: String? = null,
+        date: String? = null,
+        features: String? = null,
+        duration: String? = null
     ): List<VideoData> =
-        bounded(SERVER_TIMEOUT_MS) {
-            api.search(query, 30, region, page = page, newestFirst = true, date = date, features = features)
-        } ?: emptyList()
+        (bounded(SERVER_TIMEOUT_MS) {
+            api.search(query, limit, region, page, sortBy, date, features, duration)
+        } ?: emptyList()).also { seedCache(it) }
+
+    suspend fun getPopular(limit: Int = 40): List<VideoData> =
+        (bounded(SERVER_TIMEOUT_MS) {
+            api.getPopular(limit)
+        } ?: emptyList()).also { seedCache(it) }
 
     suspend fun getHomeFeed(limit: Int = 30, offset: Int = 0, region: String = ""): List<VideoData> {
-        return bounded(SERVER_TIMEOUT_MS) {
+        val list = bounded(SERVER_TIMEOUT_MS) {
             api.getHomeFeed(limit, offset, region)
         }
             ?: bounded(SERVER_TIMEOUT_MS) {
                 api.getTrending(limit, region)
             }
             ?: emptyList()
+        seedCache(list)
+        return list
     }
 
-    suspend fun getTrending(limit: Int = 30, region: String = ""): List<VideoData> =
-        bounded(SERVER_TIMEOUT_MS) {
-            api.getTrending(limit, region)
-        } ?: emptyList()
+    suspend fun getTrending(limit: Int = 30, region: String = "", page: Int = 1): List<VideoData> =
+        (bounded(SERVER_TIMEOUT_MS) {
+            api.getTrending(limit, region, page)
+        } ?: emptyList()).also { seedCache(it) }
 
     suspend fun getVideoInfo(videoId: String): VideoData {
         val info = bounded(SERVER_TIMEOUT_MS) {
             api.getVideoInfo(videoId)
         }
         if (info != null && info.title.isNotBlank()) {
+            seedCache(listOf(info))
             return info
         }
         val fallback = runCatching { extractorHelper.getVideoDetails(videoId) }.getOrNull()
-        return fallback ?: info ?: VideoData(id = videoId)
+        val resolved = fallback ?: info ?: VideoData(id = videoId)
+        if (resolved.title.isNotBlank()) seedCache(listOf(resolved))
+        return resolved
+    }
+
+    suspend fun getVideoBundle(videoId: String, relatedLimit: Int = 15): KVApi.VideoBundle? {
+        val bundle = bounded(PLAYBACK_TIMEOUT_MS) {
+            api.getVideoBundle(videoId, relatedLimit)
+        } ?: return null
+        if (bundle.video.title.isNotBlank()) {
+            seedCache(listOf(bundle.video))
+        }
+        seedCache(bundle.relatedVideos)
+        return bundle
     }
 
     /** Adaptive DASH manifest URL for [videoId] (null when no server is configured). */
@@ -149,6 +195,7 @@ class VideoRepository @Inject constructor(
         } ?: emptyList()
 
         if (serverRelated.isNotEmpty()) {
+            seedCache(serverRelated)
             return serverRelated
         }
 

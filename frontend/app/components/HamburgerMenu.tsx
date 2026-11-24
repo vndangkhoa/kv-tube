@@ -73,11 +73,7 @@ export default function HamburgerMenu() {
 
       {/* Menu Drawer */}
       <div
-        className={`hamburger-drawer ${isMobileMenuOpen ? 'open' : ''}`}
-        style={{
-          backgroundColor: 'var(--yt-surface)',
-          borderRight: '1px solid var(--yt-border)',
-        }}
+        className={`hamburger-drawer lg-floating ${isMobileMenuOpen ? 'open' : ''}`}
       >
         <div className="drawer-header" style={{ gap: '12px' }}>
           <button className="yt-icon-btn" onClick={closeMobileMenu} title="Close Menu">

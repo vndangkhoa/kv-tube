@@ -31,8 +31,11 @@ object RepositoryModule {
 
     @Provides
     @Singleton
-    fun provideChannelRepository(api: KVApi): ChannelRepository {
-        return ChannelRepository(api)
+    fun provideChannelRepository(
+        api: KVApi,
+        extractorHelper: ExtractorHelper
+    ): ChannelRepository {
+        return ChannelRepository(api, extractorHelper)
     }
 
     @Provides

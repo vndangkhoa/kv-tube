@@ -105,7 +105,9 @@ import com.kvtube.android.data.model.VideoData
 import com.kvtube.android.ui.components.ChannelAvatar
 import com.kvtube.android.ui.navigation.Screen
 import com.kvtube.android.ui.navigation.TabReselect
+import com.kvtube.android.ui.theme.LocalGlassChromeInsets
 import com.kvtube.android.ui.theme.YTBrandRed
+import com.kvtube.android.ui.theme.liquidGlassBorder
 import kotlinx.coroutines.launch
 import com.kvtube.android.ui.adaptive.LocalWidthClass
 
@@ -238,7 +240,8 @@ fun ShortsScreen(
                 .statusBarsPadding()
                 .padding(horizontal = 16.dp, vertical = 10.dp)
                 .size(40.dp)
-                .background(Color.Black.copy(alpha = 0.4f), CircleShape)
+                .background(Color.Black.copy(alpha = 0.45f), CircleShape)
+                .liquidGlassBorder(shape = CircleShape, strokeWidth = 1.dp)
         ) {
             Icon(
                 imageVector = Icons.Filled.Search,
@@ -373,7 +376,7 @@ fun ShortsScreen(
                                             TextButton(onClick = { viewModel.loadMoreComments() }) {
                                                 Text(
                                                     text = "Load more comments",
-                                                    color = Color(0xFF3EA6FF),
+                                                    color = MaterialTheme.colorScheme.primary,
                                                     style = MaterialTheme.typography.bodySmall
                                                 )
                                             }
@@ -591,17 +594,16 @@ private fun ShortVideoItem(
             modifier = Modifier.fillMaxSize()
         )
 
-        // Gradient Overlay (Dark bottom for text readability)
+        // Gradient Overlay (subtle top protection + dark bottom for text readability)
         Box(
             modifier = Modifier
                 .fillMaxSize()
                 .background(
                     Brush.verticalGradient(
-                        colors = listOf(
-                            Color.Transparent,
-                            Color.Transparent,
-                            Color.Black.copy(alpha = 0.85f)
-                        )
+                        0.0f to Color.Black.copy(alpha = 0.35f),
+                        0.16f to Color.Transparent,
+                        0.58f to Color.Transparent,
+                        1.0f to Color.Black.copy(alpha = 0.88f)
                     )
                 )
         )
@@ -687,11 +689,13 @@ private fun ShortVideoItem(
             )
         }
 
+        val chromeInsets = LocalGlassChromeInsets.current
+
         // Right Action Bar (YouTube Shorts style)
         Column(
             modifier = Modifier
                 .align(Alignment.BottomEnd)
-                .padding(end = 12.dp, bottom = 32.dp),
+                .padding(end = 12.dp, bottom = 20.dp + chromeInsets.calculateBottomPadding()),
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
@@ -821,11 +825,12 @@ private fun ShortVideoItem(
         }
 
         // Bottom Left Info Overlay
+        val cleanAuthor = video.displayChannelTitle.trim().replace(Regex("\\s+"), " ")
         Column(
             modifier = Modifier
                 .align(Alignment.BottomStart)
                 .fillMaxWidth(0.78f)
-                .padding(start = 16.dp, bottom = 32.dp)
+                .padding(start = 16.dp, bottom = 20.dp + chromeInsets.calculateBottomPadding())
         ) {
             // Channel Info Row
             Row(
@@ -834,12 +839,12 @@ private fun ShortVideoItem(
             ) {
                 ChannelAvatar(
                     avatarUrl = video.channelThumbnail.ifBlank { null },
-                    channelName = video.displayChannelTitle,
+                    channelName = cleanAuthor,
                     size = 32.dp
                 )
                 Spacer(modifier = Modifier.width(8.dp))
                 Text(
-                    text = "@${video.displayChannelTitle}",
+                    text = "@$cleanAuthor",
                     color = Color.White,
                     fontSize = 13.sp,
                     fontWeight = FontWeight.Bold,
@@ -892,7 +897,7 @@ private fun ShortVideoItem(
                 )
                 Spacer(modifier = Modifier.width(6.dp))
                 Text(
-                    text = "${video.displayChannelTitle} • Original audio",
+                    text = "$cleanAuthor • Original audio",
                     color = Color.White.copy(alpha = 0.9f),
                     fontSize = 11.sp,
                     maxLines = 1,

@@ -3,6 +3,7 @@ package com.kvtube.android.ui
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -16,11 +17,11 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -86,7 +87,9 @@ import androidx.compose.ui.window.Dialog
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavController
 import com.kvtube.android.BuildConfig
+import com.kvtube.android.data.api.KVApi
 import com.kvtube.android.data.api.PairApi
+import com.kvtube.android.ui.theme.LocalAstryx
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.util.Locale
@@ -155,6 +158,8 @@ fun SettingsScreen(
         }
     }
 
+    val chromeInsets = com.kvtube.android.ui.theme.LocalGlassChromeInsets.current
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -162,24 +167,18 @@ fun SettingsScreen(
             // and keep it at a readable width instead of stretching edge to edge.
             .wrapContentWidth(Alignment.CenterHorizontally)
             .widthIn(max = com.kvtube.android.ui.components.MaxReadableWidthDp.dp)
-            .statusBarsPadding()
             .verticalScroll(rememberScrollState())
-            .padding(horizontal = 16.dp)
+            .padding(
+                start = 16.dp,
+                top = chromeInsets.calculateTopPadding(),
+                end = 16.dp
+            )
     ) {
-        Spacer(modifier = Modifier.height(12.dp))
-
-        // Title Header
-        Text(
-            text = "Settings",
-            style = MaterialTheme.typography.headlineMedium.copy(fontWeight = FontWeight.Bold),
-            color = MaterialTheme.colorScheme.onBackground,
-            modifier = Modifier.padding(bottom = 4.dp, start = 4.dp)
-        )
         Text(
             text = "Preferences, account sync & backend configuration",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.padding(bottom = 16.dp, start = 4.dp)
+            modifier = Modifier.padding(top = 6.dp, bottom = 14.dp, start = 4.dp)
         )
 
         // Save Feedback Banner
@@ -375,7 +374,12 @@ fun SettingsScreen(
                         modifier = Modifier.size(40.dp)
                     ) {
                         Box(contentAlignment = Alignment.Center) {
-                            Text(text = currentRegion.flag, fontSize = 20.sp)
+                            Icon(
+                                imageVector = Icons.Default.Public,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(20.dp)
+                            )
                         }
                     }
                     Spacer(modifier = Modifier.width(14.dp))
@@ -606,7 +610,7 @@ fun SettingsScreen(
             }
         }
 
-        Spacer(modifier = Modifier.height(32.dp))
+        Spacer(modifier = Modifier.height(chromeInsets.calculateBottomPadding() + 24.dp))
     }
 
     // Server Configuration Bottom Sheet
@@ -618,6 +622,11 @@ fun SettingsScreen(
                     if (success) {
                         showServerSheet = false
                     }
+                }
+            },
+            onSaveAnyway = { sUrl, sToken ->
+                viewModel.saveAnyway(sUrl, sToken) {
+                    showServerSheet = false
                 }
             },
             onHelpClick = { showHelpDialog = true },
@@ -763,11 +772,12 @@ private fun ServerHeroCard(
             Spacer(modifier = Modifier.height(14.dp))
 
             // Status indicator badge
+            val successColor = LocalAstryx.current.success
             Surface(
                 shape = RoundedCornerShape(10.dp),
                 color = when {
                     isTesting -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f)
-                    testSuccess == true -> MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
+                    testSuccess == true -> successColor.copy(alpha = 0.14f)
                     testSuccess == false -> MaterialTheme.colorScheme.error.copy(alpha = 0.12f)
                     else -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)
                 },
@@ -794,21 +804,21 @@ private fun ServerHeroCard(
                         Icon(
                             imageVector = Icons.Default.CheckCircle,
                             contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary,
+                            tint = successColor,
                             modifier = Modifier.size(16.dp)
                         )
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
                             text = "Connected",
                             style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold),
-                            color = MaterialTheme.colorScheme.primary
+                            color = successColor
                         )
                         if (latencyMs != null) {
                             Spacer(modifier = Modifier.width(6.dp))
                             Text(
                                 text = "• ${latencyMs}ms",
                                 style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.8f)
+                                color = successColor.copy(alpha = 0.8f)
                             )
                         }
                     } else if (testSuccess == false) {
@@ -852,6 +862,7 @@ private fun ServerHeroCard(
 private fun ServerConfigBottomSheet(
     uiState: SettingsUiState,
     onSaveAndConnect: (String, String) -> Unit,
+    onSaveAnyway: (String, String) -> Unit,
     onHelpClick: () -> Unit,
     onDismiss: () -> Unit
 ) {
@@ -972,6 +983,47 @@ private fun ServerConfigBottomSheet(
                 shape = RoundedCornerShape(12.dp)
             )
 
+            if (uiState.savedServerUrls.isNotEmpty()) {
+                Spacer(modifier = Modifier.height(8.dp))
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "Saved:",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    uiState.savedServerUrls.forEach { savedUrl ->
+                        val selected = KVApi.normalizeUrl(serverUrl) == savedUrl
+                        Surface(
+                            shape = CircleShape,
+                            color = if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.14f)
+                            else MaterialTheme.colorScheme.surfaceVariant,
+                            border = BorderStroke(
+                                1.dp,
+                                if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.4f)
+                                else MaterialTheme.colorScheme.outlineVariant
+                            ),
+                            modifier = Modifier
+                                .clip(CircleShape)
+                                .clickable { serverUrl = savedUrl }
+                        ) {
+                            Text(
+                                text = cleanDomain(savedUrl),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = if (selected) MaterialTheme.colorScheme.primary
+                                else MaterialTheme.colorScheme.onSurface,
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
+                            )
+                        }
+                    }
+                }
+            }
+
             Spacer(modifier = Modifier.height(12.dp))
 
             OutlinedTextField(
@@ -1045,6 +1097,19 @@ private fun ServerConfigBottomSheet(
                     Spacer(modifier = Modifier.width(8.dp))
                 }
                 Text("Save & Connect")
+            }
+
+            if (uiState.testSuccess == false && !uiState.isTestingConnection && serverUrl.isNotBlank()) {
+                Spacer(modifier = Modifier.height(8.dp))
+                OutlinedButton(
+                    onClick = { onSaveAnyway(serverUrl, token) },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(44.dp),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Text("Save anyway for next time")
+                }
             }
         }
     }

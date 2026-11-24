@@ -133,8 +133,8 @@ async function fetchUniqueShorts(page: number, region: string = 'VN'): Promise<S
         const vidId = v.videoId || v.id;
         if (!vidId || globalSeenIds.has(vidId)) continue;
 
-        // Ensure duration is short (under 65 seconds and over 4 seconds)
-        if (v.lengthSeconds && (v.lengthSeconds > 65 || v.lengthSeconds < 4)) continue;
+        // Ensure strict Short duration (4s..65s) so livestreams/full videos cannot leak
+        if (typeof v.lengthSeconds !== 'number' || v.lengthSeconds < 4 || v.lengthSeconds > 65) continue;
 
         // Exclude videos with negligible view count (under 1000 views) to avoid obscure drone/test uploads
         if (v.viewCount !== undefined && v.viewCount < 1000) continue;
@@ -181,7 +181,7 @@ async function fetchUniqueShorts(page: number, region: string = 'VN'): Promise<S
       for (const v of backupResults) {
         const vidId = v.videoId || v.id;
         if (!vidId || globalSeenIds.has(vidId)) continue;
-        if (v.lengthSeconds && (v.lengthSeconds > 65 || v.lengthSeconds < 4)) continue;
+        if (typeof v.lengthSeconds !== 'number' || v.lengthSeconds < 4 || v.lengthSeconds > 65) continue;
         if (v.viewCount !== undefined && v.viewCount < 1000) continue;
 
         const lowerTitle = (v.title || '').toLowerCase();
@@ -986,8 +986,10 @@ function ShortsSoundPanel({
 function ShortCard({
   video,
   isActive,
+  isPreload = false,
   muted,
   toggleMute,
+  onForceMute,
   isCommentsOpen,
   toggleComments,
   closeComments,
@@ -998,8 +1000,10 @@ function ShortCard({
 }: {
   video: ShortVideo;
   isActive: boolean;
+  isPreload?: boolean;
   muted: boolean;
   toggleMute: () => void;
+  onForceMute?: () => void;
   isCommentsOpen: boolean;
   toggleComments: () => void;
   closeComments: () => void;
@@ -1019,26 +1023,37 @@ function ShortCard({
   const [heartAnim, setHeartAnim] = useState(false);
   const [isSub, setIsSub] = useState(false);
   const [isPlaying, setIsPlaying] = useState(true);
+  const [isBuffering, setIsBuffering] = useState(false);
+  const [videoReady, setVideoReady] = useState(false);
+  const [isLandscape, setIsLandscape] = useState(false);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [currentTime, setCurrentTime] = useState(0);
+  const [duration, setDuration] = useState(0);
+  const [retryNonce, setRetryNonce] = useState(0);
   const [hudIcon, setHudIcon] = useState<'play' | 'pause' | null>(null);
 
-  const iframeRef = useRef<HTMLIFrameElement>(null);
+  const directStreamUrl = `/api/invidious/latest_version?id=${encodeURIComponent(video.id)}&itag=18`;
+  const [streamSrc, setStreamSrc] = useState(directStreamUrl);
+
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const triedFallbackRef = useRef(false);
   const hudTimerRef = useRef<NodeJS.Timeout | null>(null);
   const clickTimerRef = useRef<NodeJS.Timeout | null>(null);
 
-  const sendPlayerCommand = useCallback((func: string, args: any = '') => {
-    if (iframeRef.current && iframeRef.current.contentWindow) {
-      try {
-        iframeRef.current.contentWindow.postMessage(
-          JSON.stringify({
-            event: 'command',
-            func,
-            args,
-          }),
-          '*'
-        );
-      } catch {}
-    }
-  }, []);
+  const attemptPlay = useCallback(
+    (vid: HTMLVideoElement) => {
+      const playPromise = vid.play();
+      if (!playPromise || typeof playPromise.catch !== 'function') return;
+      playPromise.catch(() => {
+        if (!vid.muted) {
+          vid.muted = true;
+          onForceMute?.();
+          vid.play().catch(() => {});
+        }
+      });
+    },
+    [onForceMute]
+  );
 
   useEffect(() => {
     if (video.channelId) {
@@ -1046,24 +1061,55 @@ function ShortCard({
     }
   }, [video.channelId]);
 
-  // Synchronize playback when current active short changes
   useEffect(() => {
-    if (isActive) {
-      setIsPlaying(true);
-      sendPlayerCommand(muted ? 'mute' : 'unMute');
-      sendPlayerCommand('playVideo');
-    } else {
-      sendPlayerCommand('pauseVideo');
-      setIsPlaying(false);
+    setStreamSrc(directStreamUrl);
+    triedFallbackRef.current = false;
+    setErrorMsg(null);
+    if (retryNonce > 0 && videoRef.current) {
+      videoRef.current.load();
+      if (isActive) attemptPlay(videoRef.current);
     }
-  }, [isActive, sendPlayerCommand]);
+  }, [directStreamUrl, retryNonce]);
 
-  // Synchronize mute state
+  // Synchronize mute state cleanly so preloading cards stay silent
   useEffect(() => {
-    if (isActive) {
-      sendPlayerCommand(muted ? 'mute' : 'unMute');
+    if (videoRef.current) {
+      videoRef.current.muted = !isActive || muted;
     }
-  }, [muted, isActive, sendPlayerCommand]);
+  }, [muted, isActive, isPreload]);
+
+  // Start or pause active progressive stream without discarding pre-buffered frames
+  useEffect(() => {
+    const vid = videoRef.current;
+
+    if (!isActive || !vid) {
+      if (vid && !vid.paused) {
+        vid.pause();
+      }
+      setVideoReady(false);
+      setIsBuffering(false);
+      setErrorMsg(null);
+      setIsPlaying(false);
+      return;
+    }
+
+    vid.muted = muted;
+    setErrorMsg(null);
+    setIsPlaying(true);
+
+    if (vid.readyState >= 2) {
+      setVideoReady(true);
+      setIsBuffering(false);
+      if (vid.videoWidth > 0 && vid.videoHeight > 0) {
+        setIsLandscape(vid.videoWidth > vid.videoHeight);
+      }
+    } else {
+      setVideoReady(false);
+      setIsBuffering(true);
+    }
+
+    attemptPlay(vid);
+  }, [isActive, video.id, retryNonce, attemptPlay]);
 
   const triggerHud = (type: 'play' | 'pause') => {
     if (hudTimerRef.current) clearTimeout(hudTimerRef.current);
@@ -1074,16 +1120,71 @@ function ShortCard({
   };
 
   const togglePlayPause = () => {
-    if (!isActive) return;
-    if (isPlaying) {
-      sendPlayerCommand('pauseVideo');
+    const vid = videoRef.current;
+    if (!isActive || !vid) return;
+    if (!vid.paused) {
+      vid.pause();
       setIsPlaying(false);
       triggerHud('pause');
     } else {
-      sendPlayerCommand('playVideo');
+      attemptPlay(vid);
       setIsPlaying(true);
       triggerHud('play');
     }
+  };
+
+  const handleVideoError = () => {
+    const vid = videoRef.current;
+    if (!vid || !isActive) return;
+
+    if (!triedFallbackRef.current) {
+      triedFallbackRef.current = true;
+      setIsBuffering(true);
+      (async () => {
+        try {
+          const vData = await invidious.getVideo(video.id);
+          if (!vData) {
+            setIsBuffering(false);
+            setErrorMsg('Unable to play this Short');
+            return;
+          }
+
+          if (vData.hlsUrl && vid.canPlayType('application/vnd.apple.mpegurl')) {
+            const nextUrl = invidious.proxyUrl(vData.hlsUrl);
+            if (nextUrl && nextUrl !== streamSrc) {
+              setStreamSrc(nextUrl);
+              return;
+            }
+          }
+
+          const formatStreams = Array.isArray(vData.formatStreams) ? vData.formatStreams : [];
+          const sortedStreams = [...formatStreams]
+            .filter((f: any) => f?.url)
+            .sort((a: any, b: any) => {
+              const mp4Diff = (b.container === 'mp4' ? 1 : 0) - (a.container === 'mp4' ? 1 : 0);
+              if (mp4Diff !== 0) return mp4Diff;
+              const resA = parseInt(String(a.resolution || a.qualityLabel || '0'), 10) || 0;
+              const resB = parseInt(String(b.resolution || b.qualityLabel || '0'), 10) || 0;
+              return resB - resA;
+            });
+
+          if (sortedStreams[0]?.url) {
+            const nextUrl = invidious.proxyUrl(sortedStreams[0].url);
+            if (nextUrl && nextUrl !== streamSrc) {
+              setStreamSrc(nextUrl);
+              return;
+            }
+          }
+        } catch {}
+
+        setIsBuffering(false);
+        setErrorMsg('Unable to play this Short');
+      })();
+      return;
+    }
+
+    setIsBuffering(false);
+    setErrorMsg('Unable to play this Short');
   };
 
   const handleCardClick = () => {
@@ -1145,9 +1246,6 @@ function ShortCard({
       ? `/api/channel-avatar?id=@${encodeURIComponent(cleanUploader)}`
       : '');
 
-  // Embed URL for flawless vertical video playback with audio & JS control API
-  const embedUrl = `https://www.youtube-nocookie.com/embed/${video.id}?autoplay=1&mute=${muted ? 1 : 0}&controls=0&loop=1&playlist=${video.id}&playsinline=1&rel=0&modestbranding=1&iv_load_policy=3&disablekb=1&enablejsapi=1`;
-
   return (
     <div className="short-card-container">
       {/* Responsive Full-View / Frame Container */}
@@ -1162,43 +1260,147 @@ function ShortCard({
             backgroundPosition: 'center',
             filter: 'blur(36px) brightness(0.65)',
             transform: 'scale(1.15)',
+            zIndex: 0,
+            pointerEvents: 'none',
+          }}
+        />
+
+        {/* Thumbnail poster stays visible behind active video to avoid black flash while buffering */}
+        <img
+          src={video.thumbnail}
+          alt={video.title}
+          style={{
+            position: 'absolute',
+            inset: 0,
+            width: '100%',
+            height: '100%',
+            objectFit: 'cover',
+            display: 'block',
             zIndex: 1,
             pointerEvents: 'none',
           }}
         />
 
-        {/* Active Iframe Video Player with Full Viewport Coverage */}
-        {isActive ? (
-          <iframe
-            ref={iframeRef}
-            src={embedUrl}
-            title={video.title}
-            allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-            allowFullScreen
+        {/* Active & Preloaded Native Video Player (zero Shaka/metadata waterfall) */}
+        {(isActive || isPreload) && (
+          <video
+            ref={videoRef}
+            src={streamSrc}
+            preload="auto"
+            playsInline
+            loop
+            muted={!isActive || muted}
+            onLoadedMetadata={(e) => {
+              const vid = e.currentTarget;
+              if (Number.isFinite(vid.duration) && vid.duration > 0) {
+                setDuration(vid.duration);
+              }
+            }}
+            onLoadedData={(e) => {
+              const vid = e.currentTarget;
+              if (vid.videoWidth > 0 && vid.videoHeight > 0) {
+                setIsLandscape(vid.videoWidth > vid.videoHeight);
+              }
+              if (isActive) {
+                setVideoReady(true);
+                setIsBuffering(false);
+              }
+            }}
+            onCanPlay={() => {
+              if (isActive) setIsBuffering(false);
+            }}
+            onPlaying={() => {
+              if (!isActive) return;
+              setIsPlaying(true);
+              setVideoReady(true);
+              setIsBuffering(false);
+            }}
+            onWaiting={() => {
+              if (isActive) setIsBuffering(true);
+            }}
+            onPlay={() => {
+              if (isActive) setIsPlaying(true);
+            }}
+            onPause={() => {
+              if (isActive) setIsPlaying(false);
+            }}
+            onTimeUpdate={(e) => {
+              if (!isActive) return;
+              const vid = e.currentTarget;
+              setCurrentTime(vid.currentTime || 0);
+              if (Number.isFinite(vid.duration) && vid.duration > 0) {
+                setDuration(vid.duration);
+              }
+            }}
+            onError={handleVideoError}
             style={{
               position: 'absolute',
-              top: 0,
-              left: 0,
+              inset: 0,
               width: '100%',
               height: '100%',
-              border: 'none',
+              objectFit: isLandscape ? 'contain' : 'cover',
+              opacity: isActive && videoReady ? 1 : 0,
+              transition: 'opacity 0.16s ease',
               pointerEvents: 'none',
               zIndex: 2,
             }}
           />
-        ) : (
-          <img
-            src={video.thumbnail}
-            alt={video.title}
+        )}
+
+        {/* Center Buffering Spinner */}
+        {isActive && isBuffering && !errorMsg && (
+          <div
             style={{
-              width: '100%',
-              height: '100%',
-              objectFit: 'cover',
-              display: 'block',
-              position: 'relative',
-              zIndex: 2,
+              position: 'absolute',
+              inset: 0,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              zIndex: 10,
+              pointerEvents: 'none',
             }}
-          />
+          >
+            <LoadingSpinner fullScreen={false} size="medium" />
+          </div>
+        )}
+
+        {/* Playback Error + Retry Overlay */}
+        {isActive && errorMsg && (
+          <div
+            onClick={(e) => e.stopPropagation()}
+            style={{
+              position: 'absolute',
+              inset: 0,
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: '12px',
+              backgroundColor: 'rgba(0, 0, 0, 0.55)',
+              color: '#ffffff',
+              zIndex: 12,
+              padding: '20px',
+              textAlign: 'center',
+            }}
+          >
+            <span style={{ fontSize: '14px', fontWeight: 500 }}>{errorMsg}</span>
+            <button
+              type="button"
+              onClick={() => setRetryNonce((n) => n + 1)}
+              style={{
+                padding: '8px 18px',
+                borderRadius: '9999px',
+                border: '1px solid rgba(255, 255, 255, 0.25)',
+                backgroundColor: 'rgba(255, 255, 255, 0.16)',
+                color: '#ffffff',
+                fontSize: '13px',
+                fontWeight: 600,
+                cursor: 'pointer',
+              }}
+            >
+              Retry
+            </button>
+          </div>
         )}
 
         {/* Center Play/Pause Animated HUD */}
@@ -1367,29 +1569,38 @@ function ShortCard({
           </button>
         </div>
 
-        {/* Real-time YouTube Red Playback Progress Bar */}
+        {/* Real-time Seekable Playback Progress Bar */}
         <div
+          className="short-progress-bar"
+          onClick={(e) => {
+            e.stopPropagation();
+            const vid = videoRef.current;
+            if (!vid || duration <= 0) return;
+            const rect = e.currentTarget.getBoundingClientRect();
+            if (rect.width > 0) {
+              const ratio = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+              vid.currentTime = ratio * duration;
+              setCurrentTime(vid.currentTime);
+            }
+          }}
           style={{
             position: 'absolute',
             bottom: 0,
             left: 0,
             right: 0,
-            height: '3px',
+            height: '4px',
             backgroundColor: 'rgba(255, 255, 255, 0.25)',
             zIndex: 25,
             overflow: 'hidden',
+            cursor: 'pointer',
           }}
         >
           <div
             style={{
               height: '100%',
+              width: `${duration > 0 ? Math.min(100, (currentTime / duration) * 100) : 0}%`,
               backgroundColor: '#ff0000',
-              animationName: isActive ? 'shortsProgressBar' : 'none',
-              animationDuration: `${video.lengthSeconds || 30}s`,
-              animationTimingFunction: 'linear',
-              animationIterationCount: 'infinite',
-              animationPlayState: isPlaying ? 'running' : 'paused',
-              transformOrigin: 'left center',
+              transition: 'width 0.1s linear',
             }}
           />
         </div>
@@ -1608,10 +1819,21 @@ function ShortsPageContent() {
   }, []);
 
   const loadInitialShorts = useCallback(async (region: string) => {
-    setLoading(true);
     globalSeenIds.clear();
-    if (urlShortId) {
-      globalSeenIds.add(urlShortId);
+    const validUrlShortId = urlShortId && /^[A-Za-z0-9_-]{11}$/.test(urlShortId) ? urlShortId : null;
+    if (validUrlShortId) {
+      globalSeenIds.add(validUrlShortId);
+      setShorts([
+        {
+          id: validUrlShortId,
+          title: 'YouTube Short',
+          uploader: '',
+          thumbnail: `https://i.ytimg.com/vi/${validUrlShortId}/oardefault.jpg`,
+        },
+      ]);
+      setLoading(false);
+    } else {
+      setLoading(true);
     }
 
     // 1. Try authentic YouTube Shorts sequence feed API
@@ -1625,17 +1847,17 @@ function ShortsPageContent() {
           }
 
           let initialList = [...data.shorts];
-          if (urlShortId && !initialList.some((s) => s.id === urlShortId)) {
+          if (validUrlShortId) {
+            const matched = initialList.find((s) => s.id === validUrlShortId);
+            const rest = initialList.filter((s) => s.id !== validUrlShortId);
             initialList = [
-              {
-                id: urlShortId,
-                title: 'Short Video',
-                uploader: 'Creator',
-                thumbnail: `https://i.ytimg.com/vi/${urlShortId}/hqdefault.jpg`,
-                channelAvatar: `/api/channel-avatar?id=@Creator`,
-                view_count: 35000,
+              matched || {
+                id: validUrlShortId,
+                title: 'YouTube Short',
+                uploader: '',
+                thumbnail: `https://i.ytimg.com/vi/${validUrlShortId}/oardefault.jpg`,
               },
-              ...initialList,
+              ...rest,
             ];
           }
 
@@ -1653,17 +1875,17 @@ function ShortsPageContent() {
     const batch1 = await fetchUniqueShorts(1, region);
     const batch2 = await fetchUniqueShorts(2, region);
     let combined = [...batch1, ...batch2];
-    if (urlShortId && !combined.some((s) => s.id === urlShortId)) {
+    if (validUrlShortId) {
+      const matched = combined.find((s) => s.id === validUrlShortId);
+      const rest = combined.filter((s) => s.id !== validUrlShortId);
       combined = [
-        {
-          id: urlShortId,
-          title: 'Short Video',
-          uploader: 'Creator',
-          thumbnail: `https://i.ytimg.com/vi/${urlShortId}/hqdefault.jpg`,
-          channelAvatar: `/api/channel-avatar?id=@Creator`,
-          view_count: 35000,
+        matched || {
+          id: validUrlShortId,
+          title: 'YouTube Short',
+          uploader: '',
+          thumbnail: `https://i.ytimg.com/vi/${validUrlShortId}/oardefault.jpg`,
         },
-        ...combined,
+        ...rest,
       ];
     }
     setShorts(combined);
@@ -2005,14 +2227,14 @@ function ShortsPageContent() {
           z-index: 15;
         }
 
-        /* Mobile Full Viewport Coverage with 48px MobileNav Safe Area & Chromeless Top */
+        /* Mobile Full Viewport Coverage with Floating Capsule Dock Safe Area & Chromeless Top */
         @media (max-width: 768px) {
           .shorts-page-container {
-            height: calc(100dvh - 48px - env(safe-area-inset-bottom, 0px)) !important;
-            padding-top: env(safe-area-inset-top, 0px) !important;
+            height: 100dvh !important;
+            padding-top: 0 !important;
           }
           .short-card-container {
-            height: calc(100dvh - 48px - env(safe-area-inset-bottom, 0px)) !important;
+            height: 100dvh !important;
             display: block !important;
             position: relative !important;
             padding: 0 !important;
@@ -2028,9 +2250,22 @@ function ShortsPageContent() {
             border-radius: 0 !important;
             box-shadow: none !important;
           }
+          .short-sound-btn {
+            top: calc(16px + env(safe-area-inset-top, 0px)) !important;
+          }
+          .short-bottom-gradient {
+            height: 360px !important;
+          }
+          .short-progress-bar {
+            bottom: calc(84px + env(safe-area-inset-bottom, 0px)) !important;
+            left: 14px !important;
+            right: 14px !important;
+            height: 3px !important;
+            border-radius: 9999px !important;
+          }
           .short-bottom-info {
             position: absolute !important;
-            bottom: 14px !important;
+            bottom: calc(96px + env(safe-area-inset-bottom, 0px)) !important;
             left: 0 !important;
             right: 0 !important;
             padding-bottom: 0 !important;
@@ -2040,7 +2275,7 @@ function ShortsPageContent() {
           }
           .short-actions-toolbar {
             position: absolute !important;
-            bottom: 14px !important;
+            bottom: calc(96px + env(safe-area-inset-bottom, 0px)) !important;
             right: 10px !important;
             display: flex !important;
             flex-direction: column !important;
@@ -2254,8 +2489,10 @@ function ShortsPageContent() {
             key={video.id}
             video={video}
             isActive={idx === currentIndex}
+            isPreload={idx === currentIndex + 1}
             muted={muted}
             toggleMute={() => setMuted((m) => !m)}
+            onForceMute={() => setMuted(true)}
             isCommentsOpen={idx === currentIndex && isCommentsOpen}
             toggleComments={() => {
               setIsCommentsOpen((prev) => !prev);

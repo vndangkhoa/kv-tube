@@ -10,7 +10,10 @@ import androidx.work.Configuration
 import androidx.work.WorkManager
 import coil3.ImageLoader
 import coil3.SingletonImageLoader
+import coil3.disk.DiskCache
+import coil3.memory.MemoryCache
 import coil3.network.okhttp.OkHttpNetworkFetcherFactory
+import coil3.request.crossfade
 import com.kvtube.android.data.api.KVApi
 import com.kvtube.android.data.local.SettingsDataStore
 import com.kvtube.android.data.local.logToFile
@@ -21,8 +24,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
-import okhttp3.OkHttpClient
-import java.io.File
+import okio.Path.Companion.toOkioPath
 import javax.inject.Inject
 
 @HiltAndroidApp
@@ -53,16 +55,23 @@ class KVTubeApp : Application(), Configuration.Provider, SingletonImageLoader.Fa
         // some devices this app runs on.
         fileLogger.installCrashHandler()
 
-        // Blocking init to ensure server URL + token are set before any API call
+        // Blocking init to ensure server URL + token + gateway mode are set before any API call
         runBlocking {
             val url = settingsDataStore.serverUrl.first()
+            val token = settingsDataStore.invidiousToken.first()
+            val cachedGateway = settingsDataStore.serverIsGateway.first()
             if (url.isNotBlank()) {
-                kvApi.setServerUrl(url)
+                kvApi.setServerUrl(url, cachedGateway)
             }
-            kvApi.setToken(settingsDataStore.invidiousToken.first())
-            // All images route through the Invidious proxy too.
+            kvApi.setToken(token)
             com.kvtube.android.data.local.ThumbnailRouter.setServer(url, kvApi.isGateway())
-            logToFile("Startup", "server=$url token=${settingsDataStore.invidiousToken.first().isNotBlank()}")
+            logToFile("Startup", "server=$url token=${token.isNotBlank()} cachedGateway=$cachedGateway")
+        }
+
+        kvApi.onGatewayResolved = { _, isGateway ->
+            applicationScope.launch {
+                settingsDataStore.setServerIsGateway(isGateway)
+            }
         }
 
         // Create notification channel for downloads (needed for WorkManager setForeground)
@@ -94,6 +103,18 @@ class KVTubeApp : Application(), Configuration.Provider, SingletonImageLoader.Fa
     override fun newImageLoader(context: Context): ImageLoader {
         val okHttpClient = com.kvtube.android.data.net.KvHttp.client
         return ImageLoader.Builder(context)
+            .memoryCache {
+                MemoryCache.Builder()
+                    .maxSizePercent(context, 0.25)
+                    .build()
+            }
+            .diskCache {
+                DiskCache.Builder()
+                    .directory(context.cacheDir.resolve("image_cache").toOkioPath())
+                    .maxSizeBytes(100L * 1024 * 1024)
+                    .build()
+            }
+            .crossfade(120)
             .components {
                 add(OkHttpNetworkFetcherFactory(okHttpClient))
             }

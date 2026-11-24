@@ -10,7 +10,7 @@ import { isVideoSaved, toggleSaveVideo, addToHistory, isSubscribed, toggleSubscr
 import { invidious } from '../services/invidious';
 import LoadingSpinner from '../components/LoadingSpinner';
 import Link from 'next/link';
-import { usePlayer } from '../context/PlayerContext';
+import { usePlayer, PlayingVideoInfo } from '../context/PlayerContext';
 import VideoCard from '../components/VideoCard';
 import ShortsShelf from '../components/ShortsShelf';
 import WatchSidePanel, { WatchRightTab } from './WatchSidePanel';
@@ -1377,7 +1377,7 @@ export default function ClientWatchPage() {
     const videoId = activeVideoId || paramVideoId;
     const playlistId = searchParams.get('list');
     const chipBarRef = useRef<HTMLDivElement>(null);
-    const { currentVideo, setPlayingVideo, setIsPlaying, loopMode, setLoopMode, watchHandlersRef } = usePlayer();
+    const { currentVideo, setPlayingVideo, setIsPlaying, loopMode, setLoopMode, watchHandlersRef, setQueue } = usePlayer();
     const [videoInfo, setVideoInfo] = useState<any>(null);
     const [relatedVideos, setRelatedVideos] = useState<VideoData[]>([]);
     const [mixPlaylist, setMixPlaylist] = useState<VideoData[]>([]);
@@ -1644,6 +1644,46 @@ export default function ClientWatchPage() {
 
         loadVideoData();
     }, [videoId, playlistId]);
+
+    // Sync active mix or up-next recommendations into global PlayerContext queue for floating mini-player drawer
+    useEffect(() => {
+        if (!videoId) return;
+        const toQueueItem = (v: VideoData): PlayingVideoInfo => ({
+            id: v.id,
+            title: v.title || 'Untitled',
+            uploader: v.uploader,
+            thumbnail: v.thumbnail || proxiedThumb(v.id, 'mqdefault'),
+            duration: v.duration,
+        });
+
+        if (mixPlaylist.length > 0) {
+            setQueue(mixPlaylist.map(toQueueItem), mixTitle || (playlistId ? 'Playlist' : 'Mix'));
+            return;
+        }
+
+        const items: PlayingVideoInfo[] = [];
+        const seen = new Set<string>();
+        const activeTitle = videoInfo?.title || currentVideo?.title;
+        if (activeTitle) {
+            items.push({
+                id: videoId,
+                title: activeTitle,
+                uploader: videoInfo?.uploader || currentVideo?.uploader,
+                thumbnail: videoInfo?.thumbnail || currentVideo?.thumbnail || proxiedThumb(videoId, 'mqdefault'),
+                duration: videoInfo?.duration || currentVideo?.duration,
+            });
+            seen.add(videoId);
+        }
+        for (const v of relatedVideos) {
+            if (!v?.id || seen.has(v.id)) continue;
+            seen.add(v.id);
+            items.push(toQueueItem(v));
+            if (items.length >= 20) break;
+        }
+        if (items.length > 0) {
+            setQueue(items, 'Up next');
+        }
+    }, [videoId, playlistId, videoInfo, currentVideo?.title, currentVideo?.uploader, currentVideo?.thumbnail, currentVideo?.duration, mixPlaylist, mixTitle, relatedVideos, setQueue]);
 
     const handleVideoSelect = useCallback((videoOrIndex: VideoData | number, maybeIndex?: number) => {
         let selectedVideo: VideoData | undefined;

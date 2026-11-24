@@ -18,6 +18,8 @@ export default function PersistentPlayer() {
     currentVideo,
     isMiniPlayerOpen,
     loopMode,
+    playNextInQueue,
+    playPrevInQueue,
     watchHandlersRef,
   } = usePlayer();
   const pathname = usePathname();
@@ -167,9 +169,21 @@ export default function PersistentPlayer() {
         loop={loopMode}
         compact={showMini}
         forcePaused={hidden}
-        onVideoEnd={() => watchHandlersRef.current.onVideoEnd?.()}
-        onNext={() => watchHandlersRef.current.onNext?.()}
-        onPrev={() => watchHandlersRef.current.onPrev?.()}
+        onVideoEnd={() =>
+          watchHandlersRef.current.onVideoEnd
+            ? watchHandlersRef.current.onVideoEnd()
+            : playNextInQueue()
+        }
+        onNext={() =>
+          watchHandlersRef.current.onNext
+            ? watchHandlersRef.current.onNext()
+            : playNextInQueue()
+        }
+        onPrev={() =>
+          watchHandlersRef.current.onPrev
+            ? watchHandlersRef.current.onPrev()
+            : playPrevInQueue()
+        }
         onError={() => watchHandlersRef.current.onError?.()}
       />
     </div>

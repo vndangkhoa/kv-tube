@@ -3,10 +3,12 @@ package com.kvtube.android.data.local
 import android.content.Context
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
+import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
+import com.kvtube.android.data.api.KVApi
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
@@ -21,6 +23,9 @@ class SettingsDataStore @Inject constructor(
 ) {
     companion object {
         val SERVER_URL = stringPreferencesKey("server_url")
+        val SERVER_URL_USER_SET = booleanPreferencesKey("server_url_user_set")
+        val SERVER_IS_GATEWAY = booleanPreferencesKey("server_is_gateway")
+        val SAVED_SERVER_URLS = stringPreferencesKey("saved_server_urls")
         val INVIDIOUS_TOKEN = stringPreferencesKey("invidious_token")
         val THEME_MODE = stringPreferencesKey("theme_mode")
         val REGION = stringPreferencesKey("region")
@@ -40,13 +45,47 @@ class SettingsDataStore @Inject constructor(
 
         fun upgradeLegacyServer(url: String): String =
             if (url.trim().removeSuffix("/").lowercase() in LEGACY_SERVER_URLS) DEFAULT_SERVER_URL else url
+
+        internal fun resolveEffectiveServerUrl(storedUrl: String?, userSet: Boolean): String {
+            val clean = storedUrl?.trim()?.removeSuffix("/").orEmpty()
+            if (userSet && clean.isNotBlank()) return clean
+            return upgradeLegacyServer(clean.ifBlank { DEFAULT_SERVER_URL })
+        }
+
+        internal fun mergeSavedServerUrls(
+            existingRaw: String?,
+            priorityUrl: String,
+            maxEntries: Int = 5
+        ): List<String> {
+            val head = KVApi.normalizeUrl(priorityUrl)
+            val tail = existingRaw.orEmpty()
+                .lineSequence()
+                .map { KVApi.normalizeUrl(it) }
+                .filter { it.isNotBlank() }
+            return (listOfNotNull(head.takeIf { it.isNotBlank() }) + tail)
+                .distinct()
+                .take(maxEntries)
+        }
+
         const val DEFAULT_THEME_MODE = "dark"
         const val DEFAULT_REGION = "GLOBAL"
     }
 
     val serverUrl: Flow<String> = context.dataStore.data.map { preferences ->
-        upgradeLegacyServer(
-            preferences[SERVER_URL]?.trim()?.removeSuffix("/")?.ifBlank { DEFAULT_SERVER_URL } ?: DEFAULT_SERVER_URL
+        resolveEffectiveServerUrl(
+            storedUrl = preferences[SERVER_URL],
+            userSet = preferences[SERVER_URL_USER_SET] == true
+        )
+    }
+
+    val serverIsGateway: Flow<Boolean?> = context.dataStore.data.map { preferences ->
+        preferences[SERVER_IS_GATEWAY]
+    }
+
+    val savedServerUrls: Flow<List<String>> = context.dataStore.data.map { preferences ->
+        mergeSavedServerUrls(
+            existingRaw = preferences[SAVED_SERVER_URLS],
+            priorityUrl = preferences[SERVER_URL].orEmpty()
         )
     }
 
@@ -68,10 +107,36 @@ class SettingsDataStore @Inject constructor(
         preferences[REGION] ?: DEFAULT_REGION
     }
 
-    suspend fun setServerUrl(url: String) {
-        val cleanUrl = com.kvtube.android.data.api.KVApi.normalizeUrl(url)
+    suspend fun setServerUrl(url: String, isGateway: Boolean? = null) {
+        val cleanUrl = KVApi.normalizeUrl(url)
         context.dataStore.edit { preferences ->
+            val prevUrl = preferences[SERVER_URL].orEmpty()
             preferences[SERVER_URL] = cleanUrl
+            if (cleanUrl.isNotBlank()) {
+                preferences[SERVER_URL_USER_SET] = true
+                preferences[SAVED_SERVER_URLS] =
+                    mergeSavedServerUrls(preferences[SAVED_SERVER_URLS], cleanUrl).joinToString("\n")
+            }
+            if (isGateway != null) {
+                preferences[SERVER_IS_GATEWAY] = isGateway
+            } else if (prevUrl != cleanUrl) {
+                preferences.remove(SERVER_IS_GATEWAY)
+            }
+        }
+    }
+
+    suspend fun rememberServerUrl(url: String) {
+        val cleanUrl = KVApi.normalizeUrl(url)
+        if (cleanUrl.isBlank()) return
+        context.dataStore.edit { preferences ->
+            preferences[SAVED_SERVER_URLS] =
+                mergeSavedServerUrls(preferences[SAVED_SERVER_URLS], cleanUrl).joinToString("\n")
+        }
+    }
+
+    suspend fun setServerIsGateway(isGateway: Boolean) {
+        context.dataStore.edit { preferences ->
+            preferences[SERVER_IS_GATEWAY] = isGateway
         }
     }
 

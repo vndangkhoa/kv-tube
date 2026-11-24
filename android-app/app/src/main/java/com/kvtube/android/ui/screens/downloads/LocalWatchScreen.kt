@@ -43,6 +43,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavController
+import com.kvtube.android.ui.adaptive.LocalWindowState
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
@@ -79,10 +80,11 @@ fun LocalWatchScreen(
     }
 
     var isFullscreen by remember { mutableStateOf(false) }
+    val isWideWindow = LocalWindowState.current.isWide
 
-    LaunchedEffect(isFullscreen) {
+    LaunchedEffect(isFullscreen, isWideWindow) {
         @Suppress("DEPRECATION")
-        (context as? android.app.Activity)?.requestedOrientation = if (isFullscreen)
+        (context as? android.app.Activity)?.requestedOrientation = if (isFullscreen && !isWideWindow)
             ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
         else
             ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED

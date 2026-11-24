@@ -1,15 +1,17 @@
 package com.kvtube.android.ui.components
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import com.kvtube.android.ui.theme.AstryxRadius
 
 @Composable
 fun SubscribeButton(
@@ -20,8 +22,9 @@ fun SubscribeButton(
     if (isSubscribed) {
         Button(
             onClick = onToggle,
-            modifier = modifier,
-            shape = RoundedCornerShape(AstryxRadius.element),
+            modifier = modifier.heightIn(min = 36.dp),
+            shape = CircleShape,
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
             contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
             colors = ButtonDefaults.buttonColors(
                 containerColor = MaterialTheme.colorScheme.surfaceVariant,
@@ -30,14 +33,15 @@ fun SubscribeButton(
         ) {
             Text(
                 text = "Subscribed",
-                style = MaterialTheme.typography.labelMedium
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.SemiBold
             )
         }
     } else {
         Button(
             onClick = onToggle,
-            modifier = modifier,
-            shape = RoundedCornerShape(AstryxRadius.element),
+            modifier = modifier.heightIn(min = 36.dp),
+            shape = CircleShape,
             contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
             colors = ButtonDefaults.buttonColors(
                 containerColor = MaterialTheme.colorScheme.primary,
@@ -46,7 +50,8 @@ fun SubscribeButton(
         ) {
             Text(
                 text = "Subscribe",
-                style = MaterialTheme.typography.labelMedium
+                style = MaterialTheme.typography.labelMedium,
+                fontWeight = FontWeight.SemiBold
             )
         }
     }

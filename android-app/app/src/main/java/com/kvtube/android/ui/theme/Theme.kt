@@ -12,6 +12,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.SideEffect
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalView
@@ -114,16 +115,26 @@ fun KVTubeTheme(
     val colorScheme = tokens.toScheme(dark = darkTheme || isAmoled)
 
     val view = LocalView.current
+    val isDarkSurface = darkTheme || isAmoled
     if (!view.isInEditMode) {
         SideEffect {
             val window = (view.context as Activity).window
-            window.statusBarColor = colorScheme.background.toArgb()
-            window.navigationBarColor = colorScheme.background.toArgb()
-            WindowCompat.getInsetsController(window, view).isAppearanceLightStatusBars = !darkTheme
+            @Suppress("DEPRECATION")
+            window.statusBarColor = Color.Transparent.toArgb()
+            @Suppress("DEPRECATION")
+            window.navigationBarColor = Color.Transparent.toArgb()
+            WindowCompat.getInsetsController(window, view).apply {
+                isAppearanceLightStatusBars = !isDarkSurface
+                isAppearanceLightNavigationBars = !isDarkSurface
+            }
         }
     }
 
-    CompositionLocalProvider(LocalAstryx provides tokens) {
+    CompositionLocalProvider(
+        LocalAstryx provides tokens,
+        LocalIsDarkGlassTheme provides isDarkSurface,
+        LocalIsAmoledGlassTheme provides isAmoled,
+    ) {
         MaterialTheme(
             colorScheme = colorScheme,
             typography = Typography,

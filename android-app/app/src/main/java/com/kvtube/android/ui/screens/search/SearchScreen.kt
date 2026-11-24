@@ -43,6 +43,7 @@ fun SearchScreen(
 ) {
     val uiState by viewModel.uiState.collectAsState()
     val context = LocalContext.current
+    val chromeInsets = com.kvtube.android.ui.theme.LocalGlassChromeInsets.current
 
     // Fallback: open the search on YouTube directly when the app's own
     // search (server + on-device extractor) returns nothing.
@@ -64,7 +65,9 @@ fun SearchScreen(
 
     CenteredContent {
     Column(
-        modifier = Modifier.fillMaxSize()
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(top = chromeInsets.calculateTopPadding())
     ) {
         SearchBar(
             query = uiState.query,
@@ -124,7 +127,12 @@ fun SearchScreen(
             else -> {
                 LazyVerticalGrid(
                     columns = rememberVideoGridCells(),
-                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                    contentPadding = PaddingValues(
+                        start = 12.dp,
+                        top = 4.dp,
+                        end = 12.dp,
+                        bottom = chromeInsets.calculateBottomPadding() + 12.dp
+                    ),
                     horizontalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(gridHorizontalSpacing()),
                     verticalArrangement = androidx.compose.foundation.layout.Arrangement.spacedBy(gridVerticalSpacing())
                 ) {

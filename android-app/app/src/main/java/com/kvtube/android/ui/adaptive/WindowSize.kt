@@ -55,7 +55,7 @@ data class WindowState(
     val isLandscape get() = widthDp > heightDp
     val isTabletop get() = foldPosture == FoldPosture.Tabletop
     val isBook get() = foldPosture == FoldPosture.Book
-    val useNavigationRail get() = widthClass == WidthClass.Expanded && isLandscape && widthDp >= 960
+    val useNavigationRail get() = widthClass.isWide
     val isFoldablePortraitWatch get() = isWide && !isLandscape && !isBook
     val isLandscapeTwoPaneWatch get() = (isWide && isLandscape) || isBook
 }
@@ -134,7 +134,7 @@ fun ProvideWidthClass(content: @Composable () -> Unit) {
                         .firstOrNull()
                     rawFold = if (feature != null) {
                         RawFoldInfo(
-                            isHalfOpened = feature.state == FoldingFeature.State.HALF_OPENED,
+                            isHalfOpened = feature.state == FoldingFeature.State.HALF_OPENED || feature.isSeparating,
                             isHorizontalHinge = feature.orientation == FoldingFeature.Orientation.HORIZONTAL,
                             leftPx = feature.bounds.left,
                             topPx = feature.bounds.top,

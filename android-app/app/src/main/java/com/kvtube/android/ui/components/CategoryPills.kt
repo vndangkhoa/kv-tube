@@ -8,7 +8,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.MaterialTheme
@@ -21,7 +21,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.kvtube.android.ui.adaptive.LocalWidthClass
-import com.kvtube.android.ui.theme.AstryxRadius
 
 val categories = listOf(
     "All", "Trending", "Music", "Gaming", "News", "Sports",
@@ -48,10 +47,10 @@ fun CategoryPills(
             FilterChip(
                 selected = selected,
                 onClick = { onCategorySelected(category) },
-                shape = RoundedCornerShape(AstryxRadius.element),
+                shape = CircleShape,
                 border = BorderStroke(
-                    1.dp,
-                    if (selected) Color.Transparent else MaterialTheme.colorScheme.outlineVariant
+                    0.8.dp,
+                    if (selected) Color.Transparent else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.65f)
                 ),
                 modifier = Modifier.height(if (isWide) 36.dp else 34.dp),
                 label = {
@@ -64,7 +63,7 @@ fun CategoryPills(
                 colors = FilterChipDefaults.filterChipColors(
                     selectedContainerColor = MaterialTheme.colorScheme.primary,
                     selectedLabelColor = MaterialTheme.colorScheme.onPrimary,
-                    containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                    containerColor = MaterialTheme.colorScheme.surfaceContainer.copy(alpha = 0.72f),
                     labelColor = MaterialTheme.colorScheme.onSurface
                 )
             )

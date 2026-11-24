@@ -184,9 +184,8 @@ function VideoCard({
             alt={video.title}
             width={640}
             height={360}
-            {...(priority
-              ? ({ fetchpriority: 'high' } as any)
-              : { loading: 'lazy' as const })}
+            fetchPriority={priority ? 'high' : undefined}
+            loading={priority ? undefined : 'lazy'}
             decoding="async"
             onError={handleImageError}
             className="yt-card-thumb-img"

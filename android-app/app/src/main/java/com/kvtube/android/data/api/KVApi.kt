@@ -8,7 +8,8 @@ import com.kvtube.android.data.model.PlaybackFormat
 import com.kvtube.android.data.model.PlaybackInfo
 import com.kvtube.android.data.model.Subscription
 import com.kvtube.android.data.model.VideoData
-import com.kvtube.android.data.relativeRecencyMinutes
+import com.kvtube.android.data.isZeroAgePlaceholder
+import com.kvtube.android.data.sortedLatestFirst
 import io.ktor.client.HttpClient
 import io.ktor.client.request.delete
 import io.ktor.client.request.get
@@ -104,9 +105,14 @@ class KVApi(
     @Volatile
     private var gatewayMode: Boolean? = null
 
-    fun setServerUrl(url: String) {
+    @Volatile
+    var onGatewayResolved: ((String, Boolean) -> Unit)? = null
+
+    fun setServerUrl(url: String, cachedGatewayMode: Boolean? = null) {
         val clean = normalizeUrl(url)
-        if (clean != baseUrl) {
+        if (cachedGatewayMode != null) {
+            gatewayMode = cachedGatewayMode
+        } else if (clean != baseUrl) {
             // Known KV-Tube gateway hosts skip the two sequential probe requests
             // (saves ~2 round trips before the very first API / manifest call).
             gatewayMode = if (isKnownGateway(clean)) true else null
@@ -340,13 +346,15 @@ class KVApi(
      *  with an HTML body, so status codes alone cannot be trusted. */
     private suspend fun resolveGateway() {
         if (gatewayMode != null || baseUrl.isBlank()) return
-        gatewayMode = when {
+        val detected = when {
             invidiousOk("/api/v1") -> false
             invidiousOk("/api/invidious/api/v1") -> true
             else -> false
         }
-        com.kvtube.android.data.local.ThumbnailRouter.setGatewayMode(gatewayMode == true)
-        Log.d(TAG, "Server mode: ${if (gatewayMode == true) "kv-tube gateway" else "raw invidious"}")
+        gatewayMode = detected
+        com.kvtube.android.data.local.ThumbnailRouter.setGatewayMode(detected)
+        onGatewayResolved?.invoke(baseUrl, detected)
+        Log.d(TAG, "Server mode: ${if (detected) "kv-tube gateway" else "raw invidious"}")
     }
 
     private suspend fun invidiousOk(prefix: String): Boolean {
@@ -461,23 +469,38 @@ class KVApi(
 
     private fun JsonObject.toVideo(): VideoData {
         val id = str("videoId")
+        val liveNow = bool("liveNow")
+        val rawPubText = str("publishedText")
+        val rawPubUnix = num("published").takeIf { it > 0L }
+            ?: str("published").takeIf { it.isNotBlank() }?.let { raw ->
+                runCatching { java.time.Instant.parse(raw).epochSecond }.getOrDefault(0L)
+            }
+            ?: 0L
+        val bogusZeroAge = !liveNow && isZeroAgePlaceholder(rawPubText)
+        val rawViewCount = num("viewCount")
+        val fallbackViews = if (rawViewCount == 0L) {
+            str("viewCountText").let { t ->
+                if (t.isBlank() || t.contains("view", ignoreCase = true)) t else "$t views"
+            }
+        } else ""
         return VideoData(
             id = id,
             title = str("title"),
             description = str("description"),
             duration = secondsToDuration(num("lengthSeconds")),
             durationSeconds = num("lengthSeconds"),
-            viewCount = num("viewCount"),
-            published = str("publishedText"),
-            publishedUnix = num("published"),
-            uploadedAt = str("publishedText"),
+            views = fallbackViews,
+            viewCount = rawViewCount,
+            published = if (bogusZeroAge) "" else rawPubText,
+            publishedUnix = if (bogusZeroAge) 0L else rawPubUnix,
+            uploadedAt = if (bogusZeroAge) "" else rawPubText,
             thumbnail = com.kvtube.android.data.local.ThumbnailRouter.video(id),
             uploader = str("author"),
             uploaderId = str("authorId"),
             channelId = str("authorId"),
             channelTitle = str("author"),
             channelThumbnail = thumbList("authorThumbnails"),
-            isLive = bool("liveNow")
+            isLive = liveNow
         )
     }
 
@@ -494,44 +517,147 @@ class KVApi(
 
     // --- content feeds -------------------------------------------------------
 
+    data class ShortsPage(
+        val videos: List<VideoData>,
+        val continuation: String? = null
+    )
+
+    suspend fun getShortsFeed(region: String = "GLOBAL", continuation: String? = null): ShortsPage? {
+        if (baseUrl.isBlank()) return null
+        resolveGateway()
+        if (gatewayMode != true) return null
+        return try {
+            val resp = client.get("$baseUrl/api/shorts/feed") {
+                if (region.isNotBlank()) parameter("region", region)
+                if (!continuation.isNullOrBlank()) parameter("continuation", continuation)
+            }
+            if (!resp.status.isSuccess()) return null
+            val root = json.parseToJsonElement(resp.bodyAsText()) as? JsonObject ?: return null
+            val arr = root["shorts"] as? JsonArray ?: return null
+            val nextToken = root.str("continuation").ifBlank { null }
+            val items = arr.mapNotNull { el ->
+                val obj = el as? JsonObject ?: return@mapNotNull null
+                val id = obj.str("id")
+                if (id.isBlank()) return@mapNotNull null
+                val uploader = obj.str("uploader")
+                val chId = obj.str("channelId").ifBlank { uploader }
+                val rawAvatar = obj.str("channelAvatar")
+                val avatar = when {
+                    rawAvatar.startsWith("/") -> "$baseUrl$rawAvatar"
+                    rawAvatar.startsWith("http") -> rawAvatar
+                    else -> ""
+                }
+                val len = obj.num("lengthSeconds").takeIf { it > 0L } ?: 30L
+                VideoData(
+                    id = id,
+                    title = obj.str("title").ifBlank { "YouTube Short" },
+                    duration = secondsToDuration(len),
+                    durationSeconds = len,
+                    viewCount = obj.num("view_count"),
+                    thumbnail = com.kvtube.android.data.local.ThumbnailRouter.video(id),
+                    uploader = uploader,
+                    uploaderId = chId,
+                    channelId = chId,
+                    channelTitle = uploader,
+                    channelThumbnail = avatar,
+                    isShort = true
+                )
+            }
+            ShortsPage(videos = items, continuation = nextToken)
+        } catch (e: Exception) {
+            Log.w(TAG, "getShortsFeed failed: ${e.message}")
+            null
+        }
+    }
+
     suspend fun search(
         query: String,
         limit: Int = 20,
         region: String = "",
         page: Int = 1,
-        newestFirst: Boolean = false,
-        date: String = "",
-        features: String = ""
+        sortBy: String? = null,
+        date: String? = null,
+        features: String? = null,
+        duration: String? = null
     ): List<VideoData> {
         val params = buildMap {
             put("q", query)
             put("type", "video")
             put("page", page.coerceAtLeast(1).toString())
             if (region.isNotBlank() && region != "GLOBAL") put("region", region)
-            if (newestFirst) put("sort_by", "upload_date")
-            if (date.isNotBlank()) put("date", date)
-            if (features.isNotBlank()) put("features", features)
+            if (!sortBy.isNullOrBlank()) put("sort_by", sortBy)
+            if (!date.isNullOrBlank()) put("date", date)
+            if (!features.isNullOrBlank()) put("features", features)
+            if (!duration.isNullOrBlank()) put("duration", duration)
         }
         return getJsonArray("search", params)
             .filter { it.str("type").ifBlank { "video" } == "video" }
             .map { it.toVideo() }
+            .filter { it.id.isNotBlank() && it.title.isNotBlank() && (it.isLive || it.viewCount > 0L || it.durationSeconds > 0L) }
+            .take(limit)
+    }
+
+    suspend fun getPopular(limit: Int = 40): List<VideoData> {
+        return getJsonArray("popular")
+            .map { it.toVideo() }
+            .filter { it.id.isNotBlank() && it.title.isNotBlank() && (it.isLive || it.viewCount > 0L || it.durationSeconds > 0L) }
             .take(limit)
     }
 
     // Fetch exactly one page of [limit] videos. The [offset] maps to the
-    // Invidious page index so each "load more" pulls a fresh batch instead of
-    // re-fetching the whole growing list (which Invidious ignores past its cap).
+    // page index so each "load more" pulls a fresh batch instead of
+    // re-fetching the whole growing list.
     suspend fun getHomeFeed(limit: Int = 30, offset: Int = 0, region: String = ""): List<VideoData> {
-        val params = if (region.isNotBlank() && region != "GLOBAL") mapOf("region" to region) else emptyMap()
         val page = offset / maxOf(1, limit) + 1
-        return getJsonArray("trending", params + ("page" to page.toString()))
-            .map { it.toVideo() }
-            .take(limit)
+        return getTrending(limit = limit, region = region, page = page)
     }
 
-    suspend fun getTrending(limit: Int = 20, region: String = ""): List<VideoData> {
-        val params = if (region.isNotBlank() && region != "GLOBAL") mapOf("region" to region) else emptyMap()
-        return getJsonArray("trending", params).map { it.toVideo() }.take(limit)
+    suspend fun getTrending(limit: Int = 20, region: String = "", page: Int = 1): List<VideoData> {
+        val trendingQuery = if (region.equals("VN", ignoreCase = true)) {
+            "video thịnh hành việt nam"
+        } else {
+            "trending videos"
+        }
+        if (page <= 1) {
+            val params = if (region.isNotBlank() && region != "GLOBAL") mapOf("region" to region) else emptyMap()
+            val trending = sanitizeTrendingVideos(
+                getJsonArray("trending", params).map { it.toVideo() }
+            )
+            val validDated = trending.filter { it.publishedUnix > 0L || it.published.isNotBlank() }
+            if (validDated.size >= minOf(limit, 8)) {
+                return (validDated + trending).distinctBy { it.id }.take(limit)
+            }
+            val searchTrending = search(
+                query = trendingQuery,
+                limit = limit,
+                region = region,
+                page = 1,
+                sortBy = "upload_date",
+                date = "month"
+            )
+            val merged = (validDated + searchTrending + trending).distinctBy { it.id }
+            if (merged.size >= minOf(limit, 8)) {
+                return merged.take(limit)
+            }
+            return (merged + getPopular(limit)).distinctBy { it.id }.take(limit)
+        }
+
+        // Invidious /trending ignores `page`, so paginate via regional trending search.
+        val paged = search(
+            query = trendingQuery,
+            limit = limit,
+            region = region,
+            page = page,
+            sortBy = "upload_date",
+            date = "month"
+        )
+        if (paged.isNotEmpty()) return paged
+        return search(
+            query = trendingQuery,
+            limit = limit,
+            region = region,
+            page = page
+        )
     }
 
     suspend fun getVideoInfo(videoId: String): VideoData {
@@ -542,32 +668,20 @@ class KVApi(
 
     // --- playback ------------------------------------------------------------
 
-    /**
-     * Builds PlaybackInfo from the Invidious video payload:
-     *  - progressive formatStreams become combined (has_audio=true) formats
-     *  - adaptiveFormats video/mp4 entries become video-only formats
-     *  - highest-bitrate audio/mp4 becomes audio_format
-     */
-    suspend fun getPlaybackInfo(videoId: String, audio: String = "opus"): PlaybackInfo {
-        resolveGateway()
-        // 1. Try local=true first (proxies video/audio bytes via Invidious)
-        var o = getObject("videos/$videoId?local=true")
+    data class VideoBundle(
+        val video: VideoData,
+        val relatedVideos: List<VideoData>,
+        val playbackInfo: PlaybackInfo
+    )
 
-        // 2. Fallback to direct without local=true if local=true failed or gave no streams
-        fun hasStreams(obj: JsonObject?): Boolean {
-            if (obj == null) return false
-            val progressive = (obj["formatStreams"] as? JsonArray)?.isNotEmpty() == true
-            val adaptive = (obj["adaptiveFormats"] as? JsonArray)?.isNotEmpty() == true
-            return progressive || adaptive
-        }
+    private fun hasStreams(obj: JsonObject?): Boolean {
+        if (obj == null) return false
+        val progressive = (obj["formatStreams"] as? JsonArray)?.isNotEmpty() == true
+        val adaptive = (obj["adaptiveFormats"] as? JsonArray)?.isNotEmpty() == true
+        return progressive || adaptive
+    }
 
-        if (!hasStreams(o)) {
-            Log.d(TAG, "getPlaybackInfo($videoId): local=true returned no formats, falling back to direct video info")
-            o = getObject("videos/$videoId")
-        }
-
-        if (o == null) return PlaybackInfo()
-
+    private fun JsonObject.toPlaybackInfo(): PlaybackInfo {
         fun heightOf(vararg labels: String): Int {
             for (label in labels) {
                 Regex("(\\d+)p").find(label)?.groupValues?.get(1)?.toIntOrNull()?.let { return it }
@@ -620,19 +734,19 @@ class KVApi(
             hasAudio = hasAudio
         )
 
-        val videoOnly = (o["adaptiveFormats"] as? JsonArray ?: JsonArray(emptyList()))
+        val videoOnly = (this["adaptiveFormats"] as? JsonArray ?: JsonArray(emptyList()))
             .mapNotNull { it as? JsonObject }
             .filter { f -> f.str("type").startsWith("video/") && f.str("url").isNotBlank() }
             .map { it.format(false) }
             .sortedByDescending { it.height }
 
-        val progressive = (o["formatStreams"] as? JsonArray ?: JsonArray(emptyList()))
+        val progressive = (this["formatStreams"] as? JsonArray ?: JsonArray(emptyList()))
             .mapNotNull { it as? JsonObject }
             .filter { it.str("url").isNotBlank() }
             .map { it.format(true) }
             .sortedByDescending { it.height }
 
-        val bestAudio = (o["adaptiveFormats"] as? JsonArray ?: JsonArray(emptyList()))
+        val bestAudio = (this["adaptiveFormats"] as? JsonArray ?: JsonArray(emptyList()))
             .mapNotNull { it as? JsonObject }
             .filter { f -> f.str("type").startsWith("audio/") && f.str("url").isNotBlank() }
             .maxByOrNull { it.num("bitrate") }
@@ -650,11 +764,55 @@ class KVApi(
             }
 
         return PlaybackInfo(
-            title = o.str("title"),
-            duration = o.num("lengthSeconds").toDouble(),
+            title = str("title"),
+            duration = num("lengthSeconds").toDouble(),
             videoFormats = progressive + videoOnly,
             audioFormat = bestAudio
         )
+    }
+
+    /**
+     * Fetches video metadata, related recommendations, and playback formats in
+     * a single `/videos/{id}` round trip (avoiding duplicate watch-page fetches).
+     */
+    suspend fun getVideoBundle(videoId: String, relatedLimit: Int = 15): VideoBundle? {
+        resolveGateway()
+        var o = getObject("videos/$videoId?local=true")
+        if (!hasStreams(o)) {
+            Log.d(TAG, "getVideoBundle($videoId): local=true returned no formats, falling back to direct video info")
+            val direct = getObject("videos/$videoId")
+            if (direct != null) o = direct
+        }
+        val obj = o ?: return null
+        val video = obj.toVideo().copy(description = obj.str("description"))
+        val related = (obj["recommendedVideos"] as? JsonArray ?: JsonArray(emptyList()))
+            .mapNotNull { it as? JsonObject }
+            .map { it.toVideo() }
+            .take(relatedLimit)
+        return VideoBundle(
+            video = video,
+            relatedVideos = related,
+            playbackInfo = obj.toPlaybackInfo()
+        )
+    }
+
+    /**
+     * Builds PlaybackInfo from the Invidious video payload:
+     *  - progressive formatStreams become combined (has_audio=true) formats
+     *  - adaptiveFormats video/mp4 entries become video-only formats
+     *  - highest-bitrate audio/mp4 becomes audio_format
+     */
+    suspend fun getPlaybackInfo(videoId: String, audio: String = "opus"): PlaybackInfo {
+        resolveGateway()
+        // 1. Try local=true first (proxies video/audio bytes via Invidious)
+        var o = getObject("videos/$videoId?local=true")
+
+        if (!hasStreams(o)) {
+            Log.d(TAG, "getPlaybackInfo($videoId): local=true returned no formats, falling back to direct video info")
+            o = getObject("videos/$videoId")
+        }
+
+        return o?.toPlaybackInfo() ?: PlaybackInfo()
     }
 
     suspend fun getRelatedVideos(videoId: String, limit: Int = 15): List<VideoData> {
@@ -769,10 +927,18 @@ class KVApi(
      * or the instance rejected the credentials); an empty list means the
      * instance answered but the account has no feed items.
      */
-    suspend fun getSubscriptionFeed(perChannel: Int = 5, channels: Int = 20, offset: Int = 0): List<VideoData>? {
+    suspend fun getSubscriptionFeed(
+        perChannel: Int = 5,
+        channels: Int = 20,
+        offset: Int = 0,
+        page: Int = 1
+    ): List<VideoData>? {
         val maxResults = (perChannel * channels).coerceIn(10, 100)
-        val body = getBody("auth/feed", mapOf("max_results" to maxResults.toString()), auth = true)
-            ?: return null
+        val body = getBody(
+            "auth/feed",
+            mapOf("max_results" to maxResults.toString(), "page" to page.coerceAtLeast(1).toString()),
+            auth = true
+        ) ?: return null
         val element = try {
             json.parseToJsonElement(body)
         } catch (e: Exception) {
@@ -781,8 +947,8 @@ class KVApi(
         }
         return parseSubscriptionFeed(element)
             .distinctBy { it.str("videoId") }
-            .sortedByDescending { it.num("published") }
             .map { it.toVideo() }
+            .sortedLatestFirst()
             .drop(offset)
     }
 
@@ -822,7 +988,7 @@ class KVApi(
     }
 
     /** Outcome of an authenticated request against the instance. */
-    enum class TokenCheck { VALID, REJECTED, UNREACHABLE }
+    enum class TokenCheck { VALID, REJECTED, NO_TOKEN, UNREACHABLE }
 
     /**
      * Cheap authenticated probe (GET /auth/preferences, ~1 KB) used only when
@@ -830,7 +996,8 @@ class KVApi(
      * token apart from a server that is simply unreachable.
      */
     suspend fun checkToken(): TokenCheck {
-        if (baseUrl.isBlank() || authToken.isBlank()) return TokenCheck.UNREACHABLE
+        if (baseUrl.isBlank()) return TokenCheck.UNREACHABLE
+        if (authToken.isBlank()) return TokenCheck.NO_TOKEN
         return try {
             val resp = client.get(api("auth/preferences")) { applyAuth(this) }
             when {
@@ -850,6 +1017,31 @@ class KVApi(
             client.get(api("stats")).status.isSuccess()
         } catch (e: Exception) {
             false
+        }
+    }
+}
+
+internal fun sanitizeTrendingVideos(items: List<VideoData>): List<VideoData> {
+    val usable = items.filter {
+        it.id.isNotBlank() && it.title.isNotBlank() &&
+            (it.isLive || it.viewCount > 0L || it.durationSeconds > 0L)
+    }
+    val duplicateEpochs = usable
+        .filter { !it.isLive && it.publishedUnix > 0L }
+        .groupingBy { it.publishedUnix }
+        .eachCount()
+        .filterValues { it >= 2 }
+        .keys
+
+    return usable.map { video ->
+        val bogusZeroAge = !video.isLive && isZeroAgePlaceholder(video.published)
+        val suspiciousUniform = !video.isLive &&
+            video.publishedUnix in duplicateEpochs &&
+            (video.viewCount == 0L || video.published.isBlank() || isZeroAgePlaceholder(video.published))
+        if (bogusZeroAge || suspiciousUniform) {
+            video.copy(published = "", publishedUnix = 0L, uploadedAt = "")
+        } else {
+            video
         }
     }
 }

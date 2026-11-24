@@ -3,6 +3,7 @@ package com.kvtube.android.data.extractor
 import android.content.Context
 import android.util.Log
 import com.kvtube.android.data.api.KVApi
+import com.kvtube.android.data.model.ChannelInfo
 import com.kvtube.android.data.model.Comment
 import com.kvtube.android.data.model.CommentsPage
 import com.kvtube.android.data.model.ExtractedStream
@@ -13,6 +14,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.schabi.newpipe.extractor.NewPipe
 import org.schabi.newpipe.extractor.ServiceList
+import org.schabi.newpipe.extractor.channel.tabs.ChannelTabs
 import org.schabi.newpipe.extractor.comments.CommentsInfoItem
 import org.schabi.newpipe.extractor.downloader.Downloader
 import org.schabi.newpipe.extractor.downloader.Request
@@ -24,6 +26,7 @@ import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 import javax.inject.Singleton
 import okhttp3.OkHttpClient
+import okhttp3.RequestBody.Companion.toRequestBody
 
 @Singleton
 class ExtractorHelper @Inject constructor(
@@ -53,12 +56,21 @@ class ExtractorHelper @Inject constructor(
 
                     @Throws(IOException::class)
                     override fun execute(request: Request): Response {
+                        val method = request.httpMethod()
+                        val dataToSend = request.dataToSend()
+                        val requestBody = when {
+                            dataToSend != null -> dataToSend.toRequestBody(null)
+                            method == "POST" || method == "PUT" || method == "PATCH" -> ByteArray(0).toRequestBody(null)
+                            else -> null
+                        }
                         val httpReq = okhttp3.Request.Builder()
+                            .method(method, requestBody)
                             .url(request.url())
                             .apply {
                                 header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36")
-                                request.headers().forEach { (k, v) ->
-                                    if (v.isNotEmpty()) header(k, v[0])
+                                request.headers().forEach { (k, values) ->
+                                    removeHeader(k)
+                                    values.forEach { v -> addHeader(k, v) }
                                 }
                             }
                             .build()
@@ -70,7 +82,7 @@ class ExtractorHelper @Inject constructor(
                             response.message,
                             response.headers.toMultimap(),
                             body,
-                            request.url()
+                            response.request.url.toString()
                         )
                     }
                 })
@@ -351,6 +363,86 @@ class ExtractorHelper @Inject constructor(
         } catch (e: Exception) {
             Log.w(TAG, "NewPipe search extraction error for $query: ${e.message}")
             emptyList()
+        }
+    }
+
+    suspend fun getChannelInfoAndVideos(
+        channelId: String,
+        limit: Int = 48
+    ): Pair<ChannelInfo, List<VideoData>>? = withContext(Dispatchers.IO) {
+        if (channelId.isBlank()) return@withContext null
+        initNewPipe()
+        try {
+            val channelUrl = when {
+                channelId.startsWith("http") -> channelId
+                channelId.startsWith("@") -> "https://www.youtube.com/$channelId"
+                else -> "https://www.youtube.com/channel/$channelId"
+            }
+            val extractor = ServiceList.YouTube.getChannelExtractor(channelUrl)
+            extractor.fetchPage()
+
+            val title = runCatching { extractor.name }.getOrDefault("")
+            val avatarUrl = runCatching {
+                extractor.avatars.maxByOrNull { it.height }?.url
+            }.getOrNull().orEmpty()
+            val bannerUrl = runCatching {
+                extractor.banners.maxByOrNull { it.height }?.url
+            }.getOrNull().orEmpty()
+            val subscriberCount = runCatching { extractor.subscriberCount }.getOrDefault(0L).coerceAtLeast(0L)
+            val description = runCatching { extractor.description }.getOrDefault("")
+
+            val videosTab = runCatching { extractor.tabs }.getOrDefault(emptyList()).let { tabs ->
+                tabs.firstOrNull { it.contentFilters.contains(ChannelTabs.VIDEOS) } ?: tabs.firstOrNull()
+            }
+            val videos = if (videosTab != null) {
+                val tabExtractor = ServiceList.YouTube.getChannelTabExtractor(videosTab)
+                tabExtractor.fetchPage()
+                tabExtractor.initialPage.items
+                    .filterIsInstance<StreamInfoItem>()
+                    .take(limit)
+                    .mapNotNull { item ->
+                        val vid = extractVideoId(item.url)
+                        if (vid.isBlank()) return@mapNotNull null
+                        val channelName = item.uploaderName?.takeIf { it.isNotBlank() } ?: title
+                        VideoData(
+                            id = vid,
+                            title = item.name ?: "",
+                            uploader = channelName,
+                            channelTitle = channelName,
+                            channelId = channelId,
+                            channelThumbnail = avatarUrl,
+                            thumbnail = item.thumbnails.maxByOrNull { it.height }?.url
+                                ?: com.kvtube.android.data.local.ThumbnailRouter.video(vid),
+                            duration = formatSeconds(item.duration),
+                            viewCount = item.viewCount,
+                            views = if (item.viewCount >= 0) formatViewCount(item.viewCount) else "",
+                            published = item.textualUploadDate ?: "",
+                            isShort = item.isShortFormContent
+                        )
+                    }
+            } else {
+                emptyList()
+            }
+
+            if (title.isBlank() && videos.isEmpty()) {
+                null
+            } else {
+                Pair(
+                    ChannelInfo(
+                        id = channelId,
+                        title = title.ifBlank { "Channel" },
+                        subscriberCount = subscriberCount,
+                        avatar = avatarUrl,
+                        avatarUrl = avatarUrl,
+                        bannerUrl = bannerUrl,
+                        description = description
+                    ),
+                    videos
+                )
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "NewPipe channel extraction error for $channelId: ${e.message}")
+            null
         }
     }
 

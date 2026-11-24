@@ -1,5 +1,6 @@
 package com.kvtube.android.ui.screens.downloads
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -19,6 +20,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Sort
@@ -27,6 +29,7 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.DriveFileRenameOutline
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.outlined.DownloadForOffline
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -53,6 +56,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -124,9 +128,12 @@ fun DownloadsScreen(
         )
     }
 
+    val chromeInsets = com.kvtube.android.ui.theme.LocalGlassChromeInsets.current
     CenteredContent(modifier = Modifier.background(MaterialTheme.colorScheme.background)) {
     Column(
-        modifier = Modifier.fillMaxSize()
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(top = chromeInsets.calculateTopPadding())
     ) {
         // Storage Card (YouTube Mobile Style)
         val totalBytes = uiState.downloads.sumOf { it.fileSize }
@@ -140,7 +147,8 @@ fun DownloadsScreen(
                 .fillMaxWidth()
                 .padding(horizontal = 14.dp, vertical = 8.dp),
             shape = RoundedCornerShape(12.dp),
-            color = MaterialTheme.colorScheme.surfaceVariant
+            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.15f))
         ) {
             Row(
                 modifier = Modifier
@@ -149,13 +157,24 @@ fun DownloadsScreen(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(
-                    text = if (uiState.downloads.isEmpty()) "No downloaded videos yet"
-                    else "${uiState.downloads.size} videos available offline",
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    color = MaterialTheme.colorScheme.onSurface
-                )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Outlined.DownloadForOffline,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Text(
+                        text = if (uiState.downloads.isEmpty()) "No downloaded videos yet"
+                        else "${uiState.downloads.size} videos available offline",
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                }
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     if (activeCount > 0) {
                         LinearProgressIndicator(
@@ -163,13 +182,13 @@ fun DownloadsScreen(
                                 .padding(end = 10.dp)
                                 .size(width = 42.dp, height = 4.dp)
                                 .clip(RoundedCornerShape(2.dp)),
-                            color = Color(0xFF3EA6FF),
+                            color = MaterialTheme.colorScheme.primary,
                             trackColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.2f)
                         )
                         Text(
                             text = "$activeCount active",
                             fontSize = 11.sp,
-                            color = Color(0xFF3EA6FF)
+                            color = MaterialTheme.colorScheme.primary
                         )
                     }
                     Spacer(modifier = Modifier.width(8.dp))
@@ -231,19 +250,38 @@ fun DownloadsScreen(
                 ) {
                     Column(
                         horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                        modifier = Modifier.padding(horizontal = 32.dp)
                     ) {
+                        Surface(
+                            shape = CircleShape,
+                            color = MaterialTheme.colorScheme.surfaceVariant,
+                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+                            modifier = Modifier.size(56.dp)
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Icon(
+                                    imageVector = Icons.Outlined.DownloadForOffline,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.size(26.dp)
+                                )
+                            }
+                        }
+                        Spacer(modifier = Modifier.height(14.dp))
                         Text(
                             text = if (uiState.searchQuery.isNotBlank()) "No matching downloads"
                             else "No downloaded videos",
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.onSurface,
-                            fontWeight = FontWeight.Medium,
-                            fontSize = 15.sp
+                            textAlign = TextAlign.Center
                         )
+                        Spacer(modifier = Modifier.height(6.dp))
                         Text(
                             text = "Videos you download will appear here for offline viewing",
+                            style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            fontSize = 12.sp
+                            textAlign = TextAlign.Center
                         )
                     }
                 }
@@ -252,7 +290,12 @@ fun DownloadsScreen(
             else -> {
                 LazyVerticalGrid(
                     columns = rememberRowGridCells(),
-                    contentPadding = PaddingValues(horizontal = 14.dp, vertical = 4.dp),
+                    contentPadding = PaddingValues(
+                        start = 14.dp,
+                        end = 14.dp,
+                        top = 4.dp,
+                        bottom = chromeInsets.calculateBottomPadding() + 12.dp
+                    ),
                     horizontalArrangement = Arrangement.spacedBy(10.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
@@ -373,14 +416,14 @@ private fun DownloadListItem(
                             .fillMaxWidth()
                             .height(3.dp)
                             .clip(RoundedCornerShape(2.dp)),
-                        color = Color(0xFF3EA6FF),
+                        color = MaterialTheme.colorScheme.primary,
                         trackColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.2f)
                     )
                     Spacer(modifier = Modifier.height(3.dp))
                     Text(
                         text = "${progress.percent}% • ${progress.speed.ifEmpty { "Downloading..." }}",
                         style = MaterialTheme.typography.bodySmall.copy(fontSize = 10.sp),
-                        color = Color(0xFF3EA6FF)
+                        color = MaterialTheme.colorScheme.primary
                     )
                 } else {
                     Row(
@@ -395,7 +438,7 @@ private fun DownloadListItem(
                                 text = video.quality.ifBlank { "HD" },
                                 fontSize = 10.sp,
                                 fontWeight = FontWeight.Bold,
-                                color = Color(0xFF3EA6FF),
+                                color = MaterialTheme.colorScheme.primary,
                                 modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
                             )
                         }
@@ -473,26 +516,31 @@ private fun SortButton(
     var expanded by remember { mutableStateOf(false) }
 
     Box {
-        Row(
-            modifier = Modifier
-                .clip(RoundedCornerShape(16.dp))
-                .clickable { expanded = true }
-                .padding(horizontal = 8.dp, vertical = 4.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(4.dp)
+        Surface(
+            shape = CircleShape,
+            color = MaterialTheme.colorScheme.surfaceVariant,
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
         ) {
-            Icon(
-                imageVector = Icons.AutoMirrored.Filled.Sort,
-                contentDescription = "Sort",
-                modifier = Modifier.size(16.dp),
-                tint = Color(0xFF3EA6FF)
-            )
-            Text(
-                text = currentSort.label,
-                fontSize = 12.sp,
-                color = Color(0xFF3EA6FF),
-                fontWeight = FontWeight.Medium
-            )
+            Row(
+                modifier = Modifier
+                    .clickable { expanded = true }
+                    .padding(horizontal = 10.dp, vertical = 5.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.AutoMirrored.Filled.Sort,
+                    contentDescription = "Sort",
+                    modifier = Modifier.size(16.dp),
+                    tint = MaterialTheme.colorScheme.onSurface
+                )
+                Text(
+                    text = currentSort.label,
+                    fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    fontWeight = FontWeight.Medium
+                )
+            }
         }
 
         DropdownMenu(
@@ -507,7 +555,7 @@ private fun SortButton(
                             if (currentSort == criteria) {
                                 Text(
                                     text = if (ascending) " ↑" else " ↓",
-                                    color = Color(0xFF3EA6FF)
+                                    color = MaterialTheme.colorScheme.primary
                                 )
                             }
                         }

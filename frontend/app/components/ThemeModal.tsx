@@ -18,16 +18,13 @@ export default function ThemeModal({ isOpen, onClose }: ThemeModalProps) {
   return (
     <div className="drawer-backdrop open" onClick={onClose} style={{ zIndex: 1200, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
       <div 
-        className="dropdown-animated"
+        className="dropdown-animated lg-floating lg-modal"
         onClick={(e) => e.stopPropagation()}
         style={{
-          backgroundColor: 'var(--yt-surface)',
-          border: '1px solid var(--yt-border)',
           borderRadius: '24px',
           padding: '24px',
           width: '90%',
           maxWidth: '460px',
-          boxShadow: 'var(--yt-shadow-lg)',
           color: 'var(--yt-text-primary)',
         }}
       >

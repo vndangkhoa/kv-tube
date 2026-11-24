@@ -10,12 +10,13 @@ export interface ShortItem {
   title: string;
   uploader?: string;
   thumbnail: string;
+  fallbackThumbnail?: string;
   view_count?: number;
   isNew?: boolean;
 }
 
 function formatViews(views?: number): string {
-  if (!views) return '100K views';
+  if (!views) return '';
   if (views >= 1000000) return (views / 1000000).toFixed(1) + 'M views';
   if (views >= 1000) return Math.round(views / 1000) + 'K views';
   return views + ' views';
@@ -23,96 +24,37 @@ function formatViews(views?: number): string {
 
 interface ShortsShelfProps {
   shorts?: ShortItem[];
+  loading?: boolean;
 }
 
-export default function ShortsShelf({ shorts }: ShortsShelfProps) {
+export default function ShortsShelf({ shorts, loading = false }: ShortsShelfProps) {
   const [expanded, setExpanded] = useState(false);
 
-  // Default mock/fallback shorts matching user screenshot if empty
-  const defaultShorts: ShortItem[] = [
-    {
-      id: 'short1',
-      title: 'SaWaDiKa...',
-      uploader: 'Creator 1',
-      thumbnail: 'https://picsum.photos/seed/short1/450/800',
-      view_count: 195000,
-      isNew: true,
-    },
-    {
-      id: 'short2',
-      title: 'This AMD FPGA is $10,000',
-      uploader: 'Tech Builder',
-      thumbnail: 'https://picsum.photos/seed/short2/450/800',
-      view_count: 211000,
-      isNew: false,
-    },
-    {
-      id: 'short3',
-      title: 'Qwen 3.6 vs Qwen 3.8',
-      uploader: 'AI News',
-      thumbnail: 'https://picsum.photos/seed/short3/450/800',
-      view_count: 465000,
-      isNew: false,
-    },
-    {
-      id: 'short4',
-      title: 'Cài File IPA iOS 26...',
-      uploader: 'Apple Tips',
-      thumbnail: 'https://picsum.photos/seed/short4/450/800',
-      view_count: 42000,
-      isNew: false,
-    },
-    {
-      id: 'short5',
-      title: 'Anyone want to see the soles of my feet? 🐾',
-      uploader: 'Cosplay Daily',
-      thumbnail: 'https://picsum.photos/seed/short5/450/800',
-      view_count: 117000,
-      isNew: true,
-    },
-    {
-      id: 'short6',
-      title: 'Suno AI đã bị cấm! Chuyện gì tiếp theo?',
-      uploader: 'AI News Daily',
-      thumbnail: 'https://picsum.photos/seed/short6/450/800',
-      view_count: 22000,
-      isNew: true,
-    },
-    {
-      id: 'short7',
-      title: 'The Console Every PC Gamer Wants?..',
-      uploader: 'Hardware Unboxed',
-      thumbnail: 'https://picsum.photos/seed/short7/450/800',
-      view_count: 143000,
-      isNew: false,
-    },
-    {
-      id: 'short8',
-      title: 'Top 10 Mẹo Lập Trình Next.js 15',
-      uploader: 'Dev Tips VN',
-      thumbnail: 'https://picsum.photos/seed/short8/450/800',
-      view_count: 89000,
-      isNew: false,
-    },
-    {
-      id: 'short9',
-      title: 'Robotics Breakthrough in 2026',
-      uploader: 'Future Tech',
-      thumbnail: 'https://picsum.photos/seed/short9/450/800',
-      view_count: 310000,
-      isNew: false,
-    },
-    {
-      id: 'short10',
-      title: 'Speedrun Mario 64 in 5 Minutes',
-      uploader: 'Retro Runner',
-      thumbnail: 'https://picsum.photos/seed/short10/450/800',
-      view_count: 520000,
-      isNew: true,
-    },
-  ];
+  if (loading && (!shorts || shorts.length === 0)) {
+    return (
+      <div className="yt-shorts-shelf-container">
+        <div className="yt-shorts-shelf-header">
+          <div className="yt-shorts-shelf-title-group">
+            <ShortsIcon size={24} className="yt-shorts-shelf-icon" filled={true} />
+            <h2 className="yt-shorts-shelf-title">Shorts</h2>
+          </div>
+        </div>
+        <div className="yt-shorts-grid">
+          {Array.from({ length: 5 }).map((_, i) => (
+            <div key={i} className="yt-short-card">
+              <div className="yt-short-thumb-wrapper skeleton" />
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
 
-  const allItems = shorts && shorts.length > 0 ? shorts : defaultShorts;
+  if (!shorts || shorts.length === 0) {
+    return null;
+  }
+
+  const allItems = shorts;
   const items = allItems.slice(0, expanded ? 10 : 5);
   const canExpand = allItems.length > 5;
 
@@ -131,21 +73,37 @@ export default function ShortsShelf({ shorts }: ShortsShelfProps) {
 
       {/* Grid of 9:16 vertical cards */}
       <div className="yt-shorts-grid">
-        {items.map((short, idx) => (
+        {items.map((short, idx) => {
+          const advanceThumbFallback = (target: HTMLImageElement) => {
+            const candidates = [
+              short.fallbackThumbnail,
+              short.id ? `https://i.ytimg.com/vi/${short.id}/hq720.jpg` : undefined,
+              short.id ? `https://i.ytimg.com/vi/${short.id}/hqdefault.jpg` : undefined,
+            ].filter((u): u is string => Boolean(u && u !== target.src));
+            const step = Number(target.dataset.fbStep || '0');
+            if (step < candidates.length) {
+              target.dataset.fbStep = String(step + 1);
+              target.src = candidates[step];
+            }
+          };
+
+          return (
           <div key={short.id || idx} className="yt-short-card">
             {/* Thumbnail */}
             <div className="yt-short-thumb-wrapper">
               <Link href={`/shorts?id=${encodeURIComponent(short.id)}`} className="yt-short-thumb-link">
                 <img
-                  src={short.thumbnail || (short.id ? `https://i.ytimg.com/vi_webp/${short.id}/hqdefault.webp` : '')}
+                  src={short.thumbnail || short.fallbackThumbnail || (short.id ? `https://i.ytimg.com/vi/${short.id}/hq720.jpg` : '')}
                   alt={short.title}
                   loading="lazy"
-                  onError={(e) => {
+                  onLoad={(e) => {
                     const target = e.currentTarget as HTMLImageElement;
-                    if (!target.src.endsWith('.jpg')) {
-                      target.src = `https://i.ytimg.com/vi/${short.id}/hqdefault.jpg`;
+                    // YouTube serves a 120x90 grey 3-dot JPEG with HTTP 200 for missing Shorts variants
+                    if (target.naturalWidth > 0 && target.naturalWidth <= 120) {
+                      advanceThumbFallback(target);
                     }
                   }}
+                  onError={(e) => advanceThumbFallback(e.currentTarget as HTMLImageElement)}
                 />
                 {short.isNew && <span className="yt-short-new-badge">New</span>}
               </Link>
@@ -157,14 +115,15 @@ export default function ShortsShelf({ shorts }: ShortsShelfProps) {
                 <Link href={`/shorts?id=${encodeURIComponent(short.id)}`} className="yt-short-title-link">
                   <h3 className="yt-short-title">{short.title}</h3>
                 </Link>
-                <div className="yt-short-views">{formatViews(short.view_count)}</div>
+                <div className="yt-short-views">{formatViews(short.view_count) || short.uploader || ''}</div>
               </div>
               <button className="yt-short-action-btn" title="Action menu">
                 <IoEllipsisVertical size={16} />
               </button>
             </div>
           </div>
-        ))}
+          );
+        })}
       </div>
 
       {/* Show more / Show fewer Divider Button (YouTube style) */}

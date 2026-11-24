@@ -2,7 +2,8 @@ package com.kvtube.android.ui.screens.channel
 
 import com.kvtube.android.ui.components.gridVerticalSpacing
 import com.kvtube.android.ui.components.gridHorizontalSpacing
-import androidx.compose.foundation.background
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -18,10 +19,15 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.CloudOff
+import androidx.compose.material3.Button
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -47,6 +53,7 @@ import com.kvtube.android.ui.components.LoadingSpinner
 import com.kvtube.android.ui.components.SubscribeButton
 import com.kvtube.android.ui.components.VideoCard
 import com.kvtube.android.ui.navigation.Screen
+import com.kvtube.android.ui.theme.AstryxRadius
 
 @Composable
 fun ChannelScreen(
@@ -65,16 +72,68 @@ fun ChannelScreen(
         return
     }
 
-    uiState.channel?.let { channel ->
+    val channel = uiState.channel
+    if (channel == null) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(32.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Surface(
+                    shape = CircleShape,
+                    color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                    modifier = Modifier.size(64.dp)
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                            imageVector = Icons.Outlined.CloudOff,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(30.dp)
+                        )
+                    }
+                }
+                Spacer(modifier = Modifier.height(16.dp))
+                Text(
+                    text = "Couldn't load channel",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                Spacer(modifier = Modifier.height(6.dp))
+                Text(
+                    text = uiState.error ?: "Check your connection or server and try again.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(modifier = Modifier.height(18.dp))
+                Button(
+                    onClick = { viewModel.loadChannel(channelId) },
+                    shape = CircleShape
+                ) {
+                    Text("Retry", fontWeight = FontWeight.SemiBold)
+                }
+            }
+        }
+        return
+    }
+
+    run {
+        val chromeInsets = com.kvtube.android.ui.theme.LocalGlassChromeInsets.current
         var showBanner by remember(channel.id) { mutableStateOf(!channel.bannerUrl.isNullOrBlank()) }
         var descriptionExpanded by remember(channel.id) { mutableStateOf(false) }
 
         CenteredContent {
         Column(
-            modifier = Modifier.fillMaxSize()
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(top = chromeInsets.calculateTopPadding())
         ) {
-            // Compact banner
+            // Compact rounded banner (collapsed completely if missing/error)
             if (showBanner && !channel.bannerUrl.isNullOrBlank()) {
+                val bannerShape = RoundedCornerShape(AstryxRadius.container)
                 AsyncImage(
                     model = channel.bannerUrl,
                     contentDescription = null,
@@ -85,8 +144,14 @@ fun ChannelScreen(
                     },
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(44.dp)
-                        .clip(RoundedCornerShape(bottomStart = 10.dp, bottomEnd = 10.dp)),
+                        .padding(horizontal = 12.dp, vertical = 6.dp)
+                        .height(88.dp)
+                        .clip(bannerShape)
+                        .border(
+                            1.dp,
+                            MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f),
+                            bannerShape
+                        ),
                     contentScale = ContentScale.Crop
                 )
             }
@@ -148,43 +213,91 @@ fun ChannelScreen(
                 )
             }
 
-            // Channel description (tap to expand)
+            // Channel description card (tap to expand)
             if (!channel.description.isNullOrBlank()) {
-                Text(
-                    text = channel.description,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = if (descriptionExpanded) 20 else 2,
-                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                val descShape = RoundedCornerShape(AstryxRadius.element)
+                Surface(
+                    shape = descShape,
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+                    border = BorderStroke(
+                        1.dp,
+                        MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
+                    ),
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clickable { descriptionExpanded = !descriptionExpanded }
                         .padding(horizontal = 16.dp, vertical = 4.dp)
-                )
+                        .clip(descShape)
+                        .clickable { descriptionExpanded = !descriptionExpanded }
+                ) {
+                    Column(modifier = Modifier.padding(12.dp)) {
+                        Text(
+                            text = channel.description,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = if (descriptionExpanded) 20 else 2,
+                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                        )
+                        if (descriptionExpanded || channel.description.length > 90) {
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = if (descriptionExpanded) "Show less" else "More",
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.SemiBold,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                        }
+                    }
+                }
             }
+
+            HorizontalDivider(
+                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
+                modifier = Modifier.padding(top = 10.dp)
+            )
 
             // Videos
             Text(
                 text = "Videos",
                 style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.Medium,
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp)
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.padding(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 6.dp)
             )
 
-            LazyVerticalGrid(
-                columns = rememberVideoGridCells(),
-                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
-                horizontalArrangement = Arrangement.spacedBy(gridHorizontalSpacing()),
-                verticalArrangement = Arrangement.spacedBy(gridVerticalSpacing())
-            ) {
-                items(uiState.videos, key = { it.id }) { video ->
-                    VideoCard(
-                        video = video,
-                        onVideoClick = { id ->
-                            navController.navigate(Screen.Watch.createRoute(id))
-                        },
-                        showChannelName = false
+            if (uiState.videos.isEmpty()) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 32.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = "No videos available",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
+                }
+            } else {
+                LazyVerticalGrid(
+                    columns = rememberVideoGridCells(),
+                    contentPadding = PaddingValues(
+                        start = 12.dp,
+                        end = 12.dp,
+                        top = 4.dp,
+                        bottom = chromeInsets.calculateBottomPadding() + 12.dp
+                    ),
+                    horizontalArrangement = Arrangement.spacedBy(gridHorizontalSpacing()),
+                    verticalArrangement = Arrangement.spacedBy(gridVerticalSpacing())
+                ) {
+                    items(uiState.videos, key = { it.id }) { video ->
+                        VideoCard(
+                            video = video,
+                            onVideoClick = { id ->
+                                navController.navigate(Screen.Watch.createRoute(id))
+                            },
+                            showChannelAvatar = false,
+                            showChannelName = false
+                        )
+                    }
                 }
             }
         }

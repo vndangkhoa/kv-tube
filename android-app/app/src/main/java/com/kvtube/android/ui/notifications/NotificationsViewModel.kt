@@ -3,6 +3,7 @@ package com.kvtube.android.ui.notifications
 import android.util.Log
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.kvtube.android.data.isZeroAgePlaceholder
 import com.kvtube.android.data.local.SettingsDataStore
 import com.kvtube.android.data.model.VideoData
 import com.kvtube.android.data.relativeRecencyMinutes
@@ -93,9 +94,15 @@ class NotificationsViewModel @Inject constructor(
             // A video is unseen when it was uploaded after the previous check.
             // Items without any age label can't be classified — skip them so a
             // live stream never keeps the badge lit forever.
+            val nowSec = System.currentTimeMillis() / 1000L
             val unseen = feed.filter { video ->
-                val age = video.published.orEmpty().relativeRecencyMinutes()
-                video.published.isNotBlank() && age in 1 until elapsedMinutes.coerceAtLeast(1L)
+                val ageMinutes = when {
+                    video.publishedUnix in 1L..nowSec -> (nowSec - video.publishedUnix) / 60L
+                    video.published.isNotBlank() && !isZeroAgePlaceholder(video.published) ->
+                        video.published.relativeRecencyMinutes()
+                    else -> 0L
+                }
+                ageMinutes in 1 until elapsedMinutes.coerceAtLeast(1L)
             }.map { it.id }.toSet()
 
             _uiState.value = _uiState.value.copy(

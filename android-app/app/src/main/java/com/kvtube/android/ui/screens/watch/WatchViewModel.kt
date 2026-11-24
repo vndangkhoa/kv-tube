@@ -5,6 +5,7 @@ import android.util.Log
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.kvtube.android.data.api.KVApi
 import com.kvtube.android.data.extractor.ExtractorHelper
 import com.kvtube.android.data.local.SettingsDataStore
 import com.kvtube.android.data.local.logToFile
@@ -22,7 +23,9 @@ import com.kvtube.android.data.repository.VideoRepository
 import com.kvtube.android.player.PlaybackManager
 import com.kvtube.android.ui.FullscreenController
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -46,7 +49,8 @@ data class WatchUiState(
     val commentsCount: Int? = null,
     val isLoadingComments: Boolean = false,
     val isLoadingMoreComments: Boolean = false,
-    val isLoading: Boolean = true,
+    val isLoadingRelated: Boolean = true,
+    val isLoading: Boolean = false,
     val error: String? = null,
     val selectedUrl: String? = null,
     val audioUrl: String? = null,
@@ -106,6 +110,24 @@ class WatchViewModel @Inject constructor(
 
     init {
         if (videoId.isNotBlank()) {
+            val cached = videoRepository.peekCachedVideo(videoId)
+            if (cached != null) {
+                _uiState.value = _uiState.value.copy(
+                    video = cached,
+                    isLoading = false
+                )
+                playbackManager.setMetadata(
+                    videoId = videoId,
+                    title = cached.title,
+                    channelTitle = cached.displayChannelTitle,
+                    thumbnail = cached.displayThumbnail
+                )
+            } else {
+                _uiState.value = _uiState.value.copy(
+                    video = VideoData(id = videoId, title = ""),
+                    isLoading = false
+                )
+            }
             loadVideo()
         }
         // Live resolution / bandwidth readout for the quality menu while ABR runs.
@@ -281,25 +303,40 @@ class WatchViewModel @Inject constructor(
 
     private fun loadVideo() {
         viewModelScope.launch {
-            // Related videos / comments / history load INDEPENDENTLY of the
-            // playback path: they must appear even when the stream comes from
-            // the server or a fallback.
-            loadEnrichment()
+            loadComments()
+            launch {
+                val cached = _uiState.value.video?.takeIf { it.title.isNotBlank() }
+                if (cached != null) {
+                    runCatching {
+                        historyRepository.record(
+                            videoId = videoId,
+                            title = cached.title,
+                            thumbnail = cached.thumbnail,
+                            uploader = cached.displayChannelTitle,
+                            channelId = cached.displayChannelId,
+                            duration = cached.duration
+                        )
+                    }
+                } else {
+                    runCatching { historyRepository.record(videoId = videoId) }
+                }
+            }
+
+            // Single coalesced /videos/{id} request for metadata + related + formats
+            val bundleDeferred = async { loadVideoBundle() }
+
             try {
-                _uiState.value = _uiState.value.copy(isLoading = true)
+                _uiState.value = _uiState.value.copy(isLoading = false, error = null)
 
                 // 1. FAST PATH: adaptive DASH straight from the manifest. No
-                // waiting for /videos/{id} (which previously gated playback by
-                // up to 18s): the player starts loading init/index segments
-                // immediately and ABR picks the resolution from bandwidth.
+                // waiting for /videos/{id}: the player starts loading segments
+                // immediately while the single bundle populates metadata & related.
                 if (tryStartDash()) {
-                    launchMetadataEnrichment()
-                    fetchPlaybackInfoInBackground()
                     return@launch
                 }
 
-                // 2. Fallback: single progressive stream resolved from /videos/{id}.
-                loadProgressive()
+                // 2. Fallback: progressive stream reusing the in-flight bundle response.
+                loadProgressive(bundleDeferred)
             } catch (e: kotlinx.coroutines.CancellationException) {
                 // Leaving the page / reloading cancels this job — normal flow,
                 // not an error.
@@ -320,7 +357,17 @@ class WatchViewModel @Inject constructor(
             ?: return false
 
         val tier = _uiState.value.selectedTier
-        playbackManager.setMetadata(videoId, "Loading...", "", "")
+        val existingVideo = _uiState.value.video?.takeIf { it.title.isNotBlank() }
+        if (existingVideo != null) {
+            playbackManager.setMetadata(
+                videoId = videoId,
+                title = existingVideo.title,
+                channelTitle = existingVideo.displayChannelTitle,
+                thumbnail = existingVideo.displayThumbnail
+            )
+        } else {
+            playbackManager.setMetadata(videoId, "", "", "")
+        }
         playbackManager.setQualityTier(tier)
         playbackManager.playDash(videoId, manifest, videoRepository.gatewayHost())
         if (!playbackManager.isDashActive) return false
@@ -329,8 +376,8 @@ class WatchViewModel @Inject constructor(
         progressiveFallbackStarted = false
         logToFile(TAG, "adaptive DASH started for $videoId")
         _uiState.value = _uiState.value.copy(
-            video = _uiState.value.video ?: VideoData(id = videoId, title = "Loading..."),
-            playbackInfo = _uiState.value.playbackInfo ?: PlaybackInfo(title = "Loading..."),
+            video = _uiState.value.video ?: VideoData(id = videoId, title = ""),
+            playbackInfo = _uiState.value.playbackInfo ?: PlaybackInfo(title = existingVideo?.title.orEmpty()),
             isLoading = false,
             error = null,
             selectedUrl = manifest,
@@ -339,20 +386,6 @@ class WatchViewModel @Inject constructor(
             tierDescriptions = dashTierDescriptions(tier, 0, 0f)
         )
         return true
-    }
-
-    /** Fetches the progressive formats in the background (download sheet,
-     *  and the fallback stream should DASH fail) without blocking playback. */
-    private fun fetchPlaybackInfoInBackground() {
-        viewModelScope.launch {
-            val info = withTimeoutOrNull(18_000L) {
-                runCatching { videoRepository.getPlaybackInfo(videoId) }.getOrNull()
-            }
-            if (info != null && info.videoFormats.isNotEmpty()) {
-                cachedPlaybackInfo = info
-                _uiState.value = _uiState.value.copy(playbackInfo = info)
-            }
-        }
     }
 
     /** Switches from a failed DASH stream to the progressive stream, keeping the position. */
@@ -387,35 +420,72 @@ class WatchViewModel @Inject constructor(
         }
     }
 
-    private fun launchMetadataEnrichment() {
-        viewModelScope.launch {
-            val video = runCatching { videoRepository.getVideoInfo(videoId) }.getOrNull()
-            if (video != null && video.title.isNotBlank()) {
-                _uiState.value = _uiState.value.copy(
-                    video = video,
-                    isSubscribed = subscriptionRepository.isSubscribed(video.displayChannelId)
-                )
-                playbackManager.setMetadata(
-                    videoId = videoId,
-                    title = video.title,
-                    channelTitle = video.displayChannelTitle,
-                    thumbnail = video.displayThumbnail
-                )
-                // refresh the history entry with real metadata
+    /** Single `/videos/{id}` call returning metadata, related videos, and formats. */
+    private suspend fun loadVideoBundle(): KVApi.VideoBundle? {
+        if (_uiState.value.relatedVideos.isEmpty()) {
+            _uiState.value = _uiState.value.copy(isLoadingRelated = true)
+        }
+        val bundle = runCatching { videoRepository.getVideoBundle(videoId, relatedLimit = 15) }.getOrNull()
+        val resolvedVideo = bundle?.video?.takeIf { it.title.isNotBlank() }
+            ?: runCatching { videoRepository.getVideoInfo(videoId) }.getOrNull()?.takeIf { it.title.isNotBlank() }
+
+        if (resolvedVideo != null) {
+            val prevThumb = _uiState.value.video?.channelThumbnail.orEmpty()
+            val mergedVideo = if (resolvedVideo.channelThumbnail.isBlank() && prevThumb.isNotBlank()) {
+                resolvedVideo.copy(channelThumbnail = prevThumb)
+            } else {
+                resolvedVideo
+            }
+            val subState = runCatching {
+                subscriptionRepository.isSubscribed(mergedVideo.displayChannelId)
+            }.getOrDefault(_uiState.value.isSubscribed)
+            _uiState.value = _uiState.value.copy(
+                video = mergedVideo,
+                isSubscribed = subState
+            )
+            playbackManager.setMetadata(
+                videoId = videoId,
+                title = mergedVideo.title,
+                channelTitle = mergedVideo.displayChannelTitle,
+                thumbnail = mergedVideo.displayThumbnail
+            )
+            runCatching {
                 historyRepository.record(
                     videoId = videoId,
-                    title = video.title,
-                    thumbnail = video.thumbnail,
-                    uploader = video.displayChannelTitle,
-                    channelId = video.displayChannelId,
-                    duration = video.duration
+                    title = mergedVideo.title,
+                    thumbnail = mergedVideo.thumbnail,
+                    uploader = mergedVideo.displayChannelTitle,
+                    channelId = mergedVideo.displayChannelId,
+                    duration = mergedVideo.duration
                 )
             }
         }
+
+        val bundlePlayback = bundle?.playbackInfo
+        if (bundlePlayback != null && bundlePlayback.videoFormats.isNotEmpty()) {
+            cachedPlaybackInfo = bundlePlayback
+            _uiState.value = _uiState.value.copy(playbackInfo = bundlePlayback)
+        }
+
+        val bundleRelated = bundle?.relatedVideos
+            ?.filter { it.id != videoId && it.id.isNotBlank() }
+            .orEmpty()
+        val finalRelated = if (bundleRelated.isNotEmpty()) {
+            bundleRelated
+        } else {
+            runCatching { videoRepository.getTrending(15) }
+                .getOrNull().orEmpty()
+                .filter { it.id != videoId && it.id.isNotBlank() }
+        }
+        _uiState.value = _uiState.value.copy(
+            relatedVideos = finalRelated.ifEmpty { _uiState.value.relatedVideos },
+            isLoadingRelated = false
+        )
+        return bundle
     }
 
     /** Progressive (non-adaptive) loading — used only when DASH is unavailable. */
-    private suspend fun loadProgressive() {
+    private suspend fun loadProgressive(bundleDeferred: Deferred<KVApi.VideoBundle?>) {
         dashActive = false
         var videoUrl: String? = null
         var audioUrl: String? = null
@@ -423,9 +493,11 @@ class WatchViewModel @Inject constructor(
         var extractedHeight = 0
 
         val serverStarted = android.os.SystemClock.elapsedRealtime()
-        playback = withTimeoutOrNull(18_000L) {
-            runCatching { videoRepository.getPlaybackInfo(videoId) }.getOrNull()
-        }
+        playback = bundleDeferred.await()?.playbackInfo?.takeIf { it.videoFormats.isNotEmpty() }
+            ?: cachedPlaybackInfo?.takeIf { it.videoFormats.isNotEmpty() }
+            ?: withTimeoutOrNull(18_000L) {
+                runCatching { videoRepository.getPlaybackInfo(videoId) }.getOrNull()
+            }
         if (playback != null && playback.videoFormats.isNotEmpty()) {
             val resolved = QualityTiers.resolve(QualityTiers.DEFAULT, playback)
             if (resolved != null && resolved.first.url.isNotBlank()) {
@@ -463,100 +535,32 @@ class WatchViewModel @Inject constructor(
             return
         }
 
-        val initialTitle = playback?.title?.ifEmpty { null } ?: "Loading..."
+        val currentVideo = _uiState.value.video
+        val resolvedTitle = currentVideo?.title?.ifBlank { null }
+            ?: playback?.title?.ifBlank { null }
+            ?: ""
 
         // Hand playback over to the app-wide manager so it survives
         // back navigation as a mini player.
-        playbackManager.setMetadata(videoId, initialTitle, "", "")
+        playbackManager.setMetadata(
+            videoId = videoId,
+            title = resolvedTitle,
+            channelTitle = currentVideo?.displayChannelTitle.orEmpty(),
+            thumbnail = currentVideo?.displayThumbnail.orEmpty()
+        )
         playbackManager.play(videoId, videoUrl, audioUrl)
 
-        _uiState.value = WatchUiState(
-            video = VideoData(id = videoId, title = initialTitle),
-            playbackInfo = playback ?: PlaybackInfo(title = initialTitle),
+        _uiState.value = _uiState.value.copy(
+            video = currentVideo?.takeIf { it.title.isNotBlank() } ?: VideoData(id = videoId, title = resolvedTitle),
+            playbackInfo = playback ?: PlaybackInfo(title = resolvedTitle),
             isLoading = false,
+            error = null,
             selectedUrl = videoUrl,
             audioUrl = audioUrl,
             selectedTier = QualityTiers.DEFAULT,
             selectedQualityLabel = extractedHeight.takeIf { it > 0 }?.let { "${it}p" },
-            tierDescriptions = refreshTierDescriptions(playback),
-            serverBaseUrl = _uiState.value.serverBaseUrl,
-            // Preserve anything the independent enrichment coroutines
-            // already delivered while streams were resolving.
-            relatedVideos = _uiState.value.relatedVideos,
-            comments = _uiState.value.comments,
-            commentsContinuation = _uiState.value.commentsContinuation,
-            commentsCount = _uiState.value.commentsCount,
-            isLoadingComments = _uiState.value.isLoadingComments,
-            isLoadingMoreComments = _uiState.value.isLoadingMoreComments
+            tierDescriptions = refreshTierDescriptions(playback)
         )
-
-        launchMetadataEnrichment()
-        viewModelScope.launch {
-            val info = withTimeoutOrNull(4_000L) {
-                runCatching { videoRepository.getPlaybackInfo(videoId) }.getOrNull()
-            }
-            if (info != null && info.videoFormats.isNotEmpty()) {
-                val current = _uiState.value
-                val updatedInfo = if (current.playbackInfo == null || current.playbackInfo.videoFormats.isEmpty()) {
-                    info
-                } else current.playbackInfo
-                _uiState.value = current.copy(
-                    playbackInfo = updatedInfo,
-                    tierDescriptions = refreshTierDescriptions(updatedInfo),
-                    selectedQualityLabel = current.selectedQualityLabel
-                        ?: QualityTiers.resolve(current.selectedTier, updatedInfo)?.first?.qualityLabel
-                )
-
-                if (!current.useIframeFallback) {
-                    QualityTiers.resolve(current.selectedTier, updatedInfo)?.let { (format, audioUrl) ->
-                        if (format.url.isNotBlank() && format.url != current.selectedUrl) {
-                            playbackManager.play(videoId, format.url, audioUrl)
-                            _uiState.value = _uiState.value.copy(
-                                selectedUrl = format.url,
-                                audioUrl = audioUrl,
-                                selectedQualityLabel = format.qualityLabel
-                            )
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    /**
-     * Loads everything that is NOT the video stream: related videos,
-     * comments, history. Runs independently of playback resolution so the
-     * related section is always populated — even when playback ends up on
-     * the iframe fallback path (which returns early from loadVideo).
-     */
-    private fun loadEnrichment() {
-        viewModelScope.launch {
-            // Related videos must ALWAYS be present: if the per-video
-            // recommendation sources fail or come up empty, fall back to
-            // trending so the section is never blank. A busy link (the video
-            // stream saturating the connection while playback starts) can make
-            // these small API calls time out, so retry a couple of times
-            // instead of leaving the section empty for the whole session.
-            var filtered: List<VideoData> = emptyList()
-            for (attempt in 0..2) {
-                if (attempt > 0) kotlinx.coroutines.delay(2_500L * attempt)
-                var related = runCatching { videoRepository.getRelatedVideos(videoId) }
-                    .getOrNull().orEmpty()
-                if (related.isEmpty()) {
-                    related = runCatching { videoRepository.getTrending(15) }
-                        .getOrNull().orEmpty()
-                }
-                filtered = related.filter { it.id != videoId && it.id.isNotBlank() }
-                if (filtered.isNotEmpty()) break
-            }
-            if (filtered.isNotEmpty()) {
-                _uiState.value = _uiState.value.copy(relatedVideos = filtered)
-            }
-
-            loadComments()
-
-            runCatching { historyRepository.record(videoId = videoId) }
-        }
     }
 
     private var commentsJob: Job? = null

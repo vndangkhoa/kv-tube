@@ -7,7 +7,7 @@ import com.kvtube.android.data.local.SubscribedChannelDao
 import com.kvtube.android.data.local.SubscribedChannelEntity
 import com.kvtube.android.data.model.Subscription
 import com.kvtube.android.data.model.VideoData
-import com.kvtube.android.data.relativeRecencyMinutes
+import com.kvtube.android.data.sortedLatestFirst
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -41,9 +41,15 @@ class SubscriptionRepository @Inject constructor(
 
     /** Cached aggregated local feed so paging doesn't refetch every channel. */
     private var localFeedCache: List<VideoData>? = null
+    private var authFeedCache: MutableList<VideoData>? = null
+    private var authFeedNextPage: Int = 1
+    private var authFeedExhausted: Boolean = false
 
     fun clearCache() {
         localFeedCache = null
+        authFeedCache = null
+        authFeedNextPage = 1
+        authFeedExhausted = false
         lastAuthFeedState = AuthFeedState.FAILED
     }
 
@@ -59,17 +65,52 @@ class SubscriptionRepository @Inject constructor(
      * newest uploads of every subscribed channel (works without any token).
      */
     suspend fun getFeed(offset: Int = 0, pageSize: Int = 24): List<VideoData> {
-        val authFeed = bounded(20_000L) {
-            api.getSubscriptionFeed(perChannel = PER_CHANNEL_DEPTH, channels = 30)
+        if (offset <= 0) {
+            authFeedCache = null
+            authFeedNextPage = 1
+            authFeedExhausted = false
         }
 
-        if (authFeed != null && authFeed.isNotEmpty()) {
+        while ((authFeedCache?.size ?: 0) < offset + pageSize && !authFeedExhausted) {
+            val page = bounded(20_000L) {
+                api.getSubscriptionFeed(
+                    perChannel = PER_CHANNEL_DEPTH,
+                    channels = 30,
+                    page = authFeedNextPage
+                )
+            }
+            if (page == null) {
+                if (authFeedNextPage == 1 && authFeedCache == null) {
+                    lastAuthFeedState = AuthFeedState.FAILED
+                    return getLocalAggregatedFeed(offset, pageSize)
+                }
+                authFeedExhausted = true
+                break
+            }
+            if (page.isEmpty()) {
+                if (authFeedNextPage == 1 && authFeedCache == null) {
+                    lastAuthFeedState = AuthFeedState.OK_EMPTY
+                    return getLocalAggregatedFeed(offset, pageSize)
+                }
+                authFeedExhausted = true
+                break
+            }
             lastAuthFeedState = AuthFeedState.OK_WITH_ITEMS
             localFeedCache = null
-            return authFeed.drop(offset).take(pageSize)
+            val existing = authFeedCache.orEmpty()
+            val merged = (existing + page).distinctBy { it.id }.sortedLatestFirst()
+            authFeedCache = merged.toMutableList()
+            if (merged.size == existing.size) {
+                authFeedExhausted = true
+            } else {
+                authFeedNextPage++
+            }
         }
-        lastAuthFeedState = if (authFeed != null) AuthFeedState.OK_EMPTY else AuthFeedState.FAILED
 
+        val cachedAuth = authFeedCache
+        if (!cachedAuth.isNullOrEmpty()) {
+            return cachedAuth.drop(offset).take(pageSize)
+        }
         return getLocalAggregatedFeed(offset, pageSize)
     }
 
@@ -91,7 +132,7 @@ class SubscriptionRepository @Inject constructor(
             val merged = perChannel.flatten()
                 .filter { it.id.isNotBlank() }
                 .distinctBy { it.id }
-                .sortedByDescending { it.publishedUnix }
+                .sortedLatestFirst()
             localFeedCache = merged
         }
         return localFeedCache.orEmpty().drop(offset).take(pageSize)

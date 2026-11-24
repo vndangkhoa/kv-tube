@@ -31,6 +31,12 @@ interface PlayerContextType {
   isMiniPlayerOpen: boolean;
   loopMode: boolean;
   setLoopMode: React.Dispatch<React.SetStateAction<boolean>>;
+  queue: PlayingVideoInfo[];
+  queueTitle: string;
+  setQueue: (items: PlayingVideoInfo[], title?: string) => void;
+  playFromQueue: (video: PlayingVideoInfo) => void;
+  playNextInQueue: () => void;
+  playPrevInQueue: () => void;
   watchHandlersRef: React.MutableRefObject<WatchHandlers>;
   setPlayingVideo: (video: PlayingVideoInfo | null) => void;
   setIsPlaying: (playing: boolean) => void;
@@ -52,7 +58,14 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
   const [duration, setDuration] = useState(0);
   const [isDismissed, setIsDismissed] = useState(false);
   const [loopMode, setLoopMode] = useState(false);
+  const [queue, setQueueState] = useState<PlayingVideoInfo[]>([]);
+  const [queueTitle, setQueueTitle] = useState('');
   const watchHandlersRef = useRef<WatchHandlers>({});
+  const queueRef = useRef<PlayingVideoInfo[]>([]);
+  const currentVideoRef = useRef<PlayingVideoInfo | null>(null);
+  const loopModeRef = useRef(false);
+  currentVideoRef.current = currentVideo;
+  loopModeRef.current = loopMode;
 
   // Show miniplayer when there is a current video AND we are not on /watch or /shorts AND user hasn't dismissed it
   const isMiniPlayerOpen = !!currentVideo && pathname !== '/watch' && pathname !== '/shorts' && !isDismissed;
@@ -85,6 +98,43 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
+  const setQueue = useCallback((items: PlayingVideoInfo[], title: string = '') => {
+    queueRef.current = items;
+    setQueueState(items);
+    setQueueTitle(title);
+  }, []);
+
+  const playFromQueue = useCallback((video: PlayingVideoInfo) => {
+    if (!video?.id) return;
+    setPlayingVideo(video);
+    setIsPlaying(true);
+  }, [setPlayingVideo]);
+
+  const playNextInQueue = useCallback(() => {
+    const list = queueRef.current;
+    if (list.length === 0) return;
+    const curId = currentVideoRef.current?.id;
+    const idx = list.findIndex((item) => item.id === curId);
+    const nextIdx = idx >= 0 ? idx + 1 : 0;
+    if (nextIdx < list.length) {
+      playFromQueue(list[nextIdx]);
+    } else if (loopModeRef.current && list.length > 0) {
+      playFromQueue(list[0]);
+    }
+  }, [playFromQueue]);
+
+  const playPrevInQueue = useCallback(() => {
+    const list = queueRef.current;
+    if (list.length === 0) return;
+    const curId = currentVideoRef.current?.id;
+    const idx = list.findIndex((item) => item.id === curId);
+    if (idx > 0) {
+      playFromQueue(list[idx - 1]);
+    } else if (loopModeRef.current && list.length > 0) {
+      playFromQueue(list[list.length - 1]);
+    }
+  }, [playFromQueue]);
+
   const togglePlayPause = useCallback(() => {
     setIsPlaying((prev) => !prev);
   }, []);
@@ -105,6 +155,12 @@ export function PlayerProvider({ children }: { children: React.ReactNode }) {
         isMiniPlayerOpen,
         loopMode,
         setLoopMode,
+        queue,
+        queueTitle,
+        setQueue,
+        playFromQueue,
+        playNextInQueue,
+        playPrevInQueue,
         watchHandlersRef,
         setPlayingVideo,
         setIsPlaying,

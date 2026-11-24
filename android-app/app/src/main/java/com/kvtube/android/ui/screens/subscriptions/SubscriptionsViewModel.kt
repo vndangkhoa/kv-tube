@@ -26,6 +26,7 @@ data class SubscriptionsUiState(
     val isLoading: Boolean = true,
     val isLoadingMore: Boolean = false,
     val hasMore: Boolean = true,
+    val needsAuth: Boolean = false,
     val error: String? = null
 )
 
@@ -47,17 +48,16 @@ class SubscriptionsViewModel @Inject constructor(
      * unreachable vs a healthy account that simply has no subscriptions.
      * The cheap /auth/preferences probe runs only in this dead-end case.
      */
-    private suspend fun emptyStateMessage(): String {
-        if (subscriptionRepository.lastAuthFeedState != SubscriptionRepository.AuthFeedState.FAILED) {
-            return "Your Invidious account answered, but it has no subscriptions yet. Subscribe to channels or import them on the web — they will appear here."
-        }
+    private suspend fun emptyStateInfo(): Pair<String, Boolean> {
         return when (api.checkToken()) {
+            KVApi.TokenCheck.NO_TOKEN ->
+                "Sign in with an Invidious token in Settings to sync your subscriptions, or subscribe to channels while browsing." to true
             KVApi.TokenCheck.REJECTED ->
-                "Your Invidious token was rejected (expired or invalid). Update it in Settings → Server & Account."
+                "Your Invidious token expired or was rejected. Update it in Settings → Server & Account." to true
             KVApi.TokenCheck.UNREACHABLE ->
-                "Couldn't reach ${api.getServerUrl()} — check your connection and the server URL in Settings."
+                "Couldn't reach ${api.getServerUrl()} — check your connection and server URL in Settings." to false
             KVApi.TokenCheck.VALID ->
-                "Your Invidious account has no subscriptions yet. Subscribe to channels here or on the web — the latest uploads will appear in this feed."
+                "No subscriptions yet. Subscribe to channels while browsing or import them on the web." to false
         }
     }
 
@@ -75,10 +75,11 @@ class SubscriptionsViewModel @Inject constructor(
                 emptyList()
             }
             val combined = (state.feedVideos + more).distinctBy { it.id }
+            val added = combined.size - state.feedVideos.size
             _uiState.value = _uiState.value.copy(
                 feedVideos = combined,
                 isLoadingMore = false,
-                hasMore = more.isNotEmpty()
+                hasMore = added > 0
             )
         }
     }
@@ -112,14 +113,15 @@ class SubscriptionsViewModel @Inject constructor(
             // Show data immediately without avatars
             val sortedSubs = subs.sortedBy { it.channelName }
 
+            val emptyInfo = if (sortedSubs.isEmpty() && feed.isEmpty()) emptyStateInfo() else null
+
             _uiState.value = SubscriptionsUiState(
                 subscriptions = sortedSubs,
                 feedVideos = feed,
                 isLoading = false,
                 hasMore = feed.isNotEmpty(),
-                error = if (sortedSubs.isEmpty() && feed.isEmpty()) {
-                    emptyStateMessage()
-                } else null
+                needsAuth = emptyInfo?.second == true,
+                error = emptyInfo?.first
             )
 
             // Fetch avatars for first 20 visible channels only

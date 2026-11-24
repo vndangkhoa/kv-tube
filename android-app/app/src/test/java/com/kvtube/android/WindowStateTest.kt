@@ -23,25 +23,34 @@ class WindowStateTest {
     }
 
     @Test
-    fun foldablePortraitUsesMediumWidthTwoColumnsAndPortraitWatch() {
+    fun foldablePortraitUsesMediumWidthNavRailTwoColumnsAndPortraitWatch() {
         val state = computeWindowState(widthDp = 736, heightDp = 883)
         assertEquals(WidthClass.Medium, state.widthClass)
         assertFalse(state.isLandscape)
-        assertFalse(state.useNavigationRail)
+        assertTrue(state.useNavigationRail)
         assertTrue(state.isFoldablePortraitWatch)
         assertFalse(state.isLandscapeTwoPaneWatch)
         assertEquals(2, videoGridColumnCount(state))
     }
 
     @Test
-    fun foldableLandscapeUsesTwoPaneWatchWithoutNavRailAndThreeColumns() {
+    fun foldableLandscapeUsesNavRailTwoPaneWatchAndThreeColumns() {
         val state = computeWindowState(widthDp = 883, heightDp = 736)
         assertEquals(WidthClass.Expanded, state.widthClass)
         assertTrue(state.isLandscape)
-        assertFalse(state.useNavigationRail)
+        assertTrue(state.useNavigationRail)
         assertFalse(state.isFoldablePortraitWatch)
         assertTrue(state.isLandscapeTwoPaneWatch)
         assertEquals(3, videoGridColumnCount(state))
+    }
+
+    @Test
+    fun portraitTabletEnablesNavRailAndTwoColumns() {
+        val state = computeWindowState(widthDp = 800, heightDp = 1280)
+        assertEquals(WidthClass.Medium, state.widthClass)
+        assertFalse(state.isLandscape)
+        assertTrue(state.useNavigationRail)
+        assertEquals(2, videoGridColumnCount(state))
     }
 
     @Test

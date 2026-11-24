@@ -21,8 +21,8 @@ import com.kvtube.android.ui.adaptive.WindowState
 /** Narrower cap for text-heavy screens (settings, comments, lists of rows). */
 const val MaxReadableWidthDp = 720
 
-/** Navigation rail width shown next to the content on large landscape tablets. */
-const val NavRailWidthDp = 88
+/** Navigation rail width shown next to the content on unfolded foldables and tablets. */
+const val NavRailWidthDp = 76
 
 /** Horizontal content padding + grid gutter used by dense wide grids. */
 const val WideGridPaddingDp = 12
@@ -55,7 +55,7 @@ fun videoGridColumnCount(widthClass: WidthClass, windowWidthDp: Int): Int = when
     WidthClass.Compact -> 1
     WidthClass.Medium -> 2
     WidthClass.Expanded -> {
-        val avail = availableGridWidthDp(windowWidthDp, hasRail = windowWidthDp >= 960)
+        val avail = availableGridWidthDp(windowWidthDp, hasRail = widthClass.isWide)
         (avail / 310f).toInt().coerceIn(3, 5)
     }
 }
@@ -84,7 +84,7 @@ fun rowGridColumnCount(windowState: WindowState): Int = when (windowState.widthC
 
 fun rowGridColumnCount(widthClass: WidthClass, windowWidthDp: Int): Int =
     if (widthClass.isCompact) 1
-    else (availableGridWidthDp(windowWidthDp, hasRail = windowWidthDp >= 960).toFloat() / 360f)
+    else (availableGridWidthDp(windowWidthDp, hasRail = widthClass.isWide).toFloat() / 360f)
         .roundToInt().coerceIn(2, 4)
 
 @Composable

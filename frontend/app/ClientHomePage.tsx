@@ -289,6 +289,7 @@ export default function ClientHomePage() {
   const categoryParam = searchParams.get('category') || 'All';
   const [videos, setVideos] = useState<VideoData[]>([]);
   const [shorts, setShorts] = useState<ShortItem[]>([]);
+  const [shortsLoading, setShortsLoading] = useState(true);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [currentCategory, setCurrentCategory] = useState(categoryParam);
@@ -457,53 +458,91 @@ export default function ClientHomePage() {
     return () => window.removeEventListener('regionchange', handleRegionChange);
   }, []);
 
-  // Fetch shorts for the home Shorts shelf (session-cached + deferred low-priority background fetch)
+  // Fetch real YouTube Shorts for the home Shorts shelf (session-cached + authentic sequence API first)
   useEffect(() => {
     let cancelled = false;
-    const cacheKey = `kv_home_shorts_${regionCode}`;
+    const cacheKey = `kv_home_shorts_v3_${regionCode}`;
+    let hasCached = false;
     try {
       const cached = sessionStorage.getItem(cacheKey);
       if (cached) {
         const parsed = JSON.parse(cached);
         if (Array.isArray(parsed) && parsed.length > 0) {
           setShorts(parsed);
+          setShortsLoading(false);
+          hasCached = true;
         }
       }
     } catch {}
+    if (!hasCached) {
+      setShortsLoading(true);
+    }
 
     const timer = setTimeout(async () => {
       try {
-        const query = regionCode === 'VN' ? '#shorts việt nam' : '#shorts trending';
-        const items = await invidious.search(query, {
-          page: 1,
-          type: 'video',
-          duration: 'short',
-          region: regionCode,
-          priority: 'low',
-        });
+        let mapped: ShortItem[] = [];
+        let fromAuthenticFeed = false;
 
-        if (!cancelled && Array.isArray(items) && items.length > 0) {
-          const filtered = items.filter(
-            (v: any) => (!v.lengthSeconds || v.lengthSeconds <= 95) && (v.videoId || v.id)
-          );
-          const list = filtered.length >= 5 ? filtered : items.filter((v: any) => v.videoId || v.id);
+        // 1. Primary: authentic YouTube Shorts sequence feed
+        try {
+          const res = await fetch(`/api/shorts/feed?region=${encodeURIComponent(regionCode)}`);
+          if (res.ok) {
+            const data = await res.json();
+            if (Array.isArray(data.shorts) && data.shorts.length > 0) {
+              fromAuthenticFeed = true;
+              mapped = data.shorts.slice(0, 10).map((s: any, i: number) => ({
+                id: s.id,
+                title: s.title || 'YouTube Short',
+                uploader: s.uploader || '',
+                thumbnail: s.thumbnail || `https://i.ytimg.com/vi/${s.id}/frame0.jpg`,
+                fallbackThumbnail: s.fallbackThumbnail || `https://i.ytimg.com/vi/${s.id}/hq720.jpg`,
+                view_count: typeof s.view_count === 'number' ? s.view_count : undefined,
+                isNew: i === 0 || i === 4,
+              }));
+            }
+          }
+        } catch {}
 
-          const mapped: ShortItem[] = list.slice(0, 10).map((v: any, i: number) => {
-            const vidId = v.videoId || v.id;
-            return {
-              id: vidId,
-              title: v.title,
-              uploader: v.author || v.uploader || 'Creator',
-              thumbnail: vidId
-                ? `https://i.ytimg.com/vi_webp/${vidId}/hqdefault.webp`
-                : (v.videoThumbnails?.[0]?.url || v.thumbnail || ''),
-              view_count: v.viewCount ?? v.view_count,
-              isNew: i === 0 || i === 4,
-            };
+        // 2. Strict Invidious fallback (only real short-duration videos)
+        if (mapped.length === 0) {
+          const query = regionCode === 'VN' ? '#shorts việt nam' : '#shorts trending';
+          const items = await invidious.search(query, {
+            page: 1,
+            type: 'video',
+            duration: 'short',
+            region: regionCode,
+            priority: 'low',
           });
 
-          if (mapped.length > 0) {
-            setShorts(mapped);
+          if (Array.isArray(items) && items.length > 0) {
+            const strictShorts = items.filter((v: any) => {
+              const vidId = v.videoId || v.id;
+              return (
+                vidId &&
+                typeof v.lengthSeconds === 'number' &&
+                v.lengthSeconds >= 4 &&
+                v.lengthSeconds <= 65
+              );
+            });
+
+            mapped = strictShorts.slice(0, 10).map((v: any, i: number) => {
+              const vidId = v.videoId || v.id;
+              return {
+                id: vidId,
+                title: v.title,
+                uploader: v.author || v.uploader || '',
+                thumbnail: `https://i.ytimg.com/vi/${vidId}/hq720.jpg`,
+                fallbackThumbnail: `https://i.ytimg.com/vi/${vidId}/hqdefault.jpg`,
+                view_count: v.viewCount ?? v.view_count,
+                isNew: i === 0 || i === 4,
+              };
+            });
+          }
+        }
+
+        if (!cancelled && mapped.length > 0) {
+          setShorts(mapped);
+          if (fromAuthenticFeed) {
             try {
               sessionStorage.setItem(cacheKey, JSON.stringify(mapped));
             } catch {}
@@ -511,6 +550,8 @@ export default function ClientHomePage() {
         }
       } catch (err) {
         console.error('Failed to load shorts for shelf:', err);
+      } finally {
+        if (!cancelled) setShortsLoading(false);
       }
     }, 240);
 
@@ -946,7 +987,7 @@ export default function ClientHomePage() {
           )}
 
           {/* YouTube Shorts Shelf */}
-          {page === 1 && <ShortsShelf shorts={shorts} />}
+          {page === 1 && <ShortsShelf shorts={shorts} loading={shortsLoading} />}
 
           {/* Row 3 onwards: Regular video cards (offscreen cards use content-visibility: auto) */}
           <div className="home-video-grid">

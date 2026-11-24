@@ -48,6 +48,10 @@ class ShortsViewModel @Inject constructor(
 
     companion object {
         private const val TAG = "ShortsViewModel"
+        private val WIDESCREEN_REGEX = Regex(
+            "(trailer|teaser|official\\s+mv|official\\s+music\\s+video|music\\s+video|compilation|full\\s+movie|short\\s+film|phim\\s+ngắn)",
+            RegexOption.IGNORE_CASE
+        )
     }
 
     private val _uiState = MutableStateFlow(ShortsUiState())
@@ -57,6 +61,8 @@ class ShortsViewModel @Inject constructor(
     val commentsState: StateFlow<ShortsCommentsState> = _commentsState.asStateFlow()
 
     private var currentRegion: String = "GLOBAL"
+    private var shortsContinuation: String? = null
+    private var fallbackSearchPage: Int = 1
     private var commentsJob: Job? = null
 
     init {
@@ -223,24 +229,54 @@ class ShortsViewModel @Inject constructor(
         }
     }
 
+    private fun isLikelyShort(v: VideoData): Boolean {
+        if (v.id.isBlank() || v.isLive) return false
+        if (v.isShort) return true
+        if (v.durationSeconds !in 4L..65L) return false
+        return !WIDESCREEN_REGEX.containsMatchIn(v.title) || v.title.contains("#short", ignoreCase = true)
+    }
+
     private fun loadShorts() {
         viewModelScope.launch {
             try {
                 _uiState.value = _uiState.value.copy(isLoading = true)
-                val query = if (currentRegion == "VN") "#shorts việt nam trending" else "#shorts trending"
-                var videos = videoRepository.search(query, 25, currentRegion)
-                if (videos.isEmpty()) {
-                    videos = extractorHelper.searchVideos(query)
-                }
-                if (videos.isEmpty()) {
-                    videos = videoRepository.getTrending(25, currentRegion).ifEmpty {
-                        extractorHelper.getTrendingVideos()
+                shortsContinuation = null
+                fallbackSearchPage = 1
+
+                val feedPage = videoRepository.getShortsFeed(currentRegion)
+                var videos = feedPage?.videos.orEmpty()
+                if (videos.isNotEmpty()) {
+                    shortsContinuation = feedPage?.continuation
+                } else {
+                    val query = if (currentRegion == "VN") "#shorts việt nam" else "#shorts viral"
+                    videos = videoRepository.search(
+                        query = query,
+                        limit = 30,
+                        region = currentRegion,
+                        page = 1,
+                        duration = "short"
+                    ).filter(::isLikelyShort)
+
+                    if (videos.isEmpty()) {
+                        val altQuery = if (currentRegion == "VN") "shorts viral" else "#shorts"
+                        videos = videoRepository.search(
+                            query = altQuery,
+                            limit = 30,
+                            region = currentRegion,
+                            page = 1,
+                            duration = "short"
+                        ).filter(::isLikelyShort)
+                    }
+                    if (videos.isEmpty()) {
+                        videos = extractorHelper.searchVideos(query).filter(::isLikelyShort)
                     }
                 }
+                videoRepository.seedCache(videos)
                 _uiState.value = ShortsUiState(
                     videos = videos,
                     isLoading = false
                 )
+                videos.firstOrNull()?.let { prefetchStream(it.id) }
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -255,14 +291,30 @@ class ShortsViewModel @Inject constructor(
         viewModelScope.launch {
             _uiState.value = _uiState.value.copy(isLoadingMore = true)
             try {
-                val query = if (currentRegion == "VN") "#shorts việt nam" else "#shorts viral trending"
-                var moreVideos = videoRepository.search(query, 20, currentRegion)
-                if (moreVideos.isEmpty()) {
-                    moreVideos = extractorHelper.searchVideos(query)
+                val token = shortsContinuation
+                val moreVideos = if (!token.isNullOrBlank()) {
+                    val page = videoRepository.getShortsFeed(currentRegion, token)
+                    shortsContinuation = page?.continuation
+                    page?.videos.orEmpty()
+                } else {
+                    fallbackSearchPage += 1
+                    val query = if (currentRegion == "VN") "#shorts việt nam" else "#shorts viral"
+                    val searched = videoRepository.search(
+                        query = query,
+                        limit = 30,
+                        region = currentRegion,
+                        page = fallbackSearchPage,
+                        duration = "short"
+                    ).filter(::isLikelyShort)
+                    searched.ifEmpty {
+                        extractorHelper.searchVideos(query).filter(::isLikelyShort)
+                    }
                 }
+
                 val existingIds = _uiState.value.videos.map { it.id }.toSet()
                 val distinctMore = moreVideos.filter { it.id !in existingIds }
                 if (distinctMore.isNotEmpty()) {
+                    videoRepository.seedCache(distinctMore)
                     _uiState.value = _uiState.value.copy(
                         videos = _uiState.value.videos + distinctMore,
                         isLoadingMore = false

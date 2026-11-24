@@ -6,6 +6,7 @@ import { usePlayer } from '../context/PlayerContext';
 import { invidious } from '../services/invidious';
 import { fetchSponsorSegments, SponsorSegment, SPONSOR_CATEGORY_COLORS } from '../services/sponsorblock';
 import { triggerHapticImpact } from '../utils/nativeBridge';
+import { proxiedImageUrl } from '../utils';
 import { useMediaSession, setMediaSessionPlaybackState, updateMediaSessionPosition } from '../hooks/useMediaSession';
 import LoadingSpinner from '../components/LoadingSpinner';
 import {
@@ -29,6 +30,8 @@ import {
   IoClose,
   IoCloseOutline,
   IoMusicalNotes,
+  IoChevronUp,
+  IoChevronDown,
 } from 'react-icons/io5';
 import { MdPictureInPictureAlt } from 'react-icons/md';
 
@@ -295,7 +298,15 @@ export default function MaterialiousPlayer({
     setCurrentTime: setGlobalCurrentTime,
     currentTime: contextCurrentTime,
     closeMiniPlayer,
+    queue,
+    queueTitle,
+    setQueue,
+    playFromQueue,
+    loopMode: globalLoopMode,
+    setLoopMode: setGlobalLoopMode,
   } = usePlayer();
+  const [isQueueExpanded, setIsQueueExpanded] = useState(false);
+  const [queueLoading, setQueueLoading] = useState(false);
 
   const containerRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -339,6 +350,54 @@ export default function MaterialiousPlayer({
   useEffect(() => {
     setIsLooping(loop);
   }, [loop]);
+
+  // Collapse the desktop PiP queue drawer when leaving compact mode
+  useEffect(() => {
+    if (!compact) setIsQueueExpanded(false);
+  }, [compact]);
+
+  // Lazy-populate queue from Invidious recommendations if user opened the drawer without a Watch-page queue
+  useEffect(() => {
+    if (!compact || !isQueueExpanded || !videoId || queue.length > 1) return;
+    let cancelled = false;
+    setQueueLoading(true);
+    invidious
+      .getVideo(videoId)
+      .then((info) => {
+        if (cancelled || !info) return;
+        const recs = Array.isArray(info.recommendedVideos) ? info.recommendedVideos : [];
+        if (recs.length === 0) return;
+        const items = [
+          {
+            id: videoId,
+            title: title || info.title || 'Now Playing',
+            uploader: uploader || info.author,
+            thumbnail: thumbnail || `https://i.ytimg.com/vi/${videoId}/mqdefault.jpg`,
+            duration: info.lengthSeconds ? formatTime(info.lengthSeconds) : undefined,
+          },
+          ...recs
+            .filter((r) => r?.videoId && r.videoId !== videoId)
+            .slice(0, 19)
+            .map((r) => ({
+              id: r.videoId,
+              title: r.title || 'Untitled',
+              uploader: r.author,
+              thumbnail:
+                r.videoThumbnails?.[0]?.url ||
+                `https://i.ytimg.com/vi/${r.videoId}/mqdefault.jpg`,
+              duration: r.lengthSeconds ? formatTime(r.lengthSeconds) : undefined,
+            })),
+        ];
+        setQueue(items, 'Up next');
+      })
+      .catch(() => {})
+      .finally(() => {
+        if (!cancelled) setQueueLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [compact, isQueueExpanded, videoId, queue.length, title, uploader, thumbnail, setQueue]);
 
   // When the engine is parked offscreen (no full/mini slot active), pause the
   // video so hidden playback stops. This is separate from the internal play/pause
@@ -1695,11 +1754,9 @@ export default function MaterialiousPlayer({
               zIndex: 1200,
               display: 'flex',
               alignItems: 'center',
-              backgroundColor: 'var(--yt-surface)',
-              border: '1px solid var(--yt-border)',
-              boxShadow: '0 12px 36px rgba(0, 0, 0, 0.65), 0 2px 10px rgba(0, 0, 0, 0.35)',
+              backgroundColor: 'var(--lg-bg-panel)',
+              border: '1px solid var(--lg-rim-base)',
               overflow: 'hidden',
-              backdropFilter: 'blur(16px)',
               transition: 'all 0.3s cubic-bezier(0.16, 1, 0.3, 1)',
               animation: 'mpSlideUpMini 0.3s cubic-bezier(0.16, 1, 0.3, 1)',
             }
@@ -1817,7 +1874,7 @@ export default function MaterialiousPlayer({
             alt={title || ''}
             width={1280}
             height={720}
-            {...({ fetchpriority: 'high' } as any)}
+            fetchPriority="high"
             decoding="async"
             style={{
               width: '100%',
@@ -1842,10 +1899,11 @@ export default function MaterialiousPlayer({
               className="mp-compact-thumb"
               style={{
                 position: 'absolute',
-                left: 0,
-                top: 0,
-                width: '128px',
-                height: '72px',
+                left: '6px',
+                top: '6px',
+                width: '96px',
+                height: '54px',
+                borderRadius: '13px',
                 objectFit: 'cover',
                 zIndex: 1,
                 pointerEvents: 'none',
@@ -1853,41 +1911,21 @@ export default function MaterialiousPlayer({
             />
           )}
 
-          {/* Time badge over the video */}
-          <div
-            style={{
-              position: 'absolute',
-              left: '4px',
-              bottom: '4px',
-              backgroundColor: 'rgba(0, 0, 0, 0.8)',
-              color: '#ffffff',
-              fontSize: '10px',
-              fontWeight: 600,
-              padding: '1px 4px',
-              borderRadius: '3px',
-              pointerEvents: 'none',
-              fontVariantNumeric: 'tabular-nums',
-              zIndex: 3,
-              lineHeight: 1.2,
-            }}
-          >
-            {formatTime(currentTime)} / {formatTime(duration)}
-          </div>
-
           {/* Expand hover overlay on the video */}
           <div
             onClick={handleExpand}
             className="mp-compact-expand"
             style={{
               position: 'absolute',
-              left: 0,
-              top: 0,
-              width: '128px',
-              height: '72px',
+              left: '6px',
+              top: '6px',
+              width: '96px',
+              height: '54px',
+              borderRadius: '13px',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
-              backgroundColor: 'rgba(0, 0, 0, 0.3)',
+              backgroundColor: 'rgba(0, 0, 0, 0.32)',
               color: '#ffffff',
               opacity: 0,
               transition: 'opacity 0.2s ease',
@@ -1901,35 +1939,126 @@ export default function MaterialiousPlayer({
               (e.currentTarget as HTMLElement).style.opacity = '0';
             }}
           >
-            <IoExpandOutline size={22} />
+            <IoExpandOutline size={20} />
           </div>
 
-          {/* Info + Controls */}
+          {/* Desktop-only 16:9 hover video overlay controls */}
           <div
-            style={{
-              flex: 1,
-              minWidth: 0,
-              padding: '6px 10px',
-              display: 'flex',
-              flexDirection: 'column',
-              justifyContent: 'center',
-              gap: '4px',
-              height: '72px',
-              boxSizing: 'border-box',
-              overflow: 'hidden',
+            className="mp-compact-video-overlay"
+            onClick={(e) => {
+              if (e.target === e.currentTarget) togglePlay();
             }}
           >
-            <div onClick={handleExpand} style={{ cursor: 'pointer', minWidth: 0 }}>
+            <div className="mp-compact-ov-top">
+              <button
+                type="button"
+                className="mp-compact-ov-btn"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleExpand();
+                }}
+                title="Expand player"
+              >
+                <IoExpandOutline size={18} />
+              </button>
+              <button
+                type="button"
+                className="mp-compact-ov-btn"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  closeMiniPlayer();
+                }}
+                title="Close miniplayer"
+              >
+                <IoCloseOutline size={21} />
+              </button>
+            </div>
+
+            <div className="mp-compact-ov-center">
+              <button
+                type="button"
+                className="mp-compact-ov-btn"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onPrev?.();
+                }}
+                disabled={!onPrev}
+                title="Previous"
+                style={{ opacity: onPrev ? 1 : 0.45 }}
+              >
+                <IoPlaySkipBack size={19} />
+              </button>
+              <button
+                type="button"
+                className="mp-compact-ov-btn mp-compact-ov-play"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  togglePlay();
+                }}
+                title={isPlaying ? 'Pause' : 'Play'}
+              >
+                {isPlaying ? <IoPause size={24} /> : <IoPlay size={24} />}
+              </button>
+              <button
+                type="button"
+                className="mp-compact-ov-btn"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onNext?.();
+                }}
+                disabled={!onNext}
+                title="Next"
+                style={{ opacity: onNext ? 1 : 0.45 }}
+              >
+                <IoPlaySkipForward size={19} />
+              </button>
+            </div>
+
+            <div className="mp-compact-ov-bottom">
+              {duration > 0 && (
+                <span className="mp-compact-ov-time">
+                  {formatTime(currentTime)} / {formatTime(duration)}
+                </span>
+              )}
+              <button
+                type="button"
+                className="mp-compact-ov-btn"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  toggleMute();
+                }}
+                title={isMuted ? 'Unmute' : 'Mute'}
+              >
+                {isMuted ? <IoVolumeMute size={17} /> : <IoVolumeHigh size={17} />}
+              </button>
+            </div>
+          </div>
+
+          {/* Info + actions row (beside thumb on mobile; below 16:9 video on desktop) */}
+          <div className="mp-compact-body">
+            <div
+              onClick={handleExpand}
+              className="mp-compact-info"
+              style={{
+                flex: 1,
+                minWidth: 0,
+                display: 'flex',
+                flexDirection: 'column',
+                justifyContent: 'center',
+                gap: '2px',
+                cursor: 'pointer',
+              }}
+            >
               <h4
                 style={{
-                  margin: '0 0 2px',
-                  fontSize: '12px',
+                  margin: 0,
+                  fontSize: '13.5px',
                   fontWeight: 600,
                   color: 'var(--yt-text-primary)',
                   overflow: 'hidden',
                   textOverflow: 'ellipsis',
                   whiteSpace: 'nowrap',
-                  lineHeight: 1.2,
+                  lineHeight: 1.3,
                 }}
                 title={title || 'Now Playing'}
               >
@@ -1938,7 +2067,7 @@ export default function MaterialiousPlayer({
               <p
                 style={{
                   margin: 0,
-                  fontSize: '11px',
+                  fontSize: '11.5px',
                   color: 'var(--yt-text-secondary)',
                   overflow: 'hidden',
                   textOverflow: 'ellipsis',
@@ -1946,55 +2075,40 @@ export default function MaterialiousPlayer({
                   display: 'flex',
                   alignItems: 'center',
                   gap: '4px',
+                  lineHeight: 1.25,
+                  fontVariantNumeric: 'tabular-nums',
                 }}
               >
-                <IoMusicalNotes size={11} />
-                <span>{uploader || 'Creator'}</span>
+                <IoMusicalNotes size={11} className="mp-compact-mobile-note" style={{ flexShrink: 0 }} />
+                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                  {queueTitle ? `${queueTitle} · ` : ''}
+                  {uploader || 'Creator'}
+                  <span className="mp-compact-mobile-duration">
+                    {duration > 0 ? ` · ${formatTime(currentTime)}` : ''}
+                  </span>
+                </span>
               </p>
             </div>
 
-            {/* Progress bar */}
+            {/* Mobile-only inline Play & Close actions */}
             <div
-              onClick={(e) => {
-                const rect = e.currentTarget.getBoundingClientRect();
-                if (rect.width > 0) {
-                  handleSeek(((e.clientX - rect.left) / rect.width) * (duration || 0));
-                }
-              }}
+              className="mp-compact-mobile-actions"
               style={{
-                position: 'relative',
-                height: '3px',
-                borderRadius: '1.5px',
-                backgroundColor: 'var(--yt-border)',
-                cursor: 'pointer',
-                overflow: 'hidden',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '4px',
+                flexShrink: 0,
               }}
-              title="Seek"
             >
-              <div
-                style={{
-                  position: 'absolute',
-                  left: 0,
-                  top: 0,
-                  bottom: 0,
-                  width: `${progressPercent}%`,
-                  backgroundColor: 'var(--md-sys-color-primary, var(--yt-brand-red))',
-                  borderRadius: '1.5px',
-                }}
-              />
-            </div>
-
-            {/* Action Controls */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: '2px' }}>
               <button
                 type="button"
                 onClick={togglePlay}
                 style={{
-                  width: '28px',
-                  height: '28px',
-                  borderRadius: '50%',
-                  border: 'none',
-                  backgroundColor: 'transparent',
+                  width: '34px',
+                  height: '34px',
+                  borderRadius: '9999px',
+                  border: '1px solid var(--lg-rim-lo, rgba(255, 255, 255, 0.12))',
+                  backgroundColor: 'var(--lg-pill-active, rgba(255, 255, 255, 0.14))',
                   color: 'var(--yt-text-primary)',
                   display: 'flex',
                   alignItems: 'center',
@@ -2004,16 +2118,17 @@ export default function MaterialiousPlayer({
                 }}
                 title={isPlaying ? 'Pause' : 'Play'}
               >
-                {isPlaying ? <IoPause size={18} /> : <IoPlay size={18} />}
+                {isPlaying ? <IoPause size={17} /> : <IoPlay size={17} />}
               </button>
 
               <button
                 type="button"
                 onClick={handleExpand}
+                className="mp-compact-expand-btn"
                 style={{
-                  width: '28px',
-                  height: '28px',
-                  borderRadius: '50%',
+                  width: '30px',
+                  height: '30px',
+                  borderRadius: '9999px',
                   border: 'none',
                   backgroundColor: 'transparent',
                   color: 'var(--yt-text-secondary)',
@@ -2025,16 +2140,16 @@ export default function MaterialiousPlayer({
                 }}
                 title="Open in player"
               >
-                <IoExpandOutline size={18} />
+                <IoExpandOutline size={16} />
               </button>
 
               <button
                 type="button"
                 onClick={closeMiniPlayer}
                 style={{
-                  width: '28px',
-                  height: '28px',
-                  borderRadius: '50%',
+                  width: '32px',
+                  height: '32px',
+                  borderRadius: '9999px',
                   border: 'none',
                   backgroundColor: 'transparent',
                   color: 'var(--yt-text-secondary)',
@@ -2049,6 +2164,112 @@ export default function MaterialiousPlayer({
                 <IoCloseOutline size={20} />
               </button>
             </div>
+
+            {/* Desktop-only chevron toggle for Up Next / Mix queue */}
+            <button
+              type="button"
+              className="mp-queue-toggle-btn"
+              onClick={() => setIsQueueExpanded((prev) => !prev)}
+              aria-expanded={isQueueExpanded}
+              title={isQueueExpanded ? 'Collapse queue' : 'Expand queue'}
+            >
+              {isQueueExpanded ? <IoChevronDown size={18} /> : <IoChevronUp size={18} />}
+            </button>
+          </div>
+
+          {/* Desktop-only collapsible Up Next / Mix queue drawer */}
+          {isQueueExpanded && (
+            <div className="mp-compact-queue">
+              <div className="mp-compact-queue-header">
+                <button
+                  type="button"
+                  className={`mp-compact-queue-loop ${globalLoopMode ? 'active' : ''}`}
+                  onClick={() => setGlobalLoopMode(!globalLoopMode)}
+                  title={globalLoopMode ? 'Loop enabled' : 'Loop queue'}
+                >
+                  <IoRepeat size={16} />
+                </button>
+                <span className="mp-compact-queue-meta">
+                  {queueTitle || 'Up next'} {queue.length > 0 ? `· ${queue.length}` : ''}
+                </span>
+              </div>
+
+              <div className="mp-compact-queue-list">
+                {queueLoading && queue.length <= 1 ? (
+                  <div className="mp-compact-queue-empty">Loading queue...</div>
+                ) : queue.length === 0 ? (
+                  <div className="mp-compact-queue-empty">No upcoming tracks in queue</div>
+                ) : (
+                  queue.map((item, idx) => {
+                    const isCurrent = item.id === videoId;
+                    const thumbSrc = proxiedImageUrl(
+                      item.thumbnail || `https://i.ytimg.com/vi/${item.id}/mqdefault.jpg`,
+                      item.id
+                    );
+                    return (
+                      <button
+                        key={`${item.id}-${idx}`}
+                        type="button"
+                        className={`mp-compact-queue-row ${isCurrent ? 'active' : ''}`}
+                        onClick={() => playFromQueue(item)}
+                      >
+                        <span className="mp-compact-queue-idx">
+                          {isCurrent ? <IoPlay size={10} /> : idx + 1}
+                        </span>
+                        <div className="mp-compact-queue-thumb-wrap">
+                          <img
+                            src={thumbSrc}
+                            alt=""
+                            loading="lazy"
+                            className="mp-compact-queue-thumb"
+                          />
+                          {item.duration && (
+                            <span className="mp-compact-queue-dur">{item.duration}</span>
+                          )}
+                        </div>
+                        <div className="mp-compact-queue-text">
+                          <div className="mp-compact-queue-title">{item.title}</div>
+                          {item.uploader && (
+                            <div className="mp-compact-queue-sub">{item.uploader}</div>
+                          )}
+                        </div>
+                      </button>
+                    );
+                  })
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Seekable progress track (flush under 16:9 video on desktop, flush bottom on mobile) */}
+          <div
+            className="mp-compact-progress"
+            onClick={(e) => {
+              e.stopPropagation();
+              const rect = e.currentTarget.getBoundingClientRect();
+              if (rect.width > 0) {
+                handleSeek(((e.clientX - rect.left) / rect.width) * (duration || 0));
+              }
+            }}
+            style={{
+              position: 'absolute',
+              left: 0,
+              right: 0,
+              bottom: 0,
+              height: '3px',
+              backgroundColor: 'rgba(255, 255, 255, 0.14)',
+              cursor: 'pointer',
+              zIndex: 7,
+            }}
+            title="Seek"
+          >
+            <div
+              style={{
+                height: '100%',
+                width: `${progressPercent}%`,
+                backgroundColor: 'var(--yt-brand-red, #ff0033)',
+              }}
+            />
           </div>
         </>
       ) : (
@@ -2986,39 +3207,330 @@ export default function MaterialiousPlayer({
 
         @media (max-width: 768px) {
           .mp-compact-container {
-            bottom: calc(48px + env(safe-area-inset-bottom, 0px)) !important;
-            left: 0 !important;
-            right: 0 !important;
-            width: 100% !important;
-            max-width: 100% !important;
-            height: 56px !important;
-            border-radius: 0 !important;
-            border-top: 1px solid rgba(255, 255, 255, 0.12) !important;
+            bottom: calc(12px + env(safe-area-inset-bottom, 0px)) !important;
+            left: 12px !important;
+            right: 12px !important;
+            width: auto !important;
+            max-width: 440px !important;
+            margin: 0 auto !important;
+            height: 62px !important;
+            padding: 6px 10px 8px 6px !important;
+            gap: 10px !important;
+            flex-direction: row !important;
+            align-items: center !important;
+            border-radius: 20px !important;
+            box-sizing: border-box !important;
+            background: var(--lg-bg-panel, rgba(16, 16, 16, 0.86)) !important;
+            -webkit-backdrop-filter: blur(28px) var(--lg-vibrancy, saturate(170%)) !important;
+            backdrop-filter: blur(28px) var(--lg-vibrancy, saturate(170%)) !important;
+            border: 1px solid var(--lg-rim-base, rgba(255, 255, 255, 0.16)) !important;
+            box-shadow: var(--lg-shadow-floating, 0 12px 32px rgba(0, 0, 0, 0.45)), inset 0 1px 0 rgba(255, 255, 255, 0.18) !important;
             overflow: hidden !important;
           }
-          .mp-compact-video,
+          .mp-compact-video {
+            width: 82px !important;
+            min-width: 82px !important;
+            max-width: 82px !important;
+            height: 48px !important;
+            min-height: 48px !important;
+            max-height: 48px !important;
+            border-radius: 13px !important;
+          }
           .mp-compact-thumb,
           .mp-compact-expand {
-            width: 96px !important;
-            height: 56px !important;
+            left: 6px !important;
+            top: 6px !important;
+            width: 82px !important;
+            height: 48px !important;
+            border-radius: 13px !important;
+          }
+          .mp-compact-body {
+            display: flex !important;
+            align-items: center !important;
+            flex: 1 !important;
+            min-width: 0 !important;
+            gap: 8px !important;
+          }
+          .mp-compact-expand-btn,
+          .mp-compact-video-overlay,
+          .mp-queue-toggle-btn,
+          .mp-compact-queue {
+            display: none !important;
           }
         }
         @media (min-width: 769px) {
           .mp-compact-container {
-            bottom: 24px !important;
-            right: 24px !important;
+            bottom: 20px !important;
+            right: 20px !important;
             left: auto !important;
-            width: 400px !important;
-            max-width: 400px !important;
-            height: 72px !important;
-            border-radius: 12px !important;
+            width: 368px !important;
+            max-width: 368px !important;
+            height: auto !important;
+            padding: 0 !important;
+            gap: 0 !important;
+            flex-direction: column !important;
+            align-items: stretch !important;
+            border-radius: 16px !important;
+            box-sizing: border-box !important;
+            background: var(--lg-bg-panel, rgba(20, 20, 22, 0.92)) !important;
+            -webkit-backdrop-filter: blur(28px) var(--lg-vibrancy, saturate(170%)) !important;
+            backdrop-filter: blur(28px) var(--lg-vibrancy, saturate(170%)) !important;
+            border: 1px solid var(--lg-rim-base, rgba(255, 255, 255, 0.16)) !important;
+            box-shadow: var(--lg-shadow-floating, 0 16px 40px rgba(0, 0, 0, 0.5)), inset 0 1px 0 rgba(255, 255, 255, 0.14) !important;
             overflow: hidden !important;
           }
-          .mp-compact-video,
-          .mp-compact-thumb,
-          .mp-compact-expand {
-            width: 128px !important;
-            height: 72px !important;
+          .mp-compact-video {
+            width: 100% !important;
+            min-width: 100% !important;
+            max-width: 100% !important;
+            height: 207px !important;
+            min-height: 207px !important;
+            max-height: 207px !important;
+            border-radius: 0 !important;
+            object-fit: cover !important;
+          }
+          .mp-compact-thumb {
+            left: 0 !important;
+            top: 0 !important;
+            width: 100% !important;
+            height: 207px !important;
+            border-radius: 0 !important;
+          }
+          .mp-compact-expand,
+          .mp-compact-mobile-actions,
+          .mp-compact-mobile-note,
+          .mp-compact-mobile-duration {
+            display: none !important;
+          }
+          .mp-compact-video-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 207px;
+            z-index: 5;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            padding: 10px 12px 12px;
+            box-sizing: border-box;
+            background: linear-gradient(180deg, rgba(0, 0, 0, 0.62) 0%, rgba(0, 0, 0, 0.14) 48%, rgba(0, 0, 0, 0.68) 100%);
+            opacity: 0;
+            transition: opacity 0.18s ease;
+            cursor: pointer;
+          }
+          .mp-compact-container:hover .mp-compact-video-overlay,
+          .mp-compact-container:focus-within .mp-compact-video-overlay {
+            opacity: 1;
+          }
+          .mp-compact-ov-top,
+          .mp-compact-ov-bottom {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 8px;
+          }
+          .mp-compact-ov-bottom {
+            justify-content: flex-end;
+          }
+          .mp-compact-ov-center {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 16px;
+          }
+          .mp-compact-ov-btn {
+            width: 34px;
+            height: 34px;
+            border-radius: 9999px;
+            border: none;
+            background: rgba(0, 0, 0, 0.45);
+            color: #ffffff;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            padding: 0;
+            transition: background 0.15s ease, transform 0.15s ease;
+          }
+          .mp-compact-ov-btn:hover:not(:disabled) {
+            background: rgba(0, 0, 0, 0.72);
+            transform: scale(1.06);
+          }
+          .mp-compact-ov-play {
+            width: 44px;
+            height: 44px;
+            background: rgba(0, 0, 0, 0.58);
+          }
+          .mp-compact-ov-time {
+            font-size: 11px;
+            font-weight: 500;
+            color: rgba(255, 255, 255, 0.92);
+            font-variant-numeric: tabular-nums;
+            background: rgba(0, 0, 0, 0.48);
+            padding: 3px 8px;
+            border-radius: 9999px;
+          }
+          .mp-compact-progress {
+            top: 204px !important;
+            bottom: auto !important;
+          }
+          .mp-compact-body {
+            display: flex !important;
+            align-items: center !important;
+            gap: 8px !important;
+            padding: 12px 10px 12px 14px !important;
+            box-sizing: border-box !important;
+          }
+          .mp-queue-toggle-btn {
+            width: 34px;
+            height: 34px;
+            border-radius: 9999px;
+            border: none;
+            background: transparent;
+            color: var(--yt-text-primary);
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            flex-shrink: 0;
+            transition: background 0.15s ease;
+          }
+          .mp-queue-toggle-btn:hover {
+            background: var(--lg-pill-hover, rgba(255, 255, 255, 0.1));
+          }
+          .mp-compact-queue {
+            border-top: 1px solid var(--lg-rim-lo, rgba(255, 255, 255, 0.12));
+            display: flex;
+            flex-direction: column;
+            background: rgba(0, 0, 0, 0.14);
+          }
+          .mp-compact-queue-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 6px 12px;
+            gap: 8px;
+          }
+          .mp-compact-queue-loop {
+            width: 28px;
+            height: 28px;
+            border-radius: 9999px;
+            border: none;
+            background: transparent;
+            color: var(--yt-text-secondary);
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+          }
+          .mp-compact-queue-loop.active {
+            background: var(--lg-pill-active, rgba(255, 255, 255, 0.16));
+            color: var(--yt-text-primary);
+          }
+          .mp-compact-queue-meta {
+            font-size: 11px;
+            color: var(--yt-text-secondary);
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+          }
+          .mp-compact-queue-list {
+            max-height: 256px;
+            overflow-y: auto;
+            padding: 0 0 6px;
+          }
+          .mp-compact-queue-empty {
+            padding: 16px 14px;
+            font-size: 12px;
+            color: var(--yt-text-secondary);
+            text-align: center;
+          }
+          .mp-compact-queue-row {
+            width: 100%;
+            border: none;
+            background: transparent;
+            color: inherit;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 6px 12px;
+            text-align: left;
+            cursor: pointer;
+            transition: background 0.14s ease;
+          }
+          .mp-compact-queue-row:hover {
+            background: var(--lg-pill-hover, rgba(255, 255, 255, 0.08));
+          }
+          .mp-compact-queue-row.active {
+            background: var(--lg-pill-active, rgba(255, 255, 255, 0.14));
+          }
+          .mp-compact-queue-idx {
+            width: 14px;
+            font-size: 11px;
+            color: var(--yt-text-secondary);
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
+          }
+          .mp-compact-queue-row.active .mp-compact-queue-idx {
+            color: var(--yt-text-primary);
+          }
+          .mp-compact-queue-thumb-wrap {
+            position: relative;
+            width: 64px;
+            height: 36px;
+            border-radius: 6px;
+            overflow: hidden;
+            flex-shrink: 0;
+            background: #111;
+          }
+          .mp-compact-queue-thumb {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            display: block;
+          }
+          .mp-compact-queue-dur {
+            position: absolute;
+            right: 3px;
+            bottom: 3px;
+            padding: 1px 4px;
+            border-radius: 3px;
+            background: rgba(0, 0, 0, 0.78);
+            color: #ffffff;
+            font-size: 10px;
+            font-weight: 600;
+            line-height: 1.1;
+            font-variant-numeric: tabular-nums;
+          }
+          .mp-compact-queue-text {
+            flex: 1;
+            min-width: 0;
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+          }
+          .mp-compact-queue-title {
+            font-size: 12px;
+            font-weight: 500;
+            color: var(--yt-text-primary);
+            display: -webkit-box;
+            -webkit-line-clamp: 2;
+            -webkit-box-orient: vertical;
+            overflow: hidden;
+            line-height: 1.28;
+          }
+          .mp-compact-queue-row.active .mp-compact-queue-title {
+            font-weight: 600;
+          }
+          .mp-compact-queue-sub {
+            font-size: 11px;
+            color: var(--yt-text-secondary);
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
           }
         }
       `}</style>

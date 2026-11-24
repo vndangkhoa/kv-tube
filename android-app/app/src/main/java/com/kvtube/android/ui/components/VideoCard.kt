@@ -1,5 +1,6 @@
 package com.kvtube.android.ui.components
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -58,6 +59,7 @@ fun VideoCard(
     onMoreClick: (() -> Unit)? = null,
     showChannelAvatar: Boolean = true,
     showChannelName: Boolean = true,
+    compactLayout: Boolean = false,
     modifier: Modifier = Modifier
 ) {
     val widthClass = LocalWindowState.current.widthClass
@@ -68,6 +70,7 @@ fun VideoCard(
             .fillMaxWidth()
             .clickable { onVideoClick(video.id) }
             .padding(bottom = when {
+                compactLayout -> 4.dp
                 isExpanded -> 8.dp
                 isWide -> 12.dp
                 else -> 16.dp
@@ -79,9 +82,10 @@ fun VideoCard(
                 .fillMaxWidth()
                 .aspectRatio(16f / 9f)
                 .clip(RoundedCornerShape(AstryxRadius.container))
+                .background(MaterialTheme.colorScheme.surfaceContainer)
                 .border(
                     1.dp,
-                    MaterialTheme.colorScheme.outlineVariant,
+                    MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.7f),
                     RoundedCornerShape(AstryxRadius.container)
                 )
         ) {
@@ -105,14 +109,14 @@ fun VideoCard(
             }
         }
 
-        Spacer(modifier = Modifier.height(if (isExpanded) 8.dp else 10.dp))
+        Spacer(modifier = Modifier.height(if (isExpanded || compactLayout) 8.dp else 10.dp))
 
         // Information row: Avatar + Title/Channel/Stats + 3-dot More button
         Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 4.dp),
-            horizontalArrangement = Arrangement.spacedBy(if (isExpanded) 8.dp else 10.dp),
+            horizontalArrangement = Arrangement.spacedBy(if (isExpanded || compactLayout) 8.dp else 10.dp),
             verticalAlignment = Alignment.Top
         ) {
             // Channel Avatar
@@ -120,7 +124,7 @@ fun VideoCard(
                 ChannelAvatar(
                     avatarUrl = video.channelThumbnail.ifBlank { null },
                     channelName = video.displayChannelTitle,
-                    size = if (isExpanded) 32.dp else 36.dp,
+                    size = if (isExpanded || compactLayout) 32.dp else 36.dp,
                     onClick = if (onChannelClick != null) {
                         { onChannelClick(video.displayChannelId) }
                     } else null
@@ -141,29 +145,41 @@ fun VideoCard(
                     overflow = TextOverflow.Ellipsis
                 )
 
-                Spacer(modifier = Modifier.height(if (isExpanded) 2.dp else 4.dp))
+                Spacer(modifier = Modifier.height(if (isExpanded || compactLayout) 3.dp else 4.dp))
 
-                val subtitle = buildString {
-                    if (showChannelName && video.displayChannelTitle.isNotBlank()) {
-                        append(video.displayChannelTitle)
-                    }
+                if (showChannelName && video.displayChannelTitle.isNotBlank()) {
+                    Text(
+                        text = video.displayChannelTitle,
+                        style = MaterialTheme.typography.bodySmall.copy(
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Medium
+                        ),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+
+                val showPublished = video.publishedAt.isNotBlank() &&
+                    !(video.isLive && video.publishedAt.equals("Just now", ignoreCase = true))
+                val statsLine = buildString {
                     if (video.viewCountFormatted.isNotBlank()) {
-                        if (isNotEmpty()) append(" • ")
                         append(video.viewCountFormatted)
                     }
-                    if (video.publishedAt.isNotBlank()) {
+                    if (showPublished) {
                         if (isNotEmpty()) append(" • ")
                         append(video.publishedAt)
                     }
                 }
-
-                Text(
-                    text = subtitle,
-                    style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp),
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 2,
-                    overflow = TextOverflow.Ellipsis
-                )
+                if (statsLine.isNotEmpty()) {
+                    Text(
+                        text = statsLine,
+                        style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.85f),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
             }
 
             // 3-dot overflow menu

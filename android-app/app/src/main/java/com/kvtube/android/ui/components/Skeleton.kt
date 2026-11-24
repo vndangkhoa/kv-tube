@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -22,6 +23,7 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
@@ -29,10 +31,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
-import com.kvtube.android.ui.theme.SkeletonDark
-import com.kvtube.android.ui.theme.SkeletonHighlightDark
 
 @Composable
 fun ShimmerEffect(
@@ -49,12 +48,10 @@ fun ShimmerEffect(
         label = "shimmer"
     )
 
+    val base = MaterialTheme.colorScheme.surfaceContainer
+    val highlight = MaterialTheme.colorScheme.surfaceVariant
     val brush = Brush.linearGradient(
-        colors = listOf(
-            SkeletonDark,
-            SkeletonHighlightDark,
-            SkeletonDark
-        ),
+        colors = listOf(base, highlight, base),
         start = Offset(translateAnim - 200f, 0f),
         end = Offset(translateAnim, 0f)
     )
@@ -73,7 +70,7 @@ fun VideoCardSkeleton(modifier: Modifier = Modifier) {
                 .aspectRatio(16f / 9f)
                 .clip(RoundedCornerShape(12.dp))
         ) {
-            ShimmerEffect(modifier = Modifier.fillMaxWidth())
+            ShimmerEffect(modifier = Modifier.fillMaxSize())
         }
         Spacer(modifier = Modifier.height(8.dp))
         Row(
@@ -85,7 +82,7 @@ fun VideoCardSkeleton(modifier: Modifier = Modifier) {
                     .size(32.dp)
                     .clip(CircleShape)
             ) {
-                ShimmerEffect(modifier = Modifier.fillMaxWidth())
+                ShimmerEffect(modifier = Modifier.fillMaxSize())
             }
             Spacer(modifier = Modifier.width(8.dp))
             Column(modifier = Modifier.weight(1f)) {
@@ -95,7 +92,7 @@ fun VideoCardSkeleton(modifier: Modifier = Modifier) {
                         .height(14.dp)
                         .clip(RoundedCornerShape(4.dp))
                 ) {
-                    ShimmerEffect(modifier = Modifier.fillMaxWidth())
+                    ShimmerEffect(modifier = Modifier.fillMaxSize())
                 }
                 Spacer(modifier = Modifier.height(6.dp))
                 Box(
@@ -104,7 +101,7 @@ fun VideoCardSkeleton(modifier: Modifier = Modifier) {
                         .height(12.dp)
                         .clip(RoundedCornerShape(4.dp))
                 ) {
-                    ShimmerEffect(modifier = Modifier.fillMaxWidth())
+                    ShimmerEffect(modifier = Modifier.fillMaxSize())
                 }
             }
         }
@@ -113,10 +110,16 @@ fun VideoCardSkeleton(modifier: Modifier = Modifier) {
 
 @Composable
 fun VideoGridSkeleton() {
+    val chromeInsets = com.kvtube.android.ui.theme.LocalGlassChromeInsets.current
     CenteredContent {
     LazyVerticalGrid(
         columns = rememberVideoGridCells(),
-        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+        contentPadding = androidx.compose.foundation.layout.PaddingValues(
+            start = 12.dp,
+            end = 12.dp,
+            top = 8.dp,
+            bottom = chromeInsets.calculateBottomPadding() + 12.dp
+        ),
         horizontalArrangement = Arrangement.spacedBy(gridHorizontalSpacing()),
         verticalArrangement = Arrangement.spacedBy(gridVerticalSpacing())
     ) {

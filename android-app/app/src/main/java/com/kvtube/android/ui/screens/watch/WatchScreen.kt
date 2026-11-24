@@ -9,6 +9,7 @@ import android.webkit.WebChromeClient
 import android.webkit.WebView
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -42,8 +43,11 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.ThumbDown
@@ -55,6 +59,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -72,6 +77,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -84,6 +90,8 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.navigation.NavController
+import coil3.compose.AsyncImage
+import com.kvtube.android.data.local.ThumbnailRouter
 import com.kvtube.android.data.model.Comment
 import com.kvtube.android.data.model.QualityTier
 import com.kvtube.android.data.model.VideoData
@@ -92,9 +100,13 @@ import com.kvtube.android.ui.adaptive.findActivity
 import com.kvtube.android.ui.components.ChannelAvatar
 import com.kvtube.android.ui.components.DownloadBottomSheet
 import com.kvtube.android.ui.components.LoadingSpinner
+import com.kvtube.android.ui.components.ShimmerEffect
 import com.kvtube.android.ui.components.SubscribeButton
 import com.kvtube.android.ui.components.VideoCard
+import com.kvtube.android.ui.components.VideoCardSkeleton
 import com.kvtube.android.ui.navigation.Screen
+import com.kvtube.android.ui.theme.AstryxRadius
+import com.kvtube.android.ui.theme.YTBrandRed
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -157,8 +169,10 @@ fun WatchScreen(
                 window.attributes.layoutInDisplayCutoutMode =
                     android.view.WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES
             }
-            activity.requestedOrientation =
-                android.content.pm.ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+            if (!windowState.isWide) {
+                activity.requestedOrientation =
+                    android.content.pm.ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+            }
         } else {
             controller.show(WindowInsetsCompat.Type.systemBars())
             activity.requestedOrientation =
@@ -277,9 +291,10 @@ fun WatchScreen(
                         onBackClick = { navController.popBackStack() }
                     )
                 } else {
-                    uiState.selectedUrl?.let { url ->
+                    val selectedUrl = uiState.selectedUrl
+                    if (selectedUrl != null) {
                         ExoPlayerView(
-                            videoUrl = url,
+                            videoUrl = selectedUrl,
                             audioUrl = uiState.audioUrl,
                             sharedPlayer = viewModel.playbackManagerRef.player,
                             isFullscreen = false,
@@ -296,6 +311,48 @@ fun WatchScreen(
                             onBackClick = { navController.popBackStack() },
                             modifier = playerModifier
                         )
+                    } else {
+                        val posterModifier = if (fillAvailable) {
+                            playerModifier.background(Color.Black)
+                        } else {
+                            playerModifier
+                                .aspectRatio(16f / 9f)
+                                .background(Color.Black)
+                        }
+                        Box(modifier = posterModifier) {
+                            AsyncImage(
+                                model = uiState.video?.displayThumbnail?.ifBlank {
+                                    ThumbnailRouter.video(videoId)
+                                } ?: ThumbnailRouter.video(videoId),
+                                contentDescription = uiState.video?.title,
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier.fillMaxSize()
+                            )
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .background(Color.Black.copy(alpha = 0.35f))
+                            )
+                            IconButton(
+                                onClick = { navController.popBackStack() },
+                                modifier = Modifier
+                                    .align(Alignment.TopStart)
+                                    .padding(6.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                                    contentDescription = "Back",
+                                    tint = Color.White
+                                )
+                            }
+                            CircularProgressIndicator(
+                                color = YTBrandRed,
+                                strokeWidth = 2.5.dp,
+                                modifier = Modifier
+                                    .size(34.dp)
+                                    .align(Alignment.Center)
+                            )
+                        }
                     }
                 }
             }
@@ -306,6 +363,7 @@ fun WatchScreen(
                     video = video,
                     tierDescriptions = uiState.tierDescriptions,
                     selectedTier = uiState.selectedTier,
+                    selectedQualityLabel = uiState.selectedQualityLabel,
                     isSubscribed = uiState.isSubscribed,
                     onSubscribeClick = { viewModel.toggleSubscription() },
                     onTierSelected = { tier -> viewModel.selectQualityTier(tier) },
@@ -396,20 +454,28 @@ fun WatchScreen(
                     horizontalPadding = if (windowState.isCompact) 14.dp else 4.dp
                 )
             }
-            itemsIndexed(
-                uiState.relatedVideos,
-                key = { idx, item -> "${item.id}_$idx" }
-            ) { _, related ->
-                VideoCard(
-                    video = related,
-                    onVideoClick = { id ->
-                        navController.navigate(Screen.Watch.createRoute(id))
-                    },
-                    onChannelClick = { channelId ->
-                        navController.navigate(Screen.Channel.createRoute(channelId))
-                    },
-                    modifier = if (windowState.isCompact) relatedCardPadding else Modifier
-                )
+            if (uiState.isLoadingRelated && uiState.relatedVideos.isEmpty()) {
+                items(2, key = { "rel_skel_$it" }) {
+                    VideoCardSkeleton(
+                        modifier = if (windowState.isCompact) relatedCardPadding else Modifier
+                    )
+                }
+            } else {
+                itemsIndexed(
+                    uiState.relatedVideos,
+                    key = { idx, item -> "${item.id}_$idx" }
+                ) { _, related ->
+                    VideoCard(
+                        video = related,
+                        onVideoClick = { id ->
+                            navController.navigate(Screen.Watch.createRoute(id))
+                        },
+                        onChannelClick = { channelId ->
+                            navController.navigate(Screen.Channel.createRoute(channelId))
+                        },
+                        modifier = if (windowState.isCompact) relatedCardPadding else Modifier
+                    )
+                }
             }
         }
 
@@ -526,6 +592,16 @@ fun WatchScreen(
                                                 )
                                             )
                                         }
+                                        if (uiState.isLoadingRelated && uiState.relatedVideos.isEmpty()) {
+                                            items(2) { idx ->
+                                                VideoCardSkeleton(
+                                                    modifier = Modifier.padding(
+                                                        start = if (idx % 2 == 0) 12.dp else 6.dp,
+                                                        end = if (idx % 2 == 0) 6.dp else 12.dp
+                                                    )
+                                                )
+                                            }
+                                        }
                                     }
                                 }
                             }
@@ -593,6 +669,16 @@ fun WatchScreen(
                                             end = if (idx % 2 == 0) 6.dp else 12.dp
                                         )
                                     )
+                                }
+                                if (uiState.isLoadingRelated && uiState.relatedVideos.isEmpty()) {
+                                    items(2) { idx ->
+                                        VideoCardSkeleton(
+                                            modifier = Modifier.padding(
+                                                start = if (idx % 2 == 0) 12.dp else 6.dp,
+                                                end = if (idx % 2 == 0) 6.dp else 12.dp
+                                            )
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -801,6 +887,7 @@ private fun VideoInfoSection(
     video: VideoData,
     tierDescriptions: Map<QualityTier, String>,
     selectedTier: QualityTier,
+    selectedQualityLabel: String?,
     isSubscribed: Boolean,
     onSubscribeClick: () -> Unit,
     onTierSelected: (QualityTier) -> Unit,
@@ -815,89 +902,136 @@ private fun VideoInfoSection(
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 14.dp, vertical = 10.dp)
+            .padding(vertical = 10.dp)
     ) {
-        // Title
-        Text(
-            text = video.title,
-            style = MaterialTheme.typography.titleMedium.copy(
-                fontSize = 16.sp,
-                fontWeight = FontWeight.SemiBold,
-                lineHeight = 22.sp
-            ),
-            color = MaterialTheme.colorScheme.onSurface,
-            maxLines = 3,
-            overflow = TextOverflow.Ellipsis
-        )
-
-        Spacer(modifier = Modifier.height(6.dp))
-
-        // Views and publish info
-        val metaString = buildString {
-            if (video.viewCountFormatted.isNotBlank()) append(video.viewCountFormatted)
-            if (video.publishedAt.isNotBlank()) {
-                if (isNotEmpty()) append(" • ")
-                append(video.publishedAt)
-            }
-        }
-        if (metaString.isNotBlank()) {
-            Text(
-                text = metaString,
-                style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp),
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-        }
-
-        Spacer(modifier = Modifier.height(10.dp))
-
-        // Channel row
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.fillMaxWidth()
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 14.dp)
         ) {
-            ChannelAvatar(
-                avatarUrl = video.channelThumbnail.ifBlank { null },
-                channelName = video.displayChannelTitle,
-                size = 36.dp,
-                onClick = { onChannelClick(video.displayChannelId) }
-            )
-            Spacer(modifier = Modifier.width(10.dp))
-            Column(
-                modifier = Modifier
-                    .weight(1f)
-                    .clickable { onChannelClick(video.displayChannelId) }
-            ) {
+            // Title
+            if (video.title.isBlank()) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth(0.92f)
+                        .height(18.dp)
+                        .clip(RoundedCornerShape(4.dp))
+                ) {
+                    ShimmerEffect(modifier = Modifier.fillMaxSize())
+                }
+                Spacer(modifier = Modifier.height(6.dp))
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth(0.58f)
+                        .height(18.dp)
+                        .clip(RoundedCornerShape(4.dp))
+                ) {
+                    ShimmerEffect(modifier = Modifier.fillMaxSize())
+                }
+            } else {
                 Text(
-                    text = video.displayChannelTitle,
-                    style = MaterialTheme.typography.bodyMedium.copy(
-                        fontSize = 14.sp,
-                        fontWeight = FontWeight.SemiBold
+                    text = video.title,
+                    style = MaterialTheme.typography.titleMedium.copy(
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        lineHeight = 22.sp
                     ),
                     color = MaterialTheme.colorScheme.onSurface,
-                    maxLines = 1,
+                    maxLines = 3,
                     overflow = TextOverflow.Ellipsis
                 )
-                if (video.subscriberCount.isNotBlank()) {
-                    Text(
-                        text = video.subscriberCount,
-                        style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
+            }
+
+            Spacer(modifier = Modifier.height(6.dp))
+
+            // Views and publish info
+            val metaString = buildString {
+                if (video.viewCountFormatted.isNotBlank()) append(video.viewCountFormatted)
+                if (video.publishedAt.isNotBlank()) {
+                    if (isNotEmpty()) append(" • ")
+                    append(video.publishedAt)
                 }
             }
-            SubscribeButton(
-                isSubscribed = isSubscribed,
-                onToggle = onSubscribeClick
-            )
+            if (metaString.isNotBlank()) {
+                Text(
+                    text = metaString,
+                    style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            // Channel row
+            val hasChannelInfo = video.channelTitle.isNotBlank() || video.uploader.isNotBlank()
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                if (hasChannelInfo || video.title.isNotBlank()) {
+                    ChannelAvatar(
+                        avatarUrl = video.channelThumbnail.ifBlank { null },
+                        channelName = video.displayChannelTitle,
+                        size = 36.dp,
+                        onClick = { onChannelClick(video.displayChannelId) }
+                    )
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Column(
+                        modifier = Modifier
+                            .weight(1f)
+                            .clickable { onChannelClick(video.displayChannelId) }
+                    ) {
+                        Text(
+                            text = video.displayChannelTitle,
+                            style = MaterialTheme.typography.bodyMedium.copy(
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.SemiBold
+                            ),
+                            color = MaterialTheme.colorScheme.onSurface,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        if (video.subscriberCount.isNotBlank()) {
+                            Text(
+                                text = video.subscriberCount,
+                                style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                    SubscribeButton(
+                        isSubscribed = isSubscribed,
+                        onToggle = onSubscribeClick
+                    )
+                } else {
+                    Box(
+                        modifier = Modifier
+                            .size(36.dp)
+                            .clip(androidx.compose.foundation.shape.CircleShape)
+                    ) {
+                        ShimmerEffect(modifier = Modifier.fillMaxSize())
+                    }
+                    Spacer(modifier = Modifier.width(10.dp))
+                    Box(
+                        modifier = Modifier
+                            .width(120.dp)
+                            .height(14.dp)
+                            .clip(RoundedCornerShape(4.dp))
+                    ) {
+                        ShimmerEffect(modifier = Modifier.fillMaxSize())
+                    }
+                }
+            }
         }
 
         Spacer(modifier = Modifier.height(12.dp))
 
-        // YouTube Action Bar: Like/Dislike pill, Share, Download, Quality
+        // YouTube Action Bar: full-bleed horizontal scroll with Like/Dislike pill, Share, Download, Quality
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .horizontalScroll(rememberScrollState()),
+                .horizontalScroll(rememberScrollState())
+                .padding(horizontal = 14.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
@@ -921,7 +1055,7 @@ private fun VideoInfoSection(
                     Icon(
                         imageVector = if (isLiked) Icons.Filled.ThumbUp else Icons.Outlined.ThumbUp,
                         contentDescription = "Like",
-                        tint = if (isLiked) Color(0xFF3EA6FF) else MaterialTheme.colorScheme.onSurface,
+                        tint = if (isLiked) YTBrandRed else MaterialTheme.colorScheme.onSurface,
                         modifier = Modifier.size(18.dp)
                     )
                     Text(
@@ -950,7 +1084,7 @@ private fun VideoInfoSection(
                     Icon(
                         imageVector = if (isDisliked) Icons.Filled.ThumbDown else Icons.Outlined.ThumbDown,
                         contentDescription = "Dislike",
-                        tint = if (isDisliked) Color(0xFF3EA6FF) else MaterialTheme.colorScheme.onSurface,
+                        tint = MaterialTheme.colorScheme.onSurface,
                         modifier = Modifier.size(18.dp)
                     )
                 }
@@ -1004,7 +1138,10 @@ private fun VideoInfoSection(
                 )
             }
 
-            // Quality picker pill
+            // Compact Quality picker pill
+            val compactQuality = selectedQualityLabel?.takeIf { it.isNotBlank() }?.let {
+                "${selectedTier.label} • $it"
+            } ?: selectedTier.label
             Row(
                 modifier = Modifier
                     .clip(RoundedCornerShape(18.dp))
@@ -1021,10 +1158,11 @@ private fun VideoInfoSection(
                     modifier = Modifier.size(18.dp)
                 )
                 Text(
-                    text = "Quality • ${tierDescriptions[selectedTier] ?: selectedTier.label}",
+                    text = compactQuality,
                     fontSize = 12.sp,
                     fontWeight = FontWeight.Medium,
-                    color = MaterialTheme.colorScheme.onSurface
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 1
                 )
             }
         }
@@ -1035,6 +1173,7 @@ private fun VideoInfoSection(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .padding(horizontal = 14.dp)
                     .clip(RoundedCornerShape(12.dp))
                     .background(MaterialTheme.colorScheme.surfaceVariant)
                     .padding(8.dp)
@@ -1094,8 +1233,9 @@ private fun CommentsPreviewCard(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 14.dp, vertical = 6.dp)
-            .clip(RoundedCornerShape(12.dp))
+            .clip(RoundedCornerShape(AstryxRadius.container))
             .background(MaterialTheme.colorScheme.surfaceVariant)
+            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(AstryxRadius.container))
             .clickable { onToggle() }
             .padding(12.dp)
     ) {
@@ -1111,12 +1251,23 @@ private fun CommentsPreviewCard(
                 fontWeight = FontWeight.Bold,
                 modifier = Modifier.weight(1f)
             )
-            Text(
-                text = if (uiState.showComments) "Hide" else "Show",
-                color = Color(0xFF3EA6FF),
-                style = MaterialTheme.typography.bodySmall,
-                fontWeight = FontWeight.Medium
-            )
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(2.dp)
+            ) {
+                Text(
+                    text = if (uiState.showComments) "Hide" else "Show",
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.bodySmall,
+                    fontWeight = FontWeight.Medium
+                )
+                Icon(
+                    imageVector = if (uiState.showComments) Icons.Filled.KeyboardArrowUp else Icons.Filled.KeyboardArrowDown,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(16.dp)
+                )
+            }
         }
         if (!uiState.showComments && uiState.comments.isNotEmpty()) {
             Spacer(modifier = Modifier.height(8.dp))
@@ -1182,7 +1333,7 @@ private fun CommentsLoadMoreFooter(
                 Text(
                     text = "Load more comments",
                     style = MaterialTheme.typography.bodySmall,
-                    color = Color(0xFF3EA6FF)
+                    color = MaterialTheme.colorScheme.primary
                 )
             }
         }

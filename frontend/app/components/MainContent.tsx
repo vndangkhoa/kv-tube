@@ -8,9 +8,10 @@ export default function MainContent({ children }: { children: ReactNode }) {
     const { isSidebarOpen } = useSidebar();
     const pathname = usePathname();
     const isWatchPage = pathname === '/watch';
+    const isShortsPage = pathname === '/shorts';
     
     return (
-        <main className={`yt-main-content ${isWatchPage ? 'watch-mode' : (isSidebarOpen ? 'sidebar-expanded' : 'sidebar-collapsed')}`}>
+        <main className={`yt-main-content ${isWatchPage ? 'watch-mode' : (isSidebarOpen ? 'sidebar-expanded' : 'sidebar-collapsed')}${isShortsPage ? ' shorts-mode' : ''}`}>
             {children}
         </main>
     );

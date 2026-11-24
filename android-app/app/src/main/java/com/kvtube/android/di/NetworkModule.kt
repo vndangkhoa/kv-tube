@@ -1,14 +1,17 @@
 package com.kvtube.android.di
 
 import android.content.Context
+import com.kvtube.android.BuildConfig
 import com.kvtube.android.data.api.KVApi
 import com.kvtube.android.data.api.PairApi
+import com.kvtube.android.data.net.KvHttp
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
 import io.ktor.client.HttpClient
+import io.ktor.client.engine.okhttp.OkHttp
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.client.plugins.defaultRequest
 import io.ktor.client.plugins.HttpTimeout
@@ -40,7 +43,10 @@ object NetworkModule {
     @Provides
     @Singleton
     fun provideHttpClient(json: Json): HttpClient {
-        return HttpClient {
+        return HttpClient(OkHttp) {
+            engine {
+                preconfigured = KvHttp.client
+            }
             install(ContentNegotiation) {
                 json(json)
             }
@@ -49,13 +55,15 @@ object NetworkModule {
                 connectTimeoutMillis = 10_000
                 socketTimeoutMillis = 30_000
             }
-            install(Logging) {
-                level = LogLevel.BODY
-                // Session credentials must never reach logcat
-                sanitizeHeader { header ->
-                    header.equals("Cookie", ignoreCase = true) ||
-                        header.equals("Authorization", ignoreCase = true) ||
-                        header.equals("x-invidious-token", ignoreCase = true)
+            if (BuildConfig.DEBUG) {
+                install(Logging) {
+                    level = LogLevel.INFO
+                    // Session credentials must never reach logcat
+                    sanitizeHeader { header ->
+                        header.equals("Cookie", ignoreCase = true) ||
+                            header.equals("Authorization", ignoreCase = true) ||
+                            header.equals("x-invidious-token", ignoreCase = true)
+                    }
                 }
             }
             defaultRequest {
