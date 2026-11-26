@@ -204,7 +204,8 @@ object ApiClient {
 
         // Relative path
         if (u.startsWith("/")) {
-            return "$base$u"
+            val gwPath = if (isGatewayMode && !u.startsWith("/api/invidious/")) "/api/invidious$u" else u
+            return "$base$gwPath"
         }
 
         val host = try { java.net.URI(u).host.orEmpty() } catch (_: Exception) { "" }
@@ -215,7 +216,8 @@ object ApiClient {
         val isInvidiousEndpoint = !isGoogleVideo && (
             u.contains("/api/manifest/") ||
             u.contains("/videoplayback") ||
-            u.contains("/latest_version")
+            u.contains("/latest_version") ||
+            u.contains("/companion/")
         )
 
         if (isInvidiousEndpoint) {
@@ -227,7 +229,12 @@ object ApiClient {
                 val baseAuth = if (basePort > 0) "$baseHost:$basePort" else baseHost
 
                 val streamUri = java.net.URI(u)
-                val path = streamUri.rawPath.orEmpty()
+                val rawPath = streamUri.rawPath.orEmpty()
+                val path = if (isGatewayMode && rawPath.startsWith("/") && !rawPath.startsWith("/api/invidious/")) {
+                    "/api/invidious$rawPath"
+                } else {
+                    rawPath
+                }
                 val query = if (streamUri.rawQuery != null) "?${streamUri.rawQuery}" else ""
                 "$baseScheme://$baseAuth$path$query"
             } catch (_: Exception) {

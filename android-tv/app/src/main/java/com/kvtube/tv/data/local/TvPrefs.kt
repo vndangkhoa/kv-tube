@@ -13,6 +13,7 @@ class TvPrefs(private val context: Context) {
         val KEY_INSTANCE = stringPreferencesKey("kv_invidious_instance")
         val KEY_TOKEN = stringPreferencesKey("kv_invidious_token")
         val KEY_THEME = stringPreferencesKey("kv_tv_theme") // default | youtube
+        val KEY_AUDIO_PREF = stringPreferencesKey("kv_tv_audio_pref") // original | vi | en | device
 
         // KV-Tube web gateway (fast video proxy + DASH). The raw Invidious host
         // yt.khoavo.vndns.net stalls on videoplayback, so it is upgraded below.
@@ -41,6 +42,7 @@ class TvPrefs(private val context: Context) {
     val instanceUrl: Flow<String> = context.tvDataStore.data.map { resolveInstance(it[KEY_INSTANCE]) }
     val token: Flow<String?> = context.tvDataStore.data.map { it[KEY_TOKEN]?.trim()?.ifBlank { null } }
     val theme: Flow<String> = context.tvDataStore.data.map { it[KEY_THEME] ?: "youtube" }
+    val audioPref: Flow<String> = context.tvDataStore.data.map { it[KEY_AUDIO_PREF] ?: "original" }
 
     suspend fun setInstanceUrl(url: String) {
         val clean = ApiClient.normalizeInstanceUrl(url)
@@ -59,6 +61,15 @@ class TvPrefs(private val context: Context) {
         context.tvDataStore.edit { it[KEY_THEME] = theme }
     }
 
+    suspend fun setAudioPref(prefKey: String) {
+        val normalized = com.kvtube.tv.player.AudioLanguagePreference.fromKey(prefKey).key
+        context.tvDataStore.edit { it[KEY_AUDIO_PREF] = normalized }
+        context.getSharedPreferences("kv_tv_playback", Context.MODE_PRIVATE)
+            .edit()
+            .putString("audio_pref", normalized)
+            .apply()
+    }
+
     suspend fun bootstrap() {
         val prefs = context.tvDataStore.data.first()
         val rawInst = prefs[KEY_INSTANCE]
@@ -69,5 +80,13 @@ class TvPrefs(private val context: Context) {
         val clean = ApiClient.normalizeInstanceUrl(resolved)
         val tok = prefs[KEY_TOKEN]?.trim()?.ifBlank { null }
         ApiClient.setInstance(clean, tok)
+        val savedAudioPref = prefs[KEY_AUDIO_PREF]
+        if (!savedAudioPref.isNullOrBlank()) {
+            val normalized = com.kvtube.tv.player.AudioLanguagePreference.fromKey(savedAudioPref).key
+            context.getSharedPreferences("kv_tv_playback", Context.MODE_PRIVATE)
+                .edit()
+                .putString("audio_pref", normalized)
+                .apply()
+        }
     }
 }

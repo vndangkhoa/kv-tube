@@ -46,6 +46,17 @@ class ApiClientTest {
         // Direct external googlevideo URL untouched
         val gvideo = "https://rr2---sn-8qj-nbo6r.googlevideo.com/videoplayback?expire=123"
         assertEquals(gvideo, ApiClient.rewriteStreamUrl(gvideo))
+
+        // Gateway mode rewrites leaked internal hosts and relative paths onto /api/invidious
+        ApiClient.setInstance("https://u.khoavo.vndns.net")
+        assertEquals(
+            "https://u.khoavo.vndns.net/api/invidious/api/manifest/dash/id/abc",
+            ApiClient.rewriteStreamUrl("https://yt.khoavo.vndns.net/api/manifest/dash/id/abc")
+        )
+        assertEquals(
+            "https://u.khoavo.vndns.net/api/invidious/companion/videoplayback?itag=140",
+            ApiClient.rewriteStreamUrl("/companion/videoplayback?itag=140")
+        )
     }
 
     @Test

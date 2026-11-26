@@ -10,20 +10,26 @@ import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Forward10
 import androidx.compose.material.icons.filled.HighQuality
 import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PlayArrow
@@ -71,8 +77,11 @@ import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Surface
 import androidx.tv.material3.Text
 import coil.compose.AsyncImage
+import com.kvtube.tv.data.local.TvPrefs
 import com.kvtube.tv.data.model.InvidiousVideo
 import com.kvtube.tv.data.model.TvVideo
+import com.kvtube.tv.player.AudioLanguagePreference
+import com.kvtube.tv.player.TvAudioTrackOption
 import com.kvtube.tv.player.TvPlaybackManager
 import com.kvtube.tv.ui.components.YtChannelAvatar
 import com.kvtube.tv.ui.components.YtTvVideoCard
@@ -107,12 +116,18 @@ fun PlayerScreen(
 
     val playbackManager = remember { TvPlaybackManager.getInstance(ctx) }
     val exo = playbackManager.player
+    val tvPrefs = remember { TvPrefs(ctx) }
+    val audioTracks by playbackManager.audioTracks.collectAsState()
+    val activeAudioTrack by playbackManager.activeAudioTrack.collectAsState()
+    val audioPreference by playbackManager.audioPreference.collectAsState()
 
+    var activeVideoId by remember(videoId) { mutableStateOf(videoId.trim()) }
     var isPlaying by remember { mutableStateOf(false) }
     var currentPosition by remember { mutableLongStateOf(0L) }
     var duration by remember { mutableLongStateOf(0L) }
     var showControls by remember { mutableStateOf(false) }
     var showRecommendations by remember { mutableStateOf(false) }
+    var showAudioPicker by remember { mutableStateOf(false) }
     var countdownSeconds by remember { mutableIntStateOf(0) }
     var lastInteraction by remember { mutableLongStateOf(System.currentTimeMillis()) }
 
@@ -120,6 +135,8 @@ fun PlayerScreen(
     val backButtonFocusRequester = remember { FocusRequester() }
     val seekBarFocusRequester = remember { FocusRequester() }
     val upNextFocusRequester = remember { FocusRequester() }
+    val audioPickerFocusRequester = remember { FocusRequester() }
+    val errorRetryFocusRequester = remember { FocusRequester() }
     val rootFocusRequester = remember { FocusRequester() }
 
     var playerError by remember { mutableStateOf<String?>(null) }
@@ -130,6 +147,7 @@ fun PlayerScreen(
     var fallbackList by remember { mutableStateOf<List<PlayerViewModel.PlaybackConfig>>(emptyList()) }
     var fastDashVideoId by remember { mutableStateOf<String?>(null) }
     var qualityCap by remember { mutableIntStateOf(playbackManager.maxHeightCap) }
+    var triedInnerTubeFallback by remember { mutableStateOf(false) }
 
     fun startFastDash(id: String) {
         val manifest = vm.dashManifestUrl(id)
@@ -143,13 +161,35 @@ fun PlayerScreen(
     }
 
     fun loadAndPlay(id: String) {
-        vm.load(id)
-        startFastDash(id)
+        val clean = id.trim()
+        activeVideoId = clean
+        triedInnerTubeFallback = false
+        fallbackIndex = 0
+        fallbackList = emptyList()
+        showAudioPicker = false
+        vm.load(clean)
+        startFastDash(clean)
+    }
+
+    fun retryPlayback() {
+        playerError = null
+        triedInnerTubeFallback = false
+        fallbackIndex = 0
+        fallbackList = emptyList()
+        showAudioPicker = false
+        vm.load(activeVideoId, forceRefresh = true)
+        startFastDash(activeVideoId)
     }
 
     BackHandler(enabled = true) {
         when {
             countdownSeconds > 0 -> countdownSeconds = 0
+            showAudioPicker -> {
+                showAudioPicker = false
+                showControls = true
+                lastInteraction = System.currentTimeMillis()
+                try { playButtonFocusRequester.requestFocus() } catch (_: Exception) {}
+            }
             showRecommendations -> {
                 showRecommendations = false
                 showControls = true
@@ -184,8 +224,9 @@ fun PlayerScreen(
         try {
             exo.stop()
             exo.clearMediaItems()
+            playbackManager.prepareForNewVideo()
             val bestV = vm.bestAdaptiveVideo(v)
-            val bestA = vm.bestAdaptiveAudio(v)
+            val bestA = vm.bestAdaptiveAudio(v, playbackManager.audioPreference.value)
             val mediaSource = playbackManager.buildMediaSource(ctx, v, cfg, bestV, bestA, vm::bestMime)
             if (mediaSource != null) {
                 exo.setMediaSource(mediaSource)
@@ -200,7 +241,6 @@ fun PlayerScreen(
     }
 
     val coroutineScope = rememberCoroutineScope()
-    var triedInnerTubeFallback by remember { mutableStateOf(false) }
 
     LaunchedEffect(state.video) {
         val v = state.video ?: return@LaunchedEffect
@@ -215,7 +255,7 @@ fun PlayerScreen(
         if (cfg is PlayerViewModel.PlaybackConfig.Unavailable) {
             if (!triedInnerTubeFallback) {
                 triedInnerTubeFallback = true
-                val fallbackVideo = vm.fallbackToInnerTube(videoId)
+                val fallbackVideo = vm.fallbackToInnerTube(activeVideoId)
                 if (fallbackVideo != null) {
                     val fCfg = vm.getPlaybackConfig(fallbackVideo)
                     if (fCfg !is PlayerViewModel.PlaybackConfig.Unavailable) {
@@ -257,13 +297,29 @@ fun PlayerScreen(
                     val loaded = state.video
                     if (loaded != null) {
                         val cfg = vm.getPlaybackConfig(loaded)
-                        if (cfg !is PlayerViewModel.PlaybackConfig.Unavailable) {
+                        if (cfg is PlayerViewModel.PlaybackConfig.Dash) {
+                            val fallbacks = vm.getFallbackConfigs(loaded, cfg)
+                            fallbackList = fallbacks
+                            val next = fallbacks.firstOrNull()
+                            if (next != null) {
+                                fallbackIndex = 1
+                                playWithConfig(loaded, next)
+                                return
+                            }
+                        } else if (cfg !is PlayerViewModel.PlaybackConfig.Unavailable) {
                             fallbackList = vm.getFallbackConfigs(loaded, cfg)
                             fallbackIndex = 0
                             playWithConfig(loaded, cfg)
+                            return
                         }
+                    } else if (state.isLoading) {
+                        // In-flight repo.video() will populate state.video and trigger LaunchedEffect
+                        return
+                    } else if (!triedInnerTubeFallback && activeVideoId.isNotBlank()) {
+                        triedInnerTubeFallback = true
+                        vm.load(activeVideoId, forceRefresh = true)
+                        return
                     }
-                    return
                 }
                 val v = state.video
                 if (v != null && fallbackIndex < fallbackList.size) {
@@ -275,10 +331,10 @@ fun PlayerScreen(
                     } catch (_: Exception) {}
                 }
 
-                if (!triedInnerTubeFallback && videoId.isNotBlank()) {
+                if (!triedInnerTubeFallback && activeVideoId.isNotBlank()) {
                     triedInnerTubeFallback = true
                     coroutineScope.launch {
-                        val fallbackVideo = vm.fallbackToInnerTube(videoId)
+                        val fallbackVideo = vm.fallbackToInnerTube(activeVideoId)
                         if (fallbackVideo != null) {
                             val fCfg = vm.getPlaybackConfig(fallbackVideo)
                             if (fCfg !is PlayerViewModel.PlaybackConfig.Unavailable) {
@@ -338,8 +394,8 @@ fun PlayerScreen(
         }
     }
 
-    LaunchedEffect(showControls, lastInteraction) {
-        if (showControls) {
+    LaunchedEffect(showControls, showAudioPicker, lastInteraction) {
+        if (showControls && !showAudioPicker) {
             delay(4500)
             showControls = false
         }
@@ -361,7 +417,7 @@ fun PlayerScreen(
             .fillMaxSize()
             .background(Color.Black)
             .focusRequester(rootFocusRequester)
-            .focusable(enabled = !showControls && !showRecommendations)
+            .focusable(enabled = !showControls && !showRecommendations && !showAudioPicker)
             .onKeyEvent { keyEvent ->
                 if (keyEvent.type == KeyEventType.KeyDown) {
                     lastInteraction = System.currentTimeMillis()
@@ -373,7 +429,7 @@ fun PlayerScreen(
                         try { playButtonFocusRequester.requestFocus() } catch (_: Exception) {}
                         return@onKeyEvent true
                     }
-                    if (!showControls && !showRecommendations) {
+                    if (!showControls && !showRecommendations && !showAudioPicker) {
                         val isNav = when (keyCode) {
                             KeyEvent.KEYCODE_DPAD_UP, KeyEvent.KEYCODE_DPAD_DOWN,
                             KeyEvent.KEYCODE_DPAD_LEFT, KeyEvent.KEYCODE_DPAD_RIGHT,
@@ -397,6 +453,9 @@ fun PlayerScreen(
                 }
             }
             state.error != null && fastDashVideoId == null -> {
+                LaunchedEffect(state.error) {
+                    try { errorRetryFocusRequester.requestFocus() } catch (_: Exception) {}
+                }
                 Box(
                     Modifier
                         .fillMaxSize()
@@ -419,7 +478,8 @@ fun PlayerScreen(
                             style = MaterialTheme.typography.bodySmall,
                         )
                         Button(
-                            onClick = { vm.load(videoId) },
+                            onClick = ::retryPlayback,
+                            modifier = Modifier.focusRequester(errorRetryFocusRequester),
                             shape = ButtonDefaults.shape(CircleShape),
                             colors = ButtonDefaults.colors(
                                 containerColor = YTChip,
@@ -434,6 +494,9 @@ fun PlayerScreen(
                 }
             }
             playerError != null -> {
+                LaunchedEffect(playerError) {
+                    try { errorRetryFocusRequester.requestFocus() } catch (_: Exception) {}
+                }
                 Box(
                     Modifier
                         .fillMaxSize()
@@ -456,7 +519,8 @@ fun PlayerScreen(
                             style = MaterialTheme.typography.bodySmall,
                         )
                         Button(
-                            onClick = { state.video?.let { playWithConfig(it, vm.getPlaybackConfig(it)) } ?: vm.load(videoId) },
+                            onClick = ::retryPlayback,
+                            modifier = Modifier.focusRequester(errorRetryFocusRequester),
                             shape = ButtonDefaults.shape(CircleShape),
                             colors = ButtonDefaults.colors(
                                 containerColor = YTChip,
@@ -491,14 +555,14 @@ fun PlayerScreen(
 
                 // Thumbnail backdrop during initial buffering
                 AnimatedVisibility(
-                    visible = !isPlaying && playerError == null && !showControls,
+                    visible = !isPlaying && playerError == null && !showControls && !showAudioPicker,
                     enter = fadeIn(),
                     exit = fadeOut(),
                     modifier = Modifier.fillMaxSize(),
                 ) {
                     Box(Modifier.fillMaxSize().background(Color.Black), contentAlignment = Alignment.Center) {
                         val thumb = state.video?.videoThumbnails?.firstOrNull()?.url
-                            ?: "https://i.ytimg.com/vi/$videoId/hqdefault.jpg"
+                            ?: "https://i.ytimg.com/vi/$activeVideoId/hqdefault.jpg"
                         AsyncImage(
                             model = thumb,
                             contentDescription = null,
@@ -516,7 +580,7 @@ fun PlayerScreen(
 
                 // Google YouTube TV 8.03.300 Bottom-Anchored Watch Overlay
                 AnimatedVisibility(
-                    visible = showControls && !showRecommendations,
+                    visible = showControls && !showRecommendations && !showAudioPicker,
                     enter = fadeIn(),
                     exit = fadeOut(),
                     modifier = Modifier.fillMaxSize(),
@@ -534,6 +598,12 @@ fun PlayerScreen(
                             qualityCap = next
                             playbackManager.setMaxHeight(next)
                             qualityBadge = if (next == 0) "Auto" else "${next}p max"
+                        },
+                        audioLabel = activeAudioTrack?.shortBadge ?: audioPreference.shortLabel,
+                        onOpenAudioPicker = {
+                            lastInteraction = System.currentTimeMillis()
+                            showAudioPicker = true
+                            showControls = false
                         },
                         isPlaying = isPlaying,
                         currentPosition = currentPosition,
@@ -710,6 +780,36 @@ fun PlayerScreen(
                     }
                 }
 
+                // Right-Docked Audio Track & Default Language Picker
+                AnimatedVisibility(
+                    visible = showAudioPicker,
+                    enter = slideInHorizontally(initialOffsetX = { it }) + fadeIn(),
+                    exit = slideOutHorizontally(targetOffsetX = { it }) + fadeOut(),
+                    modifier = Modifier.fillMaxSize(),
+                ) {
+                    AudioPickerOverlay(
+                        tracks = audioTracks,
+                        activePreference = audioPreference,
+                        firstFocusRequester = audioPickerFocusRequester,
+                        onSelectTrack = { track ->
+                            playbackManager.selectAudioTrack(track)
+                            lastInteraction = System.currentTimeMillis()
+                            showAudioPicker = false
+                        },
+                        onSelectPreference = { pref ->
+                            playbackManager.setAudioPreference(pref)
+                            coroutineScope.launch { tvPrefs.setAudioPref(pref.key) }
+                            lastInteraction = System.currentTimeMillis()
+                        },
+                        onClose = {
+                            showAudioPicker = false
+                            showControls = true
+                            lastInteraction = System.currentTimeMillis()
+                            try { playButtonFocusRequester.requestFocus() } catch (_: Exception) {}
+                        },
+                    )
+                }
+
                 // Autoplay Next Video Card
                 AnimatedVisibility(
                     visible = countdownSeconds > 0,
@@ -801,6 +901,8 @@ private fun PlayerControlsOverlay(
     qualityBadge: String? = null,
     qualityCapLabel: String = "Auto",
     onCycleQuality: () -> Unit = {},
+    audioLabel: String = "Audio",
+    onOpenAudioPicker: () -> Unit = {},
     isPlaying: Boolean,
     currentPosition: Long,
     duration: Long,
@@ -1060,6 +1162,12 @@ private fun PlayerControlsOverlay(
                         )
                     }
                     PlayerPillAction(
+                        icon = Icons.Default.Language,
+                        label = audioLabel,
+                        onClick = onOpenAudioPicker,
+                        modifier = Modifier.focusProperties { up = seekBarFocusRequester },
+                    )
+                    PlayerPillAction(
                         icon = Icons.Default.HighQuality,
                         label = qualityCapLabel,
                         onClick = onCycleQuality,
@@ -1149,7 +1257,9 @@ private fun PlayerPillAction(
         ),
     ) {
         Row(
-            modifier = Modifier.padding(horizontal = 14.dp),
+            modifier = Modifier
+                .fillMaxHeight()
+                .padding(horizontal = 14.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(7.dp),
         ) {
@@ -1250,6 +1360,189 @@ private fun PlayerSeekBar(
                         if (focused) Modifier.border(2.5.dp, YTBrandRed, CircleShape) else Modifier
                     )
             )
+        }
+    }
+}
+
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+private fun AudioPickerOverlay(
+    tracks: List<TvAudioTrackOption>,
+    activePreference: AudioLanguagePreference,
+    firstFocusRequester: FocusRequester,
+    onSelectTrack: (TvAudioTrackOption) -> Unit,
+    onSelectPreference: (AudioLanguagePreference) -> Unit,
+    onClose: () -> Unit,
+) {
+    LaunchedEffect(Unit) {
+        delay(80)
+        try { firstFocusRequester.requestFocus() } catch (_: Exception) {}
+    }
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.Black.copy(alpha = 0.55f))
+            .onKeyEvent { keyEvent ->
+                if (keyEvent.type == KeyEventType.KeyDown &&
+                    keyEvent.nativeKeyEvent.keyCode == KeyEvent.KEYCODE_DPAD_LEFT
+                ) {
+                    onClose()
+                    true
+                } else false
+            },
+        contentAlignment = Alignment.CenterEnd,
+    ) {
+        Column(
+            modifier = Modifier
+                .padding(end = 36.dp, top = 28.dp, bottom = 28.dp)
+                .width(400.dp)
+                .fillMaxHeight()
+                .clip(RoundedCornerShape(20.dp))
+                .background(YTSurfaceElevated.copy(alpha = 0.98f))
+                .border(1.dp, YTBorder, RoundedCornerShape(20.dp))
+                .padding(22.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column {
+                    Text(
+                        text = "Audio track",
+                        color = YTTextPrimary,
+                        style = MaterialTheme.typography.titleLarge.copy(
+                            fontSize = 20.sp,
+                            fontWeight = FontWeight.Bold,
+                        ),
+                    )
+                    Text(
+                        text = when {
+                            tracks.isEmpty() -> "Track selection will appear when playback starts"
+                            tracks.size == 1 -> "1 audio track available"
+                            else -> "${tracks.size} tracks available"
+                        },
+                        color = YTTextSecondary,
+                        style = MaterialTheme.typography.labelSmall,
+                    )
+                }
+            }
+
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                val activeIdx = tracks.indexOfFirst { it.isSelected }.let { if (it >= 0) it else 0 }
+                tracks.forEachIndexed { idx, track ->
+                    val subtitle = buildList {
+                        track.language?.uppercase()?.let { add(it) }
+                        if (track.bitrate > 0) add("${track.bitrate / 1000} kbps")
+                    }.joinToString(" • ").takeIf { it.isNotBlank() }
+
+                    AudioPickerRow(
+                        title = track.displayName,
+                        subtitle = subtitle,
+                        selected = track.isSelected,
+                        onClick = { onSelectTrack(track) },
+                        modifier = if (idx == activeIdx) Modifier.focusRequester(firstFocusRequester) else Modifier,
+                    )
+                }
+
+                Spacer(Modifier.height(6.dp))
+                Box(
+                    Modifier
+                        .fillMaxWidth()
+                        .height(1.dp)
+                        .background(YTBorderSubtle)
+                )
+                Spacer(Modifier.height(4.dp))
+
+                Text(
+                    text = "Default for all videos",
+                    color = YTTextSecondary,
+                    style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.SemiBold),
+                )
+
+                AudioLanguagePreference.entries.forEachIndexed { idx, pref ->
+                    val needsFocus = tracks.isEmpty() && idx == 0
+                    AudioPickerRow(
+                        title = pref.label,
+                        subtitle = null,
+                        selected = pref == activePreference,
+                        onClick = { onSelectPreference(pref) },
+                        modifier = if (needsFocus) Modifier.focusRequester(firstFocusRequester) else Modifier,
+                    )
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalTvMaterial3Api::class)
+@Composable
+private fun AudioPickerRow(
+    title: String,
+    subtitle: String?,
+    selected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    var focused by remember { mutableStateOf(false) }
+    Surface(
+        onClick = onClick,
+        modifier = modifier
+            .fillMaxWidth()
+            .onFocusChanged { focused = it.isFocused },
+        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(12.dp)),
+        scale = ClickableSurfaceDefaults.scale(focusedScale = 1.02f),
+        colors = ClickableSurfaceDefaults.colors(
+            containerColor = if (selected) Color.White.copy(alpha = 0.14f) else Color.White.copy(alpha = 0.05f),
+            focusedContainerColor = YTFocus,
+            contentColor = YTTextPrimary,
+            focusedContentColor = YTFocusInk,
+        ),
+        border = ClickableSurfaceDefaults.border(
+            border = Border(BorderStroke(0.75.dp, if (selected) YTBorder else YTBorderSubtle)),
+            focusedBorder = Border(BorderStroke(1.5.dp, YTFocus)),
+        ),
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 11.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Column(Modifier.weight(1f)) {
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.titleSmall.copy(
+                        fontSize = 14.sp,
+                        fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
+                    ),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                if (subtitle != null) {
+                    Text(
+                        text = subtitle,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = if (focused) Color(0xFF333333) else YTTextSecondary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
+            if (selected) {
+                Icon(
+                    imageVector = Icons.Default.Check,
+                    contentDescription = "Selected",
+                    modifier = Modifier.size(18.dp),
+                    tint = if (focused) YTFocusInk else YTBrandRed,
+                )
+            }
         }
     }
 }

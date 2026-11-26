@@ -43,6 +43,11 @@ data class InvidiousAdaptiveFormat(
     val audioQuality: String? = null,
     val audioSampleRate: Int? = null,
     val audioChannels: Int? = null,
+    val audioTrackId: String? = null,
+    val audioTrackName: String? = null,
+    val audioLanguage: String? = null,
+    val isOriginalAudio: Boolean = false,
+    val isDubbedAudio: Boolean = false,
 )
 
 @JsonClass(generateAdapter = false)

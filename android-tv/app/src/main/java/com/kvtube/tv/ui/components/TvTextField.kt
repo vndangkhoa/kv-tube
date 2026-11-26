@@ -16,6 +16,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.focus.FocusManager
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.Key
@@ -57,6 +59,9 @@ fun TvTextField(
     singleLine: Boolean = true,
     imeAction: ImeAction = ImeAction.Done,
     onImeAction: (() -> Unit)? = null,
+    focusRequester: FocusRequester? = null,
+    clearFocusOnImeAction: Boolean = true,
+    onEscapeFocus: (() -> Unit)? = null,
 ) {
     val focusManager: FocusManager = LocalFocusManager.current
     val keyboardController = LocalSoftwareKeyboardController.current
@@ -91,7 +96,11 @@ fun TvTextField(
                 Key.Back, Key.Escape -> {
                     if (hasFocus) {
                         keyboardController?.hide()
-                        focusManager.clearFocus()
+                        if (onEscapeFocus != null) {
+                            onEscapeFocus()
+                        } else if (!focusManager.moveFocus(FocusDirection.Down)) {
+                            focusManager.clearFocus()
+                        }
                         true
                     } else false
                 }
@@ -99,6 +108,16 @@ fun TvTextField(
             }
         }
     ) {
+        val handleImeSubmit: () -> Unit = {
+            keyboardController?.hide()
+            onImeAction?.invoke()
+            if (clearFocusOnImeAction) {
+                if (onImeAction != null || !focusManager.moveFocus(FocusDirection.Down)) {
+                    focusManager.clearFocus(force = true)
+                }
+            }
+        }
+
         OutlinedTextField(
             value = fieldValue,
             onValueChange = {
@@ -112,19 +131,12 @@ fun TvTextField(
             singleLine = singleLine,
             keyboardOptions = KeyboardOptions(imeAction = imeAction),
             keyboardActions = KeyboardActions(
-                onDone = {
-                    keyboardController?.hide()
-                    onImeAction?.invoke()
-                    focusManager.clearFocus(force = true)
-                },
-                onSearch = {
-                    keyboardController?.hide()
-                    onImeAction?.invoke()
-                    focusManager.clearFocus(force = true)
-                },
+                onDone = { handleImeSubmit() },
+                onSearch = { handleImeSubmit() },
             ),
             modifier = Modifier
                 .fillMaxWidth()
+                .let { if (focusRequester != null) it.focusRequester(focusRequester) else it }
                 .onFocusChanged { hasFocus = it.isFocused || it.hasFocus },
             shape = RoundedCornerShape(14.dp),
             colors = OutlinedTextFieldDefaults.colors(

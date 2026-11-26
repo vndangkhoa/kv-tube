@@ -3,16 +3,20 @@ package com.kvtube.tv.data.repository
 import com.kvtube.tv.data.api.ApiClient
 import com.kvtube.tv.data.model.InvidiousChannel
 import com.kvtube.tv.data.model.InvidiousPlaylist
+import com.kvtube.tv.data.model.InvidiousThumbnail
 import com.kvtube.tv.data.model.InvidiousVideo
 import com.kvtube.tv.data.model.SearchResultItem
 import com.kvtube.tv.data.model.TvVideo
 import com.kvtube.tv.data.model.toTvVideo
+import com.kvtube.tv.player.TvStreamUrls
 
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
+import okhttp3.Request
 
 class InvidiousRepository {
     private val api get() = ApiClient.api
@@ -40,21 +44,30 @@ class InvidiousRepository {
         api.search(query)
     } catch (_: Exception) { emptyList() }
 
-    // Resilient video fetch: race Invidious with direct InnerTube for sub-second start
+    // Resilient 3-stage video fetch: Invidious -> InnerTube -> direct DASH manifest probe
     suspend fun video(videoId: String): InvidiousVideo = coroutineScope {
         val id = videoId.trim()
         require(id.isNotBlank()) { "Empty videoId" }
 
         val innerTubeDeferred = async(Dispatchers.IO) {
-            runCatching { com.kvtube.tv.data.api.InnerTubeApi.getVideo(id) }.getOrNull()
+            withTimeoutOrNull(8_000L) {
+                runCatching { com.kvtube.tv.data.api.InnerTubeApi.getVideo(id) }.getOrNull()
+            }
         }
 
         val invidiousDeferred = async(Dispatchers.IO) {
-            withTimeoutOrNull(900) {
-                try {
-                    api.getVideo(id, local = false)
-                } catch (_: Exception) {
-                    try { api.getVideo(id) } catch (_: Exception) { null }
+            withTimeoutOrNull(15_000L) {
+                // Prefer default proxied endpoint first so streams aren't locked to server IP (avoids 403 on TV).
+                val primary = runCatching { api.getVideo(id) }.getOrNull()
+                if (primary != null && hasPlayableStreams(primary)) {
+                    primary
+                } else {
+                    val direct = runCatching { api.getVideo(id, local = false) }.getOrNull()
+                    when {
+                        direct != null && hasPlayableStreams(direct) -> direct
+                        primary != null -> primary
+                        else -> direct
+                    }
                 }
             }
         }
@@ -79,7 +92,50 @@ class InvidiousRepository {
             return@coroutineScope fallback
         }
 
+        // Stage 3: Probe direct Invidious DASH manifest endpoint in case /videos JSON endpoint
+        // timed out or returned metadata without stream URLs.
+        val manifestUrl = TvStreamUrls.dashManifestUrl(
+            baseUrl = ApiClient.baseUrl,
+            videoId = id,
+            gateway = ApiClient.isGatewayMode,
+        )
+        if (probeDashManifest(manifestUrl)) {
+            if (invidious != null) {
+                return@coroutineScope invidious.copy(dashUrl = manifestUrl)
+            }
+            return@coroutineScope InvidiousVideo(
+                videoId = id,
+                title = "",
+                dashUrl = manifestUrl,
+                videoThumbnails = listOf(
+                    InvidiousThumbnail(url = "https://i.ytimg.com/vi/$id/hqdefault.jpg")
+                ),
+            )
+        }
+
         throw IllegalStateException("Unable to resolve playable video streams for $id")
+    }
+
+    private suspend fun probeDashManifest(manifestUrl: String): Boolean = withContext(Dispatchers.IO) {
+        if (manifestUrl.isBlank()) return@withContext false
+        withTimeoutOrNull(8_000L) {
+            runCatching {
+                val req = Request.Builder()
+                    .url(manifestUrl)
+                    .get()
+                    .header("Range", "bytes=0-1023")
+                    .build()
+                ApiClient.okHttp.newCall(req).execute().use { resp ->
+                    if (!resp.isSuccessful && resp.code != 206) return@use false
+                    val peek = resp.body?.charStream()?.let { reader ->
+                        val buf = CharArray(512)
+                        val n = reader.read(buf)
+                        if (n > 0) String(buf, 0, n) else ""
+                    }.orEmpty()
+                    peek.contains("<MPD", ignoreCase = true)
+                }
+            }.getOrDefault(false)
+        } ?: false
     }
 
     private fun hasPlayableStreams(v: InvidiousVideo): Boolean =

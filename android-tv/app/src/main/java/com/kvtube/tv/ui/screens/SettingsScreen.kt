@@ -11,6 +11,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.SystemUpdate
+import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.SnackbarHost
@@ -39,9 +40,12 @@ import androidx.tv.material3.*
 import com.kvtube.tv.BuildConfig
 import com.kvtube.tv.data.api.ApiClient
 import com.kvtube.tv.data.api.TvPairApi
+import com.kvtube.tv.data.local.TvPrefs
 import com.kvtube.tv.data.local.tvDataStore
 import com.kvtube.tv.data.model.TvUpdateInfo
 import com.kvtube.tv.data.repository.TvUpdateManager
+import com.kvtube.tv.player.AudioLanguagePreference
+import com.kvtube.tv.player.TvPlaybackManager
 import com.kvtube.tv.ui.components.KvBrandLockup
 import com.kvtube.tv.ui.components.TvTextField
 import com.kvtube.tv.ui.theme.YTBackground
@@ -63,6 +67,7 @@ import kotlinx.coroutines.launch
 
 private enum class SettingsSection(val title: String, val subtitle: String, val icon: ImageVector) {
     Connection("Connection", "Server, sign-in, pairing", Icons.Filled.Link),
+    Playback("Playback", "Audio language & defaults", Icons.Filled.Tune),
     Updates("Updates", "App version & self-update", Icons.Filled.SystemUpdate),
 }
 
@@ -72,11 +77,19 @@ fun SettingsScreen() {
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
     val snackbar = remember { SnackbarHostState() }
+    val tvPrefs = remember { TvPrefs(ctx) }
+    val playbackManager = remember { TvPlaybackManager.getInstance(ctx) }
+    val audioPref by playbackManager.audioPreference.collectAsState()
 
     var section by remember { mutableStateOf(SettingsSection.Connection) }
     val connectionMenuFocus = remember { FocusRequester() }
+    val playbackMenuFocus = remember { FocusRequester() }
     val updatesMenuFocus = remember { FocusRequester() }
-    val activeMenuFocus = if (section == SettingsSection.Connection) connectionMenuFocus else updatesMenuFocus
+    val activeMenuFocus = when (section) {
+        SettingsSection.Connection -> connectionMenuFocus
+        SettingsSection.Playback -> playbackMenuFocus
+        SettingsSection.Updates -> updatesMenuFocus
+    }
     var instanceUrl by remember { mutableStateOf("") }
     var token by remember { mutableStateOf("") }
     var loaded by remember { mutableStateOf(false) }
@@ -194,7 +207,11 @@ fun SettingsScreen() {
                         item = s,
                         selected = section == s,
                         onSelect = { section = s },
-                        focusRequester = if (s == SettingsSection.Connection) connectionMenuFocus else updatesMenuFocus,
+                        focusRequester = when (s) {
+                            SettingsSection.Connection -> connectionMenuFocus
+                            SettingsSection.Playback -> playbackMenuFocus
+                            SettingsSection.Updates -> updatesMenuFocus
+                        },
                     )
                     Spacer(Modifier.height(10.dp))
                 }
@@ -267,6 +284,41 @@ fun SettingsScreen() {
                                 onClick = { showPairing = true },
                             )
                             TestConnectionRow(leftFocusRequester = activeMenuFocus)
+                        }
+                    }
+
+                    SettingsSection.Playback -> {
+                        PanelTitle("Audio language")
+                        Text(
+                            text = "Choose which audio track KV-Tube selects automatically when videos include multiple languages or AI auto-dubs.",
+                            color = YTTextSecondary,
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                        Spacer(Modifier.height(4.dp))
+                        val subtitleForPref: (AudioLanguagePreference) -> String = { p ->
+                            when (p) {
+                                AudioLanguagePreference.ORIGINAL -> "Play creator's original audio (prevents English AI auto-dub on Vietnamese videos)"
+                                AudioLanguagePreference.VIETNAMESE -> "Prefer Tiếng Việt audio when available, falling back to Original"
+                                AudioLanguagePreference.ENGLISH -> "Prefer English audio when available, falling back to Original"
+                                AudioLanguagePreference.DEVICE -> "Match Android TV system locale"
+                            }
+                        }
+                        AudioLanguagePreference.entries.forEach { pref ->
+                            val isSelected = audioPref == pref
+                            SettingsRow(
+                                title = pref.label,
+                                subtitle = subtitleForPref(pref),
+                                value = if (isSelected) "Active ✓" else "",
+                                highlightValue = isSelected,
+                                leftFocusRequester = activeMenuFocus,
+                                onClick = {
+                                    playbackManager.setAudioPreference(pref)
+                                    scope.launch {
+                                        tvPrefs.setAudioPref(pref.key)
+                                        snackbar.showSnackbar("Default audio set to ${pref.label}")
+                                    }
+                                },
+                            )
                         }
                     }
 

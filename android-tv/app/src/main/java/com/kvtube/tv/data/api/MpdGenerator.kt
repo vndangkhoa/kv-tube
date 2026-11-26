@@ -2,6 +2,7 @@ package com.kvtube.tv.data.api
 
 import android.content.Context
 import com.kvtube.tv.data.model.InvidiousAdaptiveFormat
+import com.kvtube.tv.player.TvAudioTracks
 import java.io.File
 
 /**
@@ -18,24 +19,68 @@ object MpdGenerator {
         videoId: String,
         video: InvidiousAdaptiveFormat,
         audio: InvidiousAdaptiveFormat,
-        durationSeconds: Int
+        durationSeconds: Int,
+        extraAudioFormats: List<InvidiousAdaptiveFormat> = emptyList(),
     ): File? {
         return try {
             val duration = if (durationSeconds > 0) "PT${durationSeconds}S" else "PT0S"
             val videoMime = video.type.substringBefore(";").trim().ifBlank { "video/mp4" }
-            val audioMime = audio.type.substringBefore(";").trim().ifBlank { "audio/mp4" }
             val videoCodecs = extractCodecs(video.type) ?: video.encoding ?: "avc1.640028"
-            val audioCodecs = extractCodecs(audio.type) ?: audio.encoding ?: "mp4a.40.2"
             val videoBandwidth = video.bitrate?.toIntOrNull() ?: 2500000
-            val audioBandwidth = audio.bitrate?.toIntOrNull() ?: 128000
             val (w, h) = parseResolution(video)
-            val audioRate = audio.audioSampleRate ?: 44100
 
-            // Escape URLs for XML and ensure absolute URLs
             val fixedVideoUrl = ApiClient.rewriteStreamUrl(video.url)
-            val fixedAudioUrl = ApiClient.rewriteStreamUrl(audio.url)
             val vUrl = fixedVideoUrl.replace("&", "&amp;")
-            val aUrl = fixedAudioUrl.replace("&", "&amp;")
+
+            val audioList = (if (extraAudioFormats.isNotEmpty()) extraAudioFormats else listOf(audio))
+                .filter { it.url.isNotBlank() }
+                .ifEmpty { listOf(audio) }
+
+            val audioAdaptationSets = audioList.mapIndexed { idx, a ->
+                val urlMeta = TvAudioTracks.parseUrlAudioMeta(a.url)
+                val audioMime = a.type.substringBefore(";").trim().ifBlank { "audio/mp4" }
+                val audioCodecs = extractCodecs(a.type) ?: a.encoding ?: "mp4a.40.2"
+                val audioBandwidth = a.bitrate?.toIntOrNull() ?: 128000
+                val audioRate = a.audioSampleRate ?: 44100
+                val audioLang = a.audioLanguage?.takeIf { it.isNotBlank() } ?: urlMeta.language ?: "und"
+                val isOrig = a.isOriginalAudio || urlMeta.isOriginal
+                val isDub = !isOrig && (a.isDubbedAudio || urlMeta.isDubbed)
+                val isDrc = urlMeta.isStableVolume
+
+                val fixedAudioUrl = ApiClient.rewriteStreamUrl(a.url)
+                val aUrl = fixedAudioUrl.replace("&", "&amp;")
+
+                val roles = buildString {
+                    if (isOrig) {
+                        append("\n      <Role schemeIdUri=\"urn:mpeg:dash:role:2011\" value=\"main\"/>")
+                    } else if (isDub) {
+                        append("\n      <Role schemeIdUri=\"urn:mpeg:dash:role:2011\" value=\"alternate\"/>")
+                        append("\n      <Role schemeIdUri=\"urn:mpeg:dash:role:2011\" value=\"dub\"/>")
+                    }
+                    if (isDrc) {
+                        append("\n      <Role schemeIdUri=\"urn:mpeg:dash:role:2011\" value=\"enhanced-audio-intelligibility\"/>")
+                    }
+                }
+                val labelText = a.audioTrackName?.takeIf { it.isNotBlank() }
+                val labelXml = if (labelText != null) {
+                    val esc = labelText.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+                    "\n      <Label>$esc</Label>"
+                } else ""
+                val repSuffix = buildString {
+                    append(a.itag)
+                    if (audioLang != "und") append("-$audioLang")
+                    if (isOrig) append("-orig")
+                    if (isDub) append("-dub")
+                    if (isDrc) append("-drc")
+                    if (audioList.size > 1) append("-$idx")
+                }
+
+                """    <AdaptationSet mimeType="$audioMime" codecs="$audioCodecs" lang="$audioLang" audioSamplingRate="$audioRate" segmentAlignment="true" startWithSAP="1">$roles$labelXml
+      <Representation id="$repSuffix" bandwidth="$audioBandwidth" audioSamplingRate="$audioRate" codecs="$audioCodecs" mimeType="$audioMime">
+        <BaseURL>$aUrl</BaseURL>
+      </Representation>
+    </AdaptationSet>"""
+            }.joinToString("\n")
 
             val mpd = """
 <?xml version="1.0" encoding="UTF-8"?>
@@ -46,16 +91,12 @@ object MpdGenerator {
         <BaseURL>$vUrl</BaseURL>
       </Representation>
     </AdaptationSet>
-    <AdaptationSet mimeType="$audioMime" codecs="$audioCodecs" lang="en" audioSamplingRate="$audioRate" segmentAlignment="true" startWithSAP="1">
-      <Representation id="${audio.itag}" bandwidth="$audioBandwidth" audioSamplingRate="$audioRate" codecs="$audioCodecs" mimeType="$audioMime">
-        <BaseURL>$aUrl</BaseURL>
-      </Representation>
-    </AdaptationSet>
+$audioAdaptationSets
   </Period>
 </MPD>
             """.trimIndent()
 
-            val file = File(context.cacheDir, "dash_${videoId}_${video.itag}_${audio.itag}.mpd")
+            val file = File(context.cacheDir, "dash_${videoId}_${video.itag}_${audio.itag}_${audioList.size}.mpd")
             file.writeText(mpd)
             file
         } catch (e: Exception) {

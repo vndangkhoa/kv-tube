@@ -163,6 +163,13 @@ function getGooglevideoHeaders(clientName: string | null): Record<string, string
   return h;
 }
 
+function buildStreamCacheKey(params: URLSearchParams): string {
+  const id = params.get('id') || '';
+  const itag = params.get('itag') || '';
+  const xtags = params.get('xtags') || '';
+  return xtags ? `${id}:${itag}:${xtags}` : `${id}:${itag}`;
+}
+
 async function fetchDirectGooglevideoRange(
   params: URLSearchParams,
   rangeBytes: string | null,
@@ -180,7 +187,7 @@ async function fetchDirectGooglevideoRange(
 
   const id = params.get('id') || '';
   const itag = params.get('itag') || '';
-  const cacheKey = `${id}:${itag}`;
+  const cacheKey = buildStreamCacheKey(params);
   const cachedRedirectBase = id && itag ? getRedirectCache(cacheKey) : null;
 
   let targetUrl: string;
@@ -276,7 +283,7 @@ function ensureStreamPrefix(
   const id = params.get('id') || '';
   const itag = params.get('itag') || '';
   if (!id || !itag) return Promise.resolve(null);
-  const cacheKey = `${id}:${itag}`;
+  const cacheKey = buildStreamCacheKey(params);
   const cached = getPrefixCache(cacheKey);
   if (cached) return Promise.resolve(cached);
   const inflight = STREAM_PREFIX_INFLIGHT.get(cacheKey);
@@ -316,7 +323,12 @@ function prewarmDashInitialStreams(dashXml: string) {
       m[1].replace(/&amp;/g, '&')
     );
     if (matches.length === 0) return;
-    const audioUrl = matches.find((b) => b.includes('itag=140&'));
+    const audioCandidates = matches.filter((b) => b.includes('itag=140&'));
+    const audioUrl =
+      audioCandidates.find((b) => /acont(?:=|%3D)original/i.test(b) && !/drc(?:=|%3D)1/i.test(b)) ||
+      audioCandidates.find((b) => /acont(?:=|%3D)original/i.test(b)) ||
+      audioCandidates.find((b) => !/acont(?:=|%3D)dubbed/i.test(b)) ||
+      audioCandidates[0];
     const videoUrl =
       matches.find((b) => b.includes('itag=135&')) ||
       matches.find((b) => b.includes('itag=136&')) ||
@@ -349,7 +361,7 @@ async function handleDirectVideoPlayback(req: NextRequest): Promise<NextResponse
   const clen = params.get('clen') || '*';
   const isAudio = itag === '140' || (params.get('mime') || '').startsWith('audio/');
   const prefixBytes = isAudio ? 163840 : 294912;
-  const cacheKey = `${id}:${itag}`;
+  const cacheKey = buildStreamCacheKey(params);
 
   // 1. Coalesce initial SegmentBase Init (0-722) + sidx Index (723-1246) + first 3-4s segment into one prefix fetch
   if (

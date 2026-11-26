@@ -212,6 +212,17 @@ object InnerTubeApi {
                 val h = f.optInt("height", 0)
                 val qualLabel = f.optString("qualityLabel").takeIf { it.isNotBlank() }
                 val audioQ = f.optString("audioQuality").takeIf { it.isNotBlank() }
+                val audioTrackObj = f.optJSONObject("audioTrack")
+                val trackId = audioTrackObj?.optString("id")?.takeIf { it.isNotBlank() }
+                val trackName = audioTrackObj?.optString("displayName")?.takeIf { it.isNotBlank() }
+                val audioLang = trackId?.substringBefore(".")?.takeIf { it.isNotBlank() }
+                val isOrigAudio = trackName?.contains("original", ignoreCase = true) == true ||
+                    trackId?.endsWith(".4") == true
+                val isDubAudio = !isOrigAudio && (
+                    trackName?.contains("dub", ignoreCase = true) == true ||
+                        trackId?.endsWith(".10") == true ||
+                        trackId?.endsWith(".3") == true
+                    )
                 adaptive.add(
                     InvidiousAdaptiveFormat(
                         url = url,
@@ -225,7 +236,12 @@ object InnerTubeApi {
                         fps = f.optInt("fps", 0).takeIf { it != 0 },
                         audioQuality = audioQ,
                         audioSampleRate = f.optInt("audioSampleRate", 0).takeIf { it != 0 },
-                        audioChannels = f.optInt("audioChannels", 0).takeIf { it != 0 }
+                        audioChannels = f.optInt("audioChannels", 0).takeIf { it != 0 },
+                        audioTrackId = trackId,
+                        audioTrackName = trackName,
+                        audioLanguage = audioLang,
+                        isOriginalAudio = isOrigAudio,
+                        isDubbedAudio = isDubAudio,
                     )
                 )
             }

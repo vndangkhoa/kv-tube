@@ -17,8 +17,11 @@ import androidx.compose.material.icons.filled.Whatshot
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
@@ -27,7 +30,10 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.tv.foundation.lazy.list.TvLazyColumn
 import androidx.tv.foundation.lazy.list.TvLazyRow
 import androidx.tv.foundation.lazy.list.items
+import androidx.tv.foundation.lazy.list.itemsIndexed
+import androidx.tv.foundation.lazy.list.rememberTvLazyListState
 import androidx.tv.material3.*
+import kotlinx.coroutines.delay
 import com.kvtube.tv.ui.components.KvBrandLockup
 import com.kvtube.tv.ui.components.TvTextField
 import com.kvtube.tv.ui.components.YtShelfSkeleton
@@ -68,6 +74,59 @@ fun SearchScreen(
     val trendingKeywords by vm.trendingKeywords.collectAsState()
     val recentSearches by vm.recentSearches.collectAsState()
 
+    val keyboardController = LocalSoftwareKeyboardController.current
+    val searchButtonFocusRequester = remember { FocusRequester() }
+    val keyboardFirstKeyFocusRequester = remember { FocusRequester() }
+    val firstResultFocusRequester = remember { FocusRequester() }
+    val clearResultsFocusRequester = remember { FocusRequester() }
+    val resultsListState = rememberTvLazyListState()
+    var searchSubmitSeq by remember { mutableIntStateOf(0) }
+    var pendingFocusResults by remember { mutableStateOf(false) }
+
+    fun triggerSearch(keyword: String? = null) {
+        val target = (keyword ?: query).trim()
+        if (target.isBlank()) return
+        keyboardController?.hide()
+        // Keep focus anchored inside SearchScreen while loading/recomposition unmounts chips or IME
+        try { searchButtonFocusRequester.requestFocus() } catch (_: Exception) {}
+        pendingFocusResults = true
+        searchSubmitSeq++
+        if (keyword != null) vm.selectKeyword(target) else vm.searchNow()
+    }
+
+    fun clearSearchAndKeepFocus() {
+        pendingFocusResults = false
+        keyboardController?.hide()
+        vm.onQueryChange("")
+        try { keyboardFirstKeyFocusRequester.requestFocus() } catch (_: Exception) {}
+    }
+
+    LaunchedEffect(Unit) {
+        delay(80)
+        if (results.isNotEmpty() && !loading) {
+            try { firstResultFocusRequester.requestFocus() } catch (_: Exception) {}
+        } else {
+            try { keyboardFirstKeyFocusRequester.requestFocus() } catch (_: Exception) {}
+        }
+    }
+
+    LaunchedEffect(searchSubmitSeq, loading, results) {
+        if (pendingFocusResults && !loading) {
+            if (results.isNotEmpty()) {
+                resultsListState.scrollToItem(0)
+                delay(80)
+                try { firstResultFocusRequester.requestFocus() } catch (_: Exception) {}
+            } else if (lastSearchedQuery.isNotBlank()) {
+                delay(60)
+                try { clearResultsFocusRequester.requestFocus() } catch (_: Exception) {}
+            } else {
+                delay(60)
+                try { keyboardFirstKeyFocusRequester.requestFocus() } catch (_: Exception) {}
+            }
+            pendingFocusResults = false
+        }
+    }
+
     Column(
         Modifier
             .fillMaxSize()
@@ -100,18 +159,25 @@ fun SearchScreen(
                 },
                 trailingIcon = {
                     if (query.isNotBlank()) {
-                        androidx.compose.material3.IconButton(onClick = { vm.onQueryChange("") }) {
+                        androidx.compose.material3.IconButton(onClick = { clearSearchAndKeepFocus() }) {
                             Icon(Icons.Default.Clear, contentDescription = "Clear", tint = YTTextPrimary)
                         }
                     }
                 },
                 imeAction = ImeAction.Search,
-                onImeAction = { vm.searchNow() },
+                onImeAction = { triggerSearch() },
+                clearFocusOnImeAction = false,
+                onEscapeFocus = {
+                    val target = if (results.isNotEmpty()) firstResultFocusRequester else keyboardFirstKeyFocusRequester
+                    try { target.requestFocus() } catch (_: Exception) {}
+                },
             )
 
             Button(
-                onClick = { vm.searchNow() },
-                modifier = Modifier.height(48.dp),
+                onClick = { triggerSearch() },
+                modifier = Modifier
+                    .height(48.dp)
+                    .focusRequester(searchButtonFocusRequester),
                 contentPadding = PaddingValues(horizontal = 24.dp),
                 shape = ButtonDefaults.shape(CircleShape),
                 colors = ButtonDefaults.colors(
@@ -142,7 +208,7 @@ fun SearchScreen(
                     SearchKeywordChip(
                         text = suggestion,
                         icon = Icons.Default.Search,
-                        onClick = { vm.selectKeyword(suggestion) },
+                        onClick = { triggerSearch(suggestion) },
                     )
                 }
             }
@@ -160,8 +226,9 @@ fun SearchScreen(
                 onChar = { ch -> vm.onQueryChange(query + ch.lowercase()) },
                 onSpace = { vm.onQueryChange(if (query.endsWith(" ") || query.isEmpty()) query else "$query ") },
                 onBackspace = { if (query.isNotEmpty()) vm.onQueryChange(query.dropLast(1)) },
-                onClear = { vm.onQueryChange("") },
-                onSearch = { vm.searchNow() },
+                onClear = { clearSearchAndKeepFocus() },
+                onSearch = { triggerSearch() },
+                firstKeyFocusRequester = keyboardFirstKeyFocusRequester,
                 modifier = Modifier.width(268.dp),
             )
 
@@ -210,7 +277,7 @@ fun SearchScreen(
                                             SearchKeywordChip(
                                                 text = recent,
                                                 icon = Icons.Default.History,
-                                                onClick = { vm.selectKeyword(recent) },
+                                                onClick = { triggerSearch(recent) },
                                             )
                                         }
                                     }
@@ -261,7 +328,7 @@ fun SearchScreen(
                                             text = keyword,
                                             icon = Icons.AutoMirrored.Filled.TrendingUp,
                                             highlightIcon = true,
-                                            onClick = { vm.selectKeyword(keyword) },
+                                            onClick = { triggerSearch(keyword) },
                                         )
                                     }
                                 }
@@ -275,7 +342,7 @@ fun SearchScreen(
                                             SearchKeywordChip(
                                                 text = keyword,
                                                 icon = Icons.AutoMirrored.Filled.TrendingUp,
-                                                onClick = { vm.selectKeyword(keyword) },
+                                                onClick = { triggerSearch(keyword) },
                                             )
                                         }
                                     }
@@ -306,7 +373,7 @@ fun SearchScreen(
                                         items(keywords, key = { "${catName}_$it" }) { kw ->
                                             SearchKeywordChip(
                                                 text = kw,
-                                                onClick = { vm.selectKeyword(kw) },
+                                                onClick = { triggerSearch(kw) },
                                             )
                                         }
                                     }
@@ -332,7 +399,8 @@ fun SearchScreen(
                             SmallActionPill(
                                 label = "Xoá kết quả",
                                 icon = Icons.Default.Clear,
-                                onClick = { vm.onQueryChange("") },
+                                onClick = { clearSearchAndKeepFocus() },
+                                modifier = Modifier.focusRequester(clearResultsFocusRequester),
                             )
                         }
 
@@ -363,6 +431,7 @@ fun SearchScreen(
                             }
                         } else {
                             TvLazyColumn(
+                                state = resultsListState,
                                 modifier = Modifier.fillMaxSize(),
                                 verticalArrangement = Arrangement.spacedBy(6.dp),
                                 contentPadding = PaddingValues(bottom = 24.dp),
@@ -375,11 +444,18 @@ fun SearchScreen(
                                         contentPadding = PaddingValues(horizontal = 4.dp, vertical = 10.dp),
                                         modifier = Modifier.fillMaxWidth(),
                                     ) {
-                                        items(chunk, key = { it.id }) { v ->
+                                        itemsIndexed(chunk, key = { _, it -> it.id }) { colIdx, v ->
                                             YtTvVideoCard(
                                                 video = v,
                                                 cardWidth = 250.dp,
                                                 onClick = { onVideoClick(v.id) },
+                                                modifier = Modifier.let { m ->
+                                                    if (rowIdx == 0 && colIdx == 0) {
+                                                        m.focusRequester(firstResultFocusRequester)
+                                                    } else {
+                                                        m
+                                                    }
+                                                },
                                             )
                                         }
                                     }
@@ -401,23 +477,31 @@ private fun TvOnScreenKeyboard(
     onBackspace: () -> Unit,
     onClear: () -> Unit,
     onSearch: () -> Unit,
+    firstKeyFocusRequester: FocusRequester? = null,
     modifier: Modifier = Modifier,
 ) {
     Column(
         modifier = modifier,
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
-        TV_KEY_ROWS.forEach { row ->
+        TV_KEY_ROWS.forEachIndexed { rowIdx, row ->
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
             ) {
-                row.forEach { ch ->
+                row.forEachIndexed { colIdx, ch ->
                     Surface(
                         onClick = { onChar(ch) },
                         modifier = Modifier
                             .weight(1f)
-                            .height(36.dp),
+                            .height(36.dp)
+                            .let { m ->
+                                if (rowIdx == 0 && colIdx == 0 && firstKeyFocusRequester != null) {
+                                    m.focusRequester(firstKeyFocusRequester)
+                                } else {
+                                    m
+                                }
+                            },
                         shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(8.dp)),
                         scale = ClickableSurfaceDefaults.scale(focusedScale = 1.06f),
                         colors = ClickableSurfaceDefaults.colors(
@@ -560,9 +644,11 @@ private fun SmallActionPill(
     label: String,
     icon: ImageVector? = null,
     onClick: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     Surface(
         onClick = onClick,
+        modifier = modifier,
         shape = ClickableSurfaceDefaults.shape(CircleShape),
         scale = ClickableSurfaceDefaults.scale(focusedScale = 1.04f),
         colors = ClickableSurfaceDefaults.colors(

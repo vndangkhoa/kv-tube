@@ -7,6 +7,8 @@ import com.kvtube.tv.data.model.InvidiousVideo
 import com.kvtube.tv.data.repository.InvidiousRepository
 import com.kvtube.tv.data.model.TvVideo
 import com.kvtube.tv.data.model.toTvVideo
+import com.kvtube.tv.player.AudioLanguagePreference
+import com.kvtube.tv.player.TvAudioTracks
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -79,7 +81,7 @@ class PlayerViewModel : ViewModel() {
             .take(16)
     }
 
-    fun load(videoId: String) {
+    fun load(videoId: String, forceRefresh: Boolean = false) {
         val id = videoId.trim()
         if (id.isBlank()) {
             activeVideoId = ""
@@ -89,8 +91,12 @@ class PlayerViewModel : ViewModel() {
         activeVideoId = id
         val preview = previewCache.get(id)
 
+        if (forceRefresh) {
+            videoCache.remove(id)
+        }
+
         // Cache hit: Start playback immediately without network roundtrip
-        val cached = videoCache.get(id)
+        val cached = if (forceRefresh) null else videoCache.get(id)
         if (cached != null) {
             _state.value = PlayerUiState(
                 video = cached,
@@ -246,16 +252,12 @@ class PlayerViewModel : ViewModel() {
         ).firstOrNull()
     }
 
-    /** Best adaptive audio — prefers AAC/m4a for compatibility with AVC video */
-    fun bestAdaptiveAudio(video: InvidiousVideo): com.kvtube.tv.data.model.InvidiousAdaptiveFormat? {
-        val allAudio = video.adaptiveFormats.filter { it.type.startsWith("audio/") && it.url.isNotBlank() }
-        if (allAudio.isEmpty()) return null
-        val aacOnly = allAudio.filter { it.type.contains("mp4") || it.type.contains("mp4a") || it.type.contains("aac") }
-        val candidates = if (aacOnly.isNotEmpty()) aacOnly else allAudio
-        return candidates.sortedWith(
-            compareByDescending<com.kvtube.tv.data.model.InvidiousAdaptiveFormat> { it.bitrate?.toIntOrNull() ?: 0 }
-        ).firstOrNull() ?: allAudio.maxByOrNull { it.bitrate?.toIntOrNull() ?: 0 }
-    }
+    /** Best adaptive audio — respects [pref] (Original / VI / EN / System) and prefers AAC/m4a */
+    fun bestAdaptiveAudio(
+        video: InvidiousVideo,
+        pref: AudioLanguagePreference = AudioLanguagePreference.ORIGINAL,
+    ): com.kvtube.tv.data.model.InvidiousAdaptiveFormat? =
+        TvAudioTracks.selectBestAdaptiveAudio(video.adaptiveFormats, pref)
 
     /** Always DASH 4K badge as requested — main page, search, everywhere */
     fun qualityLabel(video: InvidiousVideo): String {
@@ -273,7 +275,18 @@ class PlayerViewModel : ViewModel() {
     /** Invidious-only high-res: DASH > HLS > Merged HD (video+audio) > Progressive.
      *  No WebView — fallback is lower resolution via ExoPlayer, not iframe. */
     fun getPlaybackConfig(video: InvidiousVideo): PlaybackConfig {
-        video.dashUrl?.takeIf { it.isNotBlank() }?.let { return PlaybackConfig.Dash(fixUrl(it)) }
+        video.dashUrl?.takeIf { it.isNotBlank() }?.let { rawDash ->
+            val resolved = if (
+                com.kvtube.tv.data.api.ApiClient.isGatewayMode &&
+                video.videoId.isNotBlank() &&
+                rawDash.contains("/api/manifest/dash/id/")
+            ) {
+                dashManifestUrl(video.videoId)
+            } else {
+                fixUrl(rawDash)
+            }
+            return PlaybackConfig.Dash(resolved)
+        }
         video.hlsUrl?.takeIf { it.isNotBlank() }?.let { return PlaybackConfig.Hls(fixUrl(it)) }
 
         val bestVideo = bestAdaptiveVideo(video)

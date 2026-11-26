@@ -2,41 +2,43 @@ package com.kvtube.tv.player
 
 import android.content.Context
 import android.net.Uri
+import android.util.Log
 import androidx.annotation.OptIn
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
 import androidx.media3.common.MediaItem
+import androidx.media3.common.MimeTypes
+import androidx.media3.common.Player
+import androidx.media3.common.TrackSelectionOverride
+import androidx.media3.common.Tracks
+import androidx.media3.common.VideoSize
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.database.StandaloneDatabaseProvider
-import androidx.media3.common.MimeTypes
-import androidx.media3.common.VideoSize
 import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.datasource.ResolvingDataSource
-import androidx.media3.exoplayer.analytics.AnalyticsListener
-import androidx.media3.exoplayer.mediacodec.MediaCodecUtil
-import androidx.media3.exoplayer.trackselection.AdaptiveTrackSelection
-import androidx.media3.exoplayer.upstream.DefaultBandwidthMeter
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
-import androidx.media3.datasource.cache.CacheDataSource
-import androidx.media3.datasource.cache.LeastRecentlyUsedCacheEvictor
-import androidx.media3.datasource.cache.SimpleCache
 import androidx.media3.datasource.okhttp.OkHttpDataSource
 import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.analytics.AnalyticsListener
 import androidx.media3.exoplayer.dash.DashMediaSource
 import androidx.media3.exoplayer.hls.HlsMediaSource
+import androidx.media3.exoplayer.mediacodec.MediaCodecUtil
 import androidx.media3.exoplayer.source.MediaSource
 import androidx.media3.exoplayer.source.MergingMediaSource
 import androidx.media3.exoplayer.source.ProgressiveMediaSource
+import androidx.media3.exoplayer.trackselection.AdaptiveTrackSelection
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
+import androidx.media3.exoplayer.upstream.DefaultBandwidthMeter
 import com.kvtube.tv.data.api.ApiClient
 import com.kvtube.tv.data.api.MpdGenerator
 import com.kvtube.tv.data.model.InvidiousAdaptiveFormat
 import com.kvtube.tv.data.model.InvidiousVideo
 import com.kvtube.tv.viewmodel.PlayerViewModel
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import java.io.File
+import java.util.Locale
 
 /**
  * Reusable, application-scoped ExoPlayer manager for Android TV.
@@ -50,19 +52,6 @@ class TvPlaybackManager private constructor(context: Context) {
     companion object {
         @Volatile
         private var instance: TvPlaybackManager? = null
-        @Volatile
-        private var mediaCache: SimpleCache? = null
-
-        @Synchronized
-        fun getMediaCache(context: Context): SimpleCache {
-            if (mediaCache == null) {
-                val cacheDir = File(context.applicationContext.cacheDir, "exoplayer_media_cache")
-                val evictor = LeastRecentlyUsedCacheEvictor(200L * 1024 * 1024) // 200 MB disk media cache
-                val databaseProvider = StandaloneDatabaseProvider(context.applicationContext)
-                mediaCache = SimpleCache(cacheDir, evictor, databaseProvider)
-            }
-            return mediaCache!!
-        }
 
         fun getInstance(context: Context): TvPlaybackManager =
             instance ?: synchronized(this) {
@@ -79,14 +68,12 @@ class TvPlaybackManager private constructor(context: Context) {
             )
         )
 
-    private val simpleCache = getMediaCache(context)
-    val cacheDataSourceFactory = CacheDataSource.Factory()
-        .setCache(simpleCache)
-        .setUpstreamDataSourceFactory(okHttpFactory)
-        .setFlags(CacheDataSource.FLAG_IGNORE_CACHE_ON_ERROR)
-
-    /** Resolves gateway-relative segment URLs (`/companion/...`) onto `/api/invidious`. */
-    private val gatewayAwareUpstream = ResolvingDataSource.Factory(cacheDataSourceFactory) { dataSpec ->
+    /**
+     * Resolves gateway-relative segment URLs (`/companion/...`) onto `/api/invidious`
+     * directly over OkHttp (bypassing disk CacheDataSource so ephemeral YouTube
+     * chunk retries never collide on subrange offsets).
+     */
+    private val gatewayAwareUpstream = ResolvingDataSource.Factory(okHttpFactory) { dataSpec ->
         val host = if (ApiClient.isGatewayMode) {
             runCatching { java.net.URI(ApiClient.baseUrl).host }.getOrNull()
         } else null
@@ -123,6 +110,20 @@ class TvPlaybackManager private constructor(context: Context) {
     private val _activeHeight = MutableStateFlow(0)
     val activeHeight: StateFlow<Int> = _activeHeight.asStateFlow()
 
+    private val _audioPreference = MutableStateFlow(
+        AudioLanguagePreference.fromKey(prefs.getString("audio_pref", AudioLanguagePreference.ORIGINAL.key))
+    )
+    val audioPreference: StateFlow<AudioLanguagePreference> = _audioPreference.asStateFlow()
+
+    private val _audioTracks = MutableStateFlow<List<TvAudioTrackOption>>(emptyList())
+    val audioTracks: StateFlow<List<TvAudioTrackOption>> = _audioTracks.asStateFlow()
+
+    private val _activeAudioTrack = MutableStateFlow<TvAudioTrackOption?>(null)
+    val activeAudioTrack: StateFlow<TvAudioTrackOption?> = _activeAudioTrack.asStateFlow()
+
+    @Volatile private var manualAudioOverrideId: String? = null
+    @Volatile private var autoAppliedTrackSignature: String? = null
+
     @Volatile var isFastDashActive: Boolean = false
         private set
 
@@ -143,6 +144,128 @@ class TvPlaybackManager private constructor(context: Context) {
                 .setExceedVideoConstraintsIfNecessary(true)
                 .apply { if (cap > 0) setMaxVideoSize(Int.MAX_VALUE, cap) }
         )
+    }
+
+    private fun applyAudioTrackSelectorDefaults(pref: AudioLanguagePreference) {
+        val builder = trackSelector.buildUponParameters()
+            .clearOverridesOfType(C.TRACK_TYPE_AUDIO)
+        when (pref) {
+            AudioLanguagePreference.ORIGINAL -> {
+                builder.setPreferredAudioLanguages()
+                builder.setPreferredAudioRoleFlags(C.ROLE_FLAG_MAIN)
+            }
+            AudioLanguagePreference.VIETNAMESE -> {
+                builder.setPreferredAudioLanguages("vi")
+                builder.setPreferredAudioRoleFlags(C.ROLE_FLAG_MAIN)
+            }
+            AudioLanguagePreference.ENGLISH -> {
+                builder.setPreferredAudioLanguages("en")
+                builder.setPreferredAudioRoleFlags(0)
+            }
+            AudioLanguagePreference.DEVICE -> {
+                builder.setPreferredAudioLanguages()
+                builder.setPreferredAudioRoleFlags(0)
+            }
+        }
+        trackSelector.setParameters(builder)
+    }
+
+    private fun clearAudioTrackStateForNewMedia() {
+        manualAudioOverrideId = null
+        autoAppliedTrackSignature = null
+        _audioTracks.value = emptyList()
+        _activeAudioTrack.value = null
+        applyAudioTrackSelectorDefaults(_audioPreference.value)
+    }
+
+    fun prepareForNewVideo() {
+        clearAudioTrackStateForNewMedia()
+    }
+
+    fun selectAudioTrack(option: TvAudioTrackOption) {
+        val currentTracks = runCatching { player.currentTracks }.getOrNull() ?: return
+        val group = currentTracks.groups.getOrNull(option.groupIndex) ?: return
+        if (group.type != C.TRACK_TYPE_AUDIO || option.trackIndex !in 0 until group.length) return
+
+        manualAudioOverrideId = option.id
+        trackSelector.setParameters(
+            trackSelector.buildUponParameters()
+                .clearOverridesOfType(C.TRACK_TYPE_AUDIO)
+                .setOverrideForType(
+                    TrackSelectionOverride(group.mediaTrackGroup, listOf(option.trackIndex))
+                )
+        )
+        val updated = _audioTracks.value.map { it.copy(isSelected = it.id == option.id) }
+        _audioTracks.value = updated
+        _activeAudioTrack.value = updated.firstOrNull { it.isSelected } ?: option.copy(isSelected = true)
+    }
+
+    fun setAudioPreference(pref: AudioLanguagePreference) {
+        prefs.edit().putString("audio_pref", pref.key).apply()
+        _audioPreference.value = pref
+        manualAudioOverrideId = null
+        autoAppliedTrackSignature = null
+        applyAudioTrackSelectorDefaults(pref)
+        runCatching { player.currentTracks }.getOrNull()?.let { handleTracksChanged(it) }
+    }
+
+    private fun handleTracksChanged(tracks: Tracks) {
+        val rawOptions = mutableListOf<TvAudioTrackOption>()
+        for (groupIdx in tracks.groups.indices) {
+            val group = tracks.groups[groupIdx]
+            if (group.type != C.TRACK_TYPE_AUDIO) continue
+            for (trackIdx in 0 until group.length) {
+                if (!group.isTrackSupported(trackIdx)) continue
+                val fmt = group.getTrackFormat(trackIdx)
+                rawOptions.add(
+                    TvAudioTracks.classifyTrack(
+                        groupIndex = groupIdx,
+                        trackIndex = trackIdx,
+                        formatId = fmt.id,
+                        language = fmt.language,
+                        rawLabel = fmt.label,
+                        roleFlags = fmt.roleFlags,
+                        bitrate = fmt.bitrate,
+                        isSelected = group.isTrackSelected(trackIdx),
+                    )
+                )
+            }
+        }
+
+        val sortedOptions = TvAudioTracks.sortForDisplay(rawOptions)
+        _audioTracks.value = sortedOptions
+        _activeAudioTrack.value = sortedOptions.firstOrNull { it.isSelected } ?: sortedOptions.firstOrNull()
+
+        if (manualAudioOverrideId == null && sortedOptions.size > 1) {
+            val signature = sortedOptions.joinToString("|") {
+                "${it.groupIndex}:${it.trackIndex}:${it.language}:${it.roleFlags}:${it.formatId}"
+            }
+            if (signature != autoAppliedTrackSignature) {
+                autoAppliedTrackSignature = signature
+                val desiredIdx = TvAudioTracks.pickPreferredIndex(
+                    tracks = sortedOptions,
+                    pref = _audioPreference.value,
+                    deviceLanguage = Locale.getDefault().language,
+                )
+                val desired = sortedOptions.getOrNull(desiredIdx)
+                if (desired != null && !desired.isSelected) {
+                    val targetGroup = tracks.groups.getOrNull(desired.groupIndex)
+                    if (targetGroup != null && targetGroup.type == C.TRACK_TYPE_AUDIO && desired.trackIndex in 0 until targetGroup.length) {
+                        trackSelector.setParameters(
+                            trackSelector.buildUponParameters()
+                                .clearOverridesOfType(C.TRACK_TYPE_AUDIO)
+                                .setOverrideForType(
+                                    TrackSelectionOverride(targetGroup.mediaTrackGroup, listOf(desired.trackIndex))
+                                )
+                        )
+                        Log.i(
+                            "TvPlaybackManager",
+                            "Auto-selected audio track: ${desired.displayName} (pref=${_audioPreference.value.key})"
+                        )
+                    }
+                }
+            }
+        }
     }
 
     val trackSelector: DefaultTrackSelector = DefaultTrackSelector(
@@ -167,6 +290,10 @@ class TvPlaybackManager private constructor(context: Context) {
                     else arrayOf(MimeTypes.VIDEO_H264))
                 )
         )
+    }
+
+    init {
+        applyAudioTrackSelectorDefaults(_audioPreference.value)
     }
 
     /**
@@ -201,9 +328,13 @@ class TvPlaybackManager private constructor(context: Context) {
         )
         .build()
         .also { exo ->
-            exo.addListener(object : androidx.media3.common.Player.Listener {
+            exo.addListener(object : Player.Listener {
                 override fun onVideoSizeChanged(videoSize: VideoSize) {
                     if (videoSize.height > 0) _activeHeight.value = videoSize.height
+                }
+
+                override fun onTracksChanged(tracks: Tracks) {
+                    handleTracksChanged(tracks)
                 }
             })
             exo.addAnalyticsListener(object : AnalyticsListener {
@@ -232,6 +363,7 @@ class TvPlaybackManager private constructor(context: Context) {
         if (manifestUrl.isBlank()) return false
         return try {
             exoStopQuiet()
+            clearAudioTrackStateForNewMedia()
             val item = MediaItem.Builder()
                 .setUri(manifestUrl)
                 .setMimeType(MimeTypes.APPLICATION_MPD)
@@ -261,6 +393,7 @@ class TvPlaybackManager private constructor(context: Context) {
      */
     fun reset() {
         isFastDashActive = false
+        clearAudioTrackStateForNewMedia()
         try {
             player.stop()
             player.clearMediaItems()
@@ -294,7 +427,15 @@ class TvPlaybackManager private constructor(context: Context) {
             }
             is PlayerViewModel.PlaybackConfig.Merged -> {
                 val mpdFile = if (bestV != null && bestA != null) {
-                    MpdGenerator.generate(context, v.videoId, bestV, bestA, v.lengthSeconds)
+                    val distinctAudios = TvAudioTracks.distinctAdaptiveAudios(v.adaptiveFormats)
+                    MpdGenerator.generate(
+                        context = context,
+                        videoId = v.videoId,
+                        video = bestV,
+                        audio = bestA,
+                        durationSeconds = v.lengthSeconds,
+                        extraAudioFormats = distinctAudios,
+                    )
                 } else null
                 if (mpdFile != null && mpdFile.exists() && mpdFile.length() > 100) {
                     DashMediaSource.Factory(dataSourceFactory)
